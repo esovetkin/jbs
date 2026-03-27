@@ -75,3 +75,7 @@ See [docs/language.md](docs/language.md) for full grammar and semantics.
 - YAML output only.
 - No XML output.
 - `analyser`, `patternset`, and `result` are intentionally not auto-generated.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
