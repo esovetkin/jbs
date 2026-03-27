@@ -2,7 +2,6 @@ package lexer
 
 import (
 	"fmt"
-	"strconv"
 	"unicode"
 
 	"jbs/internal/diag"
@@ -167,7 +166,7 @@ func (l *Lexer) lexString() {
 		r := l.advance()
 		if r == quote {
 			raw := string(append([]rune{quote}, append(buf, quote)...))
-			val := l.unescapeString(string(buf), start)
+			val := l.unescapeString(string(buf))
 			l.emit(TokenString, raw, val, start, l.pos())
 			return
 		}
@@ -185,19 +184,25 @@ func (l *Lexer) lexString() {
 	l.emit(TokenString, string(buf), string(buf), start, l.pos())
 }
 
-func (l *Lexer) unescapeString(s string, at diag.Position) string {
-	q := "\"" + s + "\""
-	v, err := strconv.Unquote(q)
-	if err == nil {
-		return v
+func (l *Lexer) unescapeString(s string) string {
+	r := []rune(s)
+	out := make([]rune, 0, len(r))
+	for i := 0; i < len(r); i++ {
+		if r[i] != '\\' || i+1 >= len(r) {
+			out = append(out, r[i])
+			continue
+		}
+		n := r[i+1]
+		switch n {
+		case '\\', '"', '\'':
+			out = append(out, n)
+		default:
+			// Keep unknown escapes literal (e.g. \n stays backslash+n).
+			out = append(out, '\\', n)
+		}
+		i++
 	}
-	q = "'" + s + "'"
-	v, err = strconv.Unquote(q)
-	if err == nil {
-		return v
-	}
-	l.diags.AddWarning("W002", fmt.Sprintf("could not fully unescape string: %v", err), diag.NewSpan(l.file, at, at), "string escapes will be treated literally")
-	return s
+	return string(out)
 }
 
 func (l *Lexer) lexSymbol() {

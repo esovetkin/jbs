@@ -36,3 +36,25 @@ func TestLexUnexpectedCharacter(t *testing.T) {
 		t.Fatalf("expected E003 for unexpected character, got: %s", diags.String())
 	}
 }
+
+func TestLexStringKeepsBackslashNLiteral(t *testing.T) {
+	src := `x = "a\nb \"q\""`
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	var got string
+	for _, tok := range tokens {
+		if tok.Type == TokenString {
+			got = tok.Value
+			break
+		}
+	}
+	if got == "" {
+		t.Fatalf("expected string token")
+	}
+	if got != `a\nb "q"` {
+		t.Fatalf("expected literal backslash-n preserved, got %q", got)
+	}
+}
