@@ -88,19 +88,34 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			continue
 		}
 		vals, ok := src.Vars[item.Name]
-		if !ok {
-			diags.AddError(
-				"E021",
-				fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
-				item.Span,
-				"import a variable that exists in the source parameterset",
-			)
+		if ok {
+			env[item.Name] = seriesAsValue(vals)
+			if origin, ok := src.Origins[item.Name]; ok {
+				origins[item.Name] = origin
+			}
 			continue
 		}
-		env[item.Name] = seriesAsValue(vals)
-		if origin, ok := src.Origins[item.Name]; ok {
-			origins[item.Name] = origin
+
+		// Mixed form support:
+		// with x from p1, p2
+		// If "p2" is not a variable in p1 but is an existing parameterset,
+		// interpret it as importing the whole parameterset p2.
+		if fallback, ok := known[item.Name]; ok {
+			for _, name := range fallback.Order {
+				env[name] = seriesAsValue(fallback.Vars[name])
+				if origin, exists := fallback.Origins[name]; exists {
+					origins[name] = origin
+				}
+			}
+			continue
 		}
+
+		diags.AddError(
+			"E021",
+			fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
+			item.Span,
+			"import a variable that exists in the source parameterset",
+		)
 	}
 
 	for _, asn := range block.Assignments {
@@ -339,13 +354,18 @@ func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags 
 			)
 			continue
 		}
-		if _, ok := src.Vars[item.Name]; !ok {
-			diags.AddError(
-				"E021",
-				fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
-				item.Span,
-				"import a variable that exists in the source parameterset",
-			)
+
+		if _, ok := src.Vars[item.Name]; ok {
+			continue
 		}
+		if _, ok := params[item.Name]; ok {
+			continue
+		}
+		diags.AddError(
+			"E021",
+			fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
+			item.Span,
+			"import a variable that exists in the source parameterset",
+		)
 	}
 }

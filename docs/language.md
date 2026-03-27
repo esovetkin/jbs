@@ -60,6 +60,7 @@ Supported forms:
 
 - `with p2, p3`
 - `with x from p2, y, z from p3`
+- mixed form: `with x from p2, p3`
 
 In `param`:
 
@@ -70,6 +71,7 @@ In `do`/`submit`:
 
 - `with p2` uses whole parameter set.
 - `with x from p2` generates a synthetic subset parameterset containing only selected variables.
+- In mixed form (`with x from p2, p3`), `p3` is treated as whole-parameterset import.
 
 ## Lowering to JUBE YAML
 

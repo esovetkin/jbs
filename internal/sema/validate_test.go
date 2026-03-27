@@ -92,3 +92,25 @@ do b after a {
 		t.Fatalf("expected E213 cycle error, got: %s", diags.String())
 	}
 }
+
+func TestMixedWithVariableAndParamsetImport(t *testing.T) {
+	src := `
+param p1 {
+  a = (1,2)
+  a
+}
+param p2 {
+  b = ("x","y")
+  b
+}
+do work with a from p1, p2 {
+  echo ${a} ${b}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected mixed with import to be valid, got: %s", diags.String())
+	}
+}

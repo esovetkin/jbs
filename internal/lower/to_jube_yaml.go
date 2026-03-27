@@ -426,6 +426,24 @@ func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {
 			uses = append(uses, item.Name)
 			continue
 		}
+
+		// Mixed form support:
+		// with x from p1, p2
+		// If p2 is not variable in p1 but is an existing parameterset, treat it
+		// as full parameterset import.
+		if src := ctx.res.ParamByName[item.From]; src != nil {
+			if _, ok := src.Vars[item.Name]; !ok {
+				if _, isParamset := ctx.res.ParamByName[item.Name]; isParamset {
+					if _, seen := seenDirect[item.Name]; seen {
+						continue
+					}
+					seenDirect[item.Name] = struct{}{}
+					uses = append(uses, item.Name)
+					continue
+				}
+			}
+		}
+
 		if _, ok := grouped[item.From]; !ok {
 			grouped[item.From] = make([]string, 0)
 			groupOrder = append(groupOrder, item.From)
@@ -516,6 +534,16 @@ func (ctx *lowerContext) visibleNames(items []ast.WithItem) map[string]bool {
 				visible[name] = true
 			}
 			continue
+		}
+		if src := ctx.res.ParamByName[item.From]; src != nil {
+			if _, ok := src.Vars[item.Name]; !ok {
+				if ps := ctx.res.ParamByName[item.Name]; ps != nil {
+					for _, name := range ps.Order {
+						visible[name] = true
+					}
+					continue
+				}
+			}
 		}
 		visible[item.Name] = true
 	}

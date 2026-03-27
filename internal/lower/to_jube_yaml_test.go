@@ -135,3 +135,45 @@ submit run after prep with p {
 		t.Fatalf("expected synthetic submit parameterset")
 	}
 }
+
+func TestMixedWithVariableAndWholeParamsetLowering(t *testing.T) {
+	src := `
+param p1 {
+  a = (1,2)
+  a
+}
+param p2 {
+  b = ("x","y")
+  b
+}
+do setup with a from p1, p2 {
+  echo ${a} ${b}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one step")
+	}
+	use := doc.Step[0].Use
+	hasP2 := false
+	hasSubsetP1 := false
+	for _, u := range use {
+		if s, ok := u.(string); ok {
+			if s == "p2" {
+				hasP2 = true
+			}
+			if strings.HasPrefix(s, "__subset_p1__") {
+				hasSubsetP1 = true
+			}
+		}
+	}
+	if !hasP2 {
+		t.Fatalf("expected direct import of full parameterset p2 in step use list: %#v", use)
+	}
+	if !hasSubsetP1 {
+		t.Fatalf("expected subset import for a from p1 in step use list: %#v", use)
+	}
+}
