@@ -12,6 +12,7 @@ type Paramset struct {
 	Rows    []eval.Row
 	Vars    map[string][]eval.Value
 	Origins map[string]diag.Span
+	Modes   map[string]string
 	Order   []string
 	HasPlus bool
 }

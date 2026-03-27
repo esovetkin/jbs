@@ -97,3 +97,31 @@ param p {
 		t.Fatalf("expected E061 trailing token error, got: %s", diags.String())
 	}
 }
+
+func TestParseModeExprAssignment(t *testing.T) {
+	src := `
+param p {
+  queue = python("__import__(\"os\").environ.get(\"JUBE_QUEUE\", \"devel\")")
+  system_name = shell("cat /etc/FZJ/systemname | tr -d '\n'")
+  queue * system_name
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("mode.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok || len(pb.Assignments) < 2 {
+		t.Fatalf("expected param block assignments")
+	}
+	if _, ok := pb.Assignments[0].Expr.(ast.ModeExpr); !ok {
+		t.Fatalf("expected first assignment to be ModeExpr")
+	}
+	if _, ok := pb.Assignments[1].Expr.(ast.ModeExpr); !ok {
+		t.Fatalf("expected second assignment to be ModeExpr")
+	}
+}

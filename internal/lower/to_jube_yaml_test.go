@@ -177,3 +177,42 @@ do setup with a from p1, p2 {
 		t.Fatalf("expected subset import for a from p1 in step use list: %#v", use)
 	}
 }
+
+func TestModeDeclarationsLowering(t *testing.T) {
+	src := `
+param p {
+  queue = python("__import__(\"os\").environ.get(\"JUBE_QUEUE\", \"devel\")")
+  system_name = shell("cat /etc/FZJ/systemname | tr -d '\n'")
+  queue * system_name
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	ps := doc.ParameterSet[0]
+	if len(ps.Parameter) != 2 {
+		t.Fatalf("expected two parameters, got %d", len(ps.Parameter))
+	}
+	var queue, system lower.Parameter
+	for _, p := range ps.Parameter {
+		if p.Name == "queue" {
+			queue = p
+		}
+		if p.Name == "system_name" {
+			system = p
+		}
+	}
+	if queue.Mode != "python" {
+		t.Fatalf("expected queue mode python, got %q", queue.Mode)
+	}
+	if _, ok := queue.Value.(lower.SingleQuoted); !ok {
+		t.Fatalf("expected queue value to be single-quoted scalar wrapper, got %T", queue.Value)
+	}
+	if system.Mode != "shell" {
+		t.Fatalf("expected system_name mode shell, got %q", system.Mode)
+	}
+	if _, ok := system.Value.(string); !ok {
+		t.Fatalf("expected system_name shell payload string, got %T", system.Value)
+	}
+}

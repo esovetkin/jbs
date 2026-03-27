@@ -71,6 +71,8 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 			return EvalExpr(e.Then, env, diags)
 		}
 		return EvalExpr(e.Else, env, diags)
+	case ast.ModeExpr:
+		return EvalExpr(e.Expr, env, diags)
 	default:
 		diags.AddError("E199", "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()

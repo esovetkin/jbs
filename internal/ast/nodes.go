@@ -179,6 +179,15 @@ type ConditionalExpr struct {
 func (e ConditionalExpr) exprNode()          {}
 func (e ConditionalExpr) GetSpan() diag.Span { return e.Span }
 
+type ModeExpr struct {
+	Mode string
+	Expr Expr
+	Span diag.Span
+}
+
+func (e ModeExpr) exprNode()          {}
+func (e ModeExpr) GetSpan() diag.Span { return e.Span }
+
 type CombExpr interface {
 	Node
 	combNode()

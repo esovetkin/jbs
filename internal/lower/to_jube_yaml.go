@@ -156,6 +156,36 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 			)
 			continue
 		}
+		if mode := ps.Modes[name]; mode != "" {
+			param := Parameter{Name: name, Mode: mode}
+			if mode == "python" {
+				if allEqualValues(values) {
+					param.Value = SingleQuoted(asString(values[0]))
+				} else {
+					diags.AddError(
+						"E216",
+						fmt.Sprintf("%s(...) parameter '%s' cannot have multiple different values in non-grouped lowering", mode, name),
+						originFor(ps, name),
+						"use a single expression value for mode-declared parameters",
+					)
+					param.Value = SingleQuoted(asString(values[0]))
+				}
+			} else if mode == "shell" {
+				if !allEqualValues(values) {
+					diags.AddError(
+						"E216",
+						fmt.Sprintf("%s(...) parameter '%s' cannot have multiple different values", mode, name),
+						originFor(ps, name),
+						"use a single expression value for mode-declared parameters",
+					)
+				}
+				param.Value = asString(values[0])
+			} else {
+				param.Value = asString(values[0])
+			}
+			out.Parameter = append(out.Parameter, param)
+			continue
+		}
 		parts := make([]string, 0, len(values))
 		for _, value := range values {
 			part := templateValue(value)
@@ -211,6 +241,30 @@ func lowerGroupedParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterS
 
 	for _, name := range ps.Order {
 		values := valuesFor(ps, name, rowCount)
+		if mode := ps.Modes[name]; mode != "" {
+			param := Parameter{Name: name, Mode: mode}
+			if mode == "python" {
+				if allEqualValues(values) {
+					param.Value = SingleQuoted(asString(values[0]))
+				} else {
+					param.Value = SingleQuoted(pythonIndexExpr(values, "$i"))
+				}
+			} else if mode == "shell" {
+				if !allEqualValues(values) {
+					diags.AddError(
+						"E216",
+						fmt.Sprintf("%s(...) parameter '%s' cannot vary across grouped rows", mode, name),
+						originFor(ps, name),
+						"use a single expression value for mode-declared parameters",
+					)
+				}
+				param.Value = asString(values[0])
+			} else {
+				param.Value = asString(values[0])
+			}
+			out.Parameter = append(out.Parameter, param)
+			continue
+		}
 		out.Parameter = append(out.Parameter, Parameter{
 			Name:  name,
 			Mode:  "python",
@@ -274,6 +328,26 @@ func inferType(values []eval.Value) string {
 		return "float"
 	}
 	return ""
+}
+
+func allEqualValues(values []eval.Value) bool {
+	if len(values) <= 1 {
+		return true
+	}
+	first := values[0]
+	for i := 1; i < len(values); i++ {
+		if !eval.Equal(first, values[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func asString(v eval.Value) string {
+	if v.Kind == eval.KindString {
+		return v.S
+	}
+	return v.String()
 }
 
 func templateValue(v eval.Value) string {
@@ -522,6 +596,30 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 					values = append(values, base[i%len(base)])
 				}
 			}
+		}
+		if mode := src.Modes[variable]; mode != "" {
+			param := Parameter{Name: variable, Mode: mode}
+			if mode == "python" {
+				if allEqualValues(values) {
+					param.Value = SingleQuoted(asString(values[0]))
+				} else {
+					param.Value = SingleQuoted(pythonIndexExpr(values, "$i"))
+				}
+			} else if mode == "shell" {
+				if !allEqualValues(values) {
+					ctx.diags.AddError(
+						"E216",
+						fmt.Sprintf("%s(...) parameter '%s' cannot vary across grouped rows", mode, variable),
+						originFor(src, variable),
+						"use a single expression value for mode-declared parameters",
+					)
+				}
+				param.Value = asString(values[0])
+			} else {
+				param.Value = asString(values[0])
+			}
+			params = append(params, param)
+			continue
 		}
 		params = append(params, Parameter{Name: variable, Mode: "python", Value: SingleQuoted(pythonIndexExpr(values, "$i"))})
 	}

@@ -52,6 +52,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals map[string]eval.Value, diags *diag.Diagnostics) *Paramset {
 	env := make(map[string]eval.Value, len(globals)+16)
 	origins := make(map[string]diag.Span, len(globals)+16)
+	modes := make(map[string]string, 16)
 	for k, v := range globals {
 		env[k] = v
 	}
@@ -73,6 +74,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 				if origin, ok := src.Origins[name]; ok {
 					origins[name] = origin
 				}
+				if mode, ok := src.Modes[name]; ok {
+					modes[name] = mode
+				}
 			}
 			continue
 		}
@@ -93,6 +97,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			if origin, ok := src.Origins[item.Name]; ok {
 				origins[item.Name] = origin
 			}
+			if mode, ok := src.Modes[item.Name]; ok {
+				modes[item.Name] = mode
+			}
 			continue
 		}
 
@@ -105,6 +112,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 				env[name] = seriesAsValue(fallback.Vars[name])
 				if origin, exists := fallback.Origins[name]; exists {
 					origins[name] = origin
+				}
+				if mode, exists := fallback.Modes[name]; exists {
+					modes[name] = mode
 				}
 			}
 			continue
@@ -119,7 +129,18 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	}
 
 	for _, asn := range block.Assignments {
-		value := eval.EvalExpr(asn.Expr, env, diags)
+		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
+		expr := asn.Expr
+		if isModeExpr {
+			expr = inner
+		}
+		value := eval.EvalExpr(expr, env, diags)
+		if isModeExpr {
+			value = coerceModeValue(mode, value, asn.Span, diags)
+			modes[asn.Name] = mode
+		} else {
+			delete(modes, asn.Name)
+		}
 		env[asn.Name] = value
 		origins[asn.Name] = asn.Span
 	}
@@ -136,6 +157,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			Rows:    nil,
 			Vars:    map[string][]eval.Value{},
 			Origins: map[string]diag.Span{},
+			Modes:   map[string]string{},
 			Order:   nil,
 			HasPlus: false,
 		}
@@ -181,6 +203,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		Rows:    rows,
 		Vars:    vars,
 		Origins: varOrigins,
+		Modes:   modes,
 		Order:   order,
 		HasPlus: combHasOp(block.Final, "+"),
 	}
@@ -196,6 +219,43 @@ func seriesAsValue(v []eval.Value) eval.Value {
 	out := make([]eval.Value, len(v))
 	copy(out, v)
 	return eval.List(out)
+}
+
+func unwrapModeExpr(expr ast.Expr) (string, ast.Expr, bool) {
+	modeExpr, ok := expr.(ast.ModeExpr)
+	if !ok {
+		return "", nil, false
+	}
+	return modeExpr.Mode, modeExpr.Expr, true
+}
+
+func coerceModeValue(mode string, value eval.Value, at diag.Span, diags *diag.Diagnostics) eval.Value {
+	switch value.Kind {
+	case eval.KindString:
+		return value
+	case eval.KindList:
+		items := make([]eval.Value, len(value.L))
+		for i, it := range value.L {
+			if it.Kind != eval.KindString {
+				diags.AddError(
+					"E215",
+					fmt.Sprintf("%s(...) requires string values", mode),
+					at,
+					"pass a string expression to mode declarations",
+				)
+			}
+			items[i] = eval.String(it.String())
+		}
+		return eval.List(items)
+	default:
+		diags.AddError(
+			"E215",
+			fmt.Sprintf("%s(...) requires string values", mode),
+			at,
+			"pass a string expression to mode declarations",
+		)
+		return eval.String(value.String())
+	}
 }
 
 func combHasOp(expr ast.CombExpr, op string) bool {

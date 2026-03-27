@@ -32,6 +32,23 @@ Assignment expressions support:
 - comparison operators
 - `and`, `or`
 - conditional expression: `a if cond else b`
+- mode declarations:
+  - `shell("...")`
+  - `python("...")`
+
+Mode declarations lower to JUBE parameter mode fields:
+
+```yaml
+- name: some_param
+  mode: shell
+  _: "..."
+```
+
+```yaml
+- name: some_param
+  mode: python
+  _: '...'
+```
 
 Unsupported syntax (diagnostic emitted):
 

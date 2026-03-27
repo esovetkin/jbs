@@ -666,13 +666,26 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 	tok := p.peek()
 	switch tok.Type {
 	case lexer.TokenIdent:
-		p.next()
 		if tok.Value == "true" || tok.Value == "True" {
+			p.next()
 			return ast.BoolExpr{Value: true, Span: tok.Span}
 		}
 		if tok.Value == "false" || tok.Value == "False" {
+			p.next()
 			return ast.BoolExpr{Value: false, Span: tok.Span}
 		}
+		if (tok.Value == "shell" || tok.Value == "python") && p.peekN(1).Type == lexer.TokenLParen {
+			modeTok := p.next()
+			p.expect(lexer.TokenLParen, "E062", "expected '(' after mode expression")
+			arg := p.parseExpr()
+			close := p.expect(lexer.TokenRParen, "E063", "expected ')' to close mode expression")
+			return ast.ModeExpr{
+				Mode: modeTok.Value,
+				Expr: arg,
+				Span: diag.Merge(modeTok.Span, close.Span),
+			}
+		}
+		p.next()
 		return ast.IdentExpr{Name: tok.Value, Span: tok.Span}
 	case lexer.TokenString:
 		p.next()
