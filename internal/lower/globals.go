@@ -14,9 +14,20 @@ type GlobalSpec struct {
 func BuiltinGlobals() []GlobalSpec {
 	return []GlobalSpec{
 		{
+			Name:        "jbs_name",
+			DefaultExpr: "jbs_benchmark",
+			Description: "Benchmark name (root name field).",
+		},
+		{
+			Name:        "jbs_outpath",
+			DefaultExpr: "out",
+			Description: "Benchmark output path (root outpath field).",
+		},
+		{
 			Name:        "jbs_systemname",
 			DefaultExpr: `__import__("os").environ.get("SYSTEMNAME", "")`,
 			Mode:        "python",
+			Target:      "systemname",
 			Description: "System name used by queue defaults.",
 		},
 		{
@@ -90,6 +101,8 @@ func BuiltinGlobals() []GlobalSpec {
 
 func BuiltinGlobalValues() map[string]eval.Value {
 	return map[string]eval.Value{
+		"jbs_name":           eval.String("jbs_benchmark"),
+		"jbs_outpath":        eval.String("out"),
 		"jbs_systemname":     eval.String(`__import__("os").environ.get("SYSTEMNAME", "")`),
 		"jbs_queue":          eval.String(`__import__("os").environ.get("JUBE_QUEUE", {"juwelsbooster":"develbooster","jurecadc":"dc-gpu-devel","jusuf":"batch"}["${jbs_systemname}"])`),
 		"jbs_account":        eval.String(`__import__("os").environ.get("JUBE_ACCOUNT", "atmlaml")`),

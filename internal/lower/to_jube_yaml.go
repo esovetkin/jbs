@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,8 +97,8 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 		subsetNames: make(map[subsetKey]string),
 	}
 	ctx.doc = Document{
-		Name:    chooseBenchmarkName(opts),
-		Outpath: chooseOutpath(opts),
+		Name:    globalString(res.Globals, "jbs_name", "jbs_benchmark"),
+		Outpath: globalString(res.Globals, "jbs_outpath", "out"),
 	}
 
 	for _, param := range res.Paramsets {
@@ -120,23 +119,19 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 	return ctx.doc
 }
 
-func chooseBenchmarkName(opts Options) string {
-	if strings.TrimSpace(opts.BenchmarkName) != "" {
-		return opts.BenchmarkName
+func globalString(globals sema.GlobalState, name, fallback string) string {
+	v, ok := globals.Values[name]
+	if !ok {
+		return fallback
 	}
-	if strings.TrimSpace(opts.InputPath) != "" {
-		base := filepath.Base(opts.InputPath)
-		ext := filepath.Ext(base)
-		return strings.TrimSuffix(base, ext)
+	if v.Kind == eval.KindString {
+		return v.S
 	}
-	return "jbs_benchmark"
-}
-
-func chooseOutpath(opts Options) string {
-	if strings.TrimSpace(opts.Outpath) != "" {
-		return opts.Outpath
+	s := v.String()
+	if strings.TrimSpace(s) == "" {
+		return fallback
 	}
-	return "out"
+	return s
 }
 
 func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
@@ -434,12 +429,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 		if spec.Target == "" {
 			continue
 		}
-		value := spec.DefaultExpr
-		mode := spec.Mode
-		if visible[spec.Name] {
-			value = "$" + spec.Name
-			mode = ""
-		}
+		value, mode := ctx.globalSubmitValue(spec, visible)
 		p := Parameter{Name: spec.Target, Value: value}
 		if mode != "" {
 			p.Mode = mode
@@ -469,6 +459,21 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	})
 	ctx.names[name] = struct{}{}
 	return name
+}
+
+func (ctx *lowerContext) globalSubmitValue(spec GlobalSpec, visible map[string]bool) (string, string) {
+	if visible[spec.Name] {
+		return "$" + spec.Name, ""
+	}
+	if span, ok := ctx.res.Globals.Spans[spec.Name]; ok && !span.IsZero() {
+		v, ok := ctx.res.Globals.Values[spec.Name]
+		if !ok {
+			return spec.DefaultExpr, spec.Mode
+		}
+		mode := ctx.res.Globals.Modes[spec.Name]
+		return asString(v), mode
+	}
+	return spec.DefaultExpr, spec.Mode
 }
 
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {

@@ -1,4 +1,4 @@
-name: basic
+name: jbs_benchmark
 outpath: out
 parameterset:
   - name: matrix
@@ -25,6 +25,9 @@ parameterset:
   - name: run__submit_params
     init_with: platform.xml:systemParameter
     parameter:
+      - name: systemname
+        mode: python
+        _: '__import__("os").environ.get("SYSTEMNAME", "")'
       - name: queue
         mode: python
         _: '__import__("os").environ.get("JUBE_QUEUE", {"juwelsbooster":"develbooster","jurecadc":"dc-gpu-devel","jusuf":"batch"}["${jbs_systemname}"])'

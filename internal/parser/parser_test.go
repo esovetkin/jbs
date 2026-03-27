@@ -125,3 +125,47 @@ param p {
 		t.Fatalf("expected second assignment to be ModeExpr")
 	}
 }
+
+func TestParseTopLevelGlobalAssignments(t *testing.T) {
+	src := `
+jbs_name = "demo"
+jbs_outpath = "results"
+jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+
+param p {
+  a = 1
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("globals.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 4 {
+		t.Fatalf("expected 4 statements, got %d", len(prog.Stmts))
+	}
+	if _, ok := prog.Stmts[0].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected stmt 0 to be global assignment")
+	}
+	if _, ok := prog.Stmts[1].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected stmt 1 to be global assignment")
+	}
+	if _, ok := prog.Stmts[2].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected stmt 2 to be global assignment")
+	}
+	if _, ok := prog.Stmts[3].(ast.ParamBlock); !ok {
+		t.Fatalf("expected stmt 3 to be param block")
+	}
+}
+
+func TestParseMalformedTopLevelGlobalAssignment(t *testing.T) {
+	src := `
+jbs_name =
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_globals.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse error for malformed global assignment")
+	}
+}

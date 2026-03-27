@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"jbs/internal/diag"
@@ -21,12 +22,17 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if flags.Help {
-		fmt.Fprintln(stdout, UsageText())
+		if flags.HelpGlobals {
+			printGlobalsHelp(stdout)
+		} else {
+			fmt.Fprintln(stdout, UsageText())
+		}
 		return 0
 	}
 	if flags.Input == "" {
-		printGlobals(stdout)
-		return 0
+		fmt.Fprintln(stderr, "missing input file")
+		fmt.Fprintln(stderr, UsageText())
+		return 2
 	}
 
 	src, err := os.ReadFile(flags.Input)
@@ -132,23 +138,55 @@ func sourceExcerpt(lines []string, span diag.Span) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-func printGlobals(out io.Writer) {
-	fmt.Fprintln(out, "Built-in jbs_* variables")
+func printGlobalsHelp(out io.Writer) {
+	fmt.Fprintln(out, "# JBS global defaults")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "# Top-level assignments only (outside param/do/submit blocks).")
+	fmt.Fprintln(out, "# Unknown globals are compile errors.")
+	fmt.Fprintln(out, "# jbs_name and jbs_outpath must be plain string literals.")
+	fmt.Fprintln(out, "# Other globals accept scalar values or shell(\"...\") / python(\"...\").")
+	fmt.Fprintln(out, "")
 	for _, spec := range lower.BuiltinGlobals() {
-		target := "-"
+		target := "root"
 		if spec.Target != "" {
-			target = spec.Target
+			target = "submit:" + spec.Target
+		} else if spec.Name == "jbs_outpath" {
+			target = "root:outpath"
+		} else if spec.Name == "jbs_name" {
+			target = "root:name"
 		}
 		mode := "-"
 		if spec.Mode != "" {
 			mode = spec.Mode
 		}
-		fmt.Fprintf(out, "- %s\n", spec.Name)
-		fmt.Fprintf(out, "  default: %s\n", spec.DefaultExpr)
-		fmt.Fprintf(out, "  mode: %s\n", mode)
-		fmt.Fprintf(out, "  maps_to: %s\n", target)
-		if spec.Description != "" {
-			fmt.Fprintf(out, "  note: %s\n", spec.Description)
+		note := spec.Description
+		if note == "" {
+			note = "No description."
 		}
+		fmt.Fprintf(out, "# %s maps_to: %s. mode: %s\n", note, target, mode)
+		fmt.Fprintln(out, globalAssignmentLine(spec))
+		fmt.Fprintln(out, "")
+	}
+}
+
+func globalAssignmentLine(spec lower.GlobalSpec) string {
+	expr := spec.DefaultExpr
+	switch spec.Mode {
+	case "python":
+		return fmt.Sprintf("%s = python(%s)", spec.Name, strconv.Quote(expr))
+	case "shell":
+		return fmt.Sprintf("%s = shell(%s)", spec.Name, strconv.Quote(expr))
+	}
+
+	switch spec.Name {
+	case "jbs_tasks":
+		if strings.HasPrefix(expr, "$") && len(expr) > 1 {
+			return fmt.Sprintf("%s = %s", spec.Name, expr[1:])
+		}
+		return fmt.Sprintf("%s = %s", spec.Name, expr)
+	case "jbs_threadspertask", "jbs_nnodes":
+		return fmt.Sprintf("%s = %s", spec.Name, expr)
+	default:
+		return fmt.Sprintf("%s = %s", spec.Name, strconv.Quote(expr))
 	}
 }

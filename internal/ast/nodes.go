@@ -35,6 +35,15 @@ type Assignment struct {
 
 func (a Assignment) GetSpan() diag.Span { return a.Span }
 
+type GlobalAssign struct {
+	Name string
+	Expr Expr
+	Span diag.Span
+}
+
+func (g GlobalAssign) stmtNode()          {}
+func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
+
 type ParamBlock struct {
 	Name        string
 	WithItems   []WithItem

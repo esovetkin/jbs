@@ -6,10 +6,11 @@ import (
 )
 
 type Flags struct {
-	Input  string
-	Output string
-	Check  bool
-	Help   bool
+	Input       string
+	Output      string
+	Check       bool
+	Help        bool
+	HelpGlobals bool
 }
 
 type UsageError struct {
@@ -22,6 +23,22 @@ func (e UsageError) Error() string {
 
 func ParseFlags(args []string) (Flags, error) {
 	cfg := Flags{Output: "-"}
+	if len(args) == 0 {
+		cfg.Help = true
+		return cfg, nil
+	}
+	if args[0] == "help" {
+		if len(args) == 1 {
+			cfg.Help = true
+			return cfg, nil
+		}
+		if len(args) == 2 && args[1] == "globals" {
+			cfg.Help = true
+			cfg.HelpGlobals = true
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs help [globals]"}
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -57,7 +74,8 @@ func UsageText() string {
   jbs input.jbs
   jbs input.jbs -o JUBE.yaml
   jbs input.jbs --check
-  jbs
+  jbs help
+  jbs help globals
 
 Options:
   -o, --output   Output path (default: - for stdout)

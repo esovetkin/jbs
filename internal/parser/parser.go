@@ -39,6 +39,10 @@ func (p *Parser) parseProgram() ast.Program {
 			break
 		}
 		start := p.pos()
+		if p.isTopLevelAssignmentStart() {
+			stmts = append(stmts, p.parseGlobalAssign(start))
+			continue
+		}
 		word, ok := p.peekWord()
 		if !ok {
 			p.diags.AddError(
@@ -80,6 +84,63 @@ func (p *Parser) parseProgram() ast.Program {
 		prog.Span = diag.Merge(stmts[0].GetSpan(), stmts[len(stmts)-1].GetSpan())
 	}
 	return prog
+}
+
+func (p *Parser) isTopLevelAssignmentStart() bool {
+	word, ok := p.peekWord()
+	if !ok || word == "param" || word == "do" || word == "submit" {
+		return false
+	}
+	i := p.off
+	for i < len(p.src) {
+		r := p.src[i]
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			i++
+			continue
+		}
+		break
+	}
+	for i < len(p.src) {
+		r := p.src[i]
+		if r == ' ' || r == '\t' || r == '\r' {
+			i++
+			continue
+		}
+		return r == '='
+	}
+	return false
+}
+
+func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
+	lineStart := p.off
+	for !p.eof() && p.peek() != '\n' {
+		p.advance()
+	}
+	line := string(p.src[lineStart:p.off])
+	if !p.eof() && p.peek() == '\n' {
+		p.advance()
+	}
+	tokens := lexer.LexFrom(p.file, line, start, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipNewlines()
+	if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
+		tok := tp.peek()
+		p.diags.AddError(
+			"E012",
+			"expected top-level global assignment",
+			tok.Span,
+			"use syntax: name = expression",
+		)
+		return ast.GlobalAssign{
+			Span: diag.NewSpan(p.file, start, start),
+		}
+	}
+	asn := tp.parseAssignment()
+	return ast.GlobalAssign{
+		Name: asn.Name,
+		Expr: asn.Expr,
+		Span: asn.Span,
+	}
 }
 
 func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {

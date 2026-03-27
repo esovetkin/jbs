@@ -46,8 +46,24 @@ func TestParseFlagsNoArgMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if f.Input != "" {
-		t.Fatalf("expected empty input in no-arg mode")
+	if !f.Help || f.HelpGlobals {
+		t.Fatalf("expected no-arg mode to select general help")
+	}
+}
+
+func TestParseFlagsHelpGlobals(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "globals"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpGlobals {
+		t.Fatalf("expected help globals mode")
+	}
+}
+
+func TestParseFlagsHelpUnknownSubcommand(t *testing.T) {
+	if _, err := ParseFlags([]string{"help", "badtopic"}); err == nil {
+		t.Fatalf("expected usage error for unknown help subcommand")
 	}
 }
 

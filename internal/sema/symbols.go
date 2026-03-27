@@ -17,8 +17,15 @@ type Paramset struct {
 	HasPlus bool
 }
 
+type GlobalState struct {
+	Values map[string]eval.Value
+	Modes  map[string]string
+	Spans  map[string]diag.Span
+}
+
 type Result struct {
 	Program     ast.Program
+	Globals     GlobalState
 	Paramsets   []*Paramset
 	ParamByName map[string]*Paramset
 	DoBlocks    []ast.DoBlock

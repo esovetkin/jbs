@@ -4,7 +4,9 @@
 
 ```ebnf
 program       := stmt* EOF
-stmt          := param_block | do_block | submit_block
+stmt          := global_assign | param_block | do_block | submit_block
+
+global_assign := IDENT "=" expr NEWLINE
 
 param_block   := "param" IDENT with_clause? "{" param_stmt* final_expr "}"
 param_stmt    := IDENT "=" expr NEWLINE
@@ -129,6 +131,8 @@ This preserves direct-sum row alignment under JUBE semantics.
 
 ## Built-in Globals
 
+- `jbs_name` (root `name`)
+- `jbs_outpath` (root `outpath`)
 - `jbs_systemname`
 - `jbs_queue`
 - `jbs_account`
@@ -141,7 +145,31 @@ This preserves direct-sum row alignment under JUBE semantics.
 - `jbs_tasks`
 - `jbs_executable`
 
-Run `jbs` without arguments to print defaults and mapping.
+Rules:
+
+- globals can be assigned only at top-level
+- unknown globals are compile errors (`E300`)
+- `jbs_name` and `jbs_outpath` must be plain string literals
+- other globals accept scalar values or `shell("...")` / `python("...")`
+
+Examples:
+
+```jbs
+jbs_name = "demo"
+jbs_outpath = "results"
+jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+```
+
+Invalid examples:
+
+```jbs
+jbs_name = python("x")   # E303
+jbs_outpath = 12         # E302
+unknown_name = "x"       # E300
+jbs_nnodes = (1,2)       # E304
+```
+
+Run `jbs help globals` to print defaults and mapping.
 
 ## Diagnostics
 

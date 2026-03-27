@@ -37,15 +37,37 @@ do prep with p {
 	}
 }
 
-func TestRunNoArgsListsGlobals(t *testing.T) {
+func TestRunNoArgsShowsHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 	code := Run(nil, &out, &errBuf)
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	if !strings.Contains(out.String(), "jbs_queue") {
-		t.Fatalf("expected globals listing, got: %s", out.String())
+	if !strings.Contains(out.String(), "Usage:") {
+		t.Fatalf("expected usage text, got: %s", out.String())
+	}
+}
+
+func TestRunHelpGlobals(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"help", "globals"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	text := out.String()
+	if !strings.Contains(text, `# Benchmark name (root name field). maps_to: root:name. mode: -`) {
+		t.Fatalf("expected jbs_name comment line, got: %s", text)
+	}
+	if !strings.Contains(text, `jbs_name = "jbs_benchmark"`) {
+		t.Fatalf("expected jbs_name assignment, got: %s", text)
+	}
+	if !strings.Contains(text, `jbs_queue = python(`) {
+		t.Fatalf("expected globals help output, got: %s", out.String())
+	}
+	if strings.Contains(text, "Globals:") {
+		t.Fatalf("expected script-style help output without legacy Globals section, got: %s", text)
 	}
 }
 

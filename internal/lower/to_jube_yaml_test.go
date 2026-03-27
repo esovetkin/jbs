@@ -216,3 +216,65 @@ param p {
 		t.Fatalf("expected system_name shell payload string, got %T", system.Value)
 	}
 }
+
+func TestTopLevelGlobalsDriveRootAndSubmit(t *testing.T) {
+	src := `
+jbs_name = "demo_bench"
+jbs_outpath = "results"
+jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+jbs_nnodes = 2
+
+param p {
+  a = 1
+  a
+}
+
+submit run with p {
+  export X=1
+} {
+  echo ok
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if doc.Name != "demo_bench" {
+		t.Fatalf("expected root name from jbs_name, got %q", doc.Name)
+	}
+	if doc.Outpath != "results" {
+		t.Fatalf("expected root outpath from jbs_outpath, got %q", doc.Outpath)
+	}
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
+			submitSet = &doc.ParameterSet[i]
+			break
+		}
+	}
+	if submitSet == nil {
+		t.Fatalf("submit parameterset missing")
+	}
+	foundQueue := false
+	foundNodes := false
+	for _, p := range submitSet.Parameter {
+		if p.Name == "queue" {
+			foundQueue = true
+			if p.Mode != "python" {
+				t.Fatalf("expected queue mode python, got %q", p.Mode)
+			}
+			if _, ok := p.Value.(lower.SingleQuoted); !ok {
+				t.Fatalf("expected queue python payload single-quoted, got %T", p.Value)
+			}
+		}
+		if p.Name == "nodes" {
+			foundNodes = true
+			if p.Value != "2" {
+				t.Fatalf("expected nodes to use top-level override 2, got %#v", p.Value)
+			}
+		}
+	}
+	if !foundQueue || !foundNodes {
+		t.Fatalf("missing queue/nodes params in submit set")
+	}
+}
