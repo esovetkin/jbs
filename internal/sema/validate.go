@@ -114,6 +114,18 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		series[name] = eval.ToSeries(value)
 	}
 
+	if block.Final == nil {
+		return &Paramset{
+			Name:    block.Name,
+			Block:   block,
+			Rows:    nil,
+			Vars:    map[string][]eval.Value{},
+			Origins: map[string]diag.Span{},
+			Order:   nil,
+			HasPlus: false,
+		}
+	}
+
 	rows := eval.EvalCombination(block.Final, series, origins, diags)
 	if rows == nil {
 		rows = make([]eval.Row, 0)

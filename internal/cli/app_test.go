@@ -48,3 +48,31 @@ func TestRunNoArgsListsGlobals(t *testing.T) {
 		t.Fatalf("expected globals listing, got: %s", out.String())
 	}
 }
+
+func TestRunShowsSourceExcerptOnError(t *testing.T) {
+	src := `
+param p {
+  a = @
+  a
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "bad.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	errText := errBuf.String()
+	if !strings.Contains(errText, "a = @") {
+		t.Fatalf("expected failing source line in diagnostics, got: %s", errText)
+	}
+	if !strings.Contains(errText, "^") {
+		t.Fatalf("expected caret marker in diagnostics, got: %s", errText)
+	}
+}

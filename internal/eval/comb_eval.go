@@ -26,6 +26,10 @@ func (r Row) clone() Row {
 }
 
 func EvalCombination(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, diags *diag.Diagnostics) []Row {
+	if expr == nil {
+		diags.AddError("E113", "missing combination expression", diag.Span{}, "add a final combination expression in param block")
+		return nil
+	}
 	checkRepeatedIdentifiers(expr, diags)
 	return evalComb(expr, series, origins, diags)
 }
