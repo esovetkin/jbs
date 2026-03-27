@@ -45,6 +45,43 @@ func TestZipBroadcastWarning(t *testing.T) {
 	}
 }
 
+func TestZipBroadcastNoWarningWhenDivisible(t *testing.T) {
+	expr := ast.CombBinary{
+		Left:   ast.CombIdent{Name: "a"},
+		Op:     "+",
+		OpSpan: diag.NewSpan("in.jbs", diag.NewPos(10, 1, 10), diag.NewPos(11, 1, 11)),
+		Right:  ast.CombIdent{Name: "b"},
+	}
+
+	diagsA := &diag.Diagnostics{}
+	rowsA := EvalCombination(expr, map[string][]Value{
+		"a": {Int(1), Int(2), Int(3), Int(4)},
+		"b": {String("x")},
+	}, map[string]diag.Span{}, diagsA)
+	if len(rowsA) != 4 {
+		t.Fatalf("expected 4 rows for 4+1, got %d", len(rowsA))
+	}
+	for _, d := range diagsA.Items {
+		if d.Code == "W101" {
+			t.Fatalf("did not expect W101 for 4+1, got: %s", diagsA.String())
+		}
+	}
+
+	diagsB := &diag.Diagnostics{}
+	rowsB := EvalCombination(expr, map[string][]Value{
+		"a": {Int(1), Int(2), Int(3), Int(4)},
+		"b": {String("x"), String("y")},
+	}, map[string]diag.Span{}, diagsB)
+	if len(rowsB) != 4 {
+		t.Fatalf("expected 4 rows for 4+2, got %d", len(rowsB))
+	}
+	for _, d := range diagsB.Items {
+		if d.Code == "W101" {
+			t.Fatalf("did not expect W101 for 4+2, got: %s", diagsB.String())
+		}
+	}
+}
+
 func TestRepeatedIdentifierError(t *testing.T) {
 	expr := ast.CombBinary{
 		Left:   ast.CombIdent{Name: "a", Span: diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))},

@@ -109,12 +109,20 @@ func zipRows(left, right []Row, op ast.CombBinary, diags *diag.Diagnostics) []Ro
 		k = n
 	}
 	if m != n {
-		diags.AddWarning(
-			"W101",
-			fmt.Sprintf("length mismatch in '+': left=%d right=%d; cyclic broadcast to length %d", m, n, k),
-			op.OpSpan,
-			"align lengths to avoid cyclic broadcast",
-		)
+		lo := m
+		hi := n
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		shouldWarn := hi%lo != 0
+		if shouldWarn {
+			diags.AddWarning(
+				"W101",
+				fmt.Sprintf("length mismatch in '+': left=%d right=%d; cyclic broadcast to length %d", m, n, k),
+				op.OpSpan,
+				"align lengths to avoid cyclic broadcast",
+			)
+		}
 	}
 	rows := make([]Row, 0, k)
 	for i := 0; i < k; i++ {
