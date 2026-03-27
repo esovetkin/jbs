@@ -384,7 +384,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 		Name:      "env",
 		Mode:      "text",
 		Separator: "|",
-		Value:     Literal(trimOuterNewlines(block.EnvBody)),
+		Value:     Literal(withPrelude(block.EnvBody)),
 	})
 	params = append(params, Parameter{Name: "args_exec", Value: trimOuterNewlines(block.RunBody)})
 

@@ -56,7 +56,9 @@ parameterset:
       - name: env
         mode: text
         separator: '|'
-        _: |2-
+        _: |
+          set -euo pipefail
+          cd "${jube_benchmark_home}"
             export X=1
       - name: args_exec
         _: '  python main.py --case ${case} --nnodes ${nnodes}'
