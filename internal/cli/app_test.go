@@ -76,3 +76,32 @@ param p {
 		t.Fatalf("expected caret marker in diagnostics, got: %s", errText)
 	}
 }
+
+func TestRunNoDuplicateUnknownParamsetDiagnostic(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+
+do setup with x from missing_set {
+  echo setup
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "bad_unknown.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	errText := errBuf.String()
+	if got := strings.Count(errText, "unknown parameterset 'missing_set'"); got != 1 {
+		t.Fatalf("expected exactly one unknown-paramset diagnostic, got %d\n%s", got, errText)
+	}
+}

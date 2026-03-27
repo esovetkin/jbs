@@ -437,7 +437,9 @@ func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {
 
 	for _, source := range groupOrder {
 		subset := ctx.ensureSubsetParameterSet(source, grouped[source])
-		uses = append(uses, subset)
+		if subset != "" {
+			uses = append(uses, subset)
+		}
 	}
 	return uses
 }
@@ -450,21 +452,9 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 
 	src := ctx.res.ParamByName[source]
 	if src == nil {
-		ctx.diags.AddError(
-			"E020",
-			fmt.Sprintf("unknown parameterset '%s' in with clause", source),
-			ctx.res.Program.Span,
-			"import an existing parameterset",
-		)
-		name := ctx.uniqueName("__subset_" + sanitize(source))
-		ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
-			Name: name,
-			Parameter: []Parameter{
-				{Name: "i", Type: "int", Mode: "text", Value: "0"},
-			},
-		})
-		ctx.subsetNames[k] = name
-		return name
+		// Semantic analysis already reports unknown parameter set imports with
+		// precise spans. Skip lower-stage duplicate diagnostics.
+		return ""
 	}
 	rowCount := len(src.Rows)
 	if rowCount == 0 {
@@ -520,12 +510,6 @@ func (ctx *lowerContext) visibleNames(items []ast.WithItem) map[string]bool {
 		if item.From == "" {
 			src := ctx.res.ParamByName[item.Name]
 			if src == nil {
-				ctx.diags.AddError(
-					"E020",
-					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
-					item.Span,
-					"import an existing parameterset",
-				)
 				continue
 			}
 			for _, name := range src.Order {
