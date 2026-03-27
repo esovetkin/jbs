@@ -1,0 +1,15 @@
+param matrix {
+  case = ("ddp","fsdp")
+  nnodes = (1,2)
+  case + nnodes
+}
+
+do setup with case from matrix {
+  echo setup ${case}
+}
+
+submit run after setup with matrix {
+  export X=1
+} {
+  python main.py --case ${case} --nnodes ${nnodes}
+}

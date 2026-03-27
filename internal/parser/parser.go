@@ -1,0 +1,883 @@
+package parser
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+
+	"jbs/internal/ast"
+	"jbs/internal/diag"
+	"jbs/internal/lexer"
+)
+
+type Parser struct {
+	file  string
+	src   []rune
+	off   int
+	line  int
+	col   int
+	diags *diag.Diagnostics
+}
+
+func Parse(file, source string, diags *diag.Diagnostics) ast.Program {
+	p := &Parser{
+		file:  file,
+		src:   []rune(source),
+		line:  1,
+		col:   1,
+		diags: diags,
+	}
+	return p.parseProgram()
+}
+
+func (p *Parser) parseProgram() ast.Program {
+	stmts := make([]ast.Stmt, 0)
+	for {
+		p.skipTrivia()
+		if p.eof() {
+			break
+		}
+		start := p.pos()
+		word, ok := p.peekWord()
+		if !ok {
+			p.diags.AddError(
+				"E010",
+				"expected block keyword (param/do/submit)",
+				diag.NewSpan(p.file, start, start),
+				"start a block with param, do, or submit",
+			)
+			p.advance()
+			continue
+		}
+
+		switch word {
+		case "param":
+			p.consumeWord()
+			stmts = append(stmts, p.parseParamBlock(start))
+		case "do":
+			p.consumeWord()
+			stmts = append(stmts, p.parseDoBlock(start))
+		case "submit":
+			p.consumeWord()
+			stmts = append(stmts, p.parseSubmitBlock(start))
+		default:
+			end := p.consumeWord()
+			p.diags.AddError(
+				"E011",
+				fmt.Sprintf("unknown block keyword '%s'", word),
+				diag.NewSpan(p.file, start, end),
+				"valid keywords are param, do, submit",
+			)
+		}
+	}
+
+	prog := ast.Program{
+		File:  p.file,
+		Stmts: stmts,
+	}
+	if len(stmts) > 0 {
+		prog.Span = diag.Merge(stmts[0].GetSpan(), stmts[len(stmts)-1].GetSpan())
+	}
+	return prog
+}
+
+func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
+	name, nameSpan := p.parseRequiredIdent("E020", "expected param block name")
+	withItems := p.parseOptionalWithClause()
+	p.skipTrivia()
+	if p.peek() != '{' {
+		pos := p.pos()
+		p.diags.AddError(
+			"E021",
+			"expected '{' to start param block body",
+			diag.NewSpan(p.file, pos, pos),
+			"add '{' after param header",
+		)
+		return ast.ParamBlock{
+			Name:      name,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	body, innerStart, blockEnd, ok := p.readBalancedBlock()
+	if !ok {
+		return ast.ParamBlock{
+			Name:      name,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	assignments, final := parseParamBody(p.file, body, innerStart, p.diags)
+	return ast.ParamBlock{
+		Name:        name,
+		WithItems:   withItems,
+		Assignments: assignments,
+		Final:       final,
+		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
+	}
+}
+
+func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
+	name, nameSpan := p.parseRequiredIdent("E030", "expected do block name")
+	after, withItems := p.parseOptionalAfterAndWith()
+	p.skipTrivia()
+
+	if p.peek() != '{' {
+		pos := p.pos()
+		p.diags.AddError(
+			"E031",
+			"expected '{' to start do block body",
+			diag.NewSpan(p.file, pos, pos),
+			"add '{' before do script body",
+		)
+		return ast.DoBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	body, _, blockEnd, ok := p.readBalancedBlock()
+	if !ok {
+		return ast.DoBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	return ast.DoBlock{
+		Name:      name,
+		After:     after,
+		WithItems: withItems,
+		Body:      body,
+		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
+	}
+}
+
+func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
+	name, nameSpan := p.parseRequiredIdent("E040", "expected submit block name")
+	after, withItems := p.parseOptionalAfterAndWith()
+	p.skipTrivia()
+
+	if p.peek() != '{' {
+		pos := p.pos()
+		p.diags.AddError(
+			"E041",
+			"expected first '{' in submit block",
+			diag.NewSpan(p.file, pos, pos),
+			"submit requires two raw blocks: {env} {run}",
+		)
+		return ast.SubmitBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	envBody, _, envEnd, ok := p.readBalancedBlock()
+	if !ok {
+		return ast.SubmitBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+		}
+	}
+
+	p.skipTrivia()
+	if p.peek() != '{' {
+		pos := p.pos()
+		p.diags.AddError(
+			"E071",
+			"submit requires exactly two raw blocks",
+			diag.NewSpan(p.file, pos, pos),
+			"add second block for args_exec",
+		)
+		return ast.SubmitBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			EnvBody:   envBody,
+			Span:      diag.NewSpan(p.file, blockStart, envEnd),
+		}
+	}
+
+	runBody, _, runEnd, ok := p.readBalancedBlock()
+	if !ok {
+		return ast.SubmitBlock{
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			EnvBody:   envBody,
+			Span:      diag.NewSpan(p.file, blockStart, envEnd),
+		}
+	}
+
+	return ast.SubmitBlock{
+		Name:      name,
+		After:     after,
+		WithItems: withItems,
+		EnvBody:   envBody,
+		RunBody:   runBody,
+		Span:      diag.NewSpan(p.file, blockStart, runEnd),
+	}
+}
+
+func (p *Parser) parseOptionalWithClause() []ast.WithItem {
+	p.skipTriviaInline()
+	word, ok := p.peekWord()
+	if !ok || word != "with" {
+		return nil
+	}
+	p.consumeWord()
+	return p.parseWithItems()
+}
+
+func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
+	after := make([]string, 0)
+	withItems := make([]ast.WithItem, 0)
+	for {
+		p.skipTriviaInline()
+		word, ok := p.peekWord()
+		if !ok {
+			break
+		}
+		if word == "after" {
+			p.consumeWord()
+			after = p.parseNameList()
+			continue
+		}
+		if word == "with" {
+			p.consumeWord()
+			withItems = p.parseWithItems()
+			continue
+		}
+		break
+	}
+	return after, withItems
+}
+
+func (p *Parser) parseWithItems() []ast.WithItem {
+	items := make([]ast.WithItem, 0)
+	currentFrom := ""
+	for {
+		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
+		if name == "" {
+			break
+		}
+		item := ast.WithItem{Name: name, Span: span}
+
+		p.skipTriviaInline()
+		word, ok := p.peekWord()
+		if ok && word == "from" {
+			p.consumeWord()
+			src, srcSpan := p.parseRequiredIdent("E024", "expected source parameterset name after 'from'")
+			item.From = src
+			item.Span = diag.Merge(item.Span, srcSpan)
+			currentFrom = src
+		} else if currentFrom != "" {
+			item.From = currentFrom
+		}
+
+		items = append(items, item)
+		p.skipTriviaInline()
+		if p.peek() != ',' {
+			break
+		}
+		p.advance()
+	}
+	return items
+}
+
+func (p *Parser) parseNameList() []string {
+	out := make([]string, 0)
+	for {
+		name, _ := p.parseRequiredIdent("E022", "expected identifier in dependency list")
+		if name != "" {
+			out = append(out, name)
+		}
+		p.skipTriviaInline()
+		if p.peek() != ',' {
+			break
+		}
+		p.advance()
+	}
+	return out
+}
+
+func (p *Parser) parseRequiredIdent(code, message string) (string, diag.Span) {
+	p.skipTriviaInline()
+	start := p.pos()
+	word, ok := p.peekWord()
+	if !ok {
+		p.diags.AddError(code, message, diag.NewSpan(p.file, start, start), "use a valid identifier")
+		return "", diag.NewSpan(p.file, start, start)
+	}
+	end := p.consumeWord()
+	return word, diag.NewSpan(p.file, start, end)
+}
+
+func (p *Parser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
+	if p.peek() != '{' {
+		pos := p.pos()
+		return "", pos, pos, false
+	}
+	p.advance()
+	innerStart = p.pos()
+	startIdx := p.off
+	depth := 1
+	var quote rune
+	escaped := false
+	for !p.eof() {
+		r := p.advance()
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == '{' {
+			depth++
+			continue
+		}
+		if r == '}' {
+			depth--
+			if depth == 0 {
+				endIdx := p.off - 1
+				return string(p.src[startIdx:endIdx]), innerStart, p.pos(), true
+			}
+		}
+	}
+	span := diag.NewSpan(p.file, innerStart, p.pos())
+	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
+	return "", innerStart, p.pos(), false
+}
+
+func (p *Parser) skipTrivia() {
+	for !p.eof() {
+		r := p.peek()
+		if unicode.IsSpace(r) {
+			p.advance()
+			continue
+		}
+		if r == '#' {
+			for !p.eof() && p.peek() != '\n' {
+				p.advance()
+			}
+			continue
+		}
+		break
+	}
+}
+
+func (p *Parser) skipTriviaInline() {
+	for !p.eof() {
+		r := p.peek()
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			p.advance()
+			continue
+		}
+		if r == '#' {
+			for !p.eof() && p.peek() != '\n' {
+				p.advance()
+			}
+			continue
+		}
+		break
+	}
+}
+
+func (p *Parser) peekWord() (string, bool) {
+	if p.eof() {
+		return "", false
+	}
+	r := p.peek()
+	if !(unicode.IsLetter(r) || r == '_') {
+		return "", false
+	}
+	i := p.off
+	buf := make([]rune, 0, 16)
+	for i < len(p.src) {
+		r = p.src[i]
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			buf = append(buf, r)
+			i++
+			continue
+		}
+		break
+	}
+	return string(buf), true
+}
+
+func (p *Parser) consumeWord() diag.Position {
+	for !p.eof() {
+		r := p.peek()
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			p.advance()
+			continue
+		}
+		break
+	}
+	return p.pos()
+}
+
+func (p *Parser) eof() bool {
+	return p.off >= len(p.src)
+}
+
+func (p *Parser) peek() rune {
+	if p.eof() {
+		return 0
+	}
+	return p.src[p.off]
+}
+
+func (p *Parser) advance() rune {
+	if p.eof() {
+		return 0
+	}
+	r := p.src[p.off]
+	p.off++
+	if r == '\n' {
+		p.line++
+		p.col = 1
+	} else {
+		p.col++
+	}
+	return r
+}
+
+func (p *Parser) pos() diag.Position {
+	return diag.NewPos(p.off, p.line, p.col)
+}
+
+type tokenParser struct {
+	tokens []lexer.Token
+	idx    int
+	diags  *diag.Diagnostics
+}
+
+func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnostics) ([]ast.Assignment, ast.CombExpr) {
+	tokens := lexer.LexFrom(file, body, start, diags)
+	tp := &tokenParser{tokens: tokens, diags: diags}
+	assignments := make([]ast.Assignment, 0)
+	var final ast.CombExpr
+
+	for {
+		tp.skipNewlines()
+		if tp.peek().Type == lexer.TokenEOF {
+			break
+		}
+		if tp.peek().Type == lexer.TokenIdent && tp.peekN(1).Type == lexer.TokenEqual {
+			assignments = append(assignments, tp.parseAssignment())
+			continue
+		}
+		final = tp.parseCombExpr()
+		tp.skipNewlines()
+		if tp.peek().Type != lexer.TokenEOF {
+			tok := tp.peek()
+			diags.AddError(
+				"E026",
+				"unexpected tokens after final combination expression",
+				tok.Span,
+				"final expression must be the last statement in param block",
+			)
+		}
+		break
+	}
+
+	if final == nil {
+		diags.AddError(
+			"E027",
+			"param block missing final combination expression",
+			diag.NewSpan(file, start, start),
+			"add a final expression like '(a+b)*c'",
+		)
+	}
+	return assignments, final
+}
+
+func (p *tokenParser) parseAssignment() ast.Assignment {
+	name := p.expect(lexer.TokenIdent, "E050", "expected assignment identifier")
+	p.expect(lexer.TokenEqual, "E051", "expected '=' in assignment")
+	expr := p.parseExpr()
+	span := name.Span
+	if expr != nil {
+		span = diag.Merge(span, expr.GetSpan())
+	}
+	if p.peek().Type != lexer.TokenEOF && p.peek().Type != lexer.TokenNewline {
+		tok := p.peek()
+		p.diags.AddError(
+			"E061",
+			"unexpected trailing tokens after assignment expression",
+			tok.Span,
+			"remove unsupported syntax such as calls or attribute access",
+		)
+	}
+	p.consumeUntilNewline()
+	return ast.Assignment{
+		Name: name.Value,
+		Expr: expr,
+		Span: span,
+	}
+}
+
+func (p *tokenParser) parseExpr() ast.Expr {
+	return p.parseConditional()
+}
+
+func (p *tokenParser) parseConditional() ast.Expr {
+	thenExpr := p.parseOr()
+	if p.peek().Type == lexer.TokenIf {
+		ifTok := p.next()
+		cond := p.parseOr()
+		p.expect(lexer.TokenElse, "E052", "expected 'else' in conditional expression")
+		elseExpr := p.parseConditional()
+		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
+		span = diag.Merge(span, ifTok.Span)
+		return ast.ConditionalExpr{
+			Then: thenExpr,
+			Cond: cond,
+			Else: elseExpr,
+			Span: span,
+		}
+	}
+	return thenExpr
+}
+
+func (p *tokenParser) parseOr() ast.Expr {
+	left := p.parseAnd()
+	for p.peek().Type == lexer.TokenOr {
+		op := p.next()
+		right := p.parseAnd()
+		left = ast.BinaryExpr{
+			Left:  left,
+			Op:    op.Text,
+			Right: right,
+			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseAnd() ast.Expr {
+	left := p.parseCompare()
+	for p.peek().Type == lexer.TokenAnd {
+		op := p.next()
+		right := p.parseCompare()
+		left = ast.BinaryExpr{
+			Left:  left,
+			Op:    op.Text,
+			Right: right,
+			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseCompare() ast.Expr {
+	left := p.parseAdd()
+	t := p.peek().Type
+	if t == lexer.TokenEqEq || t == lexer.TokenNeq || t == lexer.TokenLT || t == lexer.TokenGT || t == lexer.TokenLE || t == lexer.TokenGE {
+		op := p.next()
+		right := p.parseAdd()
+		return ast.CompareExpr{
+			Left:  left,
+			Op:    op.Text,
+			Right: right,
+			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseAdd() ast.Expr {
+	left := p.parseMul()
+	for {
+		t := p.peek().Type
+		if t != lexer.TokenPlus && t != lexer.TokenMinus {
+			break
+		}
+		op := p.next()
+		right := p.parseMul()
+		left = ast.BinaryExpr{
+			Left:  left,
+			Op:    op.Text,
+			Right: right,
+			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseMul() ast.Expr {
+	left := p.parseUnary()
+	for {
+		t := p.peek().Type
+		if t != lexer.TokenStar && t != lexer.TokenSlash && t != lexer.TokenPercent {
+			break
+		}
+		op := p.next()
+		right := p.parseUnary()
+		left = ast.BinaryExpr{
+			Left:  left,
+			Op:    op.Text,
+			Right: right,
+			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseUnary() ast.Expr {
+	t := p.peek().Type
+	if t == lexer.TokenPlus || t == lexer.TokenMinus {
+		op := p.next()
+		expr := p.parseUnary()
+		return ast.UnaryExpr{
+			Op:   op.Text,
+			Expr: expr,
+			Span: diag.Merge(op.Span, expr.GetSpan()),
+		}
+	}
+	return p.parsePrimary()
+}
+
+func (p *tokenParser) parsePrimary() ast.Expr {
+	tok := p.peek()
+	switch tok.Type {
+	case lexer.TokenIdent:
+		p.next()
+		if tok.Value == "true" || tok.Value == "True" {
+			return ast.BoolExpr{Value: true, Span: tok.Span}
+		}
+		if tok.Value == "false" || tok.Value == "False" {
+			return ast.BoolExpr{Value: false, Span: tok.Span}
+		}
+		return ast.IdentExpr{Name: tok.Value, Span: tok.Span}
+	case lexer.TokenString:
+		p.next()
+		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
+	case lexer.TokenNumber:
+		p.next()
+		value, _ := strconv.ParseFloat(tok.Value, 64)
+		return ast.NumberExpr{
+			Raw:   tok.Value,
+			Value: value,
+			Int:   !strings.Contains(tok.Value, "."),
+			Span:  tok.Span,
+		}
+	case lexer.TokenLParen:
+		open := p.next()
+		if p.peek().Type == lexer.TokenRParen {
+			close := p.next()
+			return ast.TupleExpr{Items: nil, Span: diag.Merge(open.Span, close.Span)}
+		}
+		first := p.parseExpr()
+		if p.peek().Type == lexer.TokenComma {
+			items := []ast.Expr{first}
+			for p.peek().Type == lexer.TokenComma {
+				p.next()
+				if p.peek().Type == lexer.TokenRParen {
+					break
+				}
+				items = append(items, p.parseExpr())
+			}
+			close := p.expect(lexer.TokenRParen, "E053", "expected ')' to close tuple")
+			return ast.TupleExpr{
+				Items: items,
+				Span:  diag.Merge(open.Span, close.Span),
+			}
+		}
+		p.expect(lexer.TokenRParen, "E054", "expected ')' to close expression")
+		return first
+	case lexer.TokenLBracket:
+		open := p.next()
+		items := make([]ast.Expr, 0)
+		if p.peek().Type != lexer.TokenRBracket {
+			for {
+				items = append(items, p.parseExpr())
+				if p.peek().Type != lexer.TokenComma {
+					break
+				}
+				p.next()
+				if p.peek().Type == lexer.TokenRBracket {
+					break
+				}
+			}
+		}
+		close := p.expect(lexer.TokenRBracket, "E055", "expected ']' to close list")
+		return ast.ListExpr{
+			Items: items,
+			Span:  diag.Merge(open.Span, close.Span),
+		}
+	case lexer.TokenLBrace:
+		open := p.next()
+		entries := make([]ast.DictEntry, 0)
+		if p.peek().Type != lexer.TokenRBrace {
+			for {
+				key := p.parseExpr()
+				p.expect(lexer.TokenColon, "E056", "expected ':' in dict entry")
+				value := p.parseExpr()
+				entries = append(entries, ast.DictEntry{
+					Key:   key,
+					Value: value,
+					Span:  diag.Merge(key.GetSpan(), value.GetSpan()),
+				})
+				if p.peek().Type != lexer.TokenComma {
+					break
+				}
+				p.next()
+				if p.peek().Type == lexer.TokenRBrace {
+					break
+				}
+			}
+		}
+		close := p.expect(lexer.TokenRBrace, "E057", "expected '}' to close dict")
+		return ast.DictExpr{
+			Entries: entries,
+			Span:    diag.Merge(open.Span, close.Span),
+		}
+	default:
+		p.diags.AddError(
+			"E058",
+			fmt.Sprintf("unexpected token '%s' in expression", tok.Text),
+			tok.Span,
+			"use a valid expression term",
+		)
+		p.next()
+		return ast.StringExpr{Value: "", Span: tok.Span}
+	}
+}
+
+func (p *tokenParser) parseCombExpr() ast.CombExpr {
+	return p.parseCombAdd()
+}
+
+func (p *tokenParser) parseCombAdd() ast.CombExpr {
+	left := p.parseCombMul()
+	for p.peek().Type == lexer.TokenPlus {
+		op := p.next()
+		right := p.parseCombMul()
+		left = ast.CombBinary{
+			Left:   left,
+			Op:     op.Text,
+			OpSpan: op.Span,
+			Right:  right,
+			Span:   diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseCombMul() ast.CombExpr {
+	left := p.parseCombPrimary()
+	for p.peek().Type == lexer.TokenStar {
+		op := p.next()
+		right := p.parseCombPrimary()
+		left = ast.CombBinary{
+			Left:   left,
+			Op:     op.Text,
+			OpSpan: op.Span,
+			Right:  right,
+			Span:   diag.Merge(left.GetSpan(), right.GetSpan()),
+		}
+	}
+	return left
+}
+
+func (p *tokenParser) parseCombPrimary() ast.CombExpr {
+	tok := p.peek()
+	if tok.Type == lexer.TokenIdent {
+		p.next()
+		return ast.CombIdent{Name: tok.Value, Span: tok.Span}
+	}
+	if tok.Type == lexer.TokenLParen {
+		p.next()
+		expr := p.parseCombExpr()
+		p.expect(lexer.TokenRParen, "E059", "expected ')' in combination expression")
+		return expr
+	}
+	p.diags.AddError(
+		"E060",
+		fmt.Sprintf("unexpected token '%s' in combination expression", tok.Text),
+		tok.Span,
+		"combination expression allows identifiers, +, *, and parentheses",
+	)
+	p.next()
+	return ast.CombIdent{Name: "", Span: tok.Span}
+}
+
+func (p *tokenParser) skipNewlines() {
+	for p.peek().Type == lexer.TokenNewline {
+		p.next()
+	}
+}
+
+func (p *tokenParser) consumeUntilNewline() {
+	for {
+		t := p.peek().Type
+		if t == lexer.TokenEOF || t == lexer.TokenNewline {
+			break
+		}
+		p.next()
+	}
+	p.skipNewlines()
+}
+
+func (p *tokenParser) expect(tt lexer.TokenType, code, message string) lexer.Token {
+	tok := p.peek()
+	if tok.Type != tt {
+		p.diags.AddError(code, message, tok.Span, "check token ordering and delimiters")
+		return tok
+	}
+	return p.next()
+}
+
+func (p *tokenParser) peek() lexer.Token {
+	if p.idx >= len(p.tokens) {
+		if len(p.tokens) == 0 {
+			return lexer.Token{Type: lexer.TokenEOF}
+		}
+		return p.tokens[len(p.tokens)-1]
+	}
+	return p.tokens[p.idx]
+}
+
+func (p *tokenParser) peekN(n int) lexer.Token {
+	i := p.idx + n
+	if i >= len(p.tokens) {
+		if len(p.tokens) == 0 {
+			return lexer.Token{Type: lexer.TokenEOF}
+		}
+		return p.tokens[len(p.tokens)-1]
+	}
+	return p.tokens[i]
+}
+
+func (p *tokenParser) next() lexer.Token {
+	tok := p.peek()
+	if p.idx < len(p.tokens) {
+		p.idx++
+	}
+	return tok
+}

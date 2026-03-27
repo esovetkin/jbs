@@ -1,0 +1,87 @@
+name: basic
+outpath: out
+parameterset:
+  - name: matrix
+    parameter:
+      - name: i
+        type: int
+        mode: text
+        _: 0,1
+      - name: case
+        mode: python
+        _: '["ddp","fsdp"][$i]'
+      - name: nnodes
+        mode: python
+        _: '[1,2][$i]'
+  - name: __subset_matrix__case
+    parameter:
+      - name: i
+        type: int
+        mode: text
+        _: 0,1
+      - name: case
+        mode: python
+        _: '["ddp","fsdp"][$i]'
+  - name: run__submit_params
+    init_with: platform.xml:systemParameter
+    parameter:
+      - name: queue
+        mode: python
+        _: __import__("os").environ.get("JUBE_QUEUE", {"juwelsbooster":"develbooster","jurecadc":"dc-gpu-devel","jusuf":"batch"}["${jbs_systemname}"])
+      - name: account
+        mode: python
+        _: __import__("os").environ.get("JUBE_ACCOUNT", "atmlaml")
+      - name: timelimit
+        mode: python
+        _: __import__("os").environ.get("JUBE_TIMELIMIT", "00:15:00")
+      - name: outlogfile
+        _: job.out
+      - name: outerrfile
+        _: job.err
+      - name: gres
+        _: gpu:4
+      - name: threadspertask
+        type: int
+        _: "48"
+      - name: nodes
+        type: int
+        _: "1"
+      - name: tasks
+        type: int
+        _: $jbs_nnodes
+      - name: executable
+        _: /bin/bash
+      - name: hint
+        _: nomultithread
+      - name: env
+        mode: text
+        separator: '|'
+        _: |2-
+            export X=1
+      - name: args_exec
+        _: '  python main.py --case ${case} --nnodes ${nnodes}'
+step:
+  - name: setup
+    use:
+      - __subset_matrix__case
+    do:
+      - |
+        set -euo pipefail
+        cd "${jube_benchmark_home}"
+          echo setup ${case}
+  - name: run
+    depend: setup
+    use:
+      - matrix
+      - run__submit_params
+      - from: platform.xml
+        _: jobfiles
+      - from: platform.xml
+        _: executesub
+      - from: platform.xml
+        _: executeset
+    do:
+      - done_file: $done_file
+        error_file: $error_file
+        _: ${submit} --parsable ${submit_script} > run.jobid
+      - echo "true" > success
