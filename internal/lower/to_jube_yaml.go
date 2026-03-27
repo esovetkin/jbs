@@ -25,6 +25,13 @@ func (l Literal) MarshalYAML() (interface{}, error) {
 	return &n, nil
 }
 
+type SingleQuoted string
+
+func (s SingleQuoted) MarshalYAML() (interface{}, error) {
+	n := yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: string(s), Style: yaml.SingleQuotedStyle}
+	return &n, nil
+}
+
 type Document struct {
 	Name         string         `yaml:"name"`
 	Outpath      string         `yaml:"outpath"`
@@ -207,7 +214,7 @@ func lowerGroupedParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterS
 		out.Parameter = append(out.Parameter, Parameter{
 			Name:  name,
 			Mode:  "python",
-			Value: pythonIndexExpr(values, "$i"),
+			Value: SingleQuoted(pythonIndexExpr(values, "$i")),
 		})
 	}
 	return out
@@ -362,6 +369,9 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 		p := Parameter{Name: spec.Target, Value: value}
 		if mode != "" {
 			p.Mode = mode
+			if mode == "python" {
+				p.Value = SingleQuoted(value)
+			}
 		}
 		if spec.Type != "" {
 			p.Type = spec.Type
@@ -513,7 +523,7 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 				}
 			}
 		}
-		params = append(params, Parameter{Name: variable, Mode: "python", Value: pythonIndexExpr(values, "$i")})
+		params = append(params, Parameter{Name: variable, Mode: "python", Value: SingleQuoted(pythonIndexExpr(values, "$i"))})
 	}
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{Name: name, Parameter: params})
