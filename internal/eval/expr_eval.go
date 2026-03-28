@@ -39,17 +39,6 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 			items = append(items, EvalExpr(it, env, diags))
 		}
 		return List(items)
-	case ast.DictExpr:
-		m := make(map[string]Value, len(e.Entries))
-		for _, entry := range e.Entries {
-			k := EvalExpr(entry.Key, env, diags)
-			if !k.IsScalar() {
-				diags.AddError("E101", "dict key must be scalar", entry.Key.GetSpan(), "use string/number/bool keys")
-				continue
-			}
-			m[k.String()] = EvalExpr(entry.Value, env, diags)
-		}
-		return Dict(m)
 	case ast.UnaryExpr:
 		v := EvalExpr(e.Expr, env, diags)
 		return evalUnary(e.Op, v, e.Span, diags)

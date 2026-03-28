@@ -186,6 +186,30 @@ param p {
 	}
 }
 
+func TestDictLiteralNotSupported(t *testing.T) {
+	src := `
+param p {
+  d = {"lr": 0.001}
+  d
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("dict_bad.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse error for dict literal")
+	}
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E058" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E058 for dict literal, got: %s", diags.String())
+	}
+}
+
 func TestParseModeExprAssignment(t *testing.T) {
 	src := `
 param p {

@@ -36,7 +36,7 @@ submit_value  := expr | raw_block
 Assignment expressions support:
 
 - scalar literals: string/int/float/bool
-- tuples/lists/dicts
+- tuples/lists
 - identifiers
 - unary `+`, `-`
 - binary `+`, `-`, `*`, `/`, `%`
@@ -65,6 +65,7 @@ Unsupported syntax (diagnostic emitted):
 
 - function calls
 - attribute access
+- dict literals
 - imports
 
 ## Combination Algebra

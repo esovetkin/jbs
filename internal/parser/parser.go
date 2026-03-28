@@ -1128,33 +1128,6 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 			Items: items,
 			Span:  diag.Merge(open.Span, close.Span),
 		}
-	case lexer.TokenLBrace:
-		open := p.next()
-		entries := make([]ast.DictEntry, 0)
-		if p.peek().Type != lexer.TokenRBrace {
-			for {
-				key := p.parseExpr()
-				p.expect(lexer.TokenColon, "E056", "expected ':' in dict entry")
-				value := p.parseExpr()
-				entries = append(entries, ast.DictEntry{
-					Key:   key,
-					Value: value,
-					Span:  diag.Merge(key.GetSpan(), value.GetSpan()),
-				})
-				if p.peek().Type != lexer.TokenComma {
-					break
-				}
-				p.next()
-				if p.peek().Type == lexer.TokenRBrace {
-					break
-				}
-			}
-		}
-		close := p.expect(lexer.TokenRBrace, "E057", "expected '}' to close dict")
-		return ast.DictExpr{
-			Entries: entries,
-			Span:    diag.Merge(open.Span, close.Span),
-		}
 	default:
 		p.diags.AddError(
 			"E058",

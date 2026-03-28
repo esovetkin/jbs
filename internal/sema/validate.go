@@ -169,7 +169,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		if !isScalarGlobalValue(v) {
 			diags.AddError(
 				"E304",
-				fmt.Sprintf("global variable '%s' must be scalar; tuples/lists/dicts are not allowed", assign.Name),
+				fmt.Sprintf("global variable '%s' must be scalar; tuples/lists are not allowed", assign.Name),
 				assign.Span,
 				"use string/int/float/bool or shell()/python() scalar values",
 			)

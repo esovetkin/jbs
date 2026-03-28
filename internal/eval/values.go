@@ -3,8 +3,6 @@ package eval
 import (
 	"fmt"
 	"math"
-	"reflect"
-	"sort"
 	"strings"
 )
 
@@ -17,7 +15,6 @@ const (
 	KindString Kind = "string"
 	KindBool   Kind = "bool"
 	KindList   Kind = "list"
-	KindDict   Kind = "dict"
 )
 
 type Value struct {
@@ -27,16 +24,14 @@ type Value struct {
 	S    string
 	B    bool
 	L    []Value
-	D    map[string]Value
 }
 
-func Null() Value                   { return Value{Kind: KindNull} }
-func Int(v int64) Value             { return Value{Kind: KindInt, I: v} }
-func Float(v float64) Value         { return Value{Kind: KindFloat, F: v} }
-func String(v string) Value         { return Value{Kind: KindString, S: v} }
-func Bool(v bool) Value             { return Value{Kind: KindBool, B: v} }
-func List(v []Value) Value          { return Value{Kind: KindList, L: v} }
-func Dict(v map[string]Value) Value { return Value{Kind: KindDict, D: v} }
+func Null() Value           { return Value{Kind: KindNull} }
+func Int(v int64) Value     { return Value{Kind: KindInt, I: v} }
+func Float(v float64) Value { return Value{Kind: KindFloat, F: v} }
+func String(v string) Value { return Value{Kind: KindString, S: v} }
+func Bool(v bool) Value     { return Value{Kind: KindBool, B: v} }
+func List(v []Value) Value  { return Value{Kind: KindList, L: v} }
 
 func (v Value) IsScalar() bool {
 	return v.Kind == KindInt || v.Kind == KindFloat || v.Kind == KindString || v.Kind == KindBool
@@ -61,17 +56,6 @@ func (v Value) String() string {
 			parts = append(parts, x.String())
 		}
 		return "[" + strings.Join(parts, ",") + "]"
-	case KindDict:
-		keys := make([]string, 0, len(v.D))
-		for k := range v.D {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, fmt.Sprintf("%s:%s", k, v.D[k].String()))
-		}
-		return "{" + strings.Join(parts, ",") + "}"
 	default:
 		return ""
 	}
@@ -110,8 +94,6 @@ func Equal(a, b Value) bool {
 			}
 		}
 		return true
-	case KindDict:
-		return reflect.DeepEqual(a.D, b.D)
 	default:
 		return true
 	}

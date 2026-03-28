@@ -213,8 +213,6 @@ func (l *Lexer) lexSymbol() {
 	switch r {
 	case ',':
 		tt = TokenComma
-	case ':':
-		tt = TokenColon
 	case '=':
 		if l.peek() == '=' {
 			l.advance()

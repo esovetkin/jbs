@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -429,17 +428,6 @@ func pythonLiteral(v eval.Value) string {
 			parts = append(parts, pythonLiteral(item))
 		}
 		return "[" + strings.Join(parts, ",") + "]"
-	case eval.KindDict:
-		keys := make([]string, 0, len(v.D))
-		for k := range v.D {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, key := range keys {
-			parts = append(parts, strconv.Quote(key)+":"+pythonLiteral(v.D[key]))
-		}
-		return "{" + strings.Join(parts, ",") + "}"
 	default:
 		return strconv.Quote(v.String())
 	}
@@ -495,7 +483,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 				}
 			} else {
 				switch field.Value.Kind {
-				case eval.KindList, eval.KindDict, eval.KindNull:
+				case eval.KindList, eval.KindNull:
 					param.Value = pythonLiteral(field.Value)
 				default:
 					param.Value = templateValue(field.Value)

@@ -11,7 +11,6 @@ const (
 	TokenNumber   TokenType = "NUMBER"
 	TokenString   TokenType = "STRING"
 	TokenComma    TokenType = ","
-	TokenColon    TokenType = ":"
 	TokenEqual    TokenType = "="
 	TokenLParen   TokenType = "("
 	TokenRParen   TokenType = ")"

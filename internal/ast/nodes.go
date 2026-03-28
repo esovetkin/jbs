@@ -142,22 +142,6 @@ type TupleExpr struct {
 func (e TupleExpr) exprNode()          {}
 func (e TupleExpr) GetSpan() diag.Span { return e.Span }
 
-type DictEntry struct {
-	Key   Expr
-	Value Expr
-	Span  diag.Span
-}
-
-func (e DictEntry) GetSpan() diag.Span { return e.Span }
-
-type DictExpr struct {
-	Entries []DictEntry
-	Span    diag.Span
-}
-
-func (e DictExpr) exprNode()          {}
-func (e DictExpr) GetSpan() diag.Span { return e.Span }
-
 type UnaryExpr struct {
 	Op   string
 	Expr Expr
