@@ -6,11 +6,12 @@ import (
 )
 
 type Flags struct {
-	Input       string
-	Output      string
-	Check       bool
-	Help        bool
-	HelpGlobals bool
+	Input        string
+	Output       string
+	Check        bool
+	Help         bool
+	HelpGlobals  bool
+	HelpTemplate bool
 }
 
 type UsageError struct {
@@ -37,7 +38,12 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.HelpGlobals = true
 			return cfg, nil
 		}
-		return Flags{}, UsageError{Message: "usage: jbs help [globals]"}
+		if len(args) == 2 && args[1] == "template" {
+			cfg.Help = true
+			cfg.HelpTemplate = true
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs help [globals|template]"}
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -74,6 +80,7 @@ func UsageText() string {
   jbs script.jbs > script.yaml
   jbs help
   jbs help globals
+  jbs help template
 
 Options:
   -o, --output   Output path (default: - for stdout)

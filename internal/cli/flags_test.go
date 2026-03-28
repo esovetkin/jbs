@@ -74,6 +74,16 @@ func TestParseFlagsHelpGlobals(t *testing.T) {
 	}
 }
 
+func TestParseFlagsHelpTemplate(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "template"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpTemplate {
+		t.Fatalf("expected help template mode")
+	}
+}
+
 func TestParseFlagsHelpUnknownSubcommand(t *testing.T) {
 	if _, err := ParseFlags([]string{"help", "badtopic"}); err == nil {
 		t.Fatalf("expected usage error for unknown help subcommand")

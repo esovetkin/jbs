@@ -24,6 +24,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Help {
 		if flags.HelpGlobals {
 			printGlobalsHelp(stdout)
+		} else if flags.HelpTemplate {
+			printTemplateHelp(stdout)
 		} else {
 			fmt.Fprintln(stdout, UsageText())
 		}
@@ -167,6 +169,29 @@ func printGlobalsHelp(out io.Writer) {
 		fmt.Fprintln(out, globalAssignmentLine(spec))
 		fmt.Fprintln(out, "")
 	}
+}
+
+func printTemplateHelp(out io.Writer) {
+	_, _ = io.WriteString(out, `# `+"`jbs help globals`"+`
+jbs_name="jbs_benchmark"
+jbs_outpath="out"
+
+param <paramset>
+{
+    # definition of parameterset, user + and * for
+}
+
+do <name0> with <paramset> {
+    # executed on a login node
+}
+
+submit <name1> after <name0> with <paramset>
+{
+    # env preamble
+} {
+    # part that is executed within srun
+}
+`)
 }
 
 func globalAssignmentLine(spec lower.GlobalSpec) string {
