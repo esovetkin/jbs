@@ -22,9 +22,10 @@ func compileDoc(t *testing.T, src string) (lower.Document, *diag.Diagnostics) {
 func TestPureOuterProductLowering(t *testing.T) {
 	src := `
 param p {
-  a = (1,2)
-  b = ("x","y")
-  a * b
+  a = ("a","b","c")
+  b = ("1","2")
+  c = (1,2)
+  a * b * c
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -38,11 +39,19 @@ param p {
 	if ps.Name != "p" {
 		t.Fatalf("unexpected parameterset name: %s", ps.Name)
 	}
-	if len(ps.Parameter) != 2 {
-		t.Fatalf("expected 2 params, got %d", len(ps.Parameter))
+	if len(ps.Parameter) != 4 {
+		t.Fatalf("expected i + 3 params, got %d", len(ps.Parameter))
 	}
-	if ps.Parameter[0].Separator != lower.ReservedSeparator || ps.Parameter[1].Separator != lower.ReservedSeparator {
-		t.Fatalf("expected reserved separator in both template params")
+	if ps.Parameter[0].Name != "i" || ps.Parameter[0].Type != "int" || ps.Parameter[0].Mode != "text" {
+		t.Fatalf("expected indexed lowering via i parameter, got %#v", ps.Parameter[0])
+	}
+	if ps.Parameter[0].Value != "0,1,2,3,4,5,6,7,8,9,10,11" {
+		t.Fatalf("unexpected i range: %#v", ps.Parameter[0].Value)
+	}
+	for _, p := range ps.Parameter[1:] {
+		if p.Mode != "python" {
+			t.Fatalf("expected python mode payload parameter, got %#v", p)
+		}
 	}
 }
 
@@ -70,22 +79,97 @@ param p {
 	}
 }
 
-func TestReservedSeparatorError(t *testing.T) {
+func TestSubsetSingleVarUsesIndexMask(t *testing.T) {
 	src := `
-param p {
-  a = ("ok","bad####value")
-  a
+param param {
+  a = ("a","b","c")
+  b = ("1","2")
+  c = (1,2)
+  a * b + c
+}
+
+do task with a from param {
+  echo ${a}
 }
 `
-	_, diags := compileDoc(t, src)
-	found := false
-	for _, d := range diags.Items {
-		if d.Code == "E053" {
-			found = true
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var subset *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "__subset_param__a") {
+			subset = &doc.ParameterSet[i]
+			break
 		}
 	}
-	if !found {
-		t.Fatalf("expected E053, got: %s", diags.String())
+	if subset == nil {
+		t.Fatalf("expected subset parameterset for a import")
+	}
+	if len(subset.Parameter) != 2 {
+		t.Fatalf("expected i + a in subset, got %#v", subset.Parameter)
+	}
+	if subset.Parameter[0].Name != "i" || subset.Parameter[0].Value != "0,2,4" {
+		t.Fatalf("expected i mask 0,2,4, got %#v", subset.Parameter[0])
+	}
+	if subset.Parameter[1].Name != "a" || subset.Parameter[1].Mode != "python" {
+		t.Fatalf("expected python indexed a param, got %#v", subset.Parameter[1])
+	}
+	gotExpr, ok := subset.Parameter[1].Value.(lower.SingleQuoted)
+	if !ok {
+		t.Fatalf("expected single-quoted python expression, got %T", subset.Parameter[1].Value)
+	}
+	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$i]" {
+		t.Fatalf("unexpected subset a expression: %q", string(gotExpr))
+	}
+}
+
+func TestSubsetTupleFromSameParam(t *testing.T) {
+	src := `
+param param {
+  a = ("a","b","c")
+  b = ("1","2")
+  c = (1,2)
+  a * b + c
+}
+
+do task with (a,b) from param {
+  echo ${a} ${b}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var subset *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "__subset_param__a_b") {
+			subset = &doc.ParameterSet[i]
+			break
+		}
+	}
+	if subset == nil {
+		t.Fatalf("expected subset parameterset for (a,b) import")
+	}
+	if len(subset.Parameter) != 3 {
+		t.Fatalf("expected i + a + b in subset, got %#v", subset.Parameter)
+	}
+	if subset.Parameter[0].Name != "i" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
+		t.Fatalf("unexpected tuple subset i mask: %#v", subset.Parameter[0])
+	}
+	if subset.Parameter[1].Mode != "python" || subset.Parameter[2].Mode != "python" {
+		t.Fatalf("expected python indexed tuple subset params, got %#v", subset.Parameter)
+	}
+	aExpr, okA := subset.Parameter[1].Value.(lower.SingleQuoted)
+	bExpr, okB := subset.Parameter[2].Value.(lower.SingleQuoted)
+	if !okA || !okB {
+		t.Fatalf("expected single-quoted tuple expressions, got %T %T", subset.Parameter[1].Value, subset.Parameter[2].Value)
+	}
+	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$i]" {
+		t.Fatalf("unexpected a expression: %q", string(aExpr))
+	}
+	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$i]" {
+		t.Fatalf("unexpected b expression: %q", string(bExpr))
 	}
 }
 
@@ -179,6 +263,49 @@ do setup with a from p1, p2 {
 	}
 }
 
+func TestMixedWithTupleVariableAndWholeParamsetLowering(t *testing.T) {
+	src := `
+param p1 {
+  a = (1,2)
+  b = ("m","n")
+  a * b
+}
+param p2 {
+  c = ("x","y")
+  c
+}
+do setup with (a,b) from p1, p2 {
+  echo ${a} ${b} ${c}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one step")
+	}
+	use := doc.Step[0].Use
+	hasP2 := false
+	hasSubsetP1 := false
+	for _, u := range use {
+		if s, ok := u.(string); ok {
+			if s == "p2" {
+				hasP2 = true
+			}
+			if strings.HasPrefix(s, "__subset_p1__") {
+				hasSubsetP1 = true
+			}
+		}
+	}
+	if !hasP2 {
+		t.Fatalf("expected direct import of full parameterset p2 in step use list: %#v", use)
+	}
+	if !hasSubsetP1 {
+		t.Fatalf("expected subset import for (a,b) from p1 in step use list: %#v", use)
+	}
+}
+
 func TestModeDeclarationsLowering(t *testing.T) {
 	src := `
 param p {
@@ -192,8 +319,8 @@ param p {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
 	ps := doc.ParameterSet[0]
-	if len(ps.Parameter) != 2 {
-		t.Fatalf("expected two parameters, got %d", len(ps.Parameter))
+	if len(ps.Parameter) != 3 {
+		t.Fatalf("expected i + two parameters, got %d", len(ps.Parameter))
 	}
 	var queue, system lower.Parameter
 	for _, p := range ps.Parameter {

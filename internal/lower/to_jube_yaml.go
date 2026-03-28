@@ -173,142 +173,135 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 			Source: ps.Name,
 		},
 	}
-	if ps.HasPlus {
-		return lowerGroupedParamset(ps, diags)
-	}
 
-	for _, name := range ps.Order {
-		values := ps.Vars[name]
-		if len(values) == 0 {
-			diags.AddError(
-				"E230",
-				fmt.Sprintf("parameter '%s' has no values", name),
-				ps.Block.Span,
-				"ensure final expression yields at least one row",
-			)
-			continue
-		}
-		if mode := ps.Modes[name]; mode != "" {
-			param := Parameter{Name: name, Mode: mode}
-			if mode == "python" {
-				if allEqualValues(values) {
-					param.Value = SingleQuoted(asString(values[0]))
-				} else {
-					diags.AddError(
-						"E216",
-						fmt.Sprintf("%s(...) parameter '%s' cannot have multiple different values in non-grouped lowering", mode, name),
-						originFor(ps, name),
-						"use a single expression value for mode-declared parameters",
-					)
-					param.Value = SingleQuoted(asString(values[0]))
-				}
-			} else if mode == "shell" {
-				if !allEqualValues(values) {
-					diags.AddError(
-						"E216",
-						fmt.Sprintf("%s(...) parameter '%s' cannot have multiple different values", mode, name),
-						originFor(ps, name),
-						"use a single expression value for mode-declared parameters",
-					)
-				}
-				param.Value = asString(values[0])
-			} else {
-				param.Value = asString(values[0])
-			}
-			out.Parameter = append(out.Parameter, param)
-			continue
-		}
-		parts := make([]string, 0, len(values))
-		for _, value := range values {
-			part := templateValue(value)
-			if strings.Contains(part, ReservedSeparator) {
-				diags.AddError(
-					"E053",
-					fmt.Sprintf("value for '%s' contains reserved separator '%s'", name, ReservedSeparator),
-					originFor(ps, name),
-					"change parameter values to avoid the reserved separator",
-				)
-			}
-			parts = append(parts, part)
-		}
-		param := Parameter{Name: name}
-		if t := inferType(values); t != "" {
-			param.Type = t
-		}
-		if len(parts) > 1 {
-			param.Mode = "text"
-			param.Separator = ReservedSeparator
-			param.Value = strings.Join(parts, ReservedSeparator)
-		} else {
-			param.Value = parts[0]
-		}
-		out.Parameter = append(out.Parameter, param)
-	}
-	return out
-}
-
-func lowerGroupedParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
-	out := ParameterSet{
-		Name:      ps.Name,
-		Parameter: make([]Parameter, 0),
-		Meta: ParameterSetMeta{
-			Kind:   ParameterSetKindParam,
-			Source: ps.Name,
-		},
-	}
 	rowCount := len(ps.Rows)
+	if rowCount == 0 {
+		for _, name := range ps.Order {
+			if n := len(ps.Vars[name]); n > rowCount {
+				rowCount = n
+			}
+		}
+	}
 	if rowCount == 0 {
 		diags.AddError(
 			"E230",
 			fmt.Sprintf("parameterset '%s' evaluates to zero rows", ps.Name),
 			ps.Block.Span,
-			"ensure direct-sum operands are non-empty",
+			"ensure final expression yields at least one row",
 		)
 		rowCount = 1
 	}
 
-	indices := make([]string, rowCount)
-	for i := range rowCount {
-		indices[i] = strconv.Itoa(i)
+	valuesByName := make(map[string][]eval.Value, len(ps.Order))
+	for _, name := range ps.Order {
+		valuesByName[name] = valuesFor(ps, name, rowCount)
 	}
-	out.Parameter = append(out.Parameter, Parameter{
+
+	indices := sequentialIndices(rowCount)
+	out.Parameter = lowerIndexedParameters(ps.Order, valuesByName, ps.Modes, indices, func(name string) diag.Span {
+		return originFor(ps, name)
+	}, diags)
+	return out
+}
+
+func lowerIndexedParameters(
+	order []string,
+	valuesByName map[string][]eval.Value,
+	modes map[string]string,
+	indices []int,
+	origin func(name string) diag.Span,
+	diags *diag.Diagnostics,
+) []Parameter {
+	if len(indices) == 0 {
+		indices = []int{0}
+	}
+
+	params := make([]Parameter, 0, len(order)+1)
+	params = append(params, Parameter{
 		Name:  "i",
 		Type:  "int",
 		Mode:  "text",
-		Value: strings.Join(indices, ","),
+		Value: joinIntIndices(indices),
 	})
 
-	for _, name := range ps.Order {
-		values := valuesFor(ps, name, rowCount)
-		if mode := ps.Modes[name]; mode != "" {
+	for _, name := range order {
+		fullValues := valuesByName[name]
+		selectedValues := pickValuesAtIndices(fullValues, indices)
+		if len(fullValues) == 0 {
+			fullValues = []eval.Value{eval.Null()}
+		}
+		if len(selectedValues) == 0 {
+			selectedValues = []eval.Value{fullValues[0]}
+		}
+
+		if mode := modes[name]; mode != "" {
 			param := Parameter{Name: name, Mode: mode}
-			if mode == "python" {
-				if allEqualValues(values) {
-					param.Value = SingleQuoted(asString(values[0]))
+			switch mode {
+			case "python":
+				if allEqualValues(selectedValues) {
+					param.Value = SingleQuoted(asString(selectedValues[0]))
 				} else {
-					param.Value = SingleQuoted(pythonIndexExpr(values, "$i"))
+					param.Value = SingleQuoted(pythonIndexExpr(fullValues, "$i"))
 				}
-			} else if mode == "shell" {
-				if !allEqualValues(values) {
+			case "shell":
+				if !allEqualValues(selectedValues) {
 					diags.AddError(
 						"E216",
-						fmt.Sprintf("%s(...) parameter '%s' cannot vary across grouped rows", mode, name),
-						originFor(ps, name),
+						fmt.Sprintf("%s(...) parameter '%s' cannot vary across indexed rows", mode, name),
+						origin(name),
 						"use a single expression value for mode-declared parameters",
 					)
 				}
-				param.Value = asString(values[0])
-			} else {
-				param.Value = asString(values[0])
+				param.Value = asString(selectedValues[0])
+			default:
+				param.Value = asString(selectedValues[0])
 			}
-			out.Parameter = append(out.Parameter, param)
+			params = append(params, param)
 			continue
 		}
-		out.Parameter = append(out.Parameter, Parameter{
+
+		params = append(params, Parameter{
 			Name:  name,
 			Mode:  "python",
-			Value: SingleQuoted(pythonIndexExpr(values, "$i")),
+			Value: SingleQuoted(pythonIndexExpr(fullValues, "$i")),
 		})
+	}
+	return params
+}
+
+func sequentialIndices(n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	out := make([]int, n)
+	for i := range n {
+		out[i] = i
+	}
+	return out
+}
+
+func joinIntIndices(indices []int) string {
+	if len(indices) == 0 {
+		return ""
+	}
+	out := make([]string, len(indices))
+	for i, idx := range indices {
+		out[i] = strconv.Itoa(idx)
+	}
+	return strings.Join(out, ",")
+}
+
+func pickValuesAtIndices(values []eval.Value, indices []int) []eval.Value {
+	if len(indices) == 0 {
+		return nil
+	}
+	out := make([]eval.Value, 0, len(indices))
+	for _, idx := range indices {
+		if idx >= 0 && idx < len(values) {
+			out = append(out, values[idx])
+			continue
+		}
+		out = append(out, eval.Null())
 	}
 	return out
 }
@@ -640,58 +633,18 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 	}
 
 	name := ctx.uniqueName("__subset_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
-	indices := make([]string, rowCount)
-	for i := range rowCount {
-		indices[i] = strconv.Itoa(i)
-	}
-	params := []Parameter{{Name: "i", Type: "int", Mode: "text", Value: strings.Join(indices, ",")}}
+	valuesByName := make(map[string][]eval.Value, len(vars))
 	for _, variable := range vars {
-		values := make([]eval.Value, 0, rowCount)
-		if len(src.Rows) > 0 {
-			for _, row := range src.Rows {
-				if cell, ok := row.Values[variable]; ok {
-					values = append(values, cell.Value)
-				}
-			}
-		}
-		if len(values) == 0 {
-			base := src.Vars[variable]
-			if len(base) == 0 {
-				for range rowCount {
-					values = append(values, eval.Null())
-				}
-			} else {
-				for i := range rowCount {
-					values = append(values, base[i%len(base)])
-				}
-			}
-		}
-		if mode := src.Modes[variable]; mode != "" {
-			param := Parameter{Name: variable, Mode: mode}
-			if mode == "python" {
-				if allEqualValues(values) {
-					param.Value = SingleQuoted(asString(values[0]))
-				} else {
-					param.Value = SingleQuoted(pythonIndexExpr(values, "$i"))
-				}
-			} else if mode == "shell" {
-				if !allEqualValues(values) {
-					ctx.diags.AddError(
-						"E216",
-						fmt.Sprintf("%s(...) parameter '%s' cannot vary across grouped rows", mode, variable),
-						originFor(src, variable),
-						"use a single expression value for mode-declared parameters",
-					)
-				}
-				param.Value = asString(values[0])
-			} else {
-				param.Value = asString(values[0])
-			}
-			params = append(params, param)
-			continue
-		}
-		params = append(params, Parameter{Name: variable, Mode: "python", Value: SingleQuoted(pythonIndexExpr(values, "$i"))})
+		valuesByName[variable] = valuesFor(src, variable, rowCount)
 	}
+
+	mask := firstOccurrenceMaskIndices(vars, valuesByName, rowCount)
+	if len(mask) == 0 {
+		mask = []int{0}
+	}
+	params := lowerIndexedParameters(vars, valuesByName, src.Modes, mask, func(varName string) diag.Span {
+		return originFor(src, varName)
+	}, ctx.diags)
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
 		Name:      name,
@@ -704,6 +657,46 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 	ctx.names[name] = struct{}{}
 	ctx.subsetNames[k] = name
 	return name
+}
+
+func firstOccurrenceMaskIndices(vars []string, valuesByName map[string][]eval.Value, rowCount int) []int {
+	if rowCount <= 0 {
+		return nil
+	}
+	if len(vars) == 0 {
+		return sequentialIndices(rowCount)
+	}
+
+	seen := make(map[string]struct{})
+	indices := make([]int, 0, rowCount)
+	for row := 0; row < rowCount; row++ {
+		key := tupleKeyAt(vars, valuesByName, row)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		indices = append(indices, row)
+	}
+	return indices
+}
+
+func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {
+	var b strings.Builder
+	for _, name := range vars {
+		values := valuesByName[name]
+		value := eval.Null()
+		if row >= 0 && row < len(values) {
+			value = values[row]
+		}
+		lit := pythonLiteral(value)
+		b.WriteString(name)
+		b.WriteByte('=')
+		b.WriteString(strconv.Itoa(len(lit)))
+		b.WriteByte(':')
+		b.WriteString(lit)
+		b.WriteByte('|')
+	}
+	return b.String()
 }
 
 func (ctx *lowerContext) uniqueName(base string) string {

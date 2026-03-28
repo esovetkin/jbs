@@ -55,6 +55,13 @@ Rules:
 - `do <name> ... { ... }`
 - `submit <name> ... { key = value ... }`
 
+`with` imports support:
+
+- full parametersets: `with p1, p2`
+- variable imports: `with a from p1`
+- tuple imports: `with (a,b) from p1`
+- mixed form: `with a from p1, p2` and `with (a,b) from p1, p2`
+
 See [docs/language.md](docs/language.md) for full grammar and semantics.
 
 ## Generated YAML Comments
@@ -76,7 +83,6 @@ parameterset:
 - `E303`: `jbs_name` / `jbs_outpath` cannot use `shell()` / `python()`.
 - `E036`: the same identifier is used twice in one combination expression (`A + A`, `(A+B)*A`).
 - `E042`: two rows merged by `+`/`*` provide different values for the same key.
-- `E053`: value contains reserved separator `####`.
 - `E072`-`E076`: invalid submit key/value syntax and structure in `submit` blocks.
 - `W101`: `+` zipped lists of different lengths; cyclic broadcast to max length was applied.
 

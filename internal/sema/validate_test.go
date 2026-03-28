@@ -115,6 +115,29 @@ do work with a from p1, p2 {
 	}
 }
 
+func TestMixedWithTupleVariableAndParamsetImport(t *testing.T) {
+	src := `
+param p1 {
+  a = (1,2)
+  b = ("m","n")
+  a * b
+}
+param p2 {
+  c = ("x","y")
+  c
+}
+do work with (a,b) from p1, p2 {
+  echo ${a} ${b} ${c}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected mixed tuple with import to be valid, got: %s", diags.String())
+	}
+}
+
 func TestUnknownTopLevelGlobalRejected(t *testing.T) {
 	src := `
 not_a_global = "x"

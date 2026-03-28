@@ -55,6 +55,61 @@ submit run after work with p {
 	}
 }
 
+func TestParseWithTupleImports(t *testing.T) {
+	src := `
+do task with (a,b) from p, q {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("tuple.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if got := len(db.WithItems); got != 3 {
+		t.Fatalf("expected 3 with items, got %d", got)
+	}
+	if db.WithItems[0].Name != "a" || db.WithItems[0].From != "p" {
+		t.Fatalf("unexpected first tuple item: %#v", db.WithItems[0])
+	}
+	if db.WithItems[1].Name != "b" || db.WithItems[1].From != "p" {
+		t.Fatalf("unexpected second tuple item: %#v", db.WithItems[1])
+	}
+	if db.WithItems[2].Name != "q" || db.WithItems[2].From != "p" {
+		t.Fatalf("unexpected carry-forward item: %#v", db.WithItems[2])
+	}
+}
+
+func TestParseWithTupleMalformed(t *testing.T) {
+	src := `
+do task with (a,b from p {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("tuple_bad.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse error")
+	}
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E023" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E023 for malformed tuple, got: %s", diags.String())
+	}
+}
+
 func TestSubmitMalformedStatementError(t *testing.T) {
 	src := `
 submit run {

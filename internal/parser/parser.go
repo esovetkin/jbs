@@ -301,25 +301,32 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 	items := make([]ast.WithItem, 0)
 	currentFrom := ""
 	for {
-		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
-		if name == "" {
+		names, ok := p.parseWithNames()
+		if !ok || len(names) == 0 {
 			break
 		}
-		item := ast.WithItem{Name: name, Span: span}
 
+		src := ""
+		srcSpan := diag.Span{}
 		p.skipTriviaInline()
 		word, ok := p.peekWord()
 		if ok && word == "from" {
 			p.consumeWord()
-			src, srcSpan := p.parseRequiredIdent("E024", "expected source parameterset name after 'from'")
-			item.From = src
-			item.Span = diag.Merge(item.Span, srcSpan)
-			currentFrom = src
+			srcName, fromSpan := p.parseRequiredIdent("E024", "expected source parameterset name after 'from'")
+			src = srcName
+			srcSpan = fromSpan
+			currentFrom = srcName
 		} else if currentFrom != "" {
-			item.From = currentFrom
+			src = currentFrom
 		}
 
-		items = append(items, item)
+		for _, name := range names {
+			item := ast.WithItem{Name: name.Name, Span: name.Span, From: src}
+			if src != "" && !srcSpan.IsZero() {
+				item.Span = diag.Merge(item.Span, srcSpan)
+			}
+			items = append(items, item)
+		}
 		p.skipTriviaInline()
 		if p.peek() != ',' {
 			break
@@ -327,6 +334,60 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 		p.advance()
 	}
 	return items
+}
+
+type withName struct {
+	Name string
+	Span diag.Span
+}
+
+func (p *Parser) parseWithNames() ([]withName, bool) {
+	p.skipTriviaInline()
+	if p.peek() != '(' {
+		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
+		if name == "" {
+			return nil, false
+		}
+		return []withName{{Name: name, Span: span}}, true
+	}
+
+	tupleStart := p.pos()
+	p.advance()
+	names := make([]withName, 0)
+
+	for {
+		p.skipTriviaInline()
+		if p.peek() == ')' {
+			if len(names) == 0 {
+				span := diag.NewSpan(p.file, tupleStart, p.pos())
+				p.diags.AddError("E023", "empty tuple in with clause", span, "add at least one identifier inside parentheses")
+			} else {
+				span := diag.NewSpan(p.file, tupleStart, p.pos())
+				p.diags.AddError("E023", "trailing comma in with-clause tuple", span, "remove trailing comma or add another identifier")
+			}
+			p.advance()
+			return names, len(names) > 0
+		}
+
+		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
+		if name == "" {
+			return names, len(names) > 0
+		}
+		names = append(names, withName{Name: name, Span: span})
+
+		p.skipTriviaInline()
+		switch p.peek() {
+		case ',':
+			p.advance()
+		case ')':
+			p.advance()
+			return names, true
+		default:
+			span := diag.NewSpan(p.file, tupleStart, p.pos())
+			p.diags.AddError("E023", "unterminated tuple in with clause; missing ')'", span, "close tuple imports with ')'")
+			return names, len(names) > 0
+		}
+	}
 }
 
 func (p *Parser) parseNameList() []string {

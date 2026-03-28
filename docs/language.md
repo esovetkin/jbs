@@ -14,6 +14,7 @@ final_expr    := comb_expr NEWLINE
 
 with_clause   := "with" with_item ("," with_item)*
 with_item     := IDENT ("from" IDENT)?
+              | "(" IDENT ("," IDENT)+ ")" ("from" IDENT)?
 
 do_block      := "do" IDENT after_clause? with_clause? raw_block
 submit_block  := "submit" IDENT after_clause? with_clause? "{" submit_stmt* "}"
@@ -88,6 +89,8 @@ Supported forms:
 - `with p2, p3`
 - `with x from p2, y, z from p3`
 - mixed form: `with x from p2, p3`
+- tuple form: `with (x,y) from p2`
+- mixed tuple form: `with (x,y) from p2, p3`
 
 In `param`:
 
@@ -98,14 +101,15 @@ In `do`/`submit`:
 
 - `with p2` uses whole parameter set.
 - `with x from p2` generates a synthetic subset parameterset containing only selected variables.
+- `with (x,y) from p2` generates one synthetic subset parameterset for selected variables.
 - In mixed form (`with x from p2, p3`), `p3` is treated as whole-parameterset import.
+- In mixed tuple form (`with (x,y) from p2, p3`), `p3` is treated as whole-parameterset import.
 
 ## Lowering to JUBE YAML
 
-### `param` lowering modes
+### `param` lowering
 
-1. Pure outer product (`*` only): template parameters with fixed separator `####`.
-2. Any direct sum (`+` present): grouped/indexed representation:
+All paramsets lower to indexed representation:
 
 ```yaml
 parameterset:
@@ -116,7 +120,7 @@ parameterset:
       - { name: b, mode: python, _: "['x','y','z'][$i]" }
 ```
 
-This preserves direct-sum row alignment under JUBE semantics.
+This keeps direct-sum alignment and outer-product expansion explicitly coordinated by `i`.
 
 ### `do` lowering
 
@@ -176,7 +180,6 @@ Key codes:
 - `E021`: unknown imported variable.
 - `E036`: repeated identifier in combination expression.
 - `E042`: conflicting key values during row merge.
-- `E053`: reserved separator `####` appears in value.
 - `E072`: unknown submit key.
 - `E073`: `preprocess`/`postprocess` require raw-block values.
 - `E074`: non-raw submit keys cannot use raw-block values.
