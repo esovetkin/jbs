@@ -285,3 +285,76 @@ submit run with p {
 		t.Fatalf("missing queue/nodes/tasks params in submit set")
 	}
 }
+
+func TestLoweringPopulatesRoleMetadata(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+
+do prep with a from p {
+  echo prep
+}
+
+submit run after prep with p {
+  export X=1
+} {
+  echo ok
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+
+	var paramSet *lower.ParameterSet
+	var subsetSet *lower.ParameterSet
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		switch {
+		case ps.Name == "p":
+			paramSet = ps
+		case strings.HasPrefix(ps.Name, "__subset_"):
+			subsetSet = ps
+		case strings.HasSuffix(ps.Name, "__submit_params"):
+			submitSet = ps
+		}
+	}
+	if paramSet == nil || subsetSet == nil || submitSet == nil {
+		t.Fatalf("expected param/subset/submit parametersets, got %#v", doc.ParameterSet)
+	}
+	if paramSet.Meta.Kind != lower.ParameterSetKindParam || paramSet.Meta.Source != "p" {
+		t.Fatalf("unexpected paramset meta: %#v", paramSet.Meta)
+	}
+	if subsetSet.Meta.Kind != lower.ParameterSetKindSubset || subsetSet.Meta.Source != "p" {
+		t.Fatalf("unexpected subset meta: %#v", subsetSet.Meta)
+	}
+	if submitSet.Meta.Kind != lower.ParameterSetKindSubmitInit || submitSet.Meta.Source != "run" {
+		t.Fatalf("unexpected submit meta: %#v", submitSet.Meta)
+	}
+
+	if len(doc.Step) != 2 {
+		t.Fatalf("expected two steps, got %d", len(doc.Step))
+	}
+	var prep, run *lower.Step
+	for i := range doc.Step {
+		s := &doc.Step[i]
+		if s.Name == "prep" {
+			prep = s
+		}
+		if s.Name == "run" {
+			run = s
+		}
+	}
+	if prep == nil || run == nil {
+		t.Fatalf("missing prep/run steps: %#v", doc.Step)
+	}
+	if prep.Meta.Kind != lower.StepKindDo || prep.Meta.Source != "prep" {
+		t.Fatalf("unexpected prep step meta: %#v", prep.Meta)
+	}
+	if run.Meta.Kind != lower.StepKindSubmit || run.Meta.Source != "run" {
+		t.Fatalf("unexpected run step meta: %#v", run.Meta)
+	}
+}

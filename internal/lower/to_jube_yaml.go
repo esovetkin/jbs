@@ -36,12 +36,29 @@ type Document struct {
 	Outpath      string         `yaml:"outpath"`
 	ParameterSet []ParameterSet `yaml:"parameterset,omitempty"`
 	Step         []Step         `yaml:"step,omitempty"`
+	Meta         DocumentMeta   `yaml:"-"`
+}
+
+type DocumentMeta struct{}
+
+type ParameterSetKind string
+
+const (
+	ParameterSetKindParam      ParameterSetKind = "param"
+	ParameterSetKindSubset     ParameterSetKind = "subset"
+	ParameterSetKindSubmitInit ParameterSetKind = "submit_system"
+)
+
+type ParameterSetMeta struct {
+	Kind   ParameterSetKind
+	Source string
 }
 
 type ParameterSet struct {
-	Name      string      `yaml:"name"`
-	InitWith  string      `yaml:"init_with,omitempty"`
-	Parameter []Parameter `yaml:"parameter,omitempty"`
+	Name      string           `yaml:"name"`
+	InitWith  string           `yaml:"init_with,omitempty"`
+	Parameter []Parameter      `yaml:"parameter,omitempty"`
+	Meta      ParameterSetMeta `yaml:"-"`
 }
 
 type Parameter struct {
@@ -57,6 +74,19 @@ type Step struct {
 	Depend string        `yaml:"depend,omitempty"`
 	Use    []interface{} `yaml:"use,omitempty"`
 	Do     []interface{} `yaml:"do,omitempty"`
+	Meta   StepMeta      `yaml:"-"`
+}
+
+type StepKind string
+
+const (
+	StepKindDo     StepKind = "do"
+	StepKindSubmit StepKind = "submit"
+)
+
+type StepMeta struct {
+	Kind   StepKind
+	Source string
 }
 
 type UseEntry struct {
@@ -135,7 +165,14 @@ func globalString(globals sema.GlobalState, name, fallback string) string {
 }
 
 func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
-	out := ParameterSet{Name: ps.Name, Parameter: make([]Parameter, 0)}
+	out := ParameterSet{
+		Name:      ps.Name,
+		Parameter: make([]Parameter, 0),
+		Meta: ParameterSetMeta{
+			Kind:   ParameterSetKindParam,
+			Source: ps.Name,
+		},
+	}
 	if ps.HasPlus {
 		return lowerGroupedParamset(ps, diags)
 	}
@@ -211,7 +248,14 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 }
 
 func lowerGroupedParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
-	out := ParameterSet{Name: ps.Name, Parameter: make([]Parameter, 0)}
+	out := ParameterSet{
+		Name:      ps.Name,
+		Parameter: make([]Parameter, 0),
+		Meta: ParameterSetMeta{
+			Kind:   ParameterSetKindParam,
+			Source: ps.Name,
+		},
+	}
 	rowCount := len(ps.Rows)
 	if rowCount == 0 {
 		diags.AddError(
@@ -409,7 +453,13 @@ func pythonLiteral(v eval.Value) string {
 }
 
 func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
-	step := Step{Name: block.Name}
+	step := Step{
+		Name: block.Name,
+		Meta: StepMeta{
+			Kind:   StepKindDo,
+			Source: block.Name,
+		},
+	}
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
@@ -463,6 +513,10 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 		Name:      name,
 		InitWith:  "platform.xml:systemParameter",
 		Parameter: params,
+		Meta: ParameterSetMeta{
+			Kind:   ParameterSetKindSubmitInit,
+			Source: block.Name,
+		},
 	})
 	ctx.names[name] = struct{}{}
 	return name
@@ -493,7 +547,13 @@ func (ctx *lowerContext) globalSubmitValueByName(name string, visible map[string
 }
 
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {
-	step := Step{Name: block.Name}
+	step := Step{
+		Name: block.Name,
+		Meta: StepMeta{
+			Kind:   StepKindSubmit,
+			Source: block.Name,
+		},
+	}
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
@@ -645,7 +705,14 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 		params = append(params, Parameter{Name: variable, Mode: "python", Value: SingleQuoted(pythonIndexExpr(values, "$i"))})
 	}
 
-	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{Name: name, Parameter: params})
+	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
+		Name:      name,
+		Parameter: params,
+		Meta: ParameterSetMeta{
+			Kind:   ParameterSetKindSubset,
+			Source: source,
+		},
+	})
 	ctx.names[name] = struct{}{}
 	ctx.subsetNames[k] = name
 	return name

@@ -59,6 +59,18 @@ Rules:
 
 See [docs/language.md](docs/language.md) for full grammar and semantics.
 
+## Generated YAML Comments
+
+Generated YAML includes explanatory comments for major sections and synthetic blocks, for example:
+
+```yaml
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Synthetic submit parameters for submit block 'run' (init_with: platform.xml:systemParameter).
+  - name: run__submit_params
+    init_with: platform.xml:systemParameter
+```
+
 ## Troubleshooting
 
 - `E300`: unknown top-level global variable.
