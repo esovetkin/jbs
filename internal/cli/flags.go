@@ -44,7 +44,7 @@ func ParseFlags(args []string) (Flags, error) {
 		switch {
 		case arg == "-h" || arg == "--help":
 			cfg.Help = true
-		case arg == "--check":
+		case arg == "-c" || arg == "--check":
 			cfg.Check = true
 		case arg == "-o" || arg == "--output":
 			if i+1 >= len(args) {
@@ -71,14 +71,12 @@ func ParseFlags(args []string) (Flags, error) {
 
 func UsageText() string {
 	return `Usage:
-  jbs input.jbs
-  jbs input.jbs -o JUBE.yaml
-  jbs input.jbs --check
+  jbs script.jbs > script.yaml
   jbs help
   jbs help globals
 
 Options:
   -o, --output   Output path (default: - for stdout)
-  --check        Parse+validate only
+  -c, --check    Parse+validate only
   -h, --help     Show this help`
 }

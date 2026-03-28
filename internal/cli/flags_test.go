@@ -31,6 +31,19 @@ func TestParseFlagsCheckAndOutput(t *testing.T) {
 	}
 }
 
+func TestParseFlagsShortCheckAndOutput(t *testing.T) {
+	f, err := ParseFlags([]string{"-c", "-o", "JUBE.yaml", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Check {
+		t.Fatalf("expected check mode")
+	}
+	if f.Output != "JUBE.yaml" {
+		t.Fatalf("unexpected output %q", f.Output)
+	}
+}
+
 func TestParseFlagsOutputAfterInput(t *testing.T) {
 	f, err := ParseFlags([]string{"input.jbs", "-o", "JUBE.yaml"})
 	if err != nil {
