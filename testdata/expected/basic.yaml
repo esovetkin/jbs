@@ -51,7 +51,7 @@ parameterset:
         _: "1"
       - name: tasks
         type: int
-        _: $jbs_nnodes
+        _: "1"
       - name: executable
         _: /bin/bash
       - name: hint

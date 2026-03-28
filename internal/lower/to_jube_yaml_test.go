@@ -257,6 +257,7 @@ submit run with p {
 	}
 	foundQueue := false
 	foundNodes := false
+	foundTasks := false
 	for _, p := range submitSet.Parameter {
 		if p.Name == "queue" {
 			foundQueue = true
@@ -273,8 +274,14 @@ submit run with p {
 				t.Fatalf("expected nodes to use top-level override 2, got %#v", p.Value)
 			}
 		}
+		if p.Name == "tasks" {
+			foundTasks = true
+			if p.Value != "2" {
+				t.Fatalf("expected tasks to follow nodes value 2, got %#v", p.Value)
+			}
+		}
 	}
-	if !foundQueue || !foundNodes {
-		t.Fatalf("missing queue/nodes params in submit set")
+	if !foundQueue || !foundNodes || !foundTasks {
+		t.Fatalf("missing queue/nodes/tasks params in submit set")
 	}
 }

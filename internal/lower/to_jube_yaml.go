@@ -423,6 +423,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	name := ctx.uniqueName(fmt.Sprintf("%s__submit_params", block.Name))
 	visible := ctx.visibleNames(block.WithItems)
+	nodesValue, nodesMode := ctx.globalSubmitValueByName("jbs_nnodes", visible)
 
 	params := make([]Parameter, 0)
 	for _, spec := range BuiltinGlobals() {
@@ -430,6 +431,12 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 			continue
 		}
 		value, mode := ctx.globalSubmitValue(spec, visible)
+		if spec.Name == "jbs_tasks" && !visible["jbs_tasks"] {
+			if _, explicit := ctx.res.Globals.Spans["jbs_tasks"]; !explicit {
+				value = nodesValue
+				mode = nodesMode
+			}
+		}
 		p := Parameter{Name: spec.Target, Value: value}
 		if mode != "" {
 			p.Mode = mode
@@ -474,6 +481,15 @@ func (ctx *lowerContext) globalSubmitValue(spec GlobalSpec, visible map[string]b
 		return asString(v), mode
 	}
 	return spec.DefaultExpr, spec.Mode
+}
+
+func (ctx *lowerContext) globalSubmitValueByName(name string, visible map[string]bool) (string, string) {
+	for _, spec := range BuiltinGlobals() {
+		if spec.Name == name {
+			return ctx.globalSubmitValue(spec, visible)
+		}
+	}
+	return "", ""
 }
 
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {
