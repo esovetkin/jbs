@@ -197,7 +197,7 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 	}
 
 	indices := sequentialIndices(rowCount)
-	out.Parameter = lowerIndexedParameters(ps.Order, valuesByName, ps.Modes, indices, func(name string) diag.Span {
+	out.Parameter = lowerIndexedParameters(ps.Order, valuesByName, ps.Modes, indices, indexVariableName(ps.Name), func(name string) diag.Span {
 		return originFor(ps, name)
 	}, diags)
 	return out
@@ -208,16 +208,21 @@ func lowerIndexedParameters(
 	valuesByName map[string][]eval.Value,
 	modes map[string]string,
 	indices []int,
+	idxName string,
 	origin func(name string) diag.Span,
 	diags *diag.Diagnostics,
 ) []Parameter {
 	if len(indices) == 0 {
 		indices = []int{0}
 	}
+	if idxName == "" {
+		idxName = indexVariableName("set")
+	}
+	idxRef := "$" + idxName
 
 	params := make([]Parameter, 0, len(order)+1)
 	params = append(params, Parameter{
-		Name:  "i",
+		Name:  idxName,
 		Type:  "int",
 		Mode:  "text",
 		Value: joinIntIndices(indices),
@@ -240,7 +245,7 @@ func lowerIndexedParameters(
 				if allEqualValues(selectedValues) {
 					param.Value = SingleQuoted(asString(selectedValues[0]))
 				} else {
-					param.Value = SingleQuoted(pythonIndexExpr(fullValues, "$i"))
+					param.Value = SingleQuoted(pythonIndexExpr(fullValues, idxRef))
 				}
 			case "shell":
 				if !allEqualValues(selectedValues) {
@@ -262,7 +267,7 @@ func lowerIndexedParameters(
 		params = append(params, Parameter{
 			Name:  name,
 			Mode:  "python",
-			Value: SingleQuoted(pythonIndexExpr(fullValues, "$i")),
+			Value: SingleQuoted(pythonIndexExpr(fullValues, idxRef)),
 		})
 	}
 	return params
@@ -620,7 +625,7 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 		rowCount = 1
 	}
 
-	name := ctx.uniqueName("__subset_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
+	name := ctx.uniqueName("_jbs__subset_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
 	valuesByName := make(map[string][]eval.Value, len(vars))
 	for _, variable := range vars {
 		valuesByName[variable] = valuesFor(src, variable, rowCount)
@@ -630,7 +635,7 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 	if len(mask) == 0 {
 		mask = []int{0}
 	}
-	params := lowerIndexedParameters(vars, valuesByName, src.Modes, mask, func(varName string) diag.Span {
+	params := lowerIndexedParameters(vars, valuesByName, src.Modes, mask, indexVariableName(name), func(varName string) diag.Span {
 		return originFor(src, varName)
 	}, ctx.diags)
 
@@ -801,4 +806,12 @@ func contains(items []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func indexVariableName(context string) string {
+	name := sanitize(context)
+	if name == "" {
+		name = "set"
+	}
+	return "_jbs__idx_" + name
 }

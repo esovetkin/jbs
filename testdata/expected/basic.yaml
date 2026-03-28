@@ -9,27 +9,27 @@ parameterset:
   # Param block 'matrix'
   - name: matrix
     parameter:
-      - name: i
+      - name: _jbs__idx_matrix
         type: int
         mode: text
         _: 0,1
       - name: case
         mode: python
-        _: '["ddp","fsdp"][$i]'
+        _: '["ddp","fsdp"][$_jbs__idx_matrix]'
       - name: nnodes
         mode: python
-        _: '[1,2][$i]'
+        _: '[1,2][$_jbs__idx_matrix]'
 
   # Synthetic subset parameterset derived from 'matrix' for variable-only imports
-  - name: __subset_matrix__case
+  - name: _jbs__subset_matrix__case
     parameter:
-      - name: i
+      - name: _jbs__idx__jbs__subset_matrix__case
         type: int
         mode: text
         _: 0,1
       - name: case
         mode: python
-        _: '["ddp","fsdp"][$i]'
+        _: '["ddp","fsdp"][$_jbs__idx__jbs__subset_matrix__case]'
 
   # Parameters for submit block 'run'
   - name: run__submit_params
@@ -50,7 +50,7 @@ step:
   # Step generated from do block 'setup'
   - name: setup
     use:
-      - __subset_matrix__case
+      - _jbs__subset_matrix__case
     do:
       - |
         set -euo pipefail

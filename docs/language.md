@@ -116,12 +116,12 @@ All paramsets lower to indexed representation:
 parameterset:
   - name: grouped
     parameter:
-      - { name: i, type: int, mode: text, _: "0,1,2" }
-      - { name: a, mode: python, _: "[1,2,1][$i]" }
-      - { name: b, mode: python, _: "['x','y','z'][$i]" }
+      - { name: _jbs__idx_grouped, type: int, mode: text, _: "0,1,2" }
+      - { name: a, mode: python, _: "[1,2,1][$_jbs__idx_grouped]" }
+      - { name: b, mode: python, _: "['x','y','z'][$_jbs__idx_grouped]" }
 ```
 
-This keeps direct-sum alignment and outer-product expansion explicitly coordinated by `i`.
+This keeps direct-sum alignment and outer-product expansion explicitly coordinated by a context-specific index variable.
 
 ### `do` lowering
 

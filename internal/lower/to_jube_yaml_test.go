@@ -42,8 +42,8 @@ param p {
 	if len(ps.Parameter) != 4 {
 		t.Fatalf("expected i + 3 params, got %d", len(ps.Parameter))
 	}
-	if ps.Parameter[0].Name != "i" || ps.Parameter[0].Type != "int" || ps.Parameter[0].Mode != "text" {
-		t.Fatalf("expected indexed lowering via i parameter, got %#v", ps.Parameter[0])
+	if ps.Parameter[0].Name != "_jbs__idx_p" || ps.Parameter[0].Type != "int" || ps.Parameter[0].Mode != "text" {
+		t.Fatalf("expected indexed lowering via context index parameter, got %#v", ps.Parameter[0])
 	}
 	if ps.Parameter[0].Value != "0,1,2,3,4,5,6,7,8,9,10,11" {
 		t.Fatalf("unexpected i range: %#v", ps.Parameter[0].Value)
@@ -68,8 +68,8 @@ param p {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
 	ps := doc.ParameterSet[0]
-	if ps.Parameter[0].Name != "i" {
-		t.Fatalf("expected grouped index parameter i, got %s", ps.Parameter[0].Name)
+	if ps.Parameter[0].Name != "_jbs__idx_p" {
+		t.Fatalf("expected grouped index parameter _jbs__idx_p, got %s", ps.Parameter[0].Name)
 	}
 	if ps.Parameter[0].Value != "0,1,2" {
 		t.Fatalf("expected grouped indices 0,1,2 got %#v", ps.Parameter[0].Value)
@@ -98,7 +98,7 @@ do task with a from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "__subset_param__a") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_param__a") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -109,8 +109,8 @@ do task with a from param {
 	if len(subset.Parameter) != 2 {
 		t.Fatalf("expected i + a in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "i" || subset.Parameter[0].Value != "0,2,4" {
-		t.Fatalf("expected i mask 0,2,4, got %#v", subset.Parameter[0])
+	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_param__a" || subset.Parameter[0].Value != "0,2,4" {
+		t.Fatalf("expected masked context index for subset, got %#v", subset.Parameter[0])
 	}
 	if subset.Parameter[1].Name != "a" || subset.Parameter[1].Mode != "python" {
 		t.Fatalf("expected python indexed a param, got %#v", subset.Parameter[1])
@@ -119,7 +119,7 @@ do task with a from param {
 	if !ok {
 		t.Fatalf("expected single-quoted python expression, got %T", subset.Parameter[1].Value)
 	}
-	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$i]" {
+	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_param__a]" {
 		t.Fatalf("unexpected subset a expression: %q", string(gotExpr))
 	}
 }
@@ -143,7 +143,7 @@ do task with (a,b) from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "__subset_param__a_b") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_param__a_b") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -154,7 +154,7 @@ do task with (a,b) from param {
 	if len(subset.Parameter) != 3 {
 		t.Fatalf("expected i + a + b in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "i" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
+	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_param__a_b" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
 		t.Fatalf("unexpected tuple subset i mask: %#v", subset.Parameter[0])
 	}
 	if subset.Parameter[1].Mode != "python" || subset.Parameter[2].Mode != "python" {
@@ -165,10 +165,10 @@ do task with (a,b) from param {
 	if !okA || !okB {
 		t.Fatalf("expected single-quoted tuple expressions, got %T %T", subset.Parameter[1].Value, subset.Parameter[2].Value)
 	}
-	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$i]" {
+	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_param__a_b]" {
 		t.Fatalf("unexpected a expression: %q", string(aExpr))
 	}
-	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$i]" {
+	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$_jbs__idx__jbs__subset_param__a_b]" {
 		t.Fatalf("unexpected b expression: %q", string(bExpr))
 	}
 }
@@ -206,7 +206,7 @@ submit run after prep with p {
 	var hasSubset bool
 	var hasSubmitSet bool
 	for _, ps := range doc.ParameterSet {
-		if strings.HasPrefix(ps.Name, "__subset_") {
+		if strings.HasPrefix(ps.Name, "_jbs__subset_") {
 			hasSubset = true
 		}
 		if strings.HasSuffix(ps.Name, "__submit_params") {
@@ -285,7 +285,7 @@ do setup with a from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "__subset_p1__") {
+			if strings.HasPrefix(s, "_jbs__subset_p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -328,7 +328,7 @@ do setup with (a,b) from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "__subset_p1__") {
+			if strings.HasPrefix(s, "_jbs__subset_p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -356,6 +356,9 @@ param p {
 	ps := doc.ParameterSet[0]
 	if len(ps.Parameter) != 3 {
 		t.Fatalf("expected i + two parameters, got %d", len(ps.Parameter))
+	}
+	if ps.Parameter[0].Name != "_jbs__idx_p" {
+		t.Fatalf("expected context index variable _jbs__idx_p, got %#v", ps.Parameter[0])
 	}
 	var queue, system lower.Parameter
 	for _, p := range ps.Parameter {
@@ -540,7 +543,7 @@ submit run after prep with p {
 		switch {
 		case ps.Name == "p":
 			paramSet = ps
-		case strings.HasPrefix(ps.Name, "__subset_"):
+		case strings.HasPrefix(ps.Name, "_jbs__subset_"):
 			subsetSet = ps
 		case strings.HasSuffix(ps.Name, "__submit_params"):
 			submitSet = ps
