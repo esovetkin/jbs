@@ -1,0 +1,25 @@
+param p
+{
+        a=(1,2)
+        b=("x","y")
+        a*b
+}
+
+do prep
+{
+        echo prep
+}
+
+do run
+        after prep
+        with p, a from p
+{
+        echo ${a}
+}
+
+submit bench
+        after run
+        with p
+{
+        args_exec = "hostname"
+}

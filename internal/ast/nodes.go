@@ -49,6 +49,7 @@ type ParamBlock struct {
 	WithItems   []WithItem
 	Assignments []Assignment
 	Final       CombExpr
+	BodyRaw     string
 	Span        diag.Span
 }
 
@@ -71,6 +72,7 @@ type SubmitBlock struct {
 	After     []string
 	WithItems []WithItem
 	Fields    []SubmitField
+	BodyRaw   string
 	Span      diag.Span
 }
 

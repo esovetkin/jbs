@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"jbs/internal/diag"
 	"jbs/internal/emit"
+	jbsformat "jbs/internal/format"
 	"jbs/internal/lower"
 	"jbs/internal/parser"
 	"jbs/internal/sema"
@@ -30,6 +32,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, UsageText())
 		}
 		return 0
+	}
+	if flags.Fmt {
+		return runFmt(flags.Input, stdout, stderr)
 	}
 	if flags.Input == "" {
 		fmt.Fprintln(stderr, "missing input file")
@@ -74,6 +79,78 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runFmt(path string, stdout, stderr io.Writer) int {
+	_ = stdout
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to read input file %q: %v\n", path, err)
+		return 1
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to stat input file %q: %v\n", path, err)
+		return 1
+	}
+
+	diags := &diag.Diagnostics{}
+	formatted, err := jbsformat.JBS(path, string(src), diags)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to format %q: %v\n", path, err)
+		return 1
+	}
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+	}
+	if diags.HasErrors() {
+		return 1
+	}
+	if formatted == string(src) {
+		return 0
+	}
+	if err := writeFileAtomic(path, []byte(formatted), info.Mode().Perm()); err != nil {
+		fmt.Fprintf(stderr, "failed to write formatted file %q: %v\n", path, err)
+		return 1
+	}
+	return 0
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, "."+base+".jbsfmt-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func formatDiagnostics(diags diag.Diagnostics, source string) string {

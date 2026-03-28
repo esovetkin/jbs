@@ -90,6 +90,37 @@ func TestParseFlagsHelpUnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestParseFlagsFmt(t *testing.T) {
+	f, err := ParseFlags([]string{"fmt", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Fmt {
+		t.Fatalf("expected fmt mode")
+	}
+	if f.Input != "input.jbs" {
+		t.Fatalf("unexpected input: %s", f.Input)
+	}
+}
+
+func TestParseFlagsFmtMissingFile(t *testing.T) {
+	if _, err := ParseFlags([]string{"fmt"}); err == nil {
+		t.Fatalf("expected usage error for missing fmt path")
+	}
+}
+
+func TestParseFlagsFmtRejectsOptions(t *testing.T) {
+	if _, err := ParseFlags([]string{"fmt", "-o", "x.jbs"}); err == nil {
+		t.Fatalf("expected usage error for option in fmt mode")
+	}
+}
+
+func TestParseFlagsFmtRejectsCheckFlag(t *testing.T) {
+	if _, err := ParseFlags([]string{"fmt", "-c"}); err == nil {
+		t.Fatalf("expected usage error for check flag in fmt mode")
+	}
+}
+
 func TestParseFlagsTooManyArgs(t *testing.T) {
 	_, err := ParseFlags([]string{"a.jbs", "b.jbs"})
 	if err == nil {

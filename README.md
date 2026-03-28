@@ -26,12 +26,41 @@ jbs input.jbs -o JUBE.yaml
 # parse + semantic check only
 jbs --check input.jbs
 
+# format in place
+jbs fmt input.jbs
+
 # show help
 jbs
 jbs help
 
 # list built-in globals and mapping
 jbs help globals
+```
+
+`jbs fmt` rewrites the target file in place using canonical JBS layout.
+
+## Formatter
+
+Canonical formatter behavior:
+
+- opening `{` on its own line
+- `after` / `with` clauses on dedicated continuation lines
+- block body indentation normalized to 8 spaces
+- one blank line between top-level statements
+- output always ends with a newline
+
+Example:
+
+```jbs
+# before
+do task with a from p{echo ${a}}
+
+# after
+do task
+        with a from p
+{
+        echo ${a}
+}
 ```
 
 ## Top-Level Globals

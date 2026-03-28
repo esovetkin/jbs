@@ -171,6 +171,27 @@ unknown_name = "x"       # E300
 
 Run `jbs help globals` to print defaults and mapping.
 
+## Formatter (`jbs fmt`)
+
+`jbs fmt <file.jbs>` rewrites a script in place using canonical layout.
+
+Rules:
+
+- one blank line between top-level statements
+- global assignments emitted as `name = value`
+- block header on first line (`param|do|submit <name>`)
+- `after` and `with` clauses emitted on dedicated continuation lines with 8 spaces
+- opening brace `{` on its own line
+- block body indentation normalized to 8 spaces
+- closing brace `}` at column 1
+- output always ends with a trailing newline
+
+Submit formatting constraints:
+
+- expression fields stay `key = expr`
+- raw fields stay `key = { ... }`
+- formatter does not change submit key semantics
+
 ## Diagnostics
 
 All diagnostics include source location (`file:line:column`).

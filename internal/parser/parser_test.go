@@ -281,3 +281,60 @@ jbs_name =
 		t.Fatalf("expected parse error for malformed global assignment")
 	}
 }
+
+func TestParseParamBlockCapturesBodyRaw(t *testing.T) {
+	src := `
+param p {
+  # comment
+  a = (1,2)
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_body.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.BodyRaw == "" {
+		t.Fatalf("expected BodyRaw to be populated")
+	}
+	if pb.BodyRaw[0] == '{' || pb.BodyRaw[len(pb.BodyRaw)-1] == '}' {
+		t.Fatalf("BodyRaw should contain only inner block text, got %q", pb.BodyRaw)
+	}
+}
+
+func TestParseSubmitBlockCapturesBodyRaw(t *testing.T) {
+	src := `
+submit run {
+  preprocess = {
+    export X=1
+  }
+  args_exec = "python main.py"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_body.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if sb.BodyRaw == "" {
+		t.Fatalf("expected BodyRaw to be populated")
+	}
+	if sb.BodyRaw[0] == '{' || sb.BodyRaw[len(sb.BodyRaw)-1] == '}' {
+		t.Fatalf("BodyRaw should contain only inner block text, got %q", sb.BodyRaw)
+	}
+}

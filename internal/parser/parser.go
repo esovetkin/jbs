@@ -177,6 +177,7 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 		WithItems:   withItems,
 		Assignments: assignments,
 		Final:       final,
+		BodyRaw:     body,
 		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
@@ -259,6 +260,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		After:     after,
 		WithItems: withItems,
 		Fields:    fields,
+		BodyRaw:   body,
 		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }

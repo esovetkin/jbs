@@ -9,6 +9,7 @@ type Flags struct {
 	Input        string
 	Output       string
 	Check        bool
+	Fmt          bool
 	Help         bool
 	HelpGlobals  bool
 	HelpTemplate bool
@@ -45,6 +46,18 @@ func ParseFlags(args []string) (Flags, error) {
 		}
 		return Flags{}, UsageError{Message: "usage: jbs help [globals|template]"}
 	}
+	if args[0] == "fmt" {
+		if len(args) != 2 {
+			return Flags{}, UsageError{Message: "usage: jbs fmt <file.jbs>"}
+		}
+		if strings.HasPrefix(args[1], "-") {
+			return Flags{}, UsageError{Message: "usage: jbs fmt <file.jbs>"}
+		}
+		cfg.Fmt = true
+		cfg.Input = args[1]
+		cfg.Output = ""
+		return cfg, nil
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -78,6 +91,7 @@ func ParseFlags(args []string) (Flags, error) {
 func UsageText() string {
 	return `Usage:
   jbs script.jbs > script.yaml
+  jbs fmt script.jbs
   jbs help
   jbs help globals
   jbs help template
