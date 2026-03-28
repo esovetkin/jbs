@@ -97,9 +97,6 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Parameters for submit block 'run'") {
 		t.Fatalf("missing submit parameterset role comment: %s", text)
 	}
-	if !strings.Contains(text, "# From jbs_queue") {
-		t.Fatalf("missing submit parameter to global annotation for queue: %s", text)
-	}
 	if !strings.Contains(text, "# Step generated from do block 'setup'") {
 		t.Fatalf("missing do step comment: %s", text)
 	}

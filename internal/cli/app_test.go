@@ -63,8 +63,8 @@ func TestRunHelpGlobals(t *testing.T) {
 	if !strings.Contains(text, `jbs_name = "jbs_benchmark"`) {
 		t.Fatalf("expected jbs_name assignment, got: %s", text)
 	}
-	if !strings.Contains(text, `jbs_queue = python(`) {
-		t.Fatalf("expected globals help output, got: %s", out.String())
+	if strings.Contains(text, `jbs_queue =`) {
+		t.Fatalf("did not expect removed scheduler global jbs_queue, got: %s", out.String())
 	}
 	if strings.Contains(text, "Globals:") {
 		t.Fatalf("expected script-style help output without legacy Globals section, got: %s", text)

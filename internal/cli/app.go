@@ -172,24 +172,44 @@ func printGlobalsHelp(out io.Writer) {
 }
 
 func printTemplateHelp(out io.Writer) {
-	_, _ = io.WriteString(out, `# `+"`jbs help globals`"+`
+	_, _ = io.WriteString(out, `# `+"set global variables, see `jbs help globals`"+`
 jbs_name="jbs_benchmark"
 jbs_outpath="out"
 
-param <paramset>
+# e.g. 'param test_cases'
+param <name>
 {
-    # definition of parameterset, user + and * for
+    # Define a parameter set.
+    # Use "+" for direct sums, and "*" for outer products.
+    #
+    # For example,
+    # a = (1, 2, 3)
+    # b = ("one", "two")
+    # a + b # yields [(1,"one"),(2,"two"),(3,"one")] (and a warning as length don't match)
+    #
+    # a * b # yields [(1,"one"),(1,"two"),(2,"one"), ...]
+    #
+    # The last line "returns" the parameter set, which means that ${a}
+    # and ${b} variables can be used with whatever this parameter set is used
 }
 
-do <name0> with <paramset> {
-    # executed on a login node
+# e.g. 'do setup_environment with b from my'
+do <name> after <step_name> with <parameter_set>, <variable> from <parameter_set>
+{
+    # bash code executed on the login node within ${jube_benchmark_home}
+    #
+    # For example,
+    # echo ${b}
 }
 
-submit <name1> after <name0> with <paramset>
-{
-    # env preamble
-} {
-    # part that is executed within srun
+# submit my_submitjob after setup_environment with test_cases
+submit <name> after <name0> with <paramset> {
+    account = "atmlaml"
+    preprocess = {
+        # optional
+    }
+    executable = "/bin/bash"
+    args_exec = "-lc hostname"
 }
 `)
 }

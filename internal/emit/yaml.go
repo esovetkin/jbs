@@ -48,14 +48,12 @@ func annotateParameterSets(seq *yaml.Node, sets []lower.ParameterSet) {
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return
 	}
-	submitTargetToGlobal := submitParameterGlobalMap()
 	for i := 0; i < len(sets) && i < len(seq.Content); i++ {
 		item := seqItem(seq, i)
 		if item == nil || item.Kind != yaml.MappingNode {
 			continue
 		}
 		setHeadComment(item, parameterSetComment(sets[i]))
-		annotateSubmitParameterComments(item, sets[i], submitTargetToGlobal)
 	}
 }
 
@@ -113,40 +111,6 @@ func stepComment(step lower.Step) string {
 	default:
 		return fmt.Sprintf("Generated step '%s'", step.Name)
 	}
-}
-
-func annotateSubmitParameterComments(psNode *yaml.Node, ps lower.ParameterSet, submitTargetToGlobal map[string]string) {
-	if ps.Meta.Kind != lower.ParameterSetKindSubmitInit {
-		return
-	}
-	parameterSeq := mapValueNode(psNode, "parameter")
-	if parameterSeq == nil || parameterSeq.Kind != yaml.SequenceNode {
-		return
-	}
-	for i := 0; i < len(parameterSeq.Content); i++ {
-		paramNode := seqItem(parameterSeq, i)
-		if paramNode == nil || paramNode.Kind != yaml.MappingNode {
-			continue
-		}
-		nameNode := mapValueNode(paramNode, "name")
-		if nameNode == nil || nameNode.Kind != yaml.ScalarNode {
-			continue
-		}
-		if globalName, ok := submitTargetToGlobal[nameNode.Value]; ok {
-			setHeadComment(paramNode, fmt.Sprintf("From %s", globalName))
-		}
-	}
-}
-
-func submitParameterGlobalMap() map[string]string {
-	out := make(map[string]string)
-	for _, spec := range lower.BuiltinGlobals() {
-		if spec.Target == "" {
-			continue
-		}
-		out[spec.Target] = spec.Name
-	}
-	return out
 }
 
 func rootMap(root *yaml.Node) *yaml.Node {

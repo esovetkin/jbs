@@ -230,9 +230,9 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		pos := p.pos()
 		p.diags.AddError(
 			"E041",
-			"expected first '{' in submit block",
+			"expected '{' to start submit block body",
 			diag.NewSpan(p.file, pos, pos),
-			"submit requires two raw blocks: {env} {run}",
+			"add '{' after submit header",
 		)
 		return ast.SubmitBlock{
 			Name:      name,
@@ -242,7 +242,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		}
 	}
 
-	envBody, _, envEnd, ok := p.readBalancedBlock()
+	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.SubmitBlock{
 			Name:      name,
@@ -252,42 +252,14 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		}
 	}
 
-	p.skipTrivia()
-	if p.peek() != '{' {
-		pos := p.pos()
-		p.diags.AddError(
-			"E071",
-			"submit requires exactly two raw blocks",
-			diag.NewSpan(p.file, pos, pos),
-			"add second block for args_exec",
-		)
-		return ast.SubmitBlock{
-			Name:      name,
-			After:     after,
-			WithItems: withItems,
-			EnvBody:   envBody,
-			Span:      diag.NewSpan(p.file, blockStart, envEnd),
-		}
-	}
-
-	runBody, _, runEnd, ok := p.readBalancedBlock()
-	if !ok {
-		return ast.SubmitBlock{
-			Name:      name,
-			After:     after,
-			WithItems: withItems,
-			EnvBody:   envBody,
-			Span:      diag.NewSpan(p.file, blockStart, envEnd),
-		}
-	}
+	fields := parseSubmitFields(p.file, body, innerStart, p.diags)
 
 	return ast.SubmitBlock{
 		Name:      name,
 		After:     after,
 		WithItems: withItems,
-		EnvBody:   envBody,
-		RunBody:   runBody,
-		Span:      diag.NewSpan(p.file, blockStart, runEnd),
+		Fields:    fields,
+		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
 
@@ -575,6 +547,297 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 		)
 	}
 	return assignments, final
+}
+
+func parseSubmitFields(file, body string, start diag.Position, diags *diag.Diagnostics) []ast.SubmitField {
+	sp := &submitFieldParser{
+		file:  file,
+		src:   []rune(body),
+		base:  start.Offset,
+		line:  start.Line,
+		col:   start.Column,
+		diags: diags,
+	}
+	return sp.parse()
+}
+
+type submitFieldParser struct {
+	file  string
+	src   []rune
+	off   int
+	base  int
+	line  int
+	col   int
+	diags *diag.Diagnostics
+}
+
+func (p *submitFieldParser) parse() []ast.SubmitField {
+	fields := make([]ast.SubmitField, 0)
+	for {
+		p.skipTrivia()
+		if p.eof() {
+			break
+		}
+
+		stmtStart := p.pos()
+		name, nameSpan, ok := p.parseIdent()
+		if !ok {
+			p.diags.AddError(
+				"E076",
+				"malformed submit statement; expected 'name = value'",
+				diag.NewSpan(p.file, stmtStart, stmtStart),
+				"use syntax: key = expression or preprocess/postprocess = { ... }",
+			)
+			p.recoverLine()
+			continue
+		}
+
+		p.skipInlineTrivia()
+		if p.peek() != '=' {
+			p.diags.AddError(
+				"E076",
+				"malformed submit statement; expected '=' after key",
+				nameSpan,
+				"use syntax: key = expression or preprocess/postprocess = { ... }",
+			)
+			p.recoverLine()
+			continue
+		}
+		p.advance()
+		p.skipInlineTrivia()
+
+		if p.peek() == '{' {
+			raw, _, blockEnd, ok := p.readBalancedBlock()
+			if !ok {
+				break
+			}
+			field := ast.SubmitField{
+				Name:  name,
+				Raw:   raw,
+				IsRaw: true,
+				Span:  diag.NewSpan(p.file, stmtStart, blockEnd),
+			}
+			fields = append(fields, field)
+			if p.hasUnexpectedTrailingTextOnLine() {
+				p.diags.AddError(
+					"E076",
+					"unexpected trailing text after submit raw block",
+					field.Span,
+					"place one submit statement per line",
+				)
+				p.recoverLine()
+			}
+			continue
+		}
+
+		exprStart := p.pos()
+		exprOffset := p.off
+		for !p.eof() && p.peek() != '\n' {
+			p.advance()
+		}
+		exprText := string(p.src[exprOffset:p.off])
+		expr := parseSubmitExpr(p.file, exprText, exprStart, p.diags)
+		fieldSpan := diag.NewSpan(p.file, stmtStart, p.pos())
+		if expr != nil {
+			fieldSpan = diag.Merge(diag.NewSpan(p.file, stmtStart, stmtStart), expr.GetSpan())
+		}
+		fields = append(fields, ast.SubmitField{
+			Name: name,
+			Expr: expr,
+			Span: fieldSpan,
+		})
+	}
+	return fields
+}
+
+func parseSubmitExpr(file, expr string, start diag.Position, diags *diag.Diagnostics) ast.Expr {
+	tokens := lexer.LexFrom(file, expr, start, diags)
+	tp := &tokenParser{tokens: tokens, diags: diags}
+	tp.skipNewlines()
+	if tp.peek().Type == lexer.TokenEOF {
+		diags.AddError(
+			"E076",
+			"malformed submit statement; expected expression after '='",
+			diag.NewSpan(file, start, start),
+			"use syntax: key = expression",
+		)
+		return nil
+	}
+	exprNode := tp.parseExpr()
+	tp.skipNewlines()
+	if tp.peek().Type != lexer.TokenEOF {
+		tok := tp.peek()
+		diags.AddError(
+			"E076",
+			"unexpected trailing tokens in submit expression",
+			tok.Span,
+			"use one expression per submit assignment",
+		)
+	}
+	return exprNode
+}
+
+func (p *submitFieldParser) eof() bool {
+	return p.off >= len(p.src)
+}
+
+func (p *submitFieldParser) peek() rune {
+	if p.eof() {
+		return 0
+	}
+	return p.src[p.off]
+}
+
+func (p *submitFieldParser) advance() rune {
+	if p.eof() {
+		return 0
+	}
+	r := p.src[p.off]
+	p.off++
+	if r == '\n' {
+		p.line++
+		p.col = 1
+	} else {
+		p.col++
+	}
+	return r
+}
+
+func (p *submitFieldParser) pos() diag.Position {
+	return diag.NewPos(p.base+p.off, p.line, p.col)
+}
+
+func (p *submitFieldParser) skipTrivia() {
+	for !p.eof() {
+		r := p.peek()
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			p.advance()
+			continue
+		}
+		if r == '#' {
+			for !p.eof() && p.peek() != '\n' {
+				p.advance()
+			}
+			continue
+		}
+		break
+	}
+}
+
+func (p *submitFieldParser) skipInlineTrivia() {
+	for !p.eof() {
+		r := p.peek()
+		if r == ' ' || r == '\t' || r == '\r' {
+			p.advance()
+			continue
+		}
+		break
+	}
+}
+
+func (p *submitFieldParser) parseIdent() (string, diag.Span, bool) {
+	start := p.pos()
+	if p.eof() {
+		return "", diag.NewSpan(p.file, start, start), false
+	}
+	r := p.peek()
+	if !(unicode.IsLetter(r) || r == '_') {
+		return "", diag.NewSpan(p.file, start, start), false
+	}
+	for !p.eof() {
+		r = p.peek()
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			p.advance()
+			continue
+		}
+		break
+	}
+	end := p.pos()
+	return string(p.src[start.Offset-p.base : end.Offset-p.base]), diag.NewSpan(p.file, start, end), true
+}
+
+func (p *submitFieldParser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
+	if p.peek() != '{' {
+		pos := p.pos()
+		return "", pos, pos, false
+	}
+	p.advance()
+	innerStart = p.pos()
+	startIdx := p.off
+	depth := 1
+	var quote rune
+	escaped := false
+	for !p.eof() {
+		r := p.advance()
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == '{' {
+			depth++
+			continue
+		}
+		if r == '}' {
+			depth--
+			if depth == 0 {
+				endIdx := p.off - 1
+				return string(p.src[startIdx:endIdx]), innerStart, p.pos(), true
+			}
+		}
+	}
+	span := diag.NewSpan(p.file, innerStart, p.pos())
+	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
+	return "", innerStart, p.pos(), false
+}
+
+func (p *submitFieldParser) recoverLine() {
+	for !p.eof() && p.peek() != '\n' {
+		p.advance()
+	}
+	if !p.eof() && p.peek() == '\n' {
+		p.advance()
+	}
+}
+
+func (p *submitFieldParser) hasUnexpectedTrailingTextOnLine() bool {
+	saveOff := p.off
+	saveLine := p.line
+	saveCol := p.col
+	defer func() {
+		p.off = saveOff
+		p.line = saveLine
+		p.col = saveCol
+	}()
+
+	for !p.eof() {
+		r := p.peek()
+		if r == ' ' || r == '\t' || r == '\r' {
+			p.advance()
+			continue
+		}
+		if r == '\n' {
+			return false
+		}
+		if r == '#' {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func (p *tokenParser) parseAssignment() ast.Assignment {

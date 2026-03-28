@@ -102,9 +102,10 @@ do prep with a from p {
 }
 
 submit run after prep with p {
-  export X=1
-} {
-  python main.py
+  preprocess = {
+    export X=1
+  }
+  args_exec = "python main.py"
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -217,12 +218,10 @@ param p {
 	}
 }
 
-func TestTopLevelGlobalsDriveRootAndSubmit(t *testing.T) {
+func TestRootGlobalsAndSubmitFieldsDriveOutput(t *testing.T) {
 	src := `
 jbs_name = "demo_bench"
 jbs_outpath = "results"
-jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
-jbs_nnodes = 2
 
 param p {
   a = 1
@@ -230,9 +229,13 @@ param p {
 }
 
 submit run with p {
-  export X=1
-} {
-  echo ok
+  queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+  nodes = 2
+  tasks = 2
+  preprocess = {
+    export X=1
+  }
+  args_exec = "echo ok"
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -258,6 +261,7 @@ submit run with p {
 	foundQueue := false
 	foundNodes := false
 	foundTasks := false
+	foundPreprocess := false
 	for _, p := range submitSet.Parameter {
 		if p.Name == "queue" {
 			foundQueue = true
@@ -271,18 +275,75 @@ submit run with p {
 		if p.Name == "nodes" {
 			foundNodes = true
 			if p.Value != "2" {
-				t.Fatalf("expected nodes to use top-level override 2, got %#v", p.Value)
+				t.Fatalf("expected nodes 2, got %#v", p.Value)
 			}
 		}
 		if p.Name == "tasks" {
 			foundTasks = true
 			if p.Value != "2" {
-				t.Fatalf("expected tasks to follow nodes value 2, got %#v", p.Value)
+				t.Fatalf("expected tasks 2, got %#v", p.Value)
+			}
+		}
+		if p.Name == "preprocess" {
+			foundPreprocess = true
+			if p.Mode != "text" {
+				t.Fatalf("expected preprocess mode text, got %q", p.Mode)
+			}
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
+			}
+			text := string(body)
+			if !strings.Contains(text, "set -euo pipefail\n") || !strings.Contains(text, "cd \"${jube_benchmark_home}\"\n") {
+				t.Fatalf("expected preprocess preamble in payload, got: %q", text)
+			}
+			if strings.Contains(text, "\n  \n") {
+				t.Fatalf("unexpected trailing whitespace-only lines in preprocess payload: %q", text)
+			}
+			if !strings.Contains(text, "\nexport X=1\n") {
+				t.Fatalf("expected normalized preprocess body without source indentation, got: %q", text)
 			}
 		}
 	}
-	if !foundQueue || !foundNodes || !foundTasks {
-		t.Fatalf("missing queue/nodes/tasks params in submit set")
+	if !foundQueue || !foundNodes || !foundTasks || !foundPreprocess {
+		t.Fatalf("missing required params in submit set: %#v", submitSet.Parameter)
+	}
+}
+
+func TestSubmitEmitsOnlyExplicitKeys(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+
+submit run with p {
+  executable = "/bin/bash"
+  args_exec = "-lc hostname"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
+			submitSet = &doc.ParameterSet[i]
+			break
+		}
+	}
+	if submitSet == nil {
+		t.Fatalf("submit parameterset missing")
+	}
+	if len(submitSet.Parameter) != 2 {
+		t.Fatalf("expected exactly 2 submit params, got %#v", submitSet.Parameter)
+	}
+	for _, p := range submitSet.Parameter {
+		if p.Name != "executable" && p.Name != "args_exec" {
+			t.Fatalf("unexpected implicit submit parameter %q in %#v", p.Name, submitSet.Parameter)
+		}
 	}
 }
 
@@ -298,9 +359,10 @@ do prep with a from p {
 }
 
 submit run after prep with p {
-  export X=1
-} {
-  echo ok
+  preprocess = {
+    export X=1
+  }
+  args_exec = "echo ok"
 }
 `
 	doc, diags := compileDoc(t, src)

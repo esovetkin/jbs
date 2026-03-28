@@ -19,9 +19,10 @@ do work after prep,seed with p, x from p {
 }
 
 submit run after work with p {
-  export X=1
-} {
-  python main.py
+  preprocess = {
+    export X=1
+  }
+  args_exec = "python main.py"
 }
 `
 	diags := &diag.Diagnostics{}
@@ -54,7 +55,7 @@ submit run after work with p {
 	}
 }
 
-func TestSubmitArityError(t *testing.T) {
+func TestSubmitMalformedStatementError(t *testing.T) {
 	src := `
 submit run {
   export X=1
@@ -67,13 +68,45 @@ submit run {
 	}
 	found := false
 	for _, item := range diags.Items {
-		if item.Code == "E071" {
+		if item.Code == "E076" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected E071, got diagnostics: %s", diags.String())
+		t.Fatalf("expected E076, got diagnostics: %s", diags.String())
+	}
+}
+
+func TestParseSubmitRawAndExprFields(t *testing.T) {
+	src := `
+submit run {
+  preprocess = {
+    module load CUDA
+  }
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(sb.Fields) != 2 {
+		t.Fatalf("expected 2 submit fields, got %d", len(sb.Fields))
+	}
+	if sb.Fields[0].Name != "preprocess" || !sb.Fields[0].IsRaw {
+		t.Fatalf("expected first field to be raw preprocess, got %#v", sb.Fields[0])
+	}
+	if sb.Fields[1].Name != "args_exec" || sb.Fields[1].IsRaw || sb.Fields[1].Expr == nil {
+		t.Fatalf("expected second field to be expression args_exec, got %#v", sb.Fields[1])
 	}
 }
 

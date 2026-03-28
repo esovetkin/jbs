@@ -16,10 +16,18 @@ with_clause   := "with" with_item ("," with_item)*
 with_item     := IDENT ("from" IDENT)?
 
 do_block      := "do" IDENT after_clause? with_clause? raw_block
-submit_block  := "submit" IDENT after_clause? with_clause? raw_block raw_block
+submit_block  := "submit" IDENT after_clause? with_clause? "{" submit_stmt* "}"
 
 after_clause  := "after" IDENT ("," IDENT)*
 raw_block     := "{" RAW_TEXT "}"
+
+submit_stmt   := submit_key "=" submit_value
+submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
+                 "gres" | "mail" | "measurement" | "nodes" |
+                 "notification" | "outlogfile" | "outerrfile" | "queue" |
+                 "starter" | "tasks" | "threadspertask" | "timelimit" |
+                 "preprocess" | "postprocess"
+submit_value  := expr | raw_block
 ```
 
 ## Expressions
@@ -121,10 +129,11 @@ This preserves direct-sum row alignment under JUBE semantics.
 ### `submit` lowering
 
 - emits synthetic submit parameterset with `init_with: "platform.xml:systemParameter"`.
-- maps built-in `jbs_*` globals to submit parameters (`queue`, `account`, `nodes`, ...).
-- raw blocks map to:
-  - first block: `env`
-  - second block: `args_exec`
+- emits only submit keys explicitly set in the block.
+- `preprocess` and `postprocess` are raw-block keys.
+  - `preprocess` gets the standard preamble (`set -euo pipefail`, `cd "${jube_benchmark_home}"`).
+  - `postprocess` is emitted as written.
+- expression keys support scalar/container values and `shell("...")` / `python("...")`.
 - emits submit step operations:
   - `${submit} --parsable ${submit_script} > run.jobid`
   - `echo "true" > success`
@@ -133,31 +142,18 @@ This preserves direct-sum row alignment under JUBE semantics.
 
 - `jbs_name` (root `name`)
 - `jbs_outpath` (root `outpath`)
-- `jbs_systemname`
-- `jbs_queue`
-- `jbs_account`
-- `jbs_timelimit`
-- `jbs_outlogfile`
-- `jbs_outerrfile`
-- `jbs_gres`
-- `jbs_threadspertask`
-- `jbs_nnodes`
-- `jbs_tasks`
-- `jbs_executable`
 
 Rules:
 
 - globals can be assigned only at top-level
 - unknown globals are compile errors (`E300`)
 - `jbs_name` and `jbs_outpath` must be plain string literals
-- other globals accept scalar values or `shell("...")` / `python("...")`
 
 Examples:
 
 ```jbs
 jbs_name = "demo"
 jbs_outpath = "results"
-jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
 ```
 
 Invalid examples:
@@ -166,7 +162,6 @@ Invalid examples:
 jbs_name = python("x")   # E303
 jbs_outpath = 12         # E302
 unknown_name = "x"       # E300
-jbs_nnodes = (1,2)       # E304
 ```
 
 Run `jbs help globals` to print defaults and mapping.
@@ -182,7 +177,11 @@ Key codes:
 - `E036`: repeated identifier in combination expression.
 - `E042`: conflicting key values during row merge.
 - `E053`: reserved separator `####` appears in value.
-- `E071`: invalid `submit` block arity (must be two raw blocks).
+- `E072`: unknown submit key.
+- `E073`: `preprocess`/`postprocess` require raw-block values.
+- `E074`: non-raw submit keys cannot use raw-block values.
+- `E075`: duplicate submit key.
+- `E076`: malformed submit statement.
 - `W101`: `+` length mismatch, cyclic broadcast applied.
 
 ## Known Limitations

@@ -13,12 +13,13 @@ import (
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
 	resolvedGlobals := resolveTopLevelGlobals(prog, globals, diags)
 	res := &Result{
-		Program:     prog,
-		Globals:     resolvedGlobals,
-		Paramsets:   make([]*Paramset, 0),
-		ParamByName: make(map[string]*Paramset),
-		DoBlocks:    make([]ast.DoBlock, 0),
-		Submits:     make([]ast.SubmitBlock, 0),
+		Program:      prog,
+		Globals:      resolvedGlobals,
+		Paramsets:    make([]*Paramset, 0),
+		ParamByName:  make(map[string]*Paramset),
+		DoBlocks:     make([]ast.DoBlock, 0),
+		Submits:      make([]ast.SubmitBlock, 0),
+		SubmitByName: make(map[string]*SubmitSpec),
 	}
 
 	paramSpans := make(map[string]diag.Span)
@@ -45,12 +46,34 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 			res.DoBlocks = append(res.DoBlocks, n)
 		case ast.SubmitBlock:
 			res.Submits = append(res.Submits, n)
+			res.SubmitByName[n.Name] = compileSubmitBlock(n, res.ParamByName, resolvedGlobals.Values, diags)
 		}
 	}
 
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
 	return res
+}
+
+var allowedSubmitKeys = map[string]struct{}{
+	"account":        {},
+	"args_exec":      {},
+	"args_starter":   {},
+	"executable":     {},
+	"gres":           {},
+	"mail":           {},
+	"measurement":    {},
+	"nodes":          {},
+	"notification":   {},
+	"outlogfile":     {},
+	"outerrfile":     {},
+	"queue":          {},
+	"starter":        {},
+	"tasks":          {},
+	"threadspertask": {},
+	"timelimit":      {},
+	"preprocess":     {},
+	"postprocess":    {},
 }
 
 func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, diags *diag.Diagnostics) GlobalState {
@@ -170,6 +193,130 @@ func isScalarGlobalValue(v eval.Value) bool {
 	default:
 		return false
 	}
+}
+
+func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, diags *diag.Diagnostics) *SubmitSpec {
+	env := make(map[string]eval.Value, len(globals)+16)
+	for k, v := range globals {
+		env[k] = v
+	}
+
+	for _, item := range block.WithItems {
+		if item.From == "" {
+			src, ok := known[item.Name]
+			if !ok {
+				continue
+			}
+			for _, name := range src.Order {
+				env[name] = seriesAsValue(src.Vars[name])
+			}
+			continue
+		}
+
+		src, ok := known[item.From]
+		if !ok {
+			continue
+		}
+		vals, ok := src.Vars[item.Name]
+		if ok {
+			env[item.Name] = seriesAsValue(vals)
+			continue
+		}
+
+		if fallback, ok := known[item.Name]; ok {
+			for _, name := range fallback.Order {
+				env[name] = seriesAsValue(fallback.Vars[name])
+			}
+		}
+	}
+
+	spec := &SubmitSpec{
+		Name:   block.Name,
+		Values: make([]SubmitValue, 0, len(block.Fields)),
+		Span:   block.Span,
+	}
+	seen := make(map[string]diag.Span)
+	for _, field := range block.Fields {
+		if _, ok := allowedSubmitKeys[field.Name]; !ok {
+			diags.AddError(
+				"E072",
+				fmt.Sprintf("unknown submit key '%s'", field.Name),
+				field.Span,
+				"use one of the allowed submit keys",
+			)
+			continue
+		}
+		if prev, exists := seen[field.Name]; exists {
+			diags.AddError(
+				"E075",
+				fmt.Sprintf("duplicate submit key '%s'", field.Name),
+				field.Span,
+				"set each submit key at most once",
+				diag.RelatedSpan{Message: "first assignment", Span: prev},
+			)
+			continue
+		}
+		seen[field.Name] = field.Span
+
+		if field.IsRaw {
+			if !isRawSubmitKey(field.Name) {
+				diags.AddError(
+					"E074",
+					fmt.Sprintf("submit key '%s' does not accept raw blocks", field.Name),
+					field.Span,
+					"use an expression value for this key",
+				)
+				continue
+			}
+			spec.Values = append(spec.Values, SubmitValue{
+				Name:  field.Name,
+				Raw:   field.Raw,
+				IsRaw: true,
+				Span:  field.Span,
+			})
+			continue
+		}
+
+		if isRawSubmitKey(field.Name) {
+			diags.AddError(
+				"E073",
+				fmt.Sprintf("submit key '%s' must use a raw block", field.Name),
+				field.Span,
+				fmt.Sprintf("use syntax: %s = { ... }", field.Name),
+			)
+			continue
+		}
+		if field.Expr == nil {
+			diags.AddError(
+				"E076",
+				fmt.Sprintf("submit key '%s' is missing a value expression", field.Name),
+				field.Span,
+				"use syntax: key = expression",
+			)
+			continue
+		}
+
+		mode, inner, isModeExpr := unwrapModeExpr(field.Expr)
+		expr := field.Expr
+		if isModeExpr {
+			expr = inner
+		}
+		value := eval.EvalExpr(expr, env, diags)
+		if isModeExpr {
+			value = coerceModeValue(mode, value, field.Span, diags)
+		}
+		spec.Values = append(spec.Values, SubmitValue{
+			Name:  field.Name,
+			Mode:  mode,
+			Value: value,
+			Span:  field.Span,
+		})
+	}
+	return spec
+}
+
+func isRawSubmitKey(name string) bool {
+	return name == "preprocess" || name == "postprocess"
 }
 
 func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals map[string]eval.Value, diags *diag.Diagnostics) *Paramset {

@@ -35,57 +35,15 @@ parameterset:
   - name: run__submit_params
     init_with: platform.xml:systemParameter
     parameter:
-      # From jbs_systemname
-      - name: systemname
-        mode: python
-        _: '__import__("os").environ.get("SYSTEMNAME", "")'
-      # From jbs_queue
-      - name: queue
-        mode: python
-        _: '__import__("os").environ.get("JUBE_QUEUE", {"juwelsbooster":"develbooster","jurecadc":"dc-gpu-devel","jusuf":"batch"}["${jbs_systemname}"])'
-      # From jbs_account
-      - name: account
-        mode: python
-        _: '__import__("os").environ.get("JUBE_ACCOUNT", "atmlaml")'
-      # From jbs_timelimit
-      - name: timelimit
-        mode: python
-        _: '__import__("os").environ.get("JUBE_TIMELIMIT", "00:15:00")'
-      # From jbs_outlogfile
-      - name: outlogfile
-        _: job.out
-      # From jbs_outerrfile
-      - name: outerrfile
-        _: job.err
-      # From jbs_gres
-      - name: gres
-        _: gpu:4
-      # From jbs_threadspertask
-      - name: threadspertask
-        type: int
-        _: "48"
-      # From jbs_nnodes
-      - name: nodes
-        type: int
-        _: "1"
-      # From jbs_tasks
-      - name: tasks
-        type: int
-        _: "1"
-      # From jbs_executable
-      - name: executable
-        _: /bin/bash
-      - name: hint
-        _: nomultithread
-      - name: env
+      - name: preprocess
         mode: text
         separator: '|'
         _: |
           set -euo pipefail
           cd "${jube_benchmark_home}"
-            export X=1
+          export X=1
       - name: args_exec
-        _: '  python main.py --case ${case} --nnodes ${nnodes}'
+        _: python main.py --case ${case} --nnodes ${nnodes}
 
 # Steps executed by JUBE
 step:

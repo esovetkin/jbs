@@ -9,7 +9,8 @@ do setup with case from matrix {
 }
 
 submit run after setup with matrix {
-  export X=1
-} {
-  python main.py --case ${case} --nnodes ${nnodes}
+  preprocess = {
+    export X=1
+  }
+  args_exec = "python main.py --case ${case} --nnodes ${nnodes}"
 }

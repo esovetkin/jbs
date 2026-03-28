@@ -70,13 +70,22 @@ type SubmitBlock struct {
 	Name      string
 	After     []string
 	WithItems []WithItem
-	EnvBody   string
-	RunBody   string
+	Fields    []SubmitField
 	Span      diag.Span
 }
 
 func (s SubmitBlock) stmtNode()          {}
 func (s SubmitBlock) GetSpan() diag.Span { return s.Span }
+
+type SubmitField struct {
+	Name  string
+	Expr  Expr
+	Raw   string
+	IsRaw bool
+	Span  diag.Span
+}
+
+func (s SubmitField) GetSpan() diag.Span { return s.Span }
 
 type Expr interface {
 	Node

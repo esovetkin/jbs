@@ -174,7 +174,7 @@ param p {
 
 func TestGlobalScalarOnlyRule(t *testing.T) {
 	src := `
-jbs_nnodes = (1,2)
+jbs_outpath = (1,2)
 param p {
   a = 1
   a
@@ -185,12 +185,115 @@ param p {
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	found := false
 	for _, d := range diags.Items {
-		if d.Code == "E304" {
+		if d.Code == "E302" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected E304, got: %s", diags.String())
+		t.Fatalf("expected E302, got: %s", diags.String())
+	}
+}
+
+func TestSubmitUnknownKeyError(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+submit run with p {
+  not_allowed = "x"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E072" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E072, got: %s", diags.String())
+	}
+}
+
+func TestSubmitPreprocessRequiresRawBlock(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+submit run with p {
+  preprocess = "echo hi"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E073" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E073, got: %s", diags.String())
+	}
+}
+
+func TestSubmitNonRawKeyRejectsRawBlock(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+submit run with p {
+  queue = {
+    devel
+  }
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E074" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E074, got: %s", diags.String())
+	}
+}
+
+func TestSubmitDuplicateKeyError(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+submit run with p {
+  queue = "q1"
+  queue = "q2"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E075" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E075, got: %s", diags.String())
 	}
 }

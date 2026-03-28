@@ -30,7 +30,7 @@ jbs --check input.jbs
 jbs
 jbs help
 
-# list built-in jbs_* globals and mapping
+# list built-in globals and mapping
 jbs help globals
 ```
 
@@ -41,7 +41,6 @@ You can assign known globals outside `param`, `do`, and `submit` blocks:
 ```jbs
 jbs_name = "demo"
 jbs_outpath = "test"
-jbs_queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
 ```
 
 Rules:
@@ -49,13 +48,12 @@ Rules:
 - only known globals are allowed (`jbs help globals`)
 - unknown names are compile errors
 - `jbs_name` and `jbs_outpath` must be plain string literals
-- other globals accept scalar values or `shell("...")` / `python("...")`
 
 ## Language Blocks
 
 - `param <name> ... { ... }`
 - `do <name> ... { ... }`
-- `submit <name> ... { ... } { ... }`
+- `submit <name> ... { key = value ... }`
 
 See [docs/language.md](docs/language.md) for full grammar and semantics.
 
@@ -76,10 +74,10 @@ parameterset:
 - `E300`: unknown top-level global variable.
 - `E301`/`E302`: `jbs_name` / `jbs_outpath` must be plain string literals.
 - `E303`: `jbs_name` / `jbs_outpath` cannot use `shell()` / `python()`.
-- `E304`: top-level global value must be scalar (no tuple/list/dict).
 - `E036`: the same identifier is used twice in one combination expression (`A + A`, `(A+B)*A`).
 - `E042`: two rows merged by `+`/`*` provide different values for the same key.
 - `E053`: value contains reserved separator `####`.
+- `E072`-`E076`: invalid submit key/value syntax and structure in `submit` blocks.
 - `W101`: `+` zipped lists of different lengths; cyclic broadcast to max length was applied.
 
 ## Known Limitations (V1)

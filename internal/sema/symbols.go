@@ -24,10 +24,26 @@ type GlobalState struct {
 }
 
 type Result struct {
-	Program     ast.Program
-	Globals     GlobalState
-	Paramsets   []*Paramset
-	ParamByName map[string]*Paramset
-	DoBlocks    []ast.DoBlock
-	Submits     []ast.SubmitBlock
+	Program      ast.Program
+	Globals      GlobalState
+	Paramsets    []*Paramset
+	ParamByName  map[string]*Paramset
+	DoBlocks     []ast.DoBlock
+	Submits      []ast.SubmitBlock
+	SubmitByName map[string]*SubmitSpec
+}
+
+type SubmitValue struct {
+	Name  string
+	Mode  string
+	Value eval.Value
+	Raw   string
+	IsRaw bool
+	Span  diag.Span
+}
+
+type SubmitSpec struct {
+	Name   string
+	Values []SubmitValue
+	Span   diag.Span
 }

@@ -472,42 +472,45 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 
 func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	name := ctx.uniqueName(fmt.Sprintf("%s__submit_params", block.Name))
-	visible := ctx.visibleNames(block.WithItems)
-	nodesValue, nodesMode := ctx.globalSubmitValueByName("jbs_nnodes", visible)
-
 	params := make([]Parameter, 0)
-	for _, spec := range BuiltinGlobals() {
-		if spec.Target == "" {
-			continue
-		}
-		value, mode := ctx.globalSubmitValue(spec, visible)
-		if spec.Name == "jbs_tasks" && !visible["jbs_tasks"] {
-			if _, explicit := ctx.res.Globals.Spans["jbs_tasks"]; !explicit {
-				value = nodesValue
-				mode = nodesMode
+	if spec := ctx.res.SubmitByName[block.Name]; spec != nil {
+		for _, field := range spec.Values {
+			if field.IsRaw {
+				raw := normalizeRawBlock(field.Raw)
+				if field.Name == "preprocess" {
+					raw = withPrelude(raw)
+				}
+				params = append(params, Parameter{
+					Name:      field.Name,
+					Mode:      "text",
+					Separator: "|",
+					Value:     Literal(raw),
+				})
+				continue
 			}
-		}
-		p := Parameter{Name: spec.Target, Value: value}
-		if mode != "" {
-			p.Mode = mode
-			if mode == "python" {
-				p.Value = SingleQuoted(value)
-			}
-		}
-		if spec.Type != "" {
-			p.Type = spec.Type
-		}
-		params = append(params, p)
-	}
 
-	params = append(params, Parameter{Name: "hint", Value: "nomultithread"})
-	params = append(params, Parameter{
-		Name:      "env",
-		Mode:      "text",
-		Separator: "|",
-		Value:     Literal(withPrelude(block.EnvBody)),
-	})
-	params = append(params, Parameter{Name: "args_exec", Value: trimOuterNewlines(block.RunBody)})
+			param := Parameter{Name: field.Name}
+			if t := submitParameterType(field.Name); t != "" {
+				param.Type = t
+			}
+			if field.Mode != "" {
+				param.Mode = field.Mode
+				if field.Mode == "python" {
+					param.Value = SingleQuoted(asString(field.Value))
+				} else {
+					param.Value = asString(field.Value)
+				}
+			} else {
+				switch field.Value.Kind {
+				case eval.KindList, eval.KindDict, eval.KindNull:
+					param.Value = pythonLiteral(field.Value)
+				default:
+					param.Value = templateValue(field.Value)
+				}
+			}
+			params = append(params, param)
+		}
+	}
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
 		Name:      name,
@@ -520,30 +523,6 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	})
 	ctx.names[name] = struct{}{}
 	return name
-}
-
-func (ctx *lowerContext) globalSubmitValue(spec GlobalSpec, visible map[string]bool) (string, string) {
-	if visible[spec.Name] {
-		return "$" + spec.Name, ""
-	}
-	if span, ok := ctx.res.Globals.Spans[spec.Name]; ok && !span.IsZero() {
-		v, ok := ctx.res.Globals.Values[spec.Name]
-		if !ok {
-			return spec.DefaultExpr, spec.Mode
-		}
-		mode := ctx.res.Globals.Modes[spec.Name]
-		return asString(v), mode
-	}
-	return spec.DefaultExpr, spec.Mode
-}
-
-func (ctx *lowerContext) globalSubmitValueByName(name string, visible map[string]bool) (string, string) {
-	for _, spec := range BuiltinGlobals() {
-		if spec.Name == name {
-			return ctx.globalSubmitValue(spec, visible)
-		}
-	}
-	return "", ""
 }
 
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {
@@ -574,6 +553,15 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) St
 		`echo "true" > success`,
 	}
 	return step
+}
+
+func submitParameterType(name string) string {
+	switch name {
+	case "nodes", "tasks", "threadspertask":
+		return "int"
+	default:
+		return ""
+	}
 }
 
 func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {
@@ -718,34 +706,6 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 	return name
 }
 
-func (ctx *lowerContext) visibleNames(items []ast.WithItem) map[string]bool {
-	visible := make(map[string]bool)
-	for _, item := range items {
-		if item.From == "" {
-			src := ctx.res.ParamByName[item.Name]
-			if src == nil {
-				continue
-			}
-			for _, name := range src.Order {
-				visible[name] = true
-			}
-			continue
-		}
-		if src := ctx.res.ParamByName[item.From]; src != nil {
-			if _, ok := src.Vars[item.Name]; !ok {
-				if ps := ctx.res.ParamByName[item.Name]; ps != nil {
-					for _, name := range ps.Order {
-						visible[name] = true
-					}
-					continue
-				}
-			}
-		}
-		visible[item.Name] = true
-	}
-	return visible
-}
-
 func (ctx *lowerContext) uniqueName(base string) string {
 	if _, exists := ctx.names[base]; !exists {
 		ctx.names[base] = struct{}{}
@@ -779,6 +739,70 @@ func trimOuterNewlines(s string) string {
 	s = strings.TrimSuffix(s, "\n")
 	s = strings.TrimSuffix(s, "\r")
 	return s
+}
+
+func normalizeRawBlock(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	lines := strings.Split(s, "\n")
+
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+
+	minIndent := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := leadingIndent(line)
+		if minIndent < 0 || indent < minIndent {
+			minIndent = indent
+		}
+	}
+	if minIndent < 0 {
+		minIndent = 0
+	}
+
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(stripIndent(line, minIndent), " \t")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func leadingIndent(s string) int {
+	n := 0
+	for _, r := range s {
+		if r == ' ' || r == '\t' {
+			n++
+			continue
+		}
+		break
+	}
+	return n
+}
+
+func stripIndent(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	i := 0
+	for _, r := range s {
+		if i >= n {
+			break
+		}
+		if r != ' ' && r != '\t' {
+			break
+		}
+		i++
+	}
+	return s[i:]
 }
 
 func sanitize(name string) string {
