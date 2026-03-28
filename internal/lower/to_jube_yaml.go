@@ -705,7 +705,7 @@ func withPrelude(body string) string {
 	b := strings.Builder{}
 	b.WriteString("set -euo pipefail\n")
 	b.WriteString("cd \"${jube_benchmark_home}\"\n")
-	trimmed := trimOuterNewlines(body)
+	trimmed := normalizeRawBlock(body)
 	if trimmed != "" {
 		b.WriteString(trimmed)
 		if !strings.HasSuffix(trimmed, "\n") {
@@ -713,13 +713,6 @@ func withPrelude(body string) string {
 		}
 	}
 	return b.String()
-}
-
-func trimOuterNewlines(s string) string {
-	s = strings.TrimPrefix(s, "\n")
-	s = strings.TrimSuffix(s, "\n")
-	s = strings.TrimSuffix(s, "\r")
-	return s
 }
 
 func normalizeRawBlock(s string) string {

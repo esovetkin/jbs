@@ -221,6 +221,41 @@ submit run after prep with p {
 	}
 }
 
+func TestDoRawBlockIndentationAlignedWithPrelude(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+
+do run with p {
+    echo one
+      echo two
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one step")
+	}
+	body, ok := doc.Step[0].Do[0].(lower.Literal)
+	if !ok {
+		t.Fatalf("expected literal do body, got %T", doc.Step[0].Do[0])
+	}
+	got := string(body)
+	if !strings.Contains(got, "set -euo pipefail\ncd \"${jube_benchmark_home}\"\n") {
+		t.Fatalf("missing preamble in do body: %q", got)
+	}
+	if strings.Contains(got, "\n    echo one") {
+		t.Fatalf("unexpected extra indentation for first line after preamble: %q", got)
+	}
+	if !strings.Contains(got, "\necho one\n  echo two\n") {
+		t.Fatalf("expected normalized relative indentation after preamble, got: %q", got)
+	}
+}
+
 func TestMixedWithVariableAndWholeParamsetLowering(t *testing.T) {
 	src := `
 param p1 {

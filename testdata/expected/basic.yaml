@@ -55,7 +55,7 @@ step:
       - |
         set -euo pipefail
         cd "${jube_benchmark_home}"
-          echo setup ${case}
+        echo setup ${case}
 
   # Step generated from submit block 'run'
   - name: run
