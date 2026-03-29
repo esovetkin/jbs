@@ -955,15 +955,68 @@ func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 }
 
 func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags *diag.Diagnostics) {
+	type importOrigin struct {
+		source string
+		span   diag.Span
+	}
+	seen := make(map[string]importOrigin)
+	reported := make(map[string]struct{})
+
+	addImported := func(name string, source string, span diag.Span) {
+		if prev, ok := seen[name]; ok {
+			if prev.source == source {
+				return
+			}
+			left := prev.source
+			right := source
+			if left > right {
+				left, right = right, left
+			}
+			key := name + "|" + left + "|" + right
+			if _, exists := reported[key]; exists {
+				return
+			}
+			reported[key] = struct{}{}
+			diags.AddError(
+				"E214",
+				fmt.Sprintf("conflicting variable '%s' imported from parametersets '%s' and '%s'", name, prev.source, source),
+				span,
+				"import each variable name from only one source parameterset",
+				diag.RelatedSpan{Message: "first conflicting import", Span: prev.span},
+			)
+			return
+		}
+		seen[name] = importOrigin{source: source, span: span}
+	}
+
+	paramVarNames := func(ps *Paramset) []string {
+		if len(ps.Order) > 0 {
+			out := make([]string, len(ps.Order))
+			copy(out, ps.Order)
+			return out
+		}
+		names := make([]string, 0, len(ps.Vars))
+		for name := range ps.Vars {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return names
+	}
+
 	for _, item := range items {
 		if item.From == "" {
-			if _, ok := params[item.Name]; !ok {
+			ps, ok := params[item.Name]
+			if !ok {
 				diags.AddError(
 					"E020",
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
 					"import an existing parameterset",
 				)
+			} else {
+				for _, varName := range paramVarNames(ps) {
+					addImported(varName, ps.Name, item.Span)
+				}
 			}
 			continue
 		}
@@ -980,9 +1033,13 @@ func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags 
 		}
 
 		if _, ok := src.Vars[item.Name]; ok {
+			addImported(item.Name, src.Name, item.Span)
 			continue
 		}
-		if _, ok := params[item.Name]; ok {
+		if fallback, ok := params[item.Name]; ok {
+			for _, varName := range paramVarNames(fallback) {
+				addImported(varName, fallback.Name, item.Span)
+			}
 			continue
 		}
 		diags.AddError(

@@ -138,6 +138,63 @@ do work with (a,b) from p1, p2 {
 	}
 }
 
+func TestRepeatedWithClausesAreConcatenated(t *testing.T) {
+	src := `
+param params {
+  a = ("x","y")
+  a
+}
+param params2 {
+  x = (1,2)
+  x
+}
+do work
+  with params
+  with x from params2
+{
+  echo ${a} ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected concatenated with clauses to be valid, got: %s", diags.String())
+	}
+}
+
+func TestWithVariableConflictAcrossCombinedClauses(t *testing.T) {
+	src := `
+param params {
+  x = ("ddp","fsdp")
+  x
+}
+param params2 {
+  x = (1,2)
+  x
+}
+do work
+  with params
+  with x from params2
+{
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E214" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E214 for conflicting combined with imports, got: %s", diags.String())
+	}
+}
+
 func TestUnknownTopLevelGlobalRejected(t *testing.T) {
 	src := `
 not_a_global = "x"

@@ -357,12 +357,12 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 		}
 		if word == "after" {
 			p.consumeWord()
-			after = p.parseNameList()
+			after = append(after, p.parseNameList()...)
 			continue
 		}
 		if word == "with" {
 			p.consumeWord()
-			withItems = p.parseWithItems()
+			withItems = append(withItems, p.parseWithItems()...)
 			continue
 		}
 		break

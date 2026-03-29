@@ -87,6 +87,38 @@ do task with (a,b) from p, q {
 	}
 }
 
+func TestParseRepeatedWithClausesConcatenate(t *testing.T) {
+	src := `
+do task
+  with params
+  with x from params2
+{
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("concat_with.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if got := len(db.WithItems); got != 2 {
+		t.Fatalf("expected concatenated with items, got %d", got)
+	}
+	if db.WithItems[0].Name != "params" || db.WithItems[0].From != "" {
+		t.Fatalf("unexpected first with item: %#v", db.WithItems[0])
+	}
+	if db.WithItems[1].Name != "x" || db.WithItems[1].From != "params2" {
+		t.Fatalf("unexpected second with item: %#v", db.WithItems[1])
+	}
+}
+
 func TestParseWithTupleMalformed(t *testing.T) {
 	src := `
 do task with (a,b from p {
