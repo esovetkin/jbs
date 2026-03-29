@@ -1,4 +1,4 @@
-# JBS Language (V1)
+# JBS Language
 
 ## Grammar
 
@@ -41,7 +41,7 @@ analyse_col    := IDENT ("as" STRING)?
 
 ## Expressions
 
-Assignment expressions support:
+Supported assignment expressions:
 
 - scalar literals: string/int/float/bool
 - tuples/lists
@@ -69,7 +69,7 @@ Mode declarations lower to JUBE parameter mode fields:
   _: '...'
 ```
 
-Unsupported syntax (diagnostic emitted):
+Unsupported syntax (diagnostics emitted):
 
 - function calls
 - attribute access
@@ -78,18 +78,110 @@ Unsupported syntax (diagnostic emitted):
 
 ## Combination Algebra
 
-- `A * B`: cartesian product.
+- `A * B`: Cartesian product.
 - `A + B`: direct sum (zip).
-- precedence: `*` before `+`.
-- parentheses supported.
+- operator precedence: `*` before `+`.
+- parentheses are supported.
 
 `+` broadcasting behavior:
 
 - if lengths match: normal zip.
 - else: cyclic broadcast to `max(len(left), len(right))`.
-- warning `W101` emitted at the `+` operator span.
+- warning `W101` is emitted at the `+` operator span only when the shorter length does not divide the longer one.
 
 Repeated identifier use in a single combination expression is rejected (`E036`).
+
+Examples:
+
+```jbs
+param ex_zip {
+        x = (1, 2)
+        y = ("a", "b")
+
+        # direct sum (zip), equal lengths
+        # yields [(x=1, y="a"), (x=2, y="b")]
+        x + y
+}
+
+param ex_product {
+        x = (1, 2)
+        y = ("a", "b", "c")
+
+        # Cartesian product
+        # yields [
+        #   (x=1, y="a"), (x=1, y="b"), (x=1, y="c"),
+        #   (x=2, y="a"), (x=2, y="b"), (x=2, y="c")
+        # ]
+        x * y
+}
+
+param ex_precedence {
+        x = (1, 2)
+        y = ("a", "b")
+        z = ("L", "R")
+
+        # '*' binds before '+': x + (y * z)
+        # y * z yields [
+        #   (y="a", z="L"), (y="a", z="R"),
+        #   (y="b", z="L"), (y="b", z="R")
+        # ]
+        # then x is broadcast to length 4:
+        # yields [
+        #   (x=1, y="a", z="L"), (x=2, y="a", z="R"),
+        #   (x=1, y="b", z="L"), (x=2, y="b", z="R")
+        # ]
+        x + y * z
+}
+
+param ex_parentheses {
+        x = (1, 2)
+        y = ("a", "b")
+        z = ("L", "R")
+
+        # parentheses change grouping: (x + y) * z
+        # x + y yields [(x=1, y="a"), (x=2, y="b")]
+        # outer product with z yields [
+        #   (x=1, y="a", z="L"), (x=1, y="a", z="R"),
+        #   (x=2, y="b", z="L"), (x=2, y="b", z="R")
+        # ]
+        (x + y) * z
+}
+
+param ex_broadcast_warn {
+        x = (1, 2)
+        y = ("a", "b", "c")
+
+        # non-matching lengths: 2 + 3
+        # cyclic broadcast to length 3:
+        # yields [(x=1, y="a"), (x=2, y="b"), (x=1, y="c")]
+        # emits W101 because 3 % 2 != 0
+        x + y
+}
+
+param ex_broadcast_no_warn_divisible {
+        x = (1, 2)
+        y = ("a", "b", "c", "d")
+
+        # non-matching lengths: 2 + 4
+        # cyclic broadcast to length 4:
+        # yields [
+        #   (x=1, y="a"), (x=2, y="b"),
+        #   (x=1, y="c"), (x=2, y="d")
+        # ]
+        # no W101 because 4 % 2 == 0
+        x + y
+}
+
+param ex_scalar_like {
+        x = [1, 2, 3]
+        c = "const"
+
+        # list and tuple are both valid sequence inputs
+        # c behaves like length-1 and is broadcast in '+':
+        # yields [(x=1, c="const"), (x=2, c="const"), (x=3, c="const")]
+        x + c
+}
+```
 
 ## Import Semantics (`with`)
 
@@ -98,8 +190,8 @@ Supported forms:
 - `with p2, p3`
 - `with x from p2, y, z from p3`
 - mixed form: `with x from p2, p3`
-- tuple form: `with (x,y) from p2`
-- mixed tuple form: `with (x,y) from p2, p3`
+- tuple form: `with (x, y) from p2`
+- mixed tuple form: `with (x, y) from p2, p3`
 
 In `param`:
 
@@ -110,9 +202,9 @@ In `do`/`submit`:
 
 - `with p2` uses whole parameter set.
 - `with x from p2` generates a synthetic subset parameterset containing only selected variables.
-- `with (x,y) from p2` generates one synthetic subset parameterset for selected variables.
+- `with (x, y) from p2` generates one synthetic subset parameterset for selected variables.
 - In mixed form (`with x from p2, p3`), `p3` is treated as whole-parameterset import.
-- In mixed tuple form (`with (x,y) from p2, p3`), `p3` is treated as whole-parameterset import.
+- In mixed tuple form (`with (x, y) from p2, p3`), `p3` is treated as whole-parameterset import.
 
 ## Lowering to JUBE YAML
 
@@ -121,6 +213,12 @@ In `do`/`submit`:
 All paramsets lower to indexed representation:
 
 ```yaml
+# jbs source:
+# param grouped {
+#         a = (1, 2)
+#         b = ("x", "y", "z")
+#         a + b
+# }
 parameterset:
   - name: grouped
     parameter:
@@ -133,14 +231,14 @@ This keeps direct-sum alignment and outer-product expansion explicitly coordinat
 
 ### `do` lowering
 
-- emits one `step`.
-- `depend` is comma-separated from `after`.
-- normalizes raw block indentation and preserves only block content.
+- emits one `step` entry.
+- sets `depend` as a comma-separated list from `after`.
+- normalizes raw block indentation and preserves only the block content.
 
 ### `submit` lowering
 
-- emits synthetic submit parameterset with `init_with: "platform.xml:systemParameter"`.
-- emits only submit keys explicitly set in the block.
+- emits a synthetic submit parameterset with `init_with: "platform.xml:systemParameter"`.
+- emits only the submit keys explicitly set in the block.
 - `preprocess` and `postprocess` are raw-block keys.
   - both are emitted from normalized raw content only (no injected preamble).
 - expression keys support scalar/container values and `shell("...")` / `python("...")`.
@@ -171,6 +269,8 @@ patterns p {
 analyse write {
   p0 = p.number in "en"
   p1 = p.letter in "en"
+  # `as "letter"` sets the output column name for `p1`;
+  # columns for `a` and `p0` keep their original names.
   (a, p0, p1 as "letter")
 }
 ```
@@ -221,7 +321,7 @@ result:
 
 Rules:
 
-- globals can be assigned only at top-level
+- globals can be assigned only at the top level
 - unknown globals are compile errors (`E300`)
 - `jbs_name` and `jbs_outpath` must be plain string literals
 
@@ -240,7 +340,7 @@ jbs_outpath = 12         # E302
 unknown_name = "x"       # E300
 ```
 
-Run `jbs help globals` to print defaults and mapping.
+Run `jbs help globals` to print defaults and mappings.
 
 ## Formatter (`jbs fmt`)
 
@@ -249,12 +349,12 @@ Run `jbs help globals` to print defaults and mapping.
 Rules:
 
 - one blank line between top-level statements
-- global assignments emitted as `name = value`
-- block header on first line (`param|do|submit <name>`)
-- `after` and `with` clauses emitted on dedicated continuation lines with 8 spaces
-- opening brace `{` on its own line
-- block body indentation normalized to 8 spaces
-- closing brace `}` at column 1
+- global assignments are emitted as `name = value`
+- block header on the first line (`param|do|submit <name>`)
+- `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces
+- opening brace `{` is on its own line
+- block body indentation is normalized to 8 spaces
+- closing brace `}` is at column 1
 - output always ends with a trailing newline
 
 Submit formatting constraints:
@@ -289,7 +389,7 @@ Key codes:
 - `E415`: unknown symbol in analyse result tuple.
 - `E416`: malformed analyse assignment syntax.
 - `E417`: analyse block missing final tuple.
-- `W101`: `+` length mismatch, cyclic broadcast applied.
+- `W101`: `+` length mismatch with non-divisible lengths, cyclic broadcast applied.
 - `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
 - `W311`: step references `$name`/`${name}` for a known param variable but the corresponding paramset is not imported via `with`.
 
@@ -302,4 +402,4 @@ For `W310`/`W311`, reference scanning applies to:
 ## Known Limitations
 
 - YAML emission only.
-- no XML emission.
+- No XML emission.

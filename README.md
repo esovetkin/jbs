@@ -1,131 +1,130 @@
-# jbs
+# JBS: A Language that Compiles to JUBE Configurations
 
-Standalone compiler from `.jbs` scripts to JUBE-compatible YAML.
+Disclaimer: This language is still in early development, and there are likely bugs. If you find one or want additional features or syntax changes, please open an issue or PR. At the moment, only YAML output is supported. XML output may be added once JBS stabilizes.
 
-## Build
+## Motivation and Quick Start
 
-```bash
-go build ./cmd/jbs
-```
+[JUBE](https://apps.fz-juelich.de/jsc/jube/docu/) configuration files can be tedious to write. They contain repetitive syntax, their structure is often non-local (you need to jump across sections to match names), and small YAML indentation mistakes can break runs. The goal of JBS is to simplify this workflow and help users create JUBE configurations quickly.
 
-## Test
+Here is a small example. The following script runs `ex_step` six times (without Slurm job submission) and creates a result table from parsed output.
 
 ```bash
-GOCACHE=/tmp/go-build GOMODCACHE=/tmp/go-mod go test ./...
+% cat > taster.jbs
+param ex_parset {
+        x = (1, 2)
+        a = ("a", "b", "c")
+
+        # `a + x` is like Python's zip
+        # `a * x` is an outer product
+        # `(a + b) * c` also works
+        # the last expression "returns" the parameter set
+        a * x
+}
+
+# the `do` section runs on a login node
+# the `submit` section submits a Slurm job
+do ex_step with ex_parset {
+        echo "Number ${x}"  > ex_ofile
+        echo "Letter ${a}" >> ex_ofile
+}
+
+patterns p {
+        # %d, %f, %w are shortcuts for JUBE pattern variables
+        number = "Number: %d"
+        letter = "Letter: %w"
+}
+
+analyse ex_step {
+        # assignments define which pattern is searched in which file
+        number = p.number in "ex_ofile"
+        letter = p.letter in "ex_ofile"
+
+        # the last expression defines result table columns
+        (a as "name of a column", x, number, letter)
+}
+% jbs taster.jbs -o taster.yaml
+% awk '!/^[[:space:]]*(#|$)/' taster.jbs | wc
+     18      67     418
+% awk '!/^[[:space:]]*(#|$)/' taster.yaml | wc
+     55     123    1246
+% jube-autorun taster.yaml
+...
 ```
 
-## CLI
+In addition to compiling JUBE configuration files, JBS also reports useful errors and warnings, such as unused variables, missing imports, variable name collisions, and circular dependencies.
+
+## Build and Test
 
 ```bash
-# compile to stdout (default)
-jbs input.jbs
+# module load Go
 
-# compile to file
-jbs input.jbs -o JUBE.yaml
+# go test ./...
+make test
 
-# parse + semantic check only
-jbs --check input.jbs
-
-# format in place
-jbs fmt input.jbs
-
-# show help
-jbs
-jbs help
-
-# list built-in globals and mapping
-jbs help globals
+# compiles into a single executable `jbs`
+# go build -o jbs ./cmd/jbs
+make
 ```
 
-`jbs fmt` rewrites the target file in place using canonical JBS layout.
+## Help and Syntax Overview
 
-## Formatter
+```bash
+% jbs -h
+Usage:
 
-Canonical formatter behavior:
+Compile with:
+  jbs input.jbs -o output.yaml
 
-- opening `{` on its own line
-- `after` / `with` clauses on dedicated continuation lines
-- block body indentation normalized to 8 spaces
-- one blank line between top-level statements
-- output always ends with a newline
+Options:
+  -o, --output   Output path (default: - for stdout)
+  -c, --check    Parse+validate only
 
-Example:
+Read examples/help:
+  jbs help [globals|param|do|submit|patterns|analyse]
+
+Format jbs in place:
+  jbs fmt script.jbs
+```
+
+### `param <name> [with ...] { ... }`
+
+Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets. The last expression defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used there can then be referenced in `do` and `submit` statements.
+
+See `jbs help param` or [docs/help_param.md](docs/help_param.md).
+
+### `do <name> [with ...] [after ...] { ... }`
+
+`do` uses parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)) and executes shell commands in the block. `after` defines [step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies). Circular dependencies are not allowed.
+
+See `jbs help do` or [docs/help_do.md](docs/help_do.md).
+
+### `submit <name> [with ...] [after ...] { key = value ... }`
+
+The `submit` block configures the job-system settings, so it is less straightforward than `do`. JBS currently relies on [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in).
+
+See `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
+
+### `patterns <pattern_group> { name = "regex-with-%d/%f/%w" ... }`
+
+`patterns` defines regex patterns used during `analyse`. Besides shortcuts (`%d`, `%f`, `%w`), the syntax follows [JUBE patterns](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#creating-a-result-table). See JBS-specific lowering details [here](docs/language.md#patterns--analyse-lowering).
+
+See `jbs help patterns` or [docs/help_patterns.md](docs/help_patterns.md).
+
+### `analyse <step_name> { ... }`
+
+`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Pattern references use `pattern_group.pattern`. Each assignment defines which pattern is parsed from which file, and the final tuple defines output columns.
 
 ```jbs
-# before
-do task with a from p{echo ${a}}
+analyse <step_name> {
+        value = pattern_group.pattern in "file"
+        ...
 
-# after
-do task
-        with a from p
-{
-        echo ${a}
+        (value [as "column_name"], ...)
 }
 ```
 
-## Top-Level Globals
+See `jbs help analyse` or [docs/help_analyse.md](docs/help_analyse.md).
 
-You can assign known globals outside `param`, `do`, and `submit` blocks:
+See [docs/language.md](docs/language.md) for grammar and semantics.
 
-```jbs
-jbs_name = "demo"
-jbs_outpath = "test"
-```
-
-Rules:
-
-- only known globals are allowed (`jbs help globals`)
-- unknown names are compile errors
-- `jbs_name` and `jbs_outpath` must be plain string literals
-
-## Language Blocks
-
-- `param <name> ... { ... }`
-- `do <name> ... { ... }`
-- `submit <name> ... { key = value ... }`
-- `patterns <group> { name = "regex-with-%d/%f/%w" ... }`
-- `analyse <step> { alias = group.name in "file" ... (columns...) }`
-
-`with` imports support:
-
-- full parametersets: `with p1, p2`
-- variable imports: `with a from p1`
-- tuple imports: `with (a,b) from p1`
-- mixed form: `with a from p1, p2` and `with (a,b) from p1, p2`
-
-See [docs/language.md](docs/language.md) for full grammar and semantics.
-
-## Generated YAML Comments
-
-Generated YAML includes explanatory comments for major sections and synthetic blocks, for example:
-
-```yaml
-# Parameter sets used to create workpackage combinations
-parameterset:
-  # Synthetic submit parameters for submit block 'run' (init_with: platform.xml:systemParameter).
-  - name: run__submit_params
-    init_with: platform.xml:systemParameter
-```
-
-## Troubleshooting
-
-- `E300`: unknown top-level global variable.
-- `E301`/`E302`: `jbs_name` / `jbs_outpath` must be plain string literals.
-- `E303`: `jbs_name` / `jbs_outpath` cannot use `shell()` / `python()`.
-- `E036`: the same identifier is used twice in one combination expression (`A + A`, `(A+B)*A`).
-- `E042`: two rows merged by `+`/`*` provide different values for the same key.
-- `E072`-`E076`: invalid submit key/value syntax and structure in `submit` blocks.
-- `W101`: `+` zipped lists of different lengths; cyclic broadcast to max length was applied.
-- `W310`: exposed param variable is never referenced in any `do`/`submit` body (`$name`/`${name}`).
-- `W311`: step references a known param variable in body text but does not import it via `with`.
-
-Warnings are non-fatal and do not cause `jbs --check` to fail.
-
-## Known Limitations (V1)
-
-- YAML output only.
-- No XML output.
-
-## License
-
-GPL-3.0. See [LICENSE](LICENSE).
+![](docs/logo.png "Go gopher kicking JUBE into exascale")

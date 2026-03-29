@@ -5,9 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
+	helpdocs "jbs/docs"
 	"jbs/internal/diag"
 	"jbs/internal/emit"
 	jbsformat "jbs/internal/format"
@@ -24,12 +24,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if flags.Help {
-		if flags.HelpGlobals {
-			printGlobalsHelp(stdout)
-		} else if flags.HelpTemplate {
-			printTemplateHelp(stdout)
-		} else {
+		topic := helpTopic(flags)
+		if topic == "" {
 			fmt.Fprintln(stdout, UsageText())
+			return 0
+		}
+		if err := printHelpTopic(stdout, topic); err != nil {
+			fmt.Fprintf(stderr, "failed to print help for %q: %v\n", topic, err)
+			return 1
 		}
 		return 0
 	}
@@ -217,115 +219,30 @@ func sourceExcerpt(lines []string, span diag.Span) string {
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-func printGlobalsHelp(out io.Writer) {
-	fmt.Fprintln(out, "# JBS global defaults")
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "# Top-level assignments only (outside param/do/submit blocks).")
-	fmt.Fprintln(out, "# Unknown globals are compile errors.")
-	fmt.Fprintln(out, "# jbs_name and jbs_outpath must be plain string literals.")
-	fmt.Fprintln(out, "# Other globals accept scalar values or shell(\"...\") / python(\"...\").")
-	fmt.Fprintln(out, "")
-	for _, spec := range lower.BuiltinGlobals() {
-		target := "root"
-		if spec.Target != "" {
-			target = "submit:" + spec.Target
-		} else if spec.Name == "jbs_outpath" {
-			target = "root:outpath"
-		} else if spec.Name == "jbs_name" {
-			target = "root:name"
-		}
-		mode := "-"
-		if spec.Mode != "" {
-			mode = spec.Mode
-		}
-		note := spec.Description
-		if note == "" {
-			note = "No description."
-		}
-		fmt.Fprintf(out, "# %s maps_to: %s. mode: %s\n", note, target, mode)
-		fmt.Fprintln(out, globalAssignmentLine(spec))
-		fmt.Fprintln(out, "")
-	}
-}
-
-func printTemplateHelp(out io.Writer) {
-	_, _ = io.WriteString(out, `# `+"set global variables, see `jbs help globals`"+`
-jbs_name="jbs_benchmark"
-jbs_outpath="out"
-
-# e.g. 'param test_cases'
-param <name>
-{
-    # Define a parameter set.
-    # Use "+" for direct sums, and "*" for outer products.
-    #
-    # For example,
-    # a = (1, 2, 3)
-    # b = ("one", "two")
-    # a + b # yields [(1,"one"),(2,"two"),(3,"one")] (and a warning as length don't match)
-    #
-    # a * b # yields [(1,"one"),(1,"two"),(2,"one"), ...]
-    #
-    # The last line "returns" the parameter set, which means that ${a}
-    # and ${b} variables can be used with whatever this parameter set is used
-}
-
-# e.g. 'do setup_environment with b from my'
-do <name> after <step_name> with <parameter_set>, <variable> from <parameter_set>
-{
-    # bash code executed on the login node
-    #
-    # For example,
-    # echo ${b}
-}
-
-patterns <group>
-{
-    # one regex-like extraction pattern per line
-    runtime = "Runtime: %f"
-    success = "success: %w"
-}
-
-analyse <name0>
-{
-    # <alias> = <group>.<pattern> in "<file>"
-    p0 = <group>.runtime in "job.out"
-    p1 = <group>.success in "success"
-
-    # resulting table columns
-    (<param>, p0, p1 as "success")
-}
-
-# submit my_submitjob after setup_environment with test_cases
-submit <name> after <name0> with <paramset> {
-    account = "atmlaml"
-    preprocess = {
-        # optional
-    }
-    executable = "/bin/bash"
-    args_exec = "-lc hostname"
-}
-`)
-}
-
-func globalAssignmentLine(spec lower.GlobalSpec) string {
-	expr := spec.DefaultExpr
-	switch spec.Mode {
-	case "python":
-		return fmt.Sprintf("%s = python(%s)", spec.Name, strconv.Quote(expr))
-	case "shell":
-		return fmt.Sprintf("%s = shell(%s)", spec.Name, strconv.Quote(expr))
-	}
-
-	switch spec.Name {
-	case "jbs_tasks":
-		if strings.HasPrefix(expr, "$") && len(expr) > 1 {
-			return fmt.Sprintf("%s = %s", spec.Name, expr[1:])
-		}
-		return fmt.Sprintf("%s = %s", spec.Name, expr)
-	case "jbs_threadspertask", "jbs_nnodes":
-		return fmt.Sprintf("%s = %s", spec.Name, expr)
+func helpTopic(flags Flags) string {
+	switch {
+	case flags.HelpGlobals:
+		return "globals"
+	case flags.HelpAnalyse:
+		return "analyse"
+	case flags.HelpDo:
+		return "do"
+	case flags.HelpPatterns:
+		return "patterns"
+	case flags.HelpParam:
+		return "param"
+	case flags.HelpSubmit:
+		return "submit"
 	default:
-		return fmt.Sprintf("%s = %s", spec.Name, strconv.Quote(expr))
+		return ""
 	}
+}
+
+func printHelpTopic(out io.Writer, topic string) error {
+	page, err := helpdocs.Page(topic)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(out, page)
+	return err
 }

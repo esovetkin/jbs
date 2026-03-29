@@ -74,13 +74,53 @@ func TestParseFlagsHelpGlobals(t *testing.T) {
 	}
 }
 
-func TestParseFlagsHelpTemplate(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "template"})
+func TestParseFlagsHelpDo(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "do"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !f.Help || !f.HelpTemplate {
-		t.Fatalf("expected help template mode")
+	if !f.Help || !f.HelpDo {
+		t.Fatalf("expected help do mode")
+	}
+}
+
+func TestParseFlagsHelpAnalyse(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "analyse"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpAnalyse {
+		t.Fatalf("expected help analyse mode")
+	}
+}
+
+func TestParseFlagsHelpPatterns(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "patterns"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpPatterns {
+		t.Fatalf("expected help patterns mode")
+	}
+}
+
+func TestParseFlagsHelpSubmit(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "submit"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpSubmit {
+		t.Fatalf("expected help submit mode")
+	}
+}
+
+func TestParseFlagsHelpParam(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "param"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpParam {
+		t.Fatalf("expected help param mode")
 	}
 }
 

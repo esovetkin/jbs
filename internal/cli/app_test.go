@@ -50,25 +50,33 @@ func TestRunNoArgsShowsHelp(t *testing.T) {
 	}
 }
 
-func TestRunHelpGlobals(t *testing.T) {
+func TestRunHelpTopics(t *testing.T) {
+	topics := []string{"globals", "param", "do", "patterns", "analyse", "submit"}
+	for _, topic := range topics {
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		code := Run([]string{"help", topic}, &out, &errBuf)
+		if code != 0 {
+			t.Fatalf("topic=%s expected exit 0, got %d stderr=%s", topic, code, errBuf.String())
+		}
+		if errBuf.Len() != 0 {
+			t.Fatalf("topic=%s expected empty stderr, got: %s", topic, errBuf.String())
+		}
+		if out.Len() == 0 {
+			t.Fatalf("topic=%s expected non-empty help output", topic)
+		}
+	}
+}
+
+func TestRunHelpTemplateRejected(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
-	code := Run([]string{"help", "globals"}, &out, &errBuf)
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d", code)
+	code := Run([]string{"help", "template"}, &out, &errBuf)
+	if code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
 	}
-	text := out.String()
-	if !strings.Contains(text, `# Benchmark name (root name field). maps_to: root:name. mode: -`) {
-		t.Fatalf("expected jbs_name comment line, got: %s", text)
-	}
-	if !strings.Contains(text, `jbs_name = "jbs_benchmark"`) {
-		t.Fatalf("expected jbs_name assignment, got: %s", text)
-	}
-	if strings.Contains(text, `jbs_queue =`) {
-		t.Fatalf("did not expect removed scheduler global jbs_queue, got: %s", out.String())
-	}
-	if strings.Contains(text, "Globals:") {
-		t.Fatalf("expected script-style help output without legacy Globals section, got: %s", text)
+	if !strings.Contains(errBuf.String(), "usage: jbs help [analyse|do|globals|param|patterns|submit]") {
+		t.Fatalf("expected help usage error, got: %s", errBuf.String())
 	}
 }
 

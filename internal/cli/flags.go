@@ -11,8 +11,12 @@ type Flags struct {
 	Check        bool
 	Fmt          bool
 	Help         bool
+	HelpAnalyse  bool
+	HelpDo       bool
+	HelpPatterns bool
+	HelpParam    bool
+	HelpSubmit   bool
 	HelpGlobals  bool
-	HelpTemplate bool
 }
 
 type UsageError struct {
@@ -39,12 +43,32 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.HelpGlobals = true
 			return cfg, nil
 		}
-		if len(args) == 2 && args[1] == "template" {
+		if len(args) == 2 && args[1] == "do" {
 			cfg.Help = true
-			cfg.HelpTemplate = true
+			cfg.HelpDo = true
 			return cfg, nil
 		}
-		return Flags{}, UsageError{Message: "usage: jbs help [globals|template]"}
+		if len(args) == 2 && args[1] == "analyse" {
+			cfg.Help = true
+			cfg.HelpAnalyse = true
+			return cfg, nil
+		}
+		if len(args) == 2 && args[1] == "patterns" {
+			cfg.Help = true
+			cfg.HelpPatterns = true
+			return cfg, nil
+		}
+		if len(args) == 2 && args[1] == "param" {
+			cfg.Help = true
+			cfg.HelpParam = true
+			return cfg, nil
+		}
+		if len(args) == 2 && args[1] == "submit" {
+			cfg.Help = true
+			cfg.HelpSubmit = true
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|param|patterns|submit]"}
 	}
 	if args[0] == "fmt" {
 		if len(args) != 2 {
@@ -90,14 +114,17 @@ func ParseFlags(args []string) (Flags, error) {
 
 func UsageText() string {
 	return `Usage:
-  jbs script.jbs > script.yaml
-  jbs fmt script.jbs
-  jbs help
-  jbs help globals
-  jbs help template
+
+Compile with:
+  jbs input.jbs -o output.yaml
 
 Options:
   -o, --output   Output path (default: - for stdout)
   -c, --check    Parse+validate only
-  -h, --help     Show this help`
+
+Read examples/help:
+  jbs help [globals|param|do|submit|patterns|analyse]
+
+Format jbs in place:
+  jbs fmt script.jbs`
 }
