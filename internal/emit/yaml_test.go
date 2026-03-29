@@ -57,6 +57,28 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 				},
 			},
 		},
+		PatternSet: []lower.PatternSet{
+			{
+				Name: "p_number",
+				Pattern: []lower.Pattern{
+					{Name: "number", Type: "int", Value: lower.SingleQuoted("Number: $jube_pat_int")},
+				},
+				Meta: lower.PatternSetMeta{
+					Kind:   lower.PatternSetKindBase,
+					Source: "p.number",
+				},
+			},
+			{
+				Name: "p_alias",
+				Pattern: []lower.Pattern{
+					{Name: "p0", Type: "int", Value: lower.SingleQuoted("Number: $jube_pat_int")},
+				},
+				Meta: lower.PatternSetMeta{
+					Kind:   lower.PatternSetKindAlias,
+					Source: "write",
+				},
+			},
+		},
 		Step: []lower.Step{
 			{
 				Name: "setup",
@@ -72,6 +94,34 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 				Meta: lower.StepMeta{
 					Kind:   lower.StepKindSubmit,
 					Source: "run",
+				},
+			},
+		},
+		Analyser: []lower.Analyser{
+			{
+				Name: "analyser_write",
+				Analyse: []lower.AnalyseItem{
+					{
+						Step: "write",
+						File: []lower.AnalyseFile{
+							{Use: "p_number", Value: "en"},
+						},
+					},
+				},
+				Meta: lower.AnalyserMeta{Source: "write"},
+			},
+		},
+		Result: &lower.ResultObject{
+			Use: []string{"analyser_write"},
+			Table: []lower.ResultTable{
+				{
+					Name:  "result_write",
+					Style: "csv",
+					Column: []lower.ResultColumn{
+						{Title: "a", Expr: "a"},
+						{Title: "p0", Expr: "p0"},
+					},
+					Meta: lower.ResultTableMeta{Source: "write"},
 				},
 			},
 		},
@@ -91,8 +141,23 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Parameter sets used to create workpackage combinations") {
 		t.Fatalf("missing parameterset section comment: %s", text)
 	}
+	if !strings.Contains(text, "# Pattern sets used for result extraction") {
+		t.Fatalf("missing patternset section comment: %s", text)
+	}
+	if !strings.Contains(text, "# Analyser definitions for parsing step output files") {
+		t.Fatalf("missing analyser section comment: %s", text)
+	}
+	if !strings.Contains(text, "# Result tables generated from analyser output") {
+		t.Fatalf("missing result section comment: %s", text)
+	}
 	if !strings.Contains(text, "# Param block 'matrix'") {
 		t.Fatalf("missing param block role comment: %s", text)
+	}
+	if !strings.Contains(text, "# Pattern definition for 'p.number'") {
+		t.Fatalf("missing patternset role comment: %s", text)
+	}
+	if !strings.Contains(text, "# Synthetic analyse alias pattern set from analyse block 'write'") {
+		t.Fatalf("missing analyse alias patternset role comment: %s", text)
 	}
 	if !strings.Contains(text, "# Parameters for submit block 'run'") {
 		t.Fatalf("missing submit parameterset role comment: %s", text)
@@ -103,6 +168,12 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Step generated from submit block 'run'") {
 		t.Fatalf("missing submit step comment: %s", text)
 	}
+	if !strings.Contains(text, "# Analyser generated from analyse block 'write'") {
+		t.Fatalf("missing analyser item comment: %s", text)
+	}
+	if !strings.Contains(text, "# Result table generated from analyse block 'write'") {
+		t.Fatalf("missing result table comment: %s", text)
+	}
 	if !strings.Contains(text, "\n\n# From jbs_outpath\noutpath: out\n\n# Parameter sets used to create workpackage combinations") {
 		t.Fatalf("missing blank-line separation between root fields/sections: %s", text)
 	}
@@ -111,6 +182,15 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	}
 	if !strings.Contains(text, "\n\n  # Step generated from submit block 'run'") {
 		t.Fatalf("missing blank-line separation between step blocks: %s", text)
+	}
+	if !strings.Contains(text, "\n\n# Pattern sets used for result extraction") {
+		t.Fatalf("missing blank-line separation before patternset section: %s", text)
+	}
+	if !strings.Contains(text, "\n\n# Analyser definitions for parsing step output files") {
+		t.Fatalf("missing blank-line separation before analyser section: %s", text)
+	}
+	if !strings.Contains(text, "\n\n# Result tables generated from analyser output") {
+		t.Fatalf("missing blank-line separation before result section: %s", text)
 	}
 
 	var out map[string]interface{}

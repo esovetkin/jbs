@@ -38,10 +38,16 @@ func annotateComments(root *yaml.Node, doc lower.Document) {
 	setHeadComment(mapKeyNode(m, "name"), "From jbs_name")
 	setHeadComment(mapKeyNode(m, "outpath"), "From jbs_outpath")
 	setHeadComment(mapKeyNode(m, "parameterset"), "Parameter sets used to create workpackage combinations")
+	setHeadComment(mapKeyNode(m, "patternset"), "Pattern sets used for result extraction")
 	setHeadComment(mapKeyNode(m, "step"), "Steps executed by JUBE")
+	setHeadComment(mapKeyNode(m, "analyser"), "Analyser definitions for parsing step output files")
+	setHeadComment(mapKeyNode(m, "result"), "Result tables generated from analyser output")
 
 	annotateParameterSets(mapValueNode(m, "parameterset"), doc.ParameterSet)
+	annotatePatternSets(mapValueNode(m, "patternset"), doc.PatternSet)
 	annotateSteps(mapValueNode(m, "step"), doc.Step)
+	annotateAnalysers(mapValueNode(m, "analyser"), doc.Analyser)
+	annotateResult(mapValueNode(m, "result"), doc.Result)
 }
 
 func annotateParameterSets(seq *yaml.Node, sets []lower.ParameterSet) {
@@ -67,6 +73,49 @@ func annotateSteps(seq *yaml.Node, steps []lower.Step) {
 			continue
 		}
 		setHeadComment(item, stepComment(steps[i]))
+	}
+}
+
+func annotatePatternSets(seq *yaml.Node, sets []lower.PatternSet) {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for i := 0; i < len(sets) && i < len(seq.Content); i++ {
+		item := seqItem(seq, i)
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		setHeadComment(item, patternSetComment(sets[i]))
+	}
+}
+
+func annotateAnalysers(seq *yaml.Node, analysers []lower.Analyser) {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for i := 0; i < len(analysers) && i < len(seq.Content); i++ {
+		item := seqItem(seq, i)
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		setHeadComment(item, analyserComment(analysers[i]))
+	}
+}
+
+func annotateResult(node *yaml.Node, result *lower.ResultObject) {
+	if node == nil || node.Kind != yaml.MappingNode || result == nil {
+		return
+	}
+	tables := mapValueNode(node, "table")
+	if tables == nil || tables.Kind != yaml.SequenceNode {
+		return
+	}
+	for i := 0; i < len(result.Table) && i < len(tables.Content); i++ {
+		item := seqItem(tables, i)
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		setHeadComment(item, resultTableComment(result.Table[i]))
 	}
 }
 
@@ -111,6 +160,39 @@ func stepComment(step lower.Step) string {
 	default:
 		return fmt.Sprintf("Generated step '%s'", step.Name)
 	}
+}
+
+func patternSetComment(ps lower.PatternSet) string {
+	switch ps.Meta.Kind {
+	case lower.PatternSetKindBase:
+		if ps.Meta.Source != "" {
+			return fmt.Sprintf("Pattern definition for '%s'", ps.Meta.Source)
+		}
+		return fmt.Sprintf("Pattern definition set '%s'", ps.Name)
+	case lower.PatternSetKindAlias:
+		if ps.Meta.Source != "" {
+			return fmt.Sprintf("Synthetic analyse alias pattern set from analyse block '%s'", ps.Meta.Source)
+		}
+		return "Synthetic analyse alias pattern set"
+	default:
+		return fmt.Sprintf("Generated pattern set '%s'", ps.Name)
+	}
+}
+
+func analyserComment(an lower.Analyser) string {
+	src := an.Meta.Source
+	if src == "" {
+		src = an.Name
+	}
+	return fmt.Sprintf("Analyser generated from analyse block '%s'", src)
+}
+
+func resultTableComment(table lower.ResultTable) string {
+	src := table.Meta.Source
+	if src == "" {
+		src = table.Name
+	}
+	return fmt.Sprintf("Result table generated from analyse block '%s'", src)
 }
 
 func rootMap(root *yaml.Node) *yaml.Node {
@@ -206,7 +288,12 @@ func shouldInsertSpacer(line, prevNonEmpty string) bool {
 		return prevTrimmed != ""
 	}
 	if strings.HasPrefix(line, "  # ") {
-		return prevTrimmed != "" && prevTrimmed != "parameterset:" && prevTrimmed != "step:"
+		return prevTrimmed != "" &&
+			prevTrimmed != "parameterset:" &&
+			prevTrimmed != "patternset:" &&
+			prevTrimmed != "step:" &&
+			prevTrimmed != "analyser:" &&
+			prevTrimmed != "table:"
 	}
 	return false
 }

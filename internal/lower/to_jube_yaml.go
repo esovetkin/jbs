@@ -34,7 +34,10 @@ type Document struct {
 	Name         string         `yaml:"name"`
 	Outpath      string         `yaml:"outpath"`
 	ParameterSet []ParameterSet `yaml:"parameterset,omitempty"`
+	PatternSet   []PatternSet   `yaml:"patternset,omitempty"`
 	Step         []Step         `yaml:"step,omitempty"`
+	Analyser     []Analyser     `yaml:"analyser,omitempty"`
+	Result       *ResultObject  `yaml:"result,omitempty"`
 	Meta         DocumentMeta   `yaml:"-"`
 }
 
@@ -68,6 +71,31 @@ type Parameter struct {
 	Value     interface{} `yaml:"_"`
 }
 
+type PatternSetKind string
+
+const (
+	PatternSetKindBase  PatternSetKind = "base"
+	PatternSetKindAlias PatternSetKind = "alias"
+)
+
+type PatternSetMeta struct {
+	Kind   PatternSetKind
+	Source string
+}
+
+type PatternSet struct {
+	Name     string         `yaml:"name"`
+	InitWith string         `yaml:"init_with,omitempty"`
+	Pattern  []Pattern      `yaml:"pattern,omitempty"`
+	Meta     PatternSetMeta `yaml:"-"`
+}
+
+type Pattern struct {
+	Name  string      `yaml:"name"`
+	Type  string      `yaml:"type,omitempty"`
+	Value interface{} `yaml:"_"`
+}
+
 type Step struct {
 	Name   string        `yaml:"name"`
 	Depend string        `yaml:"depend,omitempty"`
@@ -99,6 +127,51 @@ type SubmitOperation struct {
 	Command   string `yaml:"_"`
 }
 
+type AnalyserMeta struct {
+	Source string
+}
+
+type Analyser struct {
+	Name    string        `yaml:"name"`
+	Use     []string      `yaml:"use,omitempty"`
+	Analyse []AnalyseItem `yaml:"analyse"`
+	Meta    AnalyserMeta  `yaml:"-"`
+}
+
+type AnalyseItem struct {
+	Step string        `yaml:"step"`
+	File []AnalyseFile `yaml:"file"`
+}
+
+type AnalyseFile struct {
+	Use   string `yaml:"use,omitempty"`
+	Value string `yaml:"_"`
+}
+
+type ResultMeta struct{}
+
+type ResultObject struct {
+	Use   []string      `yaml:"use"`
+	Table []ResultTable `yaml:"table"`
+	Meta  ResultMeta    `yaml:"-"`
+}
+
+type ResultTableMeta struct {
+	Source string
+}
+
+type ResultTable struct {
+	Name   string          `yaml:"name"`
+	Style  string          `yaml:"style"`
+	Column []ResultColumn  `yaml:"column"`
+	Meta   ResultTableMeta `yaml:"-"`
+}
+
+type ResultColumn struct {
+	Title string `yaml:"title,omitempty"`
+	Expr  string `yaml:"_"`
+}
+
 type Options struct {
 	BenchmarkName string
 	Outpath       string
@@ -111,19 +184,23 @@ type subsetKey struct {
 }
 
 type lowerContext struct {
-	res         *sema.Result
-	doc         Document
-	diags       *diag.Diagnostics
-	names       map[string]struct{}
-	subsetNames map[subsetKey]string
+	res             *sema.Result
+	doc             Document
+	diags           *diag.Diagnostics
+	names           map[string]struct{}
+	subsetNames     map[subsetKey]string
+	patternSetByKey map[string]string
+	analyserNames   map[string]string
 }
 
 func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Document {
 	ctx := &lowerContext{
-		res:         res,
-		diags:       diags,
-		names:       make(map[string]struct{}),
-		subsetNames: make(map[subsetKey]string),
+		res:             res,
+		diags:           diags,
+		names:           make(map[string]struct{}),
+		subsetNames:     make(map[subsetKey]string),
+		patternSetByKey: make(map[string]string),
+		analyserNames:   make(map[string]string),
 	}
 	ctx.doc = Document{
 		Name:    globalString(res.Globals, "jbs_name", "jbs_benchmark"),
@@ -135,6 +212,8 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 		ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, lowerParamset(param, diags))
 	}
 
+	ctx.lowerPatternSets()
+
 	for _, stmt := range res.Program.Stmts {
 		switch node := stmt.(type) {
 		case ast.DoBlock:
@@ -144,6 +223,8 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerSubmit(node, submitSetName))
 		}
 	}
+
+	ctx.lowerAnalyseAndResult()
 
 	return ctx.doc
 }
@@ -436,6 +517,134 @@ func pythonLiteral(v eval.Value) string {
 	default:
 		return strconv.Quote(v.String())
 	}
+}
+
+func patternTemplateKey(group, name string) string {
+	return group + "." + name
+}
+
+func (ctx *lowerContext) lowerPatternSets() {
+	for _, group := range ctx.res.Patterns {
+		if group == nil {
+			continue
+		}
+		for _, pat := range group.Patterns {
+			base := sanitize(group.Name) + "_" + sanitize(pat.Name)
+			name := ctx.uniqueName(base)
+			ctx.doc.PatternSet = append(ctx.doc.PatternSet, PatternSet{
+				Name: name,
+				Pattern: []Pattern{
+					{
+						Name:  pat.Name,
+						Type:  pat.Type,
+						Value: SingleQuoted(pat.Regex),
+					},
+				},
+				Meta: PatternSetMeta{
+					Kind:   PatternSetKindBase,
+					Source: patternTemplateKey(group.Name, pat.Name),
+				},
+			})
+			ctx.patternSetByKey[patternTemplateKey(group.Name, pat.Name)] = name
+		}
+	}
+}
+
+func (ctx *lowerContext) lowerAnalyseAndResult() {
+	if len(ctx.res.Analyse) == 0 {
+		return
+	}
+	patternUsageCount := make(map[string]int)
+	for _, spec := range ctx.res.Analyse {
+		for _, assign := range spec.Assignments {
+			key := patternTemplateKey(assign.Group, assign.Pattern)
+			patternUsageCount[key]++
+		}
+	}
+
+	result := &ResultObject{
+		Use:   make([]string, 0, len(ctx.res.Analyse)),
+		Table: make([]ResultTable, 0, len(ctx.res.Analyse)),
+	}
+
+	for _, spec := range ctx.res.Analyse {
+		if spec == nil {
+			continue
+		}
+		analyserName := ctx.uniqueName("analyser_" + sanitize(spec.Block.StepName))
+		ctx.analyserNames[spec.Block.StepName] = analyserName
+		files := make([]AnalyseFile, 0, len(spec.Assignments))
+		for _, assign := range spec.Assignments {
+			key := patternTemplateKey(assign.Group, assign.Pattern)
+			useSet := ctx.patternSetByKey[key]
+			if assign.Name != assign.Pattern || patternUsageCount[key] > 1 {
+				useSet = ctx.ensureAnalyseAliasPatternSet(spec, assign)
+			}
+			if useSet == "" {
+				continue
+			}
+			files = append(files, AnalyseFile{
+				Use:   useSet,
+				Value: assign.File,
+			})
+		}
+		ctx.doc.Analyser = append(ctx.doc.Analyser, Analyser{
+			Name: analyserName,
+			Analyse: []AnalyseItem{
+				{
+					Step: spec.Block.StepName,
+					File: files,
+				},
+			},
+			Meta: AnalyserMeta{Source: spec.Block.StepName},
+		})
+		if !contains(result.Use, analyserName) {
+			result.Use = append(result.Use, analyserName)
+		}
+
+		columns := make([]ResultColumn, 0, len(spec.Columns))
+		for _, col := range spec.Columns {
+			title := col.Title
+			if title == "" {
+				title = col.Name
+			}
+			expr := col.Source
+			if expr == "" {
+				expr = col.Name
+			}
+			columns = append(columns, ResultColumn{
+				Title: title,
+				Expr:  expr,
+			})
+		}
+		result.Table = append(result.Table, ResultTable{
+			Name:   ctx.uniqueName("result_" + sanitize(spec.Block.StepName)),
+			Style:  "csv",
+			Column: columns,
+			Meta:   ResultTableMeta{Source: spec.Block.StepName},
+		})
+	}
+
+	ctx.doc.Result = result
+}
+
+func (ctx *lowerContext) ensureAnalyseAliasPatternSet(spec *sema.AnalyseSpec, assign sema.AnalyseAssignmentSpec) string {
+	name := ctx.uniqueName("_jbs__ana_" + sanitize(spec.Block.StepName) + "__" + sanitize(assign.Name))
+	ctx.doc.PatternSet = append(ctx.doc.PatternSet, PatternSet{
+		Name: name,
+		Pattern: []Pattern{
+			{
+				Name:  assign.Name,
+				Type:  assign.Template.Type,
+				Value: SingleQuoted(assign.Template.Regex),
+			},
+		},
+		Meta: PatternSetMeta{
+			Kind:   PatternSetKindAlias,
+			Source: spec.Block.StepName,
+		},
+	})
+	return name
 }
 
 func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {

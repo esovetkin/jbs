@@ -585,3 +585,118 @@ submit run after prep with p {
 		t.Fatalf("unexpected run step meta: %#v", run.Meta)
 	}
 }
+
+func TestPatternsAndAnalyseLowering(t *testing.T) {
+	src := `
+param params {
+  x = (1,2,3)
+  a = ("a","b","c")
+  a + x
+}
+
+do write with params {
+  echo "Number: ${x}" > en
+  echo "Letter: ${a}" >> en
+  echo "Zahl: ${x}" > de
+}
+
+patterns p {
+  number = "Number: %d"
+  zahl = "Zahl: %d"
+  letter = "Letter: %w"
+}
+
+analyse write {
+  p0 = p.number in "en"
+  p1 = p.zahl in "de"
+  p2 = p.letter in "en"
+  (
+    a,
+    x,
+    p0,
+    p1 as "de zahl",
+    p2,
+  )
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.PatternSet) < 3 {
+		t.Fatalf("expected base patternsets, got %#v", doc.PatternSet)
+	}
+	if len(doc.Analyser) != 1 {
+		t.Fatalf("expected one analyser, got %#v", doc.Analyser)
+	}
+	an := doc.Analyser[0]
+	if an.Analyse[0].Step != "write" {
+		t.Fatalf("unexpected analyse step: %#v", an.Analyse[0])
+	}
+	if len(an.Analyse[0].File) != 3 {
+		t.Fatalf("expected 3 analyse files, got %#v", an.Analyse[0].File)
+	}
+	if doc.Result == nil {
+		t.Fatalf("expected result object")
+	}
+	if len(doc.Result.Use) != 1 || doc.Result.Use[0] != an.Name {
+		t.Fatalf("unexpected result use list: %#v", doc.Result.Use)
+	}
+	if len(doc.Result.Table) != 1 {
+		t.Fatalf("expected one result table, got %#v", doc.Result.Table)
+	}
+	table := doc.Result.Table[0]
+	if table.Style != "csv" {
+		t.Fatalf("expected csv style, got %#v", table.Style)
+	}
+	if len(table.Column) != 5 {
+		t.Fatalf("unexpected columns: %#v", table.Column)
+	}
+	if table.Column[3].Title != "de zahl" || table.Column[3].Expr != "p1" {
+		t.Fatalf("unexpected aliased result column: %#v", table.Column[3])
+	}
+}
+
+func TestAnalyseAliasPatternsetMaterialization(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do write with p {
+  echo "Number: ${a}" > en
+  echo "Number: ${a}" > de
+}
+patterns g {
+  number = "Number: %d"
+}
+analyse write {
+  p0 = g.number in "en"
+  p1 = g.number in "de"
+  (a, p0, p1)
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Analyser) != 1 {
+		t.Fatalf("expected one analyser")
+	}
+	files := doc.Analyser[0].Analyse[0].File
+	if len(files) != 2 {
+		t.Fatalf("expected two analyse file entries, got %#v", files)
+	}
+	if files[0].Use == files[1].Use {
+		t.Fatalf("expected separate alias patternsets for p0/p1, got %#v", files)
+	}
+	hasAlias := 0
+	for _, ps := range doc.PatternSet {
+		if strings.HasPrefix(ps.Name, "_jbs__ana_write__p") {
+			hasAlias++
+		}
+	}
+	if hasAlias < 2 {
+		t.Fatalf("expected synthetic analyse alias patternsets, got %#v", doc.PatternSet)
+	}
+}

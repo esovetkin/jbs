@@ -83,6 +83,8 @@ Rules:
 - `param <name> ... { ... }`
 - `do <name> ... { ... }`
 - `submit <name> ... { key = value ... }`
+- `patterns <group> { name = "regex-with-%d/%f/%w" ... }`
+- `analyse <step> { alias = group.name in "file" ... (columns...) }`
 
 `with` imports support:
 
@@ -119,7 +121,6 @@ parameterset:
 
 - YAML output only.
 - No XML output.
-- `analyser`, `patternset`, and `result` are intentionally not auto-generated.
 
 ## License
 

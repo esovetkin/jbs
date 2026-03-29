@@ -13,16 +13,22 @@ import (
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
 	resolvedGlobals := resolveTopLevelGlobals(prog, globals, diags)
 	res := &Result{
-		Program:      prog,
-		Globals:      resolvedGlobals,
-		Paramsets:    make([]*Paramset, 0),
-		ParamByName:  make(map[string]*Paramset),
-		DoBlocks:     make([]ast.DoBlock, 0),
-		Submits:      make([]ast.SubmitBlock, 0),
-		SubmitByName: make(map[string]*SubmitSpec),
+		Program:        prog,
+		Globals:        resolvedGlobals,
+		Paramsets:      make([]*Paramset, 0),
+		ParamByName:    make(map[string]*Paramset),
+		DoBlocks:       make([]ast.DoBlock, 0),
+		Submits:        make([]ast.SubmitBlock, 0),
+		SubmitByName:   make(map[string]*SubmitSpec),
+		Patterns:       make([]*PatternGroup, 0),
+		PatternByGroup: make(map[string]*PatternGroup),
+		PatternByKey:   make(map[string]*PatternTemplate),
+		Analyse:        make([]*AnalyseSpec, 0),
 	}
 
 	paramSpans := make(map[string]diag.Span)
+	patternSpans := make(map[string]diag.Span)
+	analyseBlocks := make([]ast.AnalyseBlock, 0)
 	for _, stmt := range prog.Stmts {
 		switch n := stmt.(type) {
 		case ast.GlobalAssign:
@@ -47,11 +53,36 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		case ast.SubmitBlock:
 			res.Submits = append(res.Submits, n)
 			res.SubmitByName[n.Name] = compileSubmitBlock(n, res.ParamByName, resolvedGlobals.Values, diags)
+		case ast.PatternsBlock:
+			if prev, exists := patternSpans[n.Name]; exists {
+				diags.AddError(
+					"E400",
+					fmt.Sprintf("duplicate patterns block name '%s'", n.Name),
+					n.Span,
+					"use a unique patterns block name",
+					diag.RelatedSpan{Message: "first definition", Span: prev},
+				)
+				continue
+			}
+			patternSpans[n.Name] = n.Span
+			group := compilePatternsBlock(n, diags)
+			res.Patterns = append(res.Patterns, group)
+			res.PatternByGroup[group.Name] = group
+			for _, pat := range group.Patterns {
+				p := pat
+				res.PatternByKey[patternLookupKey(p.Group, p.Name)] = &p
+			}
+		case ast.AnalyseBlock:
+			analyseBlocks = append(analyseBlocks, n)
 		}
 	}
 
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
+	for _, block := range analyseBlocks {
+		spec := compileAnalyseBlock(block, res, diags)
+		res.Analyse = append(res.Analyse, spec)
+	}
 	return res
 }
 
@@ -74,6 +105,269 @@ var allowedSubmitKeys = map[string]struct{}{
 	"timelimit":      {},
 	"preprocess":     {},
 	"postprocess":    {},
+}
+
+func compilePatternsBlock(block ast.PatternsBlock, diags *diag.Diagnostics) *PatternGroup {
+	group := &PatternGroup{
+		Name:     block.Name,
+		Patterns: make([]PatternTemplate, 0, len(block.Patterns)),
+		Span:     block.Span,
+	}
+	seen := make(map[string]diag.Span, len(block.Patterns))
+	for _, pat := range block.Patterns {
+		if prev, exists := seen[pat.Name]; exists {
+			diags.AddError(
+				"E401",
+				fmt.Sprintf("duplicate pattern name '%s' in patterns block '%s'", pat.Name, block.Name),
+				pat.Span,
+				"use unique pattern names within a patterns block",
+				diag.RelatedSpan{Message: "first definition", Span: prev},
+			)
+			continue
+		}
+		seen[pat.Name] = pat.Span
+		regex, inferredType, ok := normalizePatternRegex(pat.Regex)
+		if !ok {
+			diags.AddError(
+				"E402",
+				fmt.Sprintf("invalid placeholder in pattern '%s' of patterns block '%s'", pat.Name, block.Name),
+				pat.Span,
+				"supported placeholders are %d, %f, %w and %% for a literal percent",
+			)
+			continue
+		}
+		group.Patterns = append(group.Patterns, PatternTemplate{
+			Group: block.Name,
+			Name:  pat.Name,
+			Regex: regex,
+			Type:  inferredType,
+			Span:  pat.Span,
+		})
+	}
+	return group
+}
+
+func normalizePatternRegex(input string) (string, string, bool) {
+	var out strings.Builder
+	sawInt := false
+	sawFloat := false
+	runes := []rune(input)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r != '%' {
+			out.WriteRune(r)
+			continue
+		}
+		if i+1 >= len(runes) {
+			out.WriteRune('%')
+			continue
+		}
+		next := runes[i+1]
+		switch next {
+		case '%':
+			out.WriteRune('%')
+		case 'd':
+			out.WriteString("$jube_pat_int")
+			sawInt = true
+		case 'f':
+			out.WriteString("$jube_pat_fp")
+			sawFloat = true
+		case 'w':
+			out.WriteString("$jube_pat_wrd")
+		default:
+			return "", "", false
+		}
+		i++
+	}
+	t := "string"
+	if sawFloat {
+		t = "float"
+	} else if sawInt {
+		t = "int"
+	}
+	return out.String(), t, true
+}
+
+func patternLookupKey(group, name string) string {
+	return group + "." + name
+}
+
+func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagnostics) *AnalyseSpec {
+	spec := &AnalyseSpec{
+		Name:        block.StepName,
+		Block:       block,
+		StepVars:    make(map[string]diag.Span),
+		Assignments: make([]AnalyseAssignmentSpec, 0, len(block.Assignments)),
+		Columns:     make([]AnalyseColumnSpec, 0, len(block.Columns)),
+		Span:        block.Span,
+	}
+
+	stepKind := ""
+	withItems := make([]ast.WithItem, 0)
+	for _, doBlock := range res.DoBlocks {
+		if doBlock.Name == block.StepName {
+			stepKind = "do"
+			withItems = doBlock.WithItems
+			break
+		}
+	}
+	if stepKind == "" {
+		for _, submit := range res.Submits {
+			if submit.Name == block.StepName {
+				stepKind = "submit"
+				withItems = submit.WithItems
+				break
+			}
+		}
+	}
+	if stepKind == "" {
+		diags.AddError(
+			"E410",
+			fmt.Sprintf("unknown analyse target step '%s'", block.StepName),
+			block.Span,
+			"analyse must reference an existing do/submit block name",
+		)
+	}
+	spec.StepKind = stepKind
+	spec.StepVars = stepVisibleVariables(withItems, res.ParamByName)
+
+	seenAssignments := make(map[string]diag.Span)
+	assignmentVars := make(map[string]diag.Span)
+	for _, assign := range block.Assignments {
+		if prev, exists := seenAssignments[assign.Name]; exists {
+			diags.AddError(
+				"E414",
+				fmt.Sprintf("duplicate analyse variable '%s'", assign.Name),
+				assign.Span,
+				"use unique alias names in analyse assignments",
+				diag.RelatedSpan{Message: "first assignment", Span: prev},
+			)
+			continue
+		}
+		seenAssignments[assign.Name] = assign.Span
+		if existing, ok := spec.StepVars[assign.Name]; ok {
+			diags.AddError(
+				"E413",
+				fmt.Sprintf("analyse variable '%s' collides with step-visible variable", assign.Name),
+				assign.Span,
+				"use a distinct alias name in analyse",
+				diag.RelatedSpan{Message: "step variable", Span: existing},
+			)
+			continue
+		}
+		group, ok := res.PatternByGroup[assign.PatternGroup]
+		if !ok {
+			diags.AddError(
+				"E411",
+				fmt.Sprintf("unknown pattern group '%s' in analyse assignment", assign.PatternGroup),
+				assign.Span,
+				"define the patterns block before using it",
+			)
+			continue
+		}
+		template := res.PatternByKey[patternLookupKey(assign.PatternGroup, assign.PatternName)]
+		if template == nil {
+			diags.AddError(
+				"E412",
+				fmt.Sprintf("unknown pattern '%s' in pattern group '%s'", assign.PatternName, assign.PatternGroup),
+				assign.Span,
+				"use an existing pattern name from the selected patterns block",
+				diag.RelatedSpan{Message: "pattern group", Span: group.Span},
+			)
+			continue
+		}
+		spec.Assignments = append(spec.Assignments, AnalyseAssignmentSpec{
+			Name:     assign.Name,
+			Group:    assign.PatternGroup,
+			Pattern:  assign.PatternName,
+			File:     assign.File,
+			Template: *template,
+			Span:     assign.Span,
+		})
+		assignmentVars[assign.Name] = assign.Span
+	}
+
+	for _, col := range block.Columns {
+		if _, ok := spec.StepVars[col.Name]; ok {
+			spec.Columns = append(spec.Columns, AnalyseColumnSpec{
+				Name:   col.Name,
+				Title:  col.Title,
+				Source: col.Name,
+				Span:   col.Span,
+			})
+			continue
+		}
+		if _, ok := assignmentVars[col.Name]; ok {
+			spec.Columns = append(spec.Columns, AnalyseColumnSpec{
+				Name:   col.Name,
+				Title:  col.Title,
+				Source: col.Name,
+				Span:   col.Span,
+			})
+			continue
+		}
+		diags.AddError(
+			"E415",
+			fmt.Sprintf("unknown symbol '%s' in analyse result tuple", col.Name),
+			col.Span,
+			"use a step-visible variable or an analyse assignment alias",
+		)
+	}
+
+	return spec
+}
+
+func stepVisibleVariables(items []ast.WithItem, params map[string]*Paramset) map[string]diag.Span {
+	out := make(map[string]diag.Span)
+	for _, item := range items {
+		if item.From == "" {
+			ps := params[item.Name]
+			if ps == nil {
+				continue
+			}
+			for _, name := range ps.Order {
+				if _, exists := out[name]; exists {
+					continue
+				}
+				if origin, ok := ps.Origins[name]; ok {
+					out[name] = origin
+				} else {
+					out[name] = item.Span
+				}
+			}
+			continue
+		}
+
+		ps := params[item.From]
+		if ps == nil {
+			continue
+		}
+		if _, ok := ps.Vars[item.Name]; ok {
+			if _, exists := out[item.Name]; !exists {
+				if origin, ok := ps.Origins[item.Name]; ok {
+					out[item.Name] = origin
+				} else {
+					out[item.Name] = item.Span
+				}
+			}
+			continue
+		}
+		fallback := params[item.Name]
+		if fallback == nil {
+			continue
+		}
+		for _, name := range fallback.Order {
+			if _, exists := out[name]; exists {
+				continue
+			}
+			if origin, ok := fallback.Origins[name]; ok {
+				out[name] = origin
+			} else {
+				out[name] = item.Span
+			}
+		}
+	}
+	return out
 }
 
 func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, diags *diag.Diagnostics) GlobalState {

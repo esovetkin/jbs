@@ -4,7 +4,7 @@
 
 ```ebnf
 program       := stmt* EOF
-stmt          := global_assign | param_block | do_block | submit_block
+stmt          := global_assign | param_block | do_block | submit_block | patterns_block | analyse_block
 
 global_assign := IDENT "=" expr NEWLINE
 
@@ -29,6 +29,14 @@ submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
                  "starter" | "tasks" | "threadspertask" | "timelimit" |
                  "preprocess" | "postprocess"
 submit_value  := expr | raw_block
+
+patterns_block := "patterns" IDENT "{" pattern_stmt* "}"
+pattern_stmt   := IDENT "=" STRING
+
+analyse_block  := "analyse" IDENT "{" analyse_stmt* analyse_tuple "}"
+analyse_stmt   := IDENT "=" IDENT "." IDENT "in" STRING
+analyse_tuple  := "(" analyse_col ("," analyse_col)* ","? ")"
+analyse_col    := IDENT ("as" STRING)?
 ```
 
 ## Expressions
@@ -143,6 +151,66 @@ This keeps direct-sum alignment and outer-product expansion explicitly coordinat
   - `${submit} --parsable ${submit_script} > run.jobid`
   - `echo "true" > success`
 
+### `patterns` + `analyse` lowering
+
+`patterns` and `analyse` compile to JUBE `patternset`, `analyser`, and `result`.
+
+Placeholder expansion in `patterns` values:
+
+- `%d` -> `$jube_pat_int` (inferred type `int`)
+- `%f` -> `$jube_pat_fp` (inferred type `float`)
+- `%w` -> `$jube_pat_wrd` (inferred type `string`)
+- `%%` -> literal `%`
+- `%s` is rejected (`E402`)
+
+Example:
+
+```jbs
+patterns p {
+  number = "Number: %d"
+  letter = "Letter: %w"
+}
+
+analyse write {
+  p0 = p.number in "en"
+  p1 = p.letter in "en"
+  (a, p0, p1 as "letter")
+}
+```
+
+Lowering shape:
+
+```yaml
+patternset:
+  - name: p_number
+    pattern:
+      - name: number
+        type: int
+        _: 'Number: $jube_pat_int'
+
+analyser:
+  - name: analyser_write
+    analyse:
+      - step: write
+        file:
+          - use: _jbs__ana_write__p0
+            _: en
+
+result:
+  use:
+    - analyser_write
+  table:
+    - name: result_write
+      style: csv
+      column:
+        - title: a
+          _: a
+        - title: p0
+          _: p0
+        - title: letter
+          _: p1
+```
+
 ## Built-in Globals
 
 - `jbs_name` (root `name`)
@@ -207,10 +275,20 @@ Key codes:
 - `E074`: non-raw submit keys cannot use raw-block values.
 - `E075`: duplicate submit key.
 - `E076`: malformed submit statement.
+- `E400`: duplicate patterns block name.
+- `E401`: duplicate pattern name in patterns block.
+- `E402`: invalid pattern placeholder.
+- `E410`: unknown analyse target step.
+- `E411`: unknown pattern group in analyse assignment.
+- `E412`: unknown pattern name in analyse assignment.
+- `E413`: analyse alias collides with step-visible variable.
+- `E414`: duplicate analyse alias.
+- `E415`: unknown symbol in analyse result tuple.
+- `E416`: malformed analyse assignment syntax.
+- `E417`: analyse block missing final tuple.
 - `W101`: `+` length mismatch, cyclic broadcast applied.
 
 ## Known Limitations
 
 - YAML emission only.
 - no XML emission.
-- no automatic `patternset` / `analyser` / `result` generation.

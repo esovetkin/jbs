@@ -1,0 +1,113 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'params'
+  - name: params
+    parameter:
+      - name: _jbs__idx_params
+        type: int
+        mode: text
+        _: 0,1,2
+      - name: a
+        mode: python
+        _: '["a","b","c"][$_jbs__idx_params]'
+      - name: x
+        mode: python
+        _: '[1,2,3][$_jbs__idx_params]'
+
+# Pattern sets used for result extraction
+patternset:
+  # Pattern definition for 'p.number'
+  - name: p_number
+    pattern:
+      - name: number
+        type: int
+        _: 'Number: $jube_pat_int'
+
+  # Pattern definition for 'p.zahl'
+  - name: p_zahl
+    pattern:
+      - name: zahl
+        type: int
+        _: 'Zahl: $jube_pat_int'
+
+  # Pattern definition for 'p.letter'
+  - name: p_letter
+    pattern:
+      - name: letter
+        type: string
+        _: 'Letter: $jube_pat_wrd'
+
+  # Synthetic analyse alias pattern set from analyse block 'write'
+  - name: _jbs__ana_write__p0
+    pattern:
+      - name: p0
+        type: int
+        _: 'Number: $jube_pat_int'
+
+  # Synthetic analyse alias pattern set from analyse block 'write'
+  - name: _jbs__ana_write__p1
+    pattern:
+      - name: p1
+        type: int
+        _: 'Zahl: $jube_pat_int'
+
+  # Synthetic analyse alias pattern set from analyse block 'write'
+  - name: _jbs__ana_write__p2
+    pattern:
+      - name: p2
+        type: string
+        _: 'Letter: $jube_pat_wrd'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'write'
+  - name: write
+    use:
+      - params
+    do:
+      - |
+        set -euo pipefail
+        cd "${jube_benchmark_home}"
+        echo "Number: ${x}" > en
+        echo "Letter: ${a}" >> en
+        echo "Zahl: ${x}" > de
+
+# Analyser definitions for parsing step output files
+analyser:
+  # Analyser generated from analyse block 'write'
+  - name: analyser_write
+    analyse:
+      - step: write
+        file:
+          - use: _jbs__ana_write__p0
+            _: en
+          - use: _jbs__ana_write__p1
+            _: de
+          - use: _jbs__ana_write__p2
+            _: en
+
+# Result tables generated from analyser output
+result:
+  use:
+    - analyser_write
+  table:
+    # Result table generated from analyse block 'write'
+    - name: result_write
+      style: csv
+      column:
+        - title: a
+          _: a
+        - title: x
+          _: x
+        - title: p0
+          _: p0
+        - title: de zahl
+          _: p1
+        - title: p2
+          _: p2

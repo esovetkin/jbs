@@ -24,13 +24,17 @@ type GlobalState struct {
 }
 
 type Result struct {
-	Program      ast.Program
-	Globals      GlobalState
-	Paramsets    []*Paramset
-	ParamByName  map[string]*Paramset
-	DoBlocks     []ast.DoBlock
-	Submits      []ast.SubmitBlock
-	SubmitByName map[string]*SubmitSpec
+	Program        ast.Program
+	Globals        GlobalState
+	Paramsets      []*Paramset
+	ParamByName    map[string]*Paramset
+	DoBlocks       []ast.DoBlock
+	Submits        []ast.SubmitBlock
+	SubmitByName   map[string]*SubmitSpec
+	Patterns       []*PatternGroup
+	PatternByGroup map[string]*PatternGroup
+	PatternByKey   map[string]*PatternTemplate
+	Analyse        []*AnalyseSpec
 }
 
 type SubmitValue struct {
@@ -45,5 +49,45 @@ type SubmitValue struct {
 type SubmitSpec struct {
 	Name   string
 	Values []SubmitValue
+	Span   diag.Span
+}
+
+type PatternGroup struct {
+	Name     string
+	Patterns []PatternTemplate
+	Span     diag.Span
+}
+
+type PatternTemplate struct {
+	Group string
+	Name  string
+	Regex string
+	Type  string
+	Span  diag.Span
+}
+
+type AnalyseSpec struct {
+	Name        string
+	Block       ast.AnalyseBlock
+	StepKind    string
+	StepVars    map[string]diag.Span
+	Assignments []AnalyseAssignmentSpec
+	Columns     []AnalyseColumnSpec
+	Span        diag.Span
+}
+
+type AnalyseAssignmentSpec struct {
+	Name     string
+	Group    string
+	Pattern  string
+	File     string
+	Template PatternTemplate
+	Span     diag.Span
+}
+
+type AnalyseColumnSpec struct {
+	Name   string
+	Title  string
+	Source string
 	Span   diag.Span
 }

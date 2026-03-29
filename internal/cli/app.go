@@ -279,6 +279,23 @@ do <name> after <step_name> with <parameter_set>, <variable> from <parameter_set
     # echo ${b}
 }
 
+patterns <group>
+{
+    # one regex-like extraction pattern per line
+    runtime = "Runtime: %f"
+    success = "success: %w"
+}
+
+analyse <name0>
+{
+    # <alias> = <group>.<pattern> in "<file>"
+    p0 = <group>.runtime in "job.out"
+    p1 = <group>.success in "success"
+
+    # resulting table columns
+    (<param>, p0, p1 as "success")
+}
+
 # submit my_submitjob after setup_environment with test_cases
 submit <name> after <name0> with <paramset> {
     account = "atmlaml"

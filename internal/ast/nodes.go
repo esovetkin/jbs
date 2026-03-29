@@ -44,6 +44,53 @@ type GlobalAssign struct {
 func (g GlobalAssign) stmtNode()          {}
 func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 
+type PatternsBlock struct {
+	Name     string
+	Patterns []PatternDef
+	BodyRaw  string
+	Span     diag.Span
+}
+
+func (p PatternsBlock) stmtNode()          {}
+func (p PatternsBlock) GetSpan() diag.Span { return p.Span }
+
+type PatternDef struct {
+	Name  string
+	Regex string
+	Span  diag.Span
+}
+
+func (p PatternDef) GetSpan() diag.Span { return p.Span }
+
+type AnalyseBlock struct {
+	StepName    string
+	Assignments []AnalyseAssign
+	Columns     []AnalyseColumn
+	BodyRaw     string
+	Span        diag.Span
+}
+
+func (a AnalyseBlock) stmtNode()          {}
+func (a AnalyseBlock) GetSpan() diag.Span { return a.Span }
+
+type AnalyseAssign struct {
+	Name         string
+	PatternGroup string
+	PatternName  string
+	File         string
+	Span         diag.Span
+}
+
+func (a AnalyseAssign) GetSpan() diag.Span { return a.Span }
+
+type AnalyseColumn struct {
+	Name  string
+	Title string
+	Span  diag.Span
+}
+
+func (a AnalyseColumn) GetSpan() diag.Span { return a.Span }
+
 type ParamBlock struct {
 	Name        string
 	WithItems   []WithItem

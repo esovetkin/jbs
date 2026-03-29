@@ -320,3 +320,185 @@ submit run with p {
 		t.Fatalf("expected E075, got: %s", diags.String())
 	}
 }
+
+func TestAnalyseUnknownStepError(t *testing.T) {
+	src := `
+patterns p {
+  a = "A: %d"
+}
+analyse missing_step {
+  p0 = p.a in "stdout"
+  (p0)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E410" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E410, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseUnknownPatternGroupAndName(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+patterns g {
+  one = "A: %d"
+}
+analyse run {
+  p0 = missing.one in "stdout"
+  p1 = g.missing in "stdout"
+  (a, p0, p1)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	has411 := false
+	has412 := false
+	for _, d := range diags.Items {
+		if d.Code == "E411" {
+			has411 = true
+		}
+		if d.Code == "E412" {
+			has412 = true
+		}
+	}
+	if !has411 || !has412 {
+		t.Fatalf("expected E411 and E412, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseAssignmentCollisionAndDuplicate(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+patterns g {
+  one = "A: %d"
+}
+analyse run {
+  a = g.one in "stdout"
+  p0 = g.one in "stdout"
+  p0 = g.one in "stdout"
+  (a, p0)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	has413 := false
+	has414 := false
+	for _, d := range diags.Items {
+		if d.Code == "E413" {
+			has413 = true
+		}
+		if d.Code == "E414" {
+			has414 = true
+		}
+	}
+	if !has413 || !has414 {
+		t.Fatalf("expected E413 and E414, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseUnknownTupleSymbol(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+patterns g {
+  one = "A: %d"
+}
+analyse run {
+  p0 = g.one in "stdout"
+  (a, p0, unknown)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E415" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E415, got: %s", diags.String())
+	}
+}
+
+func TestPatternPlaceholderNormalizationAndTypeInference(t *testing.T) {
+	src := `
+patterns p {
+  i = "Count: %d"
+  f = "Time: %f"
+  w = "Word: %w"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	i := res.PatternByKey["p.i"]
+	f := res.PatternByKey["p.f"]
+	w := res.PatternByKey["p.w"]
+	if i == nil || f == nil || w == nil {
+		t.Fatalf("expected compiled patterns in pattern lookup map")
+	}
+	if i.Regex != "Count: $jube_pat_int" || i.Type != "int" {
+		t.Fatalf("unexpected int pattern normalization: %#v", i)
+	}
+	if f.Regex != "Time: $jube_pat_fp" || f.Type != "float" {
+		t.Fatalf("unexpected float pattern normalization: %#v", f)
+	}
+	if w.Regex != "Word: $jube_pat_wrd" || w.Type != "string" {
+		t.Fatalf("unexpected word pattern normalization: %#v", w)
+	}
+}
+
+func TestPatternRejectsPercentS(t *testing.T) {
+	src := `
+patterns p {
+  bad = "Letter: %s"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E402" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E402 for %%s placeholder, got: %s", diags.String())
+	}
+}

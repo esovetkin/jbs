@@ -1,0 +1,22 @@
+param p
+{
+        a=(1,2)
+        a
+}
+
+do write
+        with p
+{
+        echo "Number: ${a}" > out
+}
+
+patterns g
+{
+        n = "Number: %d"
+}
+
+analyse write
+{
+        x=g.n in "out"
+        (a,x as "num")
+}

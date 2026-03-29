@@ -13,8 +13,17 @@ import (
 )
 
 func TestGoldenBasic(t *testing.T) {
-	inputPath := filepath.Join("..", "..", "testdata", "input", "basic.jbs")
-	expectedPath := filepath.Join("..", "..", "testdata", "expected", "basic.yaml")
+	assertGolden(t, "basic")
+}
+
+func TestGoldenResultsBasic(t *testing.T) {
+	assertGolden(t, "results_basic")
+}
+
+func assertGolden(t *testing.T, name string) {
+	t.Helper()
+	inputPath := filepath.Join("..", "..", "testdata", "input", name+".jbs")
+	expectedPath := filepath.Join("..", "..", "testdata", "expected", name+".yaml")
 
 	src, err := os.ReadFile(inputPath)
 	if err != nil {

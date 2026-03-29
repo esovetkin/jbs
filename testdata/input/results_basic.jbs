@@ -1,0 +1,30 @@
+param params {
+  x = (1,2,3)
+  a = ("a","b","c")
+  a + x
+}
+
+do write with params {
+  echo "Number: ${x}" > en
+  echo "Letter: ${a}" >> en
+  echo "Zahl: ${x}" > de
+}
+
+patterns p {
+  number = "Number: %d"
+  zahl = "Zahl: %d"
+  letter = "Letter: %w"
+}
+
+analyse write {
+  p0 = p.number in "en"
+  p1 = p.zahl in "de"
+  p2 = p.letter in "en"
+  (
+    a,
+    x,
+    p0,
+    p1 as "de zahl",
+    p2,
+  )
+}

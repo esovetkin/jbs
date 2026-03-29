@@ -62,6 +62,10 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 		return formatDoBlock(s)
 	case ast.SubmitBlock:
 		return formatSubmitBlock(s, srcRunes)
+	case ast.PatternsBlock:
+		return formatPatternsBlock(s)
+	case ast.AnalyseBlock:
+		return formatAnalyseBlock(s)
 	default:
 		return nil
 	}
@@ -103,6 +107,24 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 	if len(body) == 0 && len(s.Fields) > 0 {
 		body = renderSubmitFields(s.Fields, srcRunes)
 	}
+	lines = append(lines, body...)
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatPatternsBlock(p ast.PatternsBlock) []string {
+	lines := renderBlockHeader("patterns", p.Name, nil, nil)
+	lines = append(lines, "{")
+	body := normalizeBody(p.BodyRaw, bodyIndent)
+	lines = append(lines, body...)
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatAnalyseBlock(a ast.AnalyseBlock) []string {
+	lines := renderBlockHeader("analyse", a.StepName, nil, nil)
+	lines = append(lines, "{")
+	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
 	lines = append(lines, "}")
 	return lines

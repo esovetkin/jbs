@@ -11,6 +11,7 @@ const (
 	TokenNumber   TokenType = "NUMBER"
 	TokenString   TokenType = "STRING"
 	TokenComma    TokenType = ","
+	TokenDot      TokenType = "."
 	TokenEqual    TokenType = "="
 	TokenLParen   TokenType = "("
 	TokenRParen   TokenType = ")"
@@ -36,9 +37,13 @@ const (
 	TokenParam    TokenType = "param"
 	TokenDo       TokenType = "do"
 	TokenSubmit   TokenType = "submit"
+	TokenPatterns TokenType = "patterns"
+	TokenAnalyse  TokenType = "analyse"
 	TokenWith     TokenType = "with"
 	TokenFrom     TokenType = "from"
 	TokenAfter    TokenType = "after"
+	TokenIn       TokenType = "in"
+	TokenAs       TokenType = "as"
 )
 
 type Token struct {
@@ -53,14 +58,18 @@ func (t Token) IsKeyword(tt TokenType) bool {
 }
 
 var keywords = map[string]TokenType{
-	"if":     TokenIf,
-	"else":   TokenElse,
-	"and":    TokenAnd,
-	"or":     TokenOr,
-	"param":  TokenParam,
-	"do":     TokenDo,
-	"submit": TokenSubmit,
-	"with":   TokenWith,
-	"from":   TokenFrom,
-	"after":  TokenAfter,
+	"if":       TokenIf,
+	"else":     TokenElse,
+	"and":      TokenAnd,
+	"or":       TokenOr,
+	"param":    TokenParam,
+	"do":       TokenDo,
+	"submit":   TokenSubmit,
+	"patterns": TokenPatterns,
+	"analyse":  TokenAnalyse,
+	"with":     TokenWith,
+	"from":     TokenFrom,
+	"after":    TokenAfter,
+	"in":       TokenIn,
+	"as":       TokenAs,
 }

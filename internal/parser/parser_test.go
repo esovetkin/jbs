@@ -338,3 +338,180 @@ submit run {
 		t.Fatalf("BodyRaw should contain only inner block text, got %q", sb.BodyRaw)
 	}
 }
+
+func TestParsePatternsBlock(t *testing.T) {
+	src := `
+patterns p {
+  number = "Number: %d"
+  letter = "Letter: %w"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("patterns.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.PatternsBlock)
+	if !ok {
+		t.Fatalf("expected patterns block")
+	}
+	if pb.Name != "p" {
+		t.Fatalf("unexpected patterns block name: %s", pb.Name)
+	}
+	if len(pb.Patterns) != 2 {
+		t.Fatalf("expected 2 patterns, got %d", len(pb.Patterns))
+	}
+	if pb.Patterns[0].Name != "number" || pb.Patterns[0].Regex != "Number: %d" {
+		t.Fatalf("unexpected first pattern: %#v", pb.Patterns[0])
+	}
+}
+
+func TestParseAnalyseBlock(t *testing.T) {
+	src := `
+analyse write {
+  p0 = p.number in "en"
+  p1 = p.zahl in "de"
+  (
+    a,
+    x,
+    p0,
+    p1 as "Zahl",
+  )
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("analyse.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if ab.StepName != "write" {
+		t.Fatalf("unexpected analyse target: %s", ab.StepName)
+	}
+	if len(ab.Assignments) != 2 {
+		t.Fatalf("expected 2 analyse assignments, got %d", len(ab.Assignments))
+	}
+	if len(ab.Columns) != 4 {
+		t.Fatalf("expected 4 columns, got %d", len(ab.Columns))
+	}
+	if ab.Columns[3].Name != "p1" || ab.Columns[3].Title != "Zahl" {
+		t.Fatalf("unexpected aliased column: %#v", ab.Columns[3])
+	}
+}
+
+func TestParseAnalyseMalformedAssignment(t *testing.T) {
+	src := `
+analyse write {
+  p0 = p.number "en"
+  (p0)
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("analyse_bad.jbs", src, diags)
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E416" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E416, got: %s", diags.String())
+	}
+}
+
+func TestParseAnalyseMissingFinalTuple(t *testing.T) {
+	src := `
+analyse write {
+  p0 = p.number in "en"
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("analyse_missing_tuple.jbs", src, diags)
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E417" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E417, got: %s", diags.String())
+	}
+}
+
+func TestParseParamMultilineListTupleRegression(t *testing.T) {
+	src := `
+param p {
+  a = (
+    1,
+    2,
+    3,
+  )
+  b = [
+    "x",
+    "y",
+  ]
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("param_multiline.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected multiline tuple/list in param to remain valid, got: %s", diags.String())
+	}
+}
+
+func TestParseAnalyseTupleOneLineEqualsMultiline(t *testing.T) {
+	oneLine := `
+analyse write {
+  p0 = p.number in "en"
+  (a, x, p0, p0 as "X")
+}
+`
+	multiLine := `
+analyse write {
+  p0 = p.number in "en"
+  (
+    a,
+    x,
+    p0,
+    p0 as "X",
+  )
+}
+`
+	parseCols := func(src string) []ast.AnalyseColumn {
+		diags := &diag.Diagnostics{}
+		prog := Parse("tuple_eq.jbs", src, diags)
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		if len(prog.Stmts) != 1 {
+			t.Fatalf("expected one statement")
+		}
+		ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+		if !ok {
+			t.Fatalf("expected analyse block")
+		}
+		return ab.Columns
+	}
+	left := parseCols(oneLine)
+	right := parseCols(multiLine)
+	if len(left) != len(right) {
+		t.Fatalf("tuple column count mismatch: %d vs %d", len(left), len(right))
+	}
+	for i := range left {
+		if left[i].Name != right[i].Name || left[i].Title != right[i].Title {
+			t.Fatalf("tuple column mismatch at %d: %#v vs %#v", i, left[i], right[i])
+		}
+	}
+}
