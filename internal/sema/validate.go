@@ -396,6 +396,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			)
 			continue
 		}
+		warnModeExprInCollections(assign.Expr, diags)
 		if prev, exists := spans[assign.Name]; exists {
 			diags.AddWarning(
 				"W300",
@@ -589,6 +590,7 @@ func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globa
 			)
 			continue
 		}
+		warnModeExprInCollections(field.Expr, diags)
 
 		mode, inner, isModeExpr := unwrapModeExpr(field.Expr)
 		expr := field.Expr
@@ -693,6 +695,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	}
 
 	for _, asn := range block.Assignments {
+		warnModeExprInCollections(asn.Expr, diags)
 		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
 		expr := asn.Expr
 		if isModeExpr {
@@ -771,6 +774,48 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		Order:   order,
 		HasPlus: combHasOp(block.Final, "+"),
 	}
+}
+
+func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
+	var walk func(ast.Expr, bool)
+	walk = func(node ast.Expr, inCollection bool) {
+		if node == nil {
+			return
+		}
+		switch n := node.(type) {
+		case ast.ModeExpr:
+			if inCollection {
+				diags.AddWarning(
+					"W301",
+					fmt.Sprintf("%s(...) used inside tuple/list expression", n.Mode),
+					n.Span,
+					"use shell()/python() as a standalone assignment value, then reference the variable",
+				)
+			}
+			walk(n.Expr, inCollection)
+		case ast.ListExpr:
+			for _, item := range n.Items {
+				walk(item, true)
+			}
+		case ast.TupleExpr:
+			for _, item := range n.Items {
+				walk(item, true)
+			}
+		case ast.UnaryExpr:
+			walk(n.Expr, inCollection)
+		case ast.BinaryExpr:
+			walk(n.Left, inCollection)
+			walk(n.Right, inCollection)
+		case ast.CompareExpr:
+			walk(n.Left, inCollection)
+			walk(n.Right, inCollection)
+		case ast.ConditionalExpr:
+			walk(n.Then, inCollection)
+			walk(n.Cond, inCollection)
+			walk(n.Else, inCollection)
+		}
+	}
+	walk(expr, false)
 }
 
 func seriesAsValue(v []eval.Value) eval.Value {

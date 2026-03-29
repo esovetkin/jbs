@@ -195,6 +195,53 @@ do work
 	}
 }
 
+func TestModeExprInsideTupleListWarns(t *testing.T) {
+	src := `
+param p {
+  a = (python("A"), shell("B"))
+  b = [python("C"), "D"]
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected warnings only, got errors: %s", diags.String())
+	}
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "W301" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected W301 for python()/shell() inside tuple/list, got: %s", diags.String())
+	}
+}
+
+func TestTopLevelModeExprAssignmentNoTupleListWarning(t *testing.T) {
+	src := `
+param p {
+  queue = python("devel")
+  host = shell("localhost")
+  queue + host
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	for _, d := range diags.Items {
+		if d.Code == "W301" {
+			t.Fatalf("did not expect W301 for standalone mode assignments, got: %s", diags.String())
+		}
+	}
+}
+
 func TestUnknownTopLevelGlobalRejected(t *testing.T) {
 	src := `
 not_a_global = "x"
