@@ -205,15 +205,77 @@ func normalizeBody(raw string, indent string) []string {
 		return nil
 	}
 
-	out := make([]string, 0, len(trimmed))
+	dedented := make([]string, 0, len(trimmed))
 	for _, line := range trimmed {
+		if strings.TrimSpace(line) == "" {
+			dedented = append(dedented, "")
+			continue
+		}
+		value := dropIndent(line, minIndent)
+		value = strings.TrimRight(value, " \t")
+		dedented = append(dedented, value)
+	}
+	dedented = rebaseInlineBodyIndent(dedented)
+
+	out := make([]string, 0, len(dedented))
+	depth := 0
+	for _, line := range dedented {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
 			continue
 		}
-		dedented := dropIndent(line, minIndent)
-		dedented = strings.TrimRight(dedented, " \t")
-		out = append(out, indent+dedented)
+		trimmedLeft := line
+		if depth == 0 {
+			trimmedLeft = strings.TrimLeft(trimmedLeft, " \t")
+		}
+		out = append(out, indent+trimmedLeft)
+		open, close := countGroupingDelimsOutsideQuotes(trimmedLeft)
+		depth += open - close
+		if depth < 0 {
+			depth = 0
+		}
+	}
+	return out
+}
+
+func rebaseInlineBodyIndent(lines []string) []string {
+	first := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		first = i
+		break
+	}
+	if first < 0 || leadingIndent(lines[first]) > 0 {
+		return lines
+	}
+
+	minRest := -1
+	for i := first + 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		n := leadingIndent(line)
+		if n == 0 {
+			return lines
+		}
+		if minRest < 0 || n < minRest {
+			minRest = n
+		}
+	}
+	if minRest <= 0 {
+		return lines
+	}
+
+	out := make([]string, len(lines))
+	copy(out, lines)
+	for i := first + 1; i < len(out); i++ {
+		if strings.TrimSpace(out[i]) == "" {
+			continue
+		}
+		out[i] = dropIndent(out[i], minRest)
 	}
 	return out
 }
@@ -247,16 +309,26 @@ func normalizeSubmitBody(raw string, indent string) []string {
 		return nil
 	}
 
-	out := make([]string, 0, len(trimmed))
-	depth := 0
+	dedented := make([]string, 0, len(trimmed))
 	for _, line := range trimmed {
+		if strings.TrimSpace(line) == "" {
+			dedented = append(dedented, "")
+			continue
+		}
+		value := dropIndent(line, minIndent)
+		value = strings.TrimRight(value, " \t")
+		dedented = append(dedented, value)
+	}
+	dedented = rebaseInlineBodyIndent(dedented)
+
+	out := make([]string, 0, len(dedented))
+	depth := 0
+	for _, line := range dedented {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
 			continue
 		}
-		dedented := dropIndent(line, minIndent)
-		dedented = strings.TrimRight(dedented, " \t")
-		trimmedLeft := strings.TrimLeft(dedented, " \t")
+		trimmedLeft := strings.TrimLeft(line, " \t")
 		indentDepth := depth
 		if strings.HasPrefix(trimmedLeft, "}") && indentDepth > 0 {
 			indentDepth--
@@ -336,6 +408,41 @@ func countBracesOutsideQuotes(line string) (openCount int, closeCount int) {
 			continue
 		}
 		if r == '}' {
+			closeCount++
+		}
+	}
+	return openCount, closeCount
+}
+
+func countGroupingDelimsOutsideQuotes(line string) (openCount int, closeCount int) {
+	var quote rune
+	escaped := false
+	for _, r := range line {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '#' {
+			break
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		switch r {
+		case '(', '[', '{':
+			openCount++
+		case ')', ']', '}':
 			closeCount++
 		}
 	}

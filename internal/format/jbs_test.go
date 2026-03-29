@@ -98,7 +98,7 @@ func TestNormalizeBodyDedentAndIndent(t *testing.T) {
 	got := normalizeBody(raw, "        ")
 	want := []string{
 		"        line1",
-		"        \tline2",
+		"        line2",
 		"",
 		"        line3",
 	}
@@ -142,5 +142,161 @@ func TestGlobalsRemainContiguous(t *testing.T) {
 	wantPrefix := "jbs_name = \"x\"\njbs_outpath = \"y\"\n\nparam p\n"
 	if !strings.HasPrefix(got, wantPrefix) {
 		t.Fatalf("unexpected global grouping:\n%s", got)
+	}
+}
+
+func TestFormatParamInlineBodyIndentation(t *testing.T) {
+	src := `param p{a=(1,2)
+        b=(3,4)
+                 a+b
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("param_inline.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+{
+        a=(1,2)
+        b=(3,4)
+        a+b
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatDoInlineBodyIndentation(t *testing.T) {
+	src := `do run{echo one
+        echo two
+                 echo three
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("do_inline.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do run
+{
+        echo one
+        echo two
+        echo three
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatPatternsInlineBodyIndentation(t *testing.T) {
+	src := `patterns p{number = "Number: %d"
+        zahl = "Zahl: %d"
+                 letter = "Letter: %w"
+        buchstabe = "Buchstabe: %w"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("patterns_inline.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `patterns p
+{
+        number = "Number: %d"
+        zahl = "Zahl: %d"
+        letter = "Letter: %w"
+        buchstabe = "Buchstabe: %w"
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatAnalyseInlineBodyIndentation(t *testing.T) {
+	src := `do write{echo "Number: 1" > out
+        echo "Word: hello" >> out
+}
+patterns p{number = "Number: %d"
+        word = "Word: %w"
+}
+analyse write{n = p.number in "out"
+        w = p.word in "out"
+                 (n, w)
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("analyse_inline.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do write
+{
+        echo "Number: 1" > out
+        echo "Word: hello" >> out
+}
+
+patterns p
+{
+        number = "Number: %d"
+        word = "Word: %w"
+}
+
+analyse write
+{
+        n = p.number in "out"
+        w = p.word in "out"
+        (n, w)
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatSubmitInlineBodyIndentation(t *testing.T) {
+	src := `submit run{args_exec="-lc hostname"
+        queue="devel"
+                 timelimit="00:10:00"
+        preprocess = {
+                export X=1
+        }
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_inline.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `submit run
+{
+        args_exec = "-lc hostname"
+        queue = "devel"
+        timelimit = "00:10:00"
+        preprocess = {
+                export X=1
+        }
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
