@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -79,6 +80,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
+	validateStepVarReferences(res, diags)
 	for _, block := range analyseBlocks {
 		spec := compileAnalyseBlock(block, res, diags)
 		res.Analyse = append(res.Analyse, spec)
@@ -997,6 +999,341 @@ func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 	for _, block := range res.Submits {
 		validateWithItems(block.WithItems, res.ParamByName, diags)
 	}
+}
+
+type importedVar struct {
+	Name     string
+	Paramset string
+	Span     diag.Span
+}
+
+type varRef struct {
+	Name string
+	Span diag.Span
+}
+
+func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
+	exposedByParam := make(map[string]map[string]diag.Span)
+	paramsetsByVar := make(map[string][]string)
+	used := make(map[string]map[string]bool)
+
+	for _, ps := range res.Paramsets {
+		varNames := exposedVarNames(ps)
+		if len(varNames) == 0 {
+			continue
+		}
+		if _, ok := exposedByParam[ps.Name]; !ok {
+			exposedByParam[ps.Name] = make(map[string]diag.Span)
+		}
+		for _, name := range varNames {
+			origin := ps.Origins[name]
+			if origin.IsZero() {
+				origin = ps.Block.Span
+			}
+			exposedByParam[ps.Name][name] = origin
+			if !containsString(paramsetsByVar[name], ps.Name) {
+				paramsetsByVar[name] = append(paramsetsByVar[name], ps.Name)
+			}
+		}
+	}
+
+	markUsed := func(name string) {
+		for _, psName := range paramsetsByVar[name] {
+			if _, ok := used[psName]; !ok {
+				used[psName] = make(map[string]bool)
+			}
+			used[psName][name] = true
+		}
+	}
+
+	warnMissing := func(stepName string, ref varRef, candidates []string) {
+		if len(candidates) == 0 {
+			return
+		}
+		originSpan := diag.Span{}
+		source := candidates[0]
+		if byVar, ok := exposedByParam[source]; ok {
+			originSpan = byVar[ref.Name]
+		}
+		related := []diag.RelatedSpan{}
+		if !originSpan.IsZero() {
+			related = append(related, diag.RelatedSpan{
+				Message: fmt.Sprintf("parameter source '%s'", source),
+				Span:    originSpan,
+			})
+		}
+		diags.AddWarning(
+			"W311",
+			fmt.Sprintf("variable '%s' is referenced in step '%s' but not imported via with-clause", ref.Name, stepName),
+			ref.Span,
+			"add `with <paramset>` or `with <variable> from <paramset>`",
+			related...,
+		)
+	}
+
+	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
+		imports := resolveImportedVars(withItems, res.ParamByName)
+		warned := make(map[string]struct{})
+		for _, ref := range refs {
+			candidates := paramsetsByVar[ref.Name]
+			if len(candidates) == 0 {
+				continue
+			}
+			markUsed(ref.Name)
+			if len(imports[ref.Name]) > 0 {
+				continue
+			}
+			key := stepName + "::" + ref.Name
+			if _, exists := warned[key]; exists {
+				continue
+			}
+			warned[key] = struct{}{}
+			warnMissing(stepName, ref, candidates)
+		}
+	}
+
+	for _, block := range res.DoBlocks {
+		base := block.BodyStart
+		if base.Line == 0 {
+			base = block.Span.Start
+		}
+		refs := collectShellLikeRefs(block.Body, base, block.Span.File)
+		processStep(block.Name, block.WithItems, refs)
+	}
+	for _, block := range res.Submits {
+		refs := make([]varRef, 0)
+		for _, field := range block.Fields {
+			if field.IsRaw {
+				base := field.RawStart
+				if base.Line == 0 {
+					base = field.Span.Start
+				}
+				refs = append(refs, collectShellLikeRefs(field.Raw, base, field.Span.File)...)
+				continue
+			}
+			refs = append(refs, collectExprStringRefs(field.Expr)...)
+		}
+		processStep(block.Name, block.WithItems, refs)
+	}
+
+	for psName, byVar := range exposedByParam {
+		for varName, origin := range byVar {
+			if used[psName][varName] {
+				continue
+			}
+			diags.AddWarning(
+				"W310",
+				fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, psName),
+				origin,
+				"remove it from the final expression or reference it with $name/${name} in a step",
+			)
+		}
+	}
+}
+
+func exposedVarNames(ps *Paramset) []string {
+	if len(ps.Order) > 0 {
+		names := make([]string, len(ps.Order))
+		copy(names, ps.Order)
+		return names
+	}
+	names := make([]string, 0, len(ps.Vars))
+	for name := range ps.Vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func resolveImportedVars(items []ast.WithItem, params map[string]*Paramset) map[string][]importedVar {
+	out := make(map[string][]importedVar)
+	seen := make(map[string]struct{})
+	add := func(name, paramset string, span diag.Span) {
+		key := paramset + "::" + name
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out[name] = append(out[name], importedVar{
+			Name:     name,
+			Paramset: paramset,
+			Span:     span,
+		})
+	}
+
+	for _, item := range items {
+		if item.From == "" {
+			ps, ok := params[item.Name]
+			if !ok {
+				continue
+			}
+			for _, name := range exposedVarNames(ps) {
+				add(name, ps.Name, item.Span)
+			}
+			continue
+		}
+
+		src, ok := params[item.From]
+		if !ok {
+			continue
+		}
+		if _, ok := src.Vars[item.Name]; ok {
+			add(item.Name, src.Name, item.Span)
+			continue
+		}
+		if fallback, ok := params[item.Name]; ok {
+			for _, name := range exposedVarNames(fallback) {
+				add(name, fallback.Name, item.Span)
+			}
+		}
+	}
+	return out
+}
+
+func collectShellLikeRefs(text string, base diag.Position, file string) []varRef {
+	runes := []rune(text)
+	refs := make([]varRef, 0)
+	line := base.Line
+	col := base.Column
+	off := base.Offset
+	i := 0
+
+	advance := func() {
+		if i >= len(runes) {
+			return
+		}
+		r := runes[i]
+		i++
+		off++
+		if r == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	advanceN := func(target int) {
+		for i < target {
+			advance()
+		}
+	}
+
+	for i < len(runes) {
+		if runes[i] != '$' || isEscapedDollar(runes, i) {
+			advance()
+			continue
+		}
+		start := diag.NewPos(off, line, col)
+		if i+1 < len(runes) && runes[i+1] == '{' {
+			j := i + 2
+			if j < len(runes) && isIdentStart(runes[j]) {
+				j++
+				for j < len(runes) && isIdentPart(runes[j]) {
+					j++
+				}
+				if j < len(runes) && runes[j] == '}' {
+					name := string(runes[i+2 : j])
+					advanceN(j + 1)
+					end := diag.NewPos(off, line, col)
+					refs = append(refs, varRef{
+						Name: name,
+						Span: diag.NewSpan(file, start, end),
+					})
+					continue
+				}
+			}
+			advance()
+			continue
+		}
+		if i+1 < len(runes) && isIdentStart(runes[i+1]) {
+			j := i + 2
+			for j < len(runes) && isIdentPart(runes[j]) {
+				j++
+			}
+			name := string(runes[i+1 : j])
+			advanceN(j)
+			end := diag.NewPos(off, line, col)
+			refs = append(refs, varRef{
+				Name: name,
+				Span: diag.NewSpan(file, start, end),
+			})
+			continue
+		}
+		advance()
+	}
+	return refs
+}
+
+func collectExprStringRefs(expr ast.Expr) []varRef {
+	if expr == nil {
+		return nil
+	}
+	out := make([]varRef, 0)
+	var walk func(ast.Expr)
+	walk = func(node ast.Expr) {
+		if node == nil {
+			return
+		}
+		switch n := node.(type) {
+		case ast.StringExpr:
+			base := n.Span.Start
+			base.Offset++
+			base.Column++
+			out = append(out, collectShellLikeRefs(n.Value, base, n.Span.File)...)
+		case ast.ListExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.TupleExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.UnaryExpr:
+			walk(n.Expr)
+		case ast.BinaryExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.CompareExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.ConditionalExpr:
+			walk(n.Then)
+			walk(n.Cond)
+			walk(n.Else)
+		case ast.ModeExpr:
+			walk(n.Expr)
+		}
+	}
+	walk(expr)
+	return out
+}
+
+func isEscapedDollar(runes []rune, idx int) bool {
+	count := 0
+	for i := idx - 1; i >= 0; i-- {
+		if runes[i] != '\\' {
+			break
+		}
+		count++
+	}
+	return count%2 == 1
+}
+
+func isIdentStart(r rune) bool {
+	return unicode.IsLetter(r) || r == '_'
+}
+
+func isIdentPart(r rune) bool {
+	return unicode.IsDigit(r) || isIdentStart(r)
+}
+
+func containsString(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags *diag.Diagnostics) {

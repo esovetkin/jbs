@@ -108,6 +108,7 @@ type DoBlock struct {
 	After     []string
 	WithItems []WithItem
 	Body      string
+	BodyStart diag.Position
 	Span      diag.Span
 }
 
@@ -127,11 +128,12 @@ func (s SubmitBlock) stmtNode()          {}
 func (s SubmitBlock) GetSpan() diag.Span { return s.Span }
 
 type SubmitField struct {
-	Name  string
-	Expr  Expr
-	Raw   string
-	IsRaw bool
-	Span  diag.Span
+	Name     string
+	Expr     Expr
+	Raw      string
+	RawStart diag.Position
+	IsRaw    bool
+	Span     diag.Span
 }
 
 func (s SubmitField) GetSpan() diag.Span { return s.Span }

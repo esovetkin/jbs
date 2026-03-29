@@ -53,6 +53,9 @@ submit run after work with p {
 	if doBlock.WithItems[1].Name != "x" || doBlock.WithItems[1].From != "p" {
 		t.Fatalf("unexpected second with item: %#v", doBlock.WithItems[1])
 	}
+	if doBlock.BodyStart.Line != 7 {
+		t.Fatalf("unexpected do body start line: %d", doBlock.BodyStart.Line)
+	}
 }
 
 func TestParseWithTupleImports(t *testing.T) {
@@ -191,6 +194,9 @@ submit run {
 	}
 	if sb.Fields[0].Name != "preprocess" || !sb.Fields[0].IsRaw {
 		t.Fatalf("expected first field to be raw preprocess, got %#v", sb.Fields[0])
+	}
+	if sb.Fields[0].RawStart.Line != 3 {
+		t.Fatalf("unexpected preprocess raw start line: %d", sb.Fields[0].RawStart.Line)
 	}
 	if sb.Fields[1].Name != "args_exec" || sb.Fields[1].IsRaw || sb.Fields[1].Expr == nil {
 		t.Fatalf("expected second field to be expression args_exec, got %#v", sb.Fields[1])

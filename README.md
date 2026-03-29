@@ -116,6 +116,10 @@ parameterset:
 - `E042`: two rows merged by `+`/`*` provide different values for the same key.
 - `E072`-`E076`: invalid submit key/value syntax and structure in `submit` blocks.
 - `W101`: `+` zipped lists of different lengths; cyclic broadcast to max length was applied.
+- `W310`: exposed param variable is never referenced in any `do`/`submit` body (`$name`/`${name}`).
+- `W311`: step references a known param variable in body text but does not import it via `with`.
+
+Warnings are non-fatal and do not cause `jbs --check` to fail.
 
 ## Known Limitations (V1)
 

@@ -209,7 +209,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 		}
 	}
 
-	body, _, blockEnd, ok := p.readBalancedBlock()
+	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.DoBlock{
 			Name:      name,
@@ -224,6 +224,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 		After:     after,
 		WithItems: withItems,
 		Body:      body,
+		BodyStart: innerStart,
 		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
@@ -1046,15 +1047,16 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		p.skipInlineTrivia()
 
 		if p.peek() == '{' {
-			raw, _, blockEnd, ok := p.readBalancedBlock()
+			raw, rawStart, blockEnd, ok := p.readBalancedBlock()
 			if !ok {
 				break
 			}
 			field := ast.SubmitField{
-				Name:  name,
-				Raw:   raw,
-				IsRaw: true,
-				Span:  diag.NewSpan(p.file, stmtStart, blockEnd),
+				Name:     name,
+				Raw:      raw,
+				RawStart: rawStart,
+				IsRaw:    true,
+				Span:     diag.NewSpan(p.file, stmtStart, blockEnd),
 			}
 			fields = append(fields, field)
 			if p.hasUnexpectedTrailingTextOnLine() {

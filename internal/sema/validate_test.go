@@ -9,6 +9,16 @@ import (
 	"jbs/internal/sema"
 )
 
+func diagCount(diags *diag.Diagnostics, code string) int {
+	count := 0
+	for _, d := range diags.Items {
+		if d.Code == code {
+			count++
+		}
+	}
+	return count
+}
+
 func TestImportRebindingIsLocal(t *testing.T) {
 	src := `
 param base {
@@ -240,6 +250,232 @@ param p {
 			t.Fatalf("did not expect W301 for standalone mode assignments, got: %s", diags.String())
 		}
 	}
+}
+
+func TestWarnUnusedExposedVariableW310(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = (3,4)
+  a + b
+}
+do run with p {
+  echo ${a}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 1 {
+		t.Fatalf("expected exactly one W310, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+}
+
+func TestWarnMissingImportW311WithoutW310(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 because variable is referenced, got %d: %s", got, diags.String())
+	}
+}
+
+func TestUnknownEnvVarDoesNotTriggerW311(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo ${SLURM_JOB_ID}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311 for external env variable, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitAnyExpressionFieldCountsAsUsage(t *testing.T) {
+	src := `
+param p {
+  queue_name = ("devel")
+  queue_name
+}
+submit run with p {
+  queue = "${queue_name}"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 for queue_name used in submit key, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311 for imported queue_name, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitRawBlocksCountAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+submit run with p {
+  preprocess = {
+    echo ${x}
+  }
+  postprocess = {
+    echo $x
+  }
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 for x used in raw submit blocks, got %d: %s", got, diags.String())
+	}
+}
+
+func TestW311IsDedupedPerStepAndVariable(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo ${x}
+  echo $x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one deduped W311, got %d: %s", got, diags.String())
+	}
+}
+
+func TestWithVariableOnlyLeavesOtherExposedVarUnused(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  y = (3,4)
+  x + y
+}
+do run with x from p {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 1 {
+		t.Fatalf("expected one W310 for y, got %d: %s", got, diags.String())
+	}
+}
+
+func TestMultipleStepsUsingSameVarNoW310(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do a with p {
+  echo ${x}
+}
+do b with p {
+  echo $x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+}
+
+func TestW311IncludesRelatedParamSourceSpan(t *testing.T) {
+	src := `
+param p1 {
+  x = ("a","b")
+  x
+}
+param p2 {
+  x = ("c","d")
+  x
+}
+do run {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	for _, d := range diags.Items {
+		if d.Code != "W311" {
+			continue
+		}
+		if len(d.Related) == 0 {
+			t.Fatalf("expected W311 to include related parameter source span, got: %s", diags.String())
+		}
+		return
+	}
+	t.Fatalf("expected W311, got: %s", diags.String())
 }
 
 func TestUnknownTopLevelGlobalRejected(t *testing.T) {

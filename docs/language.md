@@ -287,6 +287,14 @@ Key codes:
 - `E416`: malformed analyse assignment syntax.
 - `E417`: analyse block missing final tuple.
 - `W101`: `+` length mismatch, cyclic broadcast applied.
+- `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
+- `W311`: step references `$name`/`${name}` for a known param variable but the corresponding paramset is not imported via `with`.
+
+For `W310`/`W311`, reference scanning applies to:
+
+- `do` block body text
+- submit raw blocks (`preprocess`, `postprocess`)
+- string literals in expression-valued submit keys (all keys, not only `args_exec`)
 
 ## Known Limitations
 
