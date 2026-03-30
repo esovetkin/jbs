@@ -1,0 +1,39 @@
+.template:
+  id_tokens:
+    SITE_ID_TOKEN:
+      aud: "https://gitlab.jsc.fz-juelich.de"
+  variables:
+    CUSTOM_CI_BUILDS_DIR: "/p/scratch/atmlaml/jacamar-ci"
+  tags:
+    - juwels_booster
+    - login
+
+stages:
+  - deploy
+
+build_test_install:
+  extends: .template
+  stage: deploy
+  variables:
+    INSTALL_DIR: "/p/project1/atmlaml/sovetkin1/jbs/bin"
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      variables:
+        INSTALL_SUFFIX: "$CI_COMMIT_TAG"
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+      variables:
+        INSTALL_SUFFIX: "$CI_COMMIT_BRANCH"
+    - when: never
+  before_script:
+    - mkdir -p "$CUSTOM_CI_BUILDS_DIR/.cache/go-build" "$CUSTOM_CI_BUILDS_DIR/.cache/go-mod"
+    - export GOCACHE="$CUSTOM_CI_BUILDS_DIR/.cache/go-build"
+    - export GOMODCACHE="$CUSTOM_CI_BUILDS_DIR/.cache/go-mod"
+  script:
+    - module load Go
+    - make test
+    - make build
+    - mkdir -p "$INSTALL_DIR"
+    - SAFE_SUFFIX="$(printf '%s' "$INSTALL_SUFFIX" | sed 's#[^A-Za-z0-9._-]#_#g')"
+    - INSTALL_NAME="jbs_${SAFE_SUFFIX}"
+    - install -m 0755 jbs "$INSTALL_DIR/$INSTALL_NAME"
+    - echo "Installed $INSTALL_DIR/$INSTALL_NAME"
