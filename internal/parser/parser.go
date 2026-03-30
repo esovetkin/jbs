@@ -493,47 +493,16 @@ func (p *Parser) parseRequiredIdent(code, message string) (string, diag.Span) {
 }
 
 func (p *Parser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
-	if p.peek() != '{' {
-		pos := p.pos()
-		return "", pos, pos, false
-	}
-	p.advance()
-	innerStart = p.pos()
-	startIdx := p.off
-	depth := 1
-	var quote rune
-	escaped := false
-	for !p.eof() {
-		r := p.advance()
-		if quote != 0 {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if r == '\\' {
-				escaped = true
-				continue
-			}
-			if r == quote {
-				quote = 0
-			}
-			continue
-		}
-		if r == '\'' || r == '"' {
-			quote = r
-			continue
-		}
-		if r == '{' {
-			depth++
-			continue
-		}
-		if r == '}' {
-			depth--
-			if depth == 0 {
-				endIdx := p.off - 1
-				return string(p.src[startIdx:endIdx]), innerStart, p.pos(), true
-			}
-		}
+	content, innerStart, blockEnd, ok = readBalancedBlockShared(
+		p.src,
+		func() rune { return p.peek() },
+		func() rune { return p.advance() },
+		func() bool { return p.eof() },
+		func() diag.Position { return p.pos() },
+		func() int { return p.off },
+	)
+	if ok {
+		return content, innerStart, blockEnd, true
 	}
 	span := diag.NewSpan(p.file, innerStart, p.pos())
 	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
@@ -1198,19 +1167,65 @@ func (p *submitFieldParser) parseIdent() (string, diag.Span, bool) {
 }
 
 func (p *submitFieldParser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
-	if p.peek() != '{' {
-		pos := p.pos()
-		return "", pos, pos, false
+	content, innerStart, blockEnd, ok = readBalancedBlockShared(
+		p.src,
+		func() rune { return p.peek() },
+		func() rune { return p.advance() },
+		func() bool { return p.eof() },
+		func() diag.Position { return p.pos() },
+		func() int { return p.off },
+	)
+	if ok {
+		return content, innerStart, blockEnd, true
 	}
-	p.advance()
-	innerStart = p.pos()
-	startIdx := p.off
+	span := diag.NewSpan(p.file, innerStart, p.pos())
+	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
+	return "", innerStart, p.pos(), false
+}
+
+type blockScannerMode uint8
+
+const (
+	blockScanCode blockScannerMode = iota
+	blockScanSingleQuote
+	blockScanDoubleQuote
+	blockScanLineComment
+)
+
+func readBalancedBlockShared(
+	src []rune,
+	peek func() rune,
+	advance func() rune,
+	eof func() bool,
+	pos func() diag.Position,
+	off func() int,
+) (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
+	if peek() != '{' {
+		p := pos()
+		return "", p, p, false
+	}
+	advance()
+	innerStart = pos()
+	startIdx := off()
+	if !scanBalancedBlock(advance, eof) {
+		return "", innerStart, pos(), false
+	}
+	endIdx := off() - 1
+	return string(src[startIdx:endIdx]), innerStart, pos(), true
+}
+
+func scanBalancedBlock(advance func() rune, eof func() bool) bool {
 	depth := 1
-	var quote rune
+	mode := blockScanCode
 	escaped := false
-	for !p.eof() {
-		r := p.advance()
-		if quote != 0 {
+	for !eof() {
+		r := advance()
+		switch mode {
+		case blockScanLineComment:
+			if r == '\n' {
+				mode = blockScanCode
+			}
+		case blockScanSingleQuote:
 			if escaped {
 				escaped = false
 				continue
@@ -1219,30 +1234,40 @@ func (p *submitFieldParser) readBalancedBlock() (content string, innerStart diag
 				escaped = true
 				continue
 			}
-			if r == quote {
-				quote = 0
+			if r == '\'' {
+				mode = blockScanCode
 			}
-			continue
-		}
-		if r == '\'' || r == '"' {
-			quote = r
-			continue
-		}
-		if r == '{' {
-			depth++
-			continue
-		}
-		if r == '}' {
-			depth--
-			if depth == 0 {
-				endIdx := p.off - 1
-				return string(p.src[startIdx:endIdx]), innerStart, p.pos(), true
+		case blockScanDoubleQuote:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '#':
+				mode = blockScanLineComment
+			case '\'':
+				mode = blockScanSingleQuote
+			case '"':
+				mode = blockScanDoubleQuote
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return true
+				}
 			}
 		}
 	}
-	span := diag.NewSpan(p.file, innerStart, p.pos())
-	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
-	return "", innerStart, p.pos(), false
+	return false
 }
 
 func (p *submitFieldParser) recoverLine() {

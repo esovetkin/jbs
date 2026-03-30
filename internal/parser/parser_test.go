@@ -553,3 +553,125 @@ analyse write {
 		}
 	}
 }
+
+func TestParseParamCommentApostropheDoesNotBreakBlock(t *testing.T) {
+	src := `
+param p {
+  a = (1, 2)
+  # ` + "`a + b` is like python's zip" + `
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_comment_quote.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.Final == nil {
+		t.Fatalf("expected final combination expression")
+	}
+}
+
+func TestParseDoCommentApostropheDoesNotBreakBlock(t *testing.T) {
+	src := `
+do work {
+  # it's a comment in do block
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("do_comment_quote.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if db.Body == "" {
+		t.Fatalf("expected do body")
+	}
+}
+
+func TestParseSubmitRawCommentApostropheDoesNotBreakBlock(t *testing.T) {
+	src := `
+submit run {
+  preprocess = {
+    # it's a comment in preprocess
+    export X=1
+  }
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_comment_quote.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(sb.Fields) != 2 {
+		t.Fatalf("expected 2 submit fields, got %d", len(sb.Fields))
+	}
+	if !sb.Fields[0].IsRaw {
+		t.Fatalf("expected preprocess to be raw field")
+	}
+}
+
+func TestParseCommentBracesDoNotAffectBlockDepth(t *testing.T) {
+	src := `
+param p {
+  a = (1, 2)
+  # comment with fake braces: { } {nested}
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("comment_braces.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+}
+
+func TestParseUnterminatedBlockStillReportsE025(t *testing.T) {
+	src := `
+param p {
+  a = (1, 2)
+  a
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("unterminated.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors")
+	}
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025 for unterminated block, got: %s", diags.String())
+	}
+}
+
+func hasDiagCode(items []diag.Diagnostic, code string) bool {
+	for _, item := range items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
