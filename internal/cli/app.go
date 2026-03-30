@@ -273,7 +273,7 @@ param <name>
 # e.g. 'do setup_environment with b from my'
 do <name> after <step_name> with <parameter_set>, <variable> from <parameter_set>
 {
-    # bash code executed on the login node within ${jube_benchmark_home}
+    # bash code executed on the login node
     #
     # For example,
     # echo ${b}

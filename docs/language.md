@@ -135,17 +135,14 @@ This keeps direct-sum alignment and outer-product expansion explicitly coordinat
 
 - emits one `step`.
 - `depend` is comma-separated from `after`.
-- prepends:
-  - `set -euo pipefail`
-  - `cd "${jube_benchmark_home}"`
+- normalizes raw block indentation and preserves only block content.
 
 ### `submit` lowering
 
 - emits synthetic submit parameterset with `init_with: "platform.xml:systemParameter"`.
 - emits only submit keys explicitly set in the block.
 - `preprocess` and `postprocess` are raw-block keys.
-  - `preprocess` gets the standard preamble (`set -euo pipefail`, `cd "${jube_benchmark_home}"`).
-  - `postprocess` is emitted as written.
+  - both are emitted from normalized raw content only (no injected preamble).
 - expression keys support scalar/container values and `shell("...")` / `python("...")`.
 - emits submit step operations:
   - `${submit} --parsable ${submit_script} > run.jobid`

@@ -39,8 +39,6 @@ parameterset:
         mode: text
         separator: '|'
         _: |
-          set -euo pipefail
-          cd "${jube_benchmark_home}"
           export X=1
       - name: args_exec
         _: python main.py --case ${case} --nnodes ${nnodes}
@@ -53,8 +51,6 @@ step:
       - _jbs__subset_matrix__case
     do:
       - |
-        set -euo pipefail
-        cd "${jube_benchmark_home}"
         echo setup ${case}
 
   # Step generated from submit block 'run'

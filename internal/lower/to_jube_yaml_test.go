@@ -221,7 +221,7 @@ submit run after prep with p {
 	}
 }
 
-func TestDoRawBlockIndentationAlignedWithPrelude(t *testing.T) {
+func TestDoRawBlockIndentationNormalized(t *testing.T) {
 	src := `
 param p {
   a = 1
@@ -245,14 +245,14 @@ do run with p {
 		t.Fatalf("expected literal do body, got %T", doc.Step[0].Do[0])
 	}
 	got := string(body)
-	if !strings.Contains(got, "set -euo pipefail\ncd \"${jube_benchmark_home}\"\n") {
-		t.Fatalf("missing preamble in do body: %q", got)
+	if strings.Contains(got, "set -euo pipefail") || strings.Contains(got, "${jube_benchmark_home}") {
+		t.Fatalf("unexpected preamble in do body: %q", got)
 	}
-	if strings.Contains(got, "\n    echo one") {
-		t.Fatalf("unexpected extra indentation for first line after preamble: %q", got)
+	if strings.HasPrefix(got, " ") {
+		t.Fatalf("unexpected leading indentation in do body: %q", got)
 	}
-	if !strings.Contains(got, "\necho one\n  echo two\n") {
-		t.Fatalf("expected normalized relative indentation after preamble, got: %q", got)
+	if got != "echo one\n  echo two\n" {
+		t.Fatalf("expected normalized do body, got: %q", got)
 	}
 }
 
@@ -459,14 +459,14 @@ submit run with p {
 				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
 			}
 			text := string(body)
-			if !strings.Contains(text, "set -euo pipefail\n") || !strings.Contains(text, "cd \"${jube_benchmark_home}\"\n") {
-				t.Fatalf("expected preprocess preamble in payload, got: %q", text)
+			if strings.Contains(text, "set -euo pipefail") || strings.Contains(text, "${jube_benchmark_home}") {
+				t.Fatalf("unexpected preprocess preamble in payload: %q", text)
 			}
 			if strings.Contains(text, "\n  \n") {
 				t.Fatalf("unexpected trailing whitespace-only lines in preprocess payload: %q", text)
 			}
-			if !strings.Contains(text, "\nexport X=1\n") {
-				t.Fatalf("expected normalized preprocess body without source indentation, got: %q", text)
+			if text != "export X=1\n" {
+				t.Fatalf("expected normalized preprocess body, got: %q", text)
 			}
 		}
 	}

@@ -46,8 +46,6 @@ step:
       - params
     do:
       - |
-        set -euo pipefail
-        cd "${jube_benchmark_home}"
         echo "Number: ${x}" > en
         echo "Letter: ${a}" >> en
         echo "Zahl: ${x}" > de

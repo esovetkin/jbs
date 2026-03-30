@@ -675,7 +675,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	}
 	step.Use = ctx.resolveStepUses(block.WithItems)
 
-	body := withPrelude(block.Body)
+	body := normalizeRawLiteral(block.Body)
 	step.Do = []interface{}{Literal(body)}
 	return step
 }
@@ -686,10 +686,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	if spec := ctx.res.SubmitByName[block.Name]; spec != nil {
 		for _, field := range spec.Values {
 			if field.IsRaw {
-				raw := normalizeRawBlock(field.Raw)
-				if field.Name == "preprocess" {
-					raw = withPrelude(raw)
-				}
+				raw := normalizeRawLiteral(field.Raw)
 				params = append(params, Parameter{
 					Name:      field.Name,
 					Mode:      "text",
@@ -930,18 +927,15 @@ func (ctx *lowerContext) uniqueName(base string) string {
 	}
 }
 
-func withPrelude(body string) string {
-	b := strings.Builder{}
-	b.WriteString("set -euo pipefail\n")
-	b.WriteString("cd \"${jube_benchmark_home}\"\n")
+func normalizeRawLiteral(body string) string {
 	trimmed := normalizeRawBlock(body)
-	if trimmed != "" {
-		b.WriteString(trimmed)
-		if !strings.HasSuffix(trimmed, "\n") {
-			b.WriteByte('\n')
-		}
+	if trimmed == "" {
+		return ""
 	}
-	return b.String()
+	if strings.HasSuffix(trimmed, "\n") {
+		return trimmed
+	}
+	return trimmed + "\n"
 }
 
 func normalizeRawBlock(s string) string {
