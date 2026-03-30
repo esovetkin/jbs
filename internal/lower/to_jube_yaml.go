@@ -74,8 +74,7 @@ type Parameter struct {
 type PatternSetKind string
 
 const (
-	PatternSetKindBase  PatternSetKind = "base"
-	PatternSetKindAlias PatternSetKind = "alias"
+	PatternSetKindBase PatternSetKind = "base"
 )
 
 type PatternSetMeta struct {
@@ -94,6 +93,14 @@ type Pattern struct {
 	Name  string      `yaml:"name"`
 	Type  string      `yaml:"type,omitempty"`
 	Value interface{} `yaml:"_"`
+	Meta  PatternMeta `yaml:"-"`
+}
+
+type PatternMeta struct {
+	IsAnalyseAlias bool
+	AnalyseStep    string
+	AliasName      string
+	PatternRef     string
 }
 
 type Step struct {
@@ -133,7 +140,7 @@ type AnalyserMeta struct {
 
 type Analyser struct {
 	Name    string        `yaml:"name"`
-	Use     []string      `yaml:"use,omitempty"`
+	Use     string        `yaml:"use,omitempty"`
 	Analyse []AnalyseItem `yaml:"analyse"`
 	Meta    AnalyserMeta  `yaml:"-"`
 }
@@ -184,23 +191,23 @@ type subsetKey struct {
 }
 
 type lowerContext struct {
-	res             *sema.Result
-	doc             Document
-	diags           *diag.Diagnostics
-	names           map[string]struct{}
-	subsetNames     map[subsetKey]string
-	patternSetByKey map[string]string
-	analyserNames   map[string]string
+	res                    *sema.Result
+	doc                    Document
+	diags                  *diag.Diagnostics
+	names                  map[string]struct{}
+	subsetNames            map[subsetKey]string
+	patternSetIndexByGroup map[string]int
+	analyserNames          map[string]string
 }
 
 func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Document {
 	ctx := &lowerContext{
-		res:             res,
-		diags:           diags,
-		names:           make(map[string]struct{}),
-		subsetNames:     make(map[subsetKey]string),
-		patternSetByKey: make(map[string]string),
-		analyserNames:   make(map[string]string),
+		res:                    res,
+		diags:                  diags,
+		names:                  make(map[string]struct{}),
+		subsetNames:            make(map[subsetKey]string),
+		patternSetIndexByGroup: make(map[string]int),
+		analyserNames:          make(map[string]string),
 	}
 	ctx.doc = Document{
 		Name:    globalString(res.Globals, "jbs_name", "jbs_benchmark"),
@@ -528,38 +535,23 @@ func (ctx *lowerContext) lowerPatternSets() {
 		if group == nil {
 			continue
 		}
-		for _, pat := range group.Patterns {
-			base := sanitize(group.Name) + "_" + sanitize(pat.Name)
-			name := ctx.uniqueName(base)
-			ctx.doc.PatternSet = append(ctx.doc.PatternSet, PatternSet{
-				Name: name,
-				Pattern: []Pattern{
-					{
-						Name:  pat.Name,
-						Type:  pat.Type,
-						Value: SingleQuoted(pat.Regex),
-					},
-				},
-				Meta: PatternSetMeta{
-					Kind:   PatternSetKindBase,
-					Source: patternTemplateKey(group.Name, pat.Name),
-				},
-			})
-			ctx.patternSetByKey[patternTemplateKey(group.Name, pat.Name)] = name
+		ps := PatternSet{
+			Name:    group.Name,
+			Pattern: make([]Pattern, 0),
+			Meta: PatternSetMeta{
+				Kind:   PatternSetKindBase,
+				Source: group.Name,
+			},
 		}
+		ctx.doc.PatternSet = append(ctx.doc.PatternSet, ps)
+		ctx.patternSetIndexByGroup[group.Name] = len(ctx.doc.PatternSet) - 1
+		ctx.names[group.Name] = struct{}{}
 	}
 }
 
 func (ctx *lowerContext) lowerAnalyseAndResult() {
 	if len(ctx.res.Analyse) == 0 {
 		return
-	}
-	patternUsageCount := make(map[string]int)
-	for _, spec := range ctx.res.Analyse {
-		for _, assign := range spec.Assignments {
-			key := patternTemplateKey(assign.Group, assign.Pattern)
-			patternUsageCount[key]++
-		}
 	}
 
 	result := &ResultObject{
@@ -574,22 +566,32 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 		analyserName := ctx.uniqueName("analyser_" + sanitize(spec.Block.StepName))
 		ctx.analyserNames[spec.Block.StepName] = analyserName
 		files := make([]AnalyseFile, 0, len(spec.Assignments))
+		assignmentResultExpr := make(map[string]string, len(spec.Assignments))
+		usedGroups := make([]string, 0, len(spec.Assignments))
+		seenFile := make(map[string]struct{}, len(spec.Assignments))
 		for _, assign := range spec.Assignments {
-			key := patternTemplateKey(assign.Group, assign.Pattern)
-			useSet := ctx.patternSetByKey[key]
-			if assign.Name != assign.Pattern || patternUsageCount[key] > 1 {
-				useSet = ctx.ensureAnalyseAliasPatternSet(spec, assign)
+			groupName := assign.Group
+			if !contains(usedGroups, groupName) {
+				usedGroups = append(usedGroups, groupName)
 			}
-			if useSet == "" {
-				continue
+
+			fileKey := groupName + "\x00" + assign.File
+			if _, ok := seenFile[fileKey]; !ok {
+				files = append(files, AnalyseFile{
+					Use:   groupName,
+					Value: assign.File,
+				})
+				seenFile[fileKey] = struct{}{}
 			}
-			files = append(files, AnalyseFile{
-				Use:   useSet,
-				Value: assign.File,
-			})
+
+			aliasVar := analyseAliasPatternName(assign.Group, assign.Pattern, spec.Block.StepName, assign.Name)
+			ctx.appendAliasPattern(spec.Block.StepName, assign.Name, aliasVar, assign.Template)
+			assignmentResultExpr[assign.Name] = aliasVar
 		}
+		analyserUse := strings.Join(usedGroups, ", ")
 		ctx.doc.Analyser = append(ctx.doc.Analyser, Analyser{
 			Name: analyserName,
+			Use:  analyserUse,
 			Analyse: []AnalyseItem{
 				{
 					Step: spec.Block.StepName,
@@ -612,6 +614,9 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 			if expr == "" {
 				expr = col.Name
 			}
+			if mapped, ok := assignmentResultExpr[col.Name]; ok && mapped != "" {
+				expr = mapped
+			}
 			columns = append(columns, ResultColumn{
 				Title: title,
 				Expr:  expr,
@@ -628,23 +633,33 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 	ctx.doc.Result = result
 }
 
-func (ctx *lowerContext) ensureAnalyseAliasPatternSet(spec *sema.AnalyseSpec, assign sema.AnalyseAssignmentSpec) string {
-	name := ctx.uniqueName("_jbs__ana_" + sanitize(spec.Block.StepName) + "__" + sanitize(assign.Name))
-	ctx.doc.PatternSet = append(ctx.doc.PatternSet, PatternSet{
-		Name: name,
-		Pattern: []Pattern{
-			{
-				Name:  assign.Name,
-				Type:  assign.Template.Type,
-				Value: SingleQuoted(assign.Template.Regex),
-			},
-		},
-		Meta: PatternSetMeta{
-			Kind:   PatternSetKindAlias,
-			Source: spec.Block.StepName,
+func analyseAliasPatternName(group, pattern, step, alias string) string {
+	return "_jbs_pattern__" + sanitize(group) + "_" + sanitize(pattern) +
+		"__" + sanitize(step) + "__" + sanitize(alias)
+}
+
+func (ctx *lowerContext) appendAliasPattern(analyseStep, aliasName, internalName string, tmpl sema.PatternTemplate) {
+	idx, ok := ctx.patternSetIndexByGroup[tmpl.Group]
+	if !ok || idx < 0 || idx >= len(ctx.doc.PatternSet) {
+		return
+	}
+	ps := &ctx.doc.PatternSet[idx]
+	for _, existing := range ps.Pattern {
+		if existing.Name == internalName {
+			return
+		}
+	}
+	ps.Pattern = append(ps.Pattern, Pattern{
+		Name:  internalName,
+		Type:  tmpl.Type,
+		Value: SingleQuoted(tmpl.Regex),
+		Meta: PatternMeta{
+			IsAnalyseAlias: true,
+			AnalyseStep:    analyseStep,
+			AliasName:      aliasName,
+			PatternRef:     patternTemplateKey(tmpl.Group, tmpl.Name),
 		},
 	})
-	return name
 }
 
 func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {

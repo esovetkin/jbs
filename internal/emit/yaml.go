@@ -86,6 +86,24 @@ func annotatePatternSets(seq *yaml.Node, sets []lower.PatternSet) {
 			continue
 		}
 		setHeadComment(item, patternSetComment(sets[i]))
+		annotatePatternEntries(mapValueNode(item, "pattern"), sets[i].Pattern)
+	}
+}
+
+func annotatePatternEntries(seq *yaml.Node, patterns []lower.Pattern) {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for i := 0; i < len(patterns) && i < len(seq.Content); i++ {
+		item := seqItem(seq, i)
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		comment := patternEntryComment(patterns[i])
+		if comment == "" {
+			continue
+		}
+		setHeadComment(item, comment)
 	}
 }
 
@@ -166,17 +184,24 @@ func patternSetComment(ps lower.PatternSet) string {
 	switch ps.Meta.Kind {
 	case lower.PatternSetKindBase:
 		if ps.Meta.Source != "" {
-			return fmt.Sprintf("Pattern definition for '%s'", ps.Meta.Source)
+			return fmt.Sprintf("Patterns block '%s'", ps.Meta.Source)
 		}
-		return fmt.Sprintf("Pattern definition set '%s'", ps.Name)
-	case lower.PatternSetKindAlias:
-		if ps.Meta.Source != "" {
-			return fmt.Sprintf("Synthetic analyse alias pattern set from analyse block '%s'", ps.Meta.Source)
-		}
-		return "Synthetic analyse alias pattern set"
+		return fmt.Sprintf("Patterns block '%s'", ps.Name)
 	default:
 		return fmt.Sprintf("Generated pattern set '%s'", ps.Name)
 	}
+}
+
+func patternEntryComment(p lower.Pattern) string {
+	if !p.Meta.IsAnalyseAlias {
+		return ""
+	}
+	return fmt.Sprintf(
+		"From analyse '%s': alias '%s' for pattern '%s'",
+		p.Meta.AnalyseStep,
+		p.Meta.AliasName,
+		p.Meta.PatternRef,
+	)
 }
 
 func analyserComment(an lower.Analyser) string {

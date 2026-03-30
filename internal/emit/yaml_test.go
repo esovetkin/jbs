@@ -59,23 +59,23 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 		},
 		PatternSet: []lower.PatternSet{
 			{
-				Name: "p_number",
+				Name: "p",
 				Pattern: []lower.Pattern{
-					{Name: "number", Type: "int", Value: lower.SingleQuoted("Number: $jube_pat_int")},
+					{
+						Name:  "_jbs_pattern__p_number__write__p0",
+						Type:  "int",
+						Value: lower.SingleQuoted("Number: $jube_pat_int"),
+						Meta: lower.PatternMeta{
+							IsAnalyseAlias: true,
+							AnalyseStep:    "write",
+							AliasName:      "p0",
+							PatternRef:     "p.number",
+						},
+					},
 				},
 				Meta: lower.PatternSetMeta{
 					Kind:   lower.PatternSetKindBase,
-					Source: "p.number",
-				},
-			},
-			{
-				Name: "p_alias",
-				Pattern: []lower.Pattern{
-					{Name: "p0", Type: "int", Value: lower.SingleQuoted("Number: $jube_pat_int")},
-				},
-				Meta: lower.PatternSetMeta{
-					Kind:   lower.PatternSetKindAlias,
-					Source: "write",
+					Source: "p",
 				},
 			},
 		},
@@ -100,11 +100,12 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 		Analyser: []lower.Analyser{
 			{
 				Name: "analyser_write",
+				Use:  "p",
 				Analyse: []lower.AnalyseItem{
 					{
 						Step: "write",
 						File: []lower.AnalyseFile{
-							{Use: "p_number", Value: "en"},
+							{Use: "p", Value: "en"},
 						},
 					},
 				},
@@ -119,7 +120,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 					Style: "csv",
 					Column: []lower.ResultColumn{
 						{Title: "a", Expr: "a"},
-						{Title: "p0", Expr: "p0"},
+						{Title: "p0", Expr: "_jbs_pattern__p_number__write__p0"},
 					},
 					Meta: lower.ResultTableMeta{Source: "write"},
 				},
@@ -153,11 +154,11 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Param block 'matrix'") {
 		t.Fatalf("missing param block role comment: %s", text)
 	}
-	if !strings.Contains(text, "# Pattern definition for 'p.number'") {
+	if !strings.Contains(text, "# Patterns block 'p'") {
 		t.Fatalf("missing patternset role comment: %s", text)
 	}
-	if !strings.Contains(text, "# Synthetic analyse alias pattern set from analyse block 'write'") {
-		t.Fatalf("missing analyse alias patternset role comment: %s", text)
+	if !strings.Contains(text, "# From analyse 'write': alias 'p0' for pattern 'p.number'") {
+		t.Fatalf("missing alias pattern entry comment: %s", text)
 	}
 	if !strings.Contains(text, "# Parameters for submit block 'run'") {
 		t.Fatalf("missing submit parameterset role comment: %s", text)
@@ -191,6 +192,9 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	}
 	if !strings.Contains(text, "\n\n# Result tables generated from analyser output") {
 		t.Fatalf("missing blank-line separation before result section: %s", text)
+	}
+	if !strings.Contains(text, "\n  - name: analyser_write\n    use: p\n    analyse:\n") {
+		t.Fatalf("missing compact analyser use scalar output: %s", text)
 	}
 
 	var out map[string]interface{}

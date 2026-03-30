@@ -182,18 +182,24 @@ Lowering shape:
 
 ```yaml
 patternset:
-  - name: p_number
+  - name: p
     pattern:
-      - name: number
+      # From analyse 'write': alias 'p0' for pattern 'p.number'
+      - name: _jbs_pattern__p_number__write__p0
         type: int
         _: 'Number: $jube_pat_int'
+      # From analyse 'write': alias 'p1' for pattern 'p.letter'
+      - name: _jbs_pattern__p_letter__write__p1
+        type: string
+        _: 'Letter: $jube_pat_wrd'
 
 analyser:
   - name: analyser_write
+    use: p
     analyse:
       - step: write
         file:
-          - use: _jbs__ana_write__p0
+          - use: p
             _: en
 
 result:
@@ -206,9 +212,9 @@ result:
         - title: a
           _: a
         - title: p0
-          _: p0
+          _: _jbs_pattern__p_number__write__p0
         - title: letter
-          _: p1
+          _: _jbs_pattern__p_letter__write__p1
 ```
 
 ## Built-in Globals

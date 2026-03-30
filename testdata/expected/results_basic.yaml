@@ -22,45 +22,19 @@ parameterset:
 
 # Pattern sets used for result extraction
 patternset:
-  # Pattern definition for 'p.number'
-  - name: p_number
+  # Patterns block 'p'
+  - name: p
     pattern:
-      - name: number
+      # From analyse 'write': alias 'p0' for pattern 'p.number'
+      - name: _jbs_pattern__p_number__write__p0
         type: int
         _: 'Number: $jube_pat_int'
-
-  # Pattern definition for 'p.zahl'
-  - name: p_zahl
-    pattern:
-      - name: zahl
+      # From analyse 'write': alias 'p1' for pattern 'p.zahl'
+      - name: _jbs_pattern__p_zahl__write__p1
         type: int
         _: 'Zahl: $jube_pat_int'
-
-  # Pattern definition for 'p.letter'
-  - name: p_letter
-    pattern:
-      - name: letter
-        type: string
-        _: 'Letter: $jube_pat_wrd'
-
-  # Synthetic analyse alias pattern set from analyse block 'write'
-  - name: _jbs__ana_write__p0
-    pattern:
-      - name: p0
-        type: int
-        _: 'Number: $jube_pat_int'
-
-  # Synthetic analyse alias pattern set from analyse block 'write'
-  - name: _jbs__ana_write__p1
-    pattern:
-      - name: p1
-        type: int
-        _: 'Zahl: $jube_pat_int'
-
-  # Synthetic analyse alias pattern set from analyse block 'write'
-  - name: _jbs__ana_write__p2
-    pattern:
-      - name: p2
+      # From analyse 'write': alias 'p2' for pattern 'p.letter'
+      - name: _jbs_pattern__p_letter__write__p2
         type: string
         _: 'Letter: $jube_pat_wrd'
 
@@ -82,15 +56,14 @@ step:
 analyser:
   # Analyser generated from analyse block 'write'
   - name: analyser_write
+    use: p
     analyse:
       - step: write
         file:
-          - use: _jbs__ana_write__p0
+          - use: p
             _: en
-          - use: _jbs__ana_write__p1
+          - use: p
             _: de
-          - use: _jbs__ana_write__p2
-            _: en
 
 # Result tables generated from analyser output
 result:
@@ -106,8 +79,8 @@ result:
         - title: x
           _: x
         - title: p0
-          _: p0
+          _: _jbs_pattern__p_number__write__p0
         - title: de zahl
-          _: p1
+          _: _jbs_pattern__p_zahl__write__p1
         - title: p2
-          _: p2
+          _: _jbs_pattern__p_letter__write__p2

@@ -623,18 +623,42 @@ analyse write {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	if len(doc.PatternSet) < 3 {
-		t.Fatalf("expected base patternsets, got %#v", doc.PatternSet)
+	if len(doc.PatternSet) != 1 {
+		t.Fatalf("expected one grouped patternset, got %#v", doc.PatternSet)
+	}
+	ps := doc.PatternSet[0]
+	if ps.Name != "p" {
+		t.Fatalf("expected grouped patternset named p, got %#v", ps.Name)
+	}
+	if len(ps.Pattern) != 3 {
+		t.Fatalf("expected 3 alias patterns, got %#v", ps.Pattern)
+	}
+	for _, p := range ps.Pattern {
+		if !strings.Contains(p.Name, "__write__") {
+			t.Fatalf("expected analyse alias pattern naming only, got %#v", p.Name)
+		}
+		if !p.Meta.IsAnalyseAlias || p.Meta.AnalyseStep != "write" {
+			t.Fatalf("expected analyse alias pattern metadata, got %#v", p.Meta)
+		}
 	}
 	if len(doc.Analyser) != 1 {
 		t.Fatalf("expected one analyser, got %#v", doc.Analyser)
 	}
 	an := doc.Analyser[0]
+	if an.Use != "p" {
+		t.Fatalf("expected compact analyser use 'p', got %#v", an.Use)
+	}
 	if an.Analyse[0].Step != "write" {
 		t.Fatalf("unexpected analyse step: %#v", an.Analyse[0])
 	}
-	if len(an.Analyse[0].File) != 3 {
-		t.Fatalf("expected 3 analyse files, got %#v", an.Analyse[0].File)
+	if len(an.Analyse[0].File) != 2 {
+		t.Fatalf("expected deduplicated analyse files, got %#v", an.Analyse[0].File)
+	}
+	if an.Analyse[0].File[0].Use != "p" || an.Analyse[0].File[0].Value != "en" {
+		t.Fatalf("unexpected first analyse file: %#v", an.Analyse[0].File[0])
+	}
+	if an.Analyse[0].File[1].Use != "p" || an.Analyse[0].File[1].Value != "de" {
+		t.Fatalf("unexpected second analyse file: %#v", an.Analyse[0].File[1])
 	}
 	if doc.Result == nil {
 		t.Fatalf("expected result object")
@@ -652,8 +676,14 @@ analyse write {
 	if len(table.Column) != 5 {
 		t.Fatalf("unexpected columns: %#v", table.Column)
 	}
-	if table.Column[3].Title != "de zahl" || table.Column[3].Expr != "p1" {
+	if table.Column[2].Title != "p0" || table.Column[2].Expr != "_jbs_pattern__p_number__write__p0" {
+		t.Fatalf("unexpected first analyse result column: %#v", table.Column[2])
+	}
+	if table.Column[3].Title != "de zahl" || table.Column[3].Expr != "_jbs_pattern__p_zahl__write__p1" {
 		t.Fatalf("unexpected aliased result column: %#v", table.Column[3])
+	}
+	if table.Column[4].Title != "p2" || table.Column[4].Expr != "_jbs_pattern__p_letter__write__p2" {
+		t.Fatalf("unexpected second analyse result column: %#v", table.Column[4])
 	}
 }
 
@@ -683,20 +713,94 @@ analyse write {
 	if len(doc.Analyser) != 1 {
 		t.Fatalf("expected one analyser")
 	}
+	if doc.Analyser[0].Use != "g" {
+		t.Fatalf("expected compact analyser use 'g', got %#v", doc.Analyser[0].Use)
+	}
 	files := doc.Analyser[0].Analyse[0].File
 	if len(files) != 2 {
 		t.Fatalf("expected two analyse file entries, got %#v", files)
 	}
-	if files[0].Use == files[1].Use {
-		t.Fatalf("expected separate alias patternsets for p0/p1, got %#v", files)
+	if files[0].Use != "g" || files[1].Use != "g" {
+		t.Fatalf("expected grouped patternset use for both files, got %#v", files)
 	}
-	hasAlias := 0
-	for _, ps := range doc.PatternSet {
-		if strings.HasPrefix(ps.Name, "_jbs__ana_write__p") {
-			hasAlias++
-		}
+	if len(doc.PatternSet) != 1 || doc.PatternSet[0].Name != "g" {
+		t.Fatalf("expected one grouped patternset g, got %#v", doc.PatternSet)
 	}
-	if hasAlias < 2 {
-		t.Fatalf("expected synthetic analyse alias patternsets, got %#v", doc.PatternSet)
+	if len(doc.PatternSet[0].Pattern) != 2 {
+		t.Fatalf("expected only alias patterns in grouped set, got %#v", doc.PatternSet[0].Pattern)
+	}
+	names := make(map[string]struct{}, len(doc.PatternSet[0].Pattern))
+	for _, pat := range doc.PatternSet[0].Pattern {
+		names[pat.Name] = struct{}{}
+	}
+	if _, ok := names["_jbs_pattern__g_number__write__p0"]; !ok {
+		t.Fatalf("expected alias pattern p0 in grouped set: %#v", doc.PatternSet[0].Pattern)
+	}
+	if _, ok := names["_jbs_pattern__g_number__write__p1"]; !ok {
+		t.Fatalf("expected alias pattern p1 in grouped set: %#v", doc.PatternSet[0].Pattern)
+	}
+}
+
+func TestAnalyseResultColumnUsesAliasPatternName(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do write with p {
+  echo "Number: ${a}" > en
+}
+patterns g {
+  number = "Number: %d"
+}
+analyse write {
+  number = g.number in "en"
+  (a, number)
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if doc.Result == nil || len(doc.Result.Table) != 1 || len(doc.Result.Table[0].Column) != 2 {
+		t.Fatalf("unexpected result shape: %#v", doc.Result)
+	}
+	col := doc.Result.Table[0].Column[1]
+	if col.Title != "number" || col.Expr != "_jbs_pattern__g_number__write__number" {
+		t.Fatalf("unexpected analyse column mapping: %#v", col)
+	}
+}
+
+func TestAnalyseCompactUseAcrossMultiplePatternGroups(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do write with p {
+  echo "A 1" > a.out
+  echo "B 1" > b.out
+}
+patterns g1 {
+  x = "A %d"
+}
+patterns g2 {
+  y = "B %d"
+}
+analyse write {
+  ax = g1.x in "a.out"
+  by = g2.y in "b.out"
+  (a, ax, by)
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Analyser) != 1 {
+		t.Fatalf("expected one analyser")
+	}
+	if doc.Analyser[0].Use != "g1, g2" {
+		t.Fatalf("expected compact analyser use 'g1, g2', got %#v", doc.Analyser[0].Use)
 	}
 }
