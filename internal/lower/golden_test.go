@@ -22,8 +22,8 @@ func TestGoldenResultsBasic(t *testing.T) {
 
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
-	inputPath := filepath.Join("..", "..", "testdata", "input", name+".jbs")
-	expectedPath := filepath.Join("..", "..", "testdata", "expected", name+".yaml")
+	inputPath := filepath.Join("..", "..", "tests", name+".jbs")
+	expectedPath := filepath.Join("..", "..", "tests", name+".yaml")
 
 	src, err := os.ReadFile(inputPath)
 	if err != nil {

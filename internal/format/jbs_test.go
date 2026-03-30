@@ -10,21 +10,20 @@ import (
 )
 
 func TestFormatGoldenFixtures(t *testing.T) {
-	inputDir := filepath.Join("..", "..", "testdata", "fmt", "input")
-	expectedDir := filepath.Join("..", "..", "testdata", "fmt", "expected")
-	entries, err := os.ReadDir(inputDir)
+	fixtureDir := filepath.Join("..", "..", "tests")
+	entries, err := os.ReadDir(fixtureDir)
 	if err != nil {
-		t.Fatalf("read input dir: %v", err)
+		t.Fatalf("read fixture dir: %v", err)
 	}
 	count := 0
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jbs") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "fmt_") || !strings.HasSuffix(entry.Name(), ".jbs") {
 			continue
 		}
 		count++
 		t.Run(entry.Name(), func(t *testing.T) {
-			inPath := filepath.Join(inputDir, entry.Name())
-			expectedPath := filepath.Join(expectedDir, entry.Name())
+			inPath := filepath.Join(fixtureDir, entry.Name())
+			expectedPath := filepath.Join(fixtureDir, strings.TrimSuffix(entry.Name(), ".jbs")+".yaml")
 			in, err := os.ReadFile(inPath)
 			if err != nil {
 				t.Fatalf("read input: %v", err)
