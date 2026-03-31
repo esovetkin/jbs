@@ -24,8 +24,8 @@ param ex_parset {
 # the `do` section runs on a login node
 # the `submit` section submits a Slurm job
 do ex_step with ex_parset {
-        echo "Number ${x}"  > ex_ofile
-        echo "Letter ${a}" >> ex_ofile
+        echo "Number: ${x}"  > ex_ofile
+        echo "Letter: ${a}" >> ex_ofile
 }
 
 patterns p {
