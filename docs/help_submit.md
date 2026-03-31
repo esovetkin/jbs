@@ -27,18 +27,21 @@ submit <name>
         outlogfile = "job.out"
         outerrfile = "job.err"
         gres = "gpu:4"
+        mail = "me@example.org"
+        notification = "END,FAIL"
+
+        # raw-block
+        preprocess = {
+                echo "before run"
+        }
+
+        measurement = ""
         starter = "srun"
         args_starter = ""
         executable = "/bin/bash"
         args_exec = "-lc hostname"
-        measurement = ""
-        mail = "me@example.org"
-        notification = "END,FAIL"
 
-        # raw-block keys
-        preprocess = {
-                echo "before run"
-        }
+        # raw-block
         postprocess = {
                 echo "after run"
         }
@@ -165,13 +168,13 @@ Example:
 ```jbs
 submit run
 {
-        executable = "/bin/bash"
-        args_exec = "-lc 'hostname'"
-
         preprocess = {
                 module purge
                 module load CUDA
         }
+
+        executable = "/bin/bash"
+        args_exec = "-lc 'hostname'"
 
         postprocess = {
                 echo "finished"
@@ -202,13 +205,13 @@ submit train
         outlogfile = "job.out"
         outerrfile = "job.err"
 
-        starter = "srun"
-        executable = "/bin/bash"
-        args_exec = "-lc 'python -u train.py --case ${case}'"
-
         preprocess = {
                 export NCCL_SOCKET_IFNAME=ib0
                 export GLOO_SOCKET_IFNAME=ib0
         }
+
+        starter = "srun"
+        executable = "/bin/bash"
+        args_exec = "-lc 'python -u train.py --case ${case}'"
 }
 ```
