@@ -191,11 +191,16 @@ func stepComment(step lower.Step) string {
 
 func patternSetComment(ps lower.PatternSet) string {
 	switch ps.Meta.Kind {
-	case lower.PatternSetKindBase:
+	case lower.PatternSetKindLet:
 		if ps.Meta.Source != "" {
-			return fmt.Sprintf("Patterns block '%s'", ps.Meta.Source)
+			return fmt.Sprintf("Let namespace '%s' used for analyse extraction", ps.Meta.Source)
 		}
-		return fmt.Sprintf("Patterns block '%s'", ps.Name)
+		return fmt.Sprintf("Let namespace '%s' used for analyse extraction", ps.Name)
+	case lower.PatternSetKindInline:
+		if ps.Meta.Source != "" {
+			return fmt.Sprintf("Inline analyse extraction patterns for step '%s'", ps.Meta.Source)
+		}
+		return fmt.Sprintf("Inline analyse extraction patterns in '%s'", ps.Name)
 	default:
 		return fmt.Sprintf("Generated pattern set '%s'", ps.Name)
 	}

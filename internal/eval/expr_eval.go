@@ -18,6 +18,13 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 		}
 		diags.AddError("E100", fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
 		return Null()
+	case ast.QualifiedIdentExpr:
+		key := e.Namespace + "." + e.Name
+		if v, ok := env[key]; ok {
+			return v
+		}
+		diags.AddError("E100", fmt.Sprintf("unknown variable '%s'", key), e.Span, "import or define the variable before use")
+		return Null()
 	case ast.StringExpr:
 		return String(e.Value)
 	case ast.NumberExpr:

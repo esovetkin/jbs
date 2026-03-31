@@ -37,7 +37,7 @@ const (
 	TokenParam    TokenType = "param"
 	TokenDo       TokenType = "do"
 	TokenSubmit   TokenType = "submit"
-	TokenPatterns TokenType = "patterns"
+	TokenLet      TokenType = "let"
 	TokenAnalyse  TokenType = "analyse"
 	TokenWith     TokenType = "with"
 	TokenFrom     TokenType = "from"
@@ -65,7 +65,7 @@ var keywords = map[string]TokenType{
 	"param":    TokenParam,
 	"do":       TokenDo,
 	"submit":   TokenSubmit,
-	"patterns": TokenPatterns,
+	"let":      TokenLet,
 	"analyse":  TokenAnalyse,
 	"with":     TokenWith,
 	"from":     TokenFrom,

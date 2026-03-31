@@ -227,8 +227,8 @@ func helpTopic(flags Flags) string {
 		return "analyse"
 	case flags.HelpDo:
 		return "do"
-	case flags.HelpPatterns:
-		return "patterns"
+	case flags.HelpLet:
+		return "let"
 	case flags.HelpParam:
 		return "param"
 	case flags.HelpSubmit:

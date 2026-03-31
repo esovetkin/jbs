@@ -28,25 +28,20 @@ do ex_step with ex_parset {
         echo "Letter: ${a}" >> ex_ofile
 }
 
-patterns p {
-        # %d, %f, %w are shortcuts for JUBE pattern variables
-        number = "Number: %d"
-        letter = "Letter: %w"
-}
-
 analyse ex_step {
-        # assignments define which pattern is searched in which file
-        number = p.number in "ex_ofile"
-        letter = p.letter in "ex_ofile"
+        # define which pattern is searched in which file
+        # %d, %f, %w are shortcuts for JUBE pattern variables
+        number = "Number: %d" in "ex_ofile"
+        letter = "Letter: %w" in "ex_ofile"
 
         # the last expression defines result table columns
         (a as "name of a column", x, number, letter)
 }
 % jbs taster.jbs -o taster.yaml
 % awk '!/^[[:space:]]*(#|$)/' taster.jbs | wc
-     18      67     418
+     14      57     352
 % awk '!/^[[:space:]]*(#|$)/' taster.yaml | wc
-     55     123    1246
+     59     133    1546
 % jube-autorun taster.yaml
 ...
 ```
@@ -80,7 +75,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|param|do|submit|patterns|analyse]
+  jbs help [globals|param|do|submit|let|analyse]
 
 Format jbs in place:
   jbs fmt script.jbs
@@ -104,19 +99,19 @@ The `submit` block configures the job-system settings, so it is less straightfor
 
 See `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
 
-### `patterns <pattern_group> { name = "regex-with-%d/%f/%w" ... }`
+### `let <namespace> { name = "regex-with-%d/%f/%w" ... }`
 
-`patterns` defines regex patterns used during `analyse`. Besides shortcuts (`%d`, `%f`, `%w`), the syntax follows [JUBE patterns](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#creating-a-result-table). See JBS-specific lowering details [here](docs/language.md#patterns--analyse-lowering).
+`let` defines namespaced variables that can be reused across the script. In `analyse`, pattern expressions can reference let variables (for example `p.number`) or inline strings. Placeholder shortcuts (`%d`, `%f`, `%w`) follow JUBE pattern conventions. See lowering details [here](docs/language.md#let--analyse-lowering).
 
-See `jbs help patterns` or [docs/help_patterns.md](docs/help_patterns.md).
+See `jbs help let` or [docs/help_let.md](docs/help_let.md).
 
 ### `analyse <step_name> { ... }`
 
-`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Pattern references use `pattern_group.pattern`. Each assignment defines which pattern is parsed from which file, and the final tuple defines output columns.
+`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Extraction assignments use either let references (`namespace.variable`) or inline string expressions before `in "file"`. The final tuple defines output columns.
 
 ```jbs
 analyse <step_name> {
-        value = pattern_group.pattern in "file"
+        value = expression in "file"
         ...
 
         (value [as "column_name"], ...)

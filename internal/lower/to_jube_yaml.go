@@ -75,7 +75,8 @@ type Parameter struct {
 type PatternSetKind string
 
 const (
-	PatternSetKindBase PatternSetKind = "base"
+	PatternSetKindLet    PatternSetKind = "let"
+	PatternSetKindInline PatternSetKind = "analyse_inline"
 )
 
 type PatternSetMeta struct {
@@ -221,8 +222,6 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 		ctx.names[param.Name] = struct{}{}
 		ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, lowerParamset(param, diags))
 	}
-
-	ctx.lowerPatternSets()
 
 	for _, stmt := range res.Program.Stmts {
 		switch node := stmt.(type) {
@@ -533,23 +532,28 @@ func patternTemplateKey(group, name string) string {
 	return group + "." + name
 }
 
-func (ctx *lowerContext) lowerPatternSets() {
-	for _, group := range ctx.res.Patterns {
-		if group == nil {
-			continue
+func (ctx *lowerContext) ensurePatternSet(groupName, analyseStep string) {
+	if idx, ok := ctx.patternSetIndexByGroup[groupName]; ok {
+		if idx >= 0 && idx < len(ctx.doc.PatternSet) {
+			return
 		}
-		ps := PatternSet{
-			Name:    group.Name,
-			Pattern: make([]Pattern, 0),
-			Meta: PatternSetMeta{
-				Kind:   PatternSetKindBase,
-				Source: group.Name,
-			},
-		}
-		ctx.doc.PatternSet = append(ctx.doc.PatternSet, ps)
-		ctx.patternSetIndexByGroup[group.Name] = len(ctx.doc.PatternSet) - 1
-		ctx.names[group.Name] = struct{}{}
 	}
+	meta := PatternSetMeta{
+		Kind:   PatternSetKindInline,
+		Source: analyseStep,
+	}
+	if _, ok := ctx.res.LetByName[groupName]; ok {
+		meta.Kind = PatternSetKindLet
+		meta.Source = groupName
+	}
+	ps := PatternSet{
+		Name:    groupName,
+		Pattern: make([]Pattern, 0),
+		Meta:    meta,
+	}
+	ctx.doc.PatternSet = append(ctx.doc.PatternSet, ps)
+	ctx.patternSetIndexByGroup[groupName] = len(ctx.doc.PatternSet) - 1
+	ctx.names[groupName] = struct{}{}
 }
 
 func (ctx *lowerContext) lowerAnalyseAndResult() {
@@ -574,6 +578,7 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 		seenFile := make(map[string]struct{}, len(spec.Assignments))
 		for _, assign := range spec.Assignments {
 			groupName := assign.Group
+			ctx.ensurePatternSet(groupName, spec.Block.StepName)
 			if !contains(usedGroups, groupName) {
 				usedGroups = append(usedGroups, groupName)
 			}

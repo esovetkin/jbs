@@ -196,22 +196,22 @@ func TestFormatDoInlineBodyIndentation(t *testing.T) {
 	}
 }
 
-func TestFormatPatternsInlineBodyIndentation(t *testing.T) {
-	src := `patterns p{number = "Number: %d"
+func TestFormatLetInlineBodyIndentation(t *testing.T) {
+	src := `let p{number = "Number: %d"
         zahl = "Zahl: %d"
                  letter = "Letter: %w"
         buchstabe = "Buchstabe: %w"
 }
 `
 	diags := &diag.Diagnostics{}
-	got, err := JBS("patterns_inline.jbs", src, diags)
+	got, err := JBS("let_inline.jbs", src, diags)
 	if err != nil {
 		t.Fatalf("format failed: %v", err)
 	}
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	want := `patterns p
+	want := `let p
 {
         number = "Number: %d"
         zahl = "Zahl: %d"
@@ -228,10 +228,11 @@ func TestFormatAnalyseInlineBodyIndentation(t *testing.T) {
 	src := `do write{echo "Number: 1" > out
         echo "Word: hello" >> out
 }
-patterns p{number = "Number: %d"
+let p{number = "Number: %d"
         word = "Word: %w"
 }
-analyse write{n = p.number in "out"
+analyse write{x = p.number
+        n = x in "out"
         w = p.word in "out"
                  (n, w)
 }
@@ -250,7 +251,7 @@ analyse write{n = p.number in "out"
         echo "Word: hello" >> out
 }
 
-patterns p
+let p
 {
         number = "Number: %d"
         word = "Word: %w"
@@ -258,7 +259,8 @@ patterns p
 
 analyse write
 {
-        n = p.number in "out"
+        x = p.number
+        n = x in "out"
         w = p.word in "out"
         (n, w)
 }

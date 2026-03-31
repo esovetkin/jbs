@@ -94,13 +94,13 @@ func TestParseFlagsHelpAnalyse(t *testing.T) {
 	}
 }
 
-func TestParseFlagsHelpPatterns(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "patterns"})
+func TestParseFlagsHelpLet(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "let"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !f.Help || !f.HelpPatterns {
-		t.Fatalf("expected help patterns mode")
+	if !f.Help || !f.HelpLet {
+		t.Fatalf("expected help let mode")
 	}
 }
 

@@ -10,7 +10,7 @@ do write with params {
   echo "Zahl: ${x}" > de
 }
 
-patterns p {
+let p {
   number = "Number: %d"
   zahl = "Zahl: %d"
   letter = "Letter: %w"

@@ -22,7 +22,7 @@ parameterset:
 
 # Pattern sets used for result extraction
 patternset:
-  # Patterns block 'p'
+  # Let namespace 'p' used for analyse extraction
   - name: p
     pattern:
       # From analyse 'write': alias 'p0' for pattern 'p.number'

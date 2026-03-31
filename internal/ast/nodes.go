@@ -44,23 +44,15 @@ type GlobalAssign struct {
 func (g GlobalAssign) stmtNode()          {}
 func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 
-type PatternsBlock struct {
+type LetBlock struct {
 	Name     string
-	Patterns []PatternDef
+	Assignments []Assignment
 	BodyRaw  string
 	Span     diag.Span
 }
 
-func (p PatternsBlock) stmtNode()          {}
-func (p PatternsBlock) GetSpan() diag.Span { return p.Span }
-
-type PatternDef struct {
-	Name  string
-	Regex string
-	Span  diag.Span
-}
-
-func (p PatternDef) GetSpan() diag.Span { return p.Span }
+func (l LetBlock) stmtNode()          {}
+func (l LetBlock) GetSpan() diag.Span { return l.Span }
 
 type AnalyseBlock struct {
 	StepName    string
@@ -74,11 +66,10 @@ func (a AnalyseBlock) stmtNode()          {}
 func (a AnalyseBlock) GetSpan() diag.Span { return a.Span }
 
 type AnalyseAssign struct {
-	Name         string
-	PatternGroup string
-	PatternName  string
-	File         string
-	Span         diag.Span
+	Name string
+	Expr Expr
+	File string
+	Span diag.Span
 }
 
 func (a AnalyseAssign) GetSpan() diag.Span { return a.Span }
@@ -150,6 +141,15 @@ type IdentExpr struct {
 
 func (e IdentExpr) exprNode()          {}
 func (e IdentExpr) GetSpan() diag.Span { return e.Span }
+
+type QualifiedIdentExpr struct {
+	Namespace string
+	Name      string
+	Span      diag.Span
+}
+
+func (e QualifiedIdentExpr) exprNode()          {}
+func (e QualifiedIdentExpr) GetSpan() diag.Span { return e.Span }
 
 type StringExpr struct {
 	Value string

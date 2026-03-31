@@ -10,7 +10,7 @@ do write
         echo "Number: ${a}" > out
 }
 
-patterns g
+let g
 {
         n = "Number: %d"
 }

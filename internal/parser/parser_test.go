@@ -377,44 +377,45 @@ submit run {
 	}
 }
 
-func TestParsePatternsBlock(t *testing.T) {
+func TestParseLetBlock(t *testing.T) {
 	src := `
-patterns p {
+let p {
   number = "Number: %d"
   letter = "Letter: %w"
 }
 `
 	diags := &diag.Diagnostics{}
-	prog := Parse("patterns.jbs", src, diags)
+	prog := Parse("let.jbs", src, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected parse errors: %s", diags.String())
 	}
 	if len(prog.Stmts) != 1 {
 		t.Fatalf("expected one statement")
 	}
-	pb, ok := prog.Stmts[0].(ast.PatternsBlock)
+	pb, ok := prog.Stmts[0].(ast.LetBlock)
 	if !ok {
-		t.Fatalf("expected patterns block")
+		t.Fatalf("expected let block")
 	}
 	if pb.Name != "p" {
-		t.Fatalf("unexpected patterns block name: %s", pb.Name)
+		t.Fatalf("unexpected let block name: %s", pb.Name)
 	}
-	if len(pb.Patterns) != 2 {
-		t.Fatalf("expected 2 patterns, got %d", len(pb.Patterns))
+	if len(pb.Assignments) != 2 {
+		t.Fatalf("expected 2 assignments, got %d", len(pb.Assignments))
 	}
-	if pb.Patterns[0].Name != "number" || pb.Patterns[0].Regex != "Number: %d" {
-		t.Fatalf("unexpected first pattern: %#v", pb.Patterns[0])
+	if pb.Assignments[0].Name != "number" {
+		t.Fatalf("unexpected first assignment: %#v", pb.Assignments[0])
 	}
 }
 
 func TestParseAnalyseBlock(t *testing.T) {
 	src := `
 analyse write {
-  p0 = p.number in "en"
-  p1 = p.zahl in "de"
+  helper = "Number: %d"
+  p0 = helper in "en"
+  p1 = "Zahl: %d" in "de"
   (
     a,
-    x,
+    helper,
     p0,
     p1 as "Zahl",
   )
@@ -435,8 +436,14 @@ analyse write {
 	if ab.StepName != "write" {
 		t.Fatalf("unexpected analyse target: %s", ab.StepName)
 	}
-	if len(ab.Assignments) != 2 {
-		t.Fatalf("expected 2 analyse assignments, got %d", len(ab.Assignments))
+	if len(ab.Assignments) != 3 {
+		t.Fatalf("expected 3 analyse assignments, got %d", len(ab.Assignments))
+	}
+	if ab.Assignments[0].File != "" {
+		t.Fatalf("expected first analyse assignment to be helper assignment: %#v", ab.Assignments[0])
+	}
+	if ab.Assignments[1].File != "en" || ab.Assignments[2].File != "de" {
+		t.Fatalf("expected extraction assignments with files, got %#v", ab.Assignments)
 	}
 	if len(ab.Columns) != 4 {
 		t.Fatalf("expected 4 columns, got %d", len(ab.Columns))
@@ -449,7 +456,7 @@ analyse write {
 func TestParseAnalyseMalformedAssignment(t *testing.T) {
 	src := `
 analyse write {
-  p0 = p.number "en"
+  p0 p.number in "en"
   (p0)
 }
 `

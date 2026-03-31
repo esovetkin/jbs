@@ -4,9 +4,12 @@
 
 ```ebnf
 program       := stmt* EOF
-stmt          := global_assign | param_block | do_block | submit_block | patterns_block | analyse_block
+stmt          := global_assign | let_block | param_block | do_block | submit_block | analyse_block
 
 global_assign := IDENT "=" expr NEWLINE
+
+let_block     := "let" IDENT "{" let_stmt* "}"
+let_stmt      := IDENT "=" expr NEWLINE
 
 param_block   := "param" IDENT with_clause? "{" param_stmt* final_expr "}"
 param_stmt    := IDENT "=" expr NEWLINE
@@ -30,13 +33,10 @@ submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
                  "preprocess" | "postprocess"
 submit_value  := expr | raw_block
 
-patterns_block := "patterns" IDENT "{" pattern_stmt* "}"
-pattern_stmt   := IDENT "=" STRING
-
-analyse_block  := "analyse" IDENT "{" analyse_stmt* analyse_tuple "}"
-analyse_stmt   := IDENT "=" IDENT "." IDENT "in" STRING
-analyse_tuple  := "(" analyse_col ("," analyse_col)* ","? ")"
-analyse_col    := IDENT ("as" STRING)?
+analyse_block := "analyse" IDENT "{" analyse_stmt* analyse_tuple "}"
+analyse_stmt  := IDENT "=" expr ("in" STRING)? NEWLINE
+analyse_tuple := "(" analyse_col ("," analyse_col)* ","? ")"
+analyse_col   := (IDENT | IDENT "." IDENT) ("as" STRING)?
 ```
 
 ## Expressions
@@ -46,6 +46,7 @@ Supported assignment expressions:
 - scalar literals: string/int/float/bool
 - tuples/lists
 - identifiers
+- qualified identifiers: `namespace.variable`
 - unary `+`, `-`
 - binary `+`, `-`, `*`, `/`, `%`
 - comparison operators
@@ -72,7 +73,6 @@ Mode declarations lower to JUBE parameter mode fields:
 Unsupported syntax (diagnostics emitted):
 
 - function calls
-- attribute access
 - dict literals
 - imports
 
@@ -176,12 +176,36 @@ param ex_scalar_like {
         x = [1, 2, 3]
         c = "const"
 
-        # list and tuple are both valid sequence inputs
-        # c behaves like length-1 and is broadcast in '+':
-        # yields [(x=1, c="const"), (x=2, c="const"), (x=3, c="const")]
+        # c behaves like length-1 and is broadcast in '+'
         x + c
 }
 ```
+
+## `let` Namespaces
+
+`let` defines a namespace of reusable values.
+
+```jbs
+let p {
+        number = "Number: %d"
+        letter = "Letter: %w"
+        retries = 3
+}
+```
+
+`namespace.variable` can be used in `param`, `submit`, and `analyse` expressions.
+
+`param` can import a full let namespace into local scope:
+
+```jbs
+param cases with p {
+        x = (1, 2)
+        y = (number, letter)
+        x + y
+}
+```
+
+Nested tuples/lists are rejected (`E305`) in `let`, `param`, submit expression fields, and analyse helper assignments.
 
 ## Import Semantics (`with`)
 
@@ -192,50 +216,26 @@ Supported forms:
 - mixed form: `with x from p2, p3`
 - tuple form: `with (x, y) from p2`
 - mixed tuple form: `with (x, y) from p2, p3`
-
-In `param`:
-
-- imported names initialize local scope.
-- assignment to imported name is local rebinding (copy-on-write).
+- let import forms in `param`:
+  - `with l`
+  - `with x from l`
+  - `with (x, y) from l`
 
 In `do`/`submit`:
 
-- `with p2` uses whole parameter set.
-- `with x from p2` generates a synthetic subset parameterset containing only selected variables.
-- `with (x, y) from p2` generates one synthetic subset parameterset for selected variables.
-- In mixed form (`with x from p2, p3`), `p3` is treated as whole-parameterset import.
-- In mixed tuple form (`with (x, y) from p2, p3`), `p3` is treated as whole-parameterset import.
+- `with p2` uses a whole parameter set.
+- `with x from p2` generates a synthetic subset parameter set containing only selected variables.
+- `with (x, y) from p2` generates one subset parameter set for selected variables.
 - `after` implies parameter inheritance from dependency steps.
-- if `after` already provides a variable from the same source parameterset, explicit `with` re-import of that variable is ignored.
-- if explicit `with` targets a whole parameterset after inheritance, only non-inherited variables from that parameterset are imported.
-- if the same variable name is inherited/imported from different parametersets, compilation fails with an error.
-
-Inheritance example:
-
-```jbs
-param pm0 {
-  a = (1,2)
-  b = ("x","y")
-  c = (true,false)
-  a * b * c
-}
-
-do step0 with (a,b) from pm0 {
-  echo ${a} ${b}
-}
-
-do step1 after step0 with (b,c) from pm0 {
-  # step1 sees a,b via inheritance from step0
-  # explicit with contributes only c from pm0
-  echo ${a} ${b} ${c}
-}
-```
+- if `after` already provides a variable from the same source parameter set, explicit `with` re-import of that variable is ignored.
+- if explicit `with` targets a whole parameter set after inheritance, only non-inherited variables from that parameter set are imported.
+- if the same variable name is inherited/imported from different parameter sets, compilation fails.
 
 ## Lowering to JUBE YAML
 
 ### `param` lowering
 
-All paramsets lower to indexed representation:
+All parameter sets lower to indexed representation:
 
 ```yaml
 # jbs source:
@@ -252,30 +252,37 @@ parameterset:
       - { name: b, mode: python, _: "['x','y','z'][$_jbs__idx_grouped]" }
 ```
 
-This keeps direct-sum alignment and outer-product expansion explicitly coordinated by a context-specific index variable.
+Compact jbs source for the indexed YAML example above:
+
+```jbs
+param grouped {
+        a = (1, 2)
+        b = ("x", "y", "z")
+        a + b
+}
+```
 
 ### `do` lowering
 
 - emits one `step` entry.
 - sets `depend` as a comma-separated list from `after`.
-- normalizes raw block indentation and preserves only the block content.
+- keeps raw block content as the step command body.
 
 ### `submit` lowering
 
-- emits a synthetic submit parameterset with `init_with: "platform.xml:systemParameter"`.
-- emits only the submit keys explicitly set in the block.
+- emits a synthetic submit parameter set with `init_with: "platform.xml:systemParameter"`.
+- emits only submit keys explicitly set in the block.
 - `preprocess` and `postprocess` are raw-block keys.
-  - both are emitted from normalized raw content only (no injected preamble).
-- expression keys support scalar/container values and `shell("...")` / `python("...")`.
+- no implicit preamble is injected into `do`/`submit` raw blocks.
 - emits submit step operations:
   - `${submit} --parsable ${submit_script} > run.jobid`
   - `echo "true" > success`
 
-### `patterns` + `analyse` lowering
+### `let` + `analyse` lowering
 
-`patterns` and `analyse` compile to JUBE `patternset`, `analyser`, and `result`.
+`let` and `analyse` compile to JUBE `patternset`, `analyser`, and `result`.
 
-Placeholder expansion in `patterns` values:
+Placeholder expansion in extraction expressions:
 
 - `%d` -> `$jube_pat_int` (inferred type `int`)
 - `%f` -> `$jube_pat_fp` (inferred type `float`)
@@ -286,7 +293,7 @@ Placeholder expansion in `patterns` values:
 Example:
 
 ```jbs
-patterns p {
+let p {
   number = "Number: %d"
   letter = "Letter: %w"
 }
@@ -339,6 +346,8 @@ result:
           _: _jbs_pattern__p_letter__write__p1
 ```
 
+Inline extraction expressions in `analyse` create synthetic pattern groups of the form `_jbs__ana_<step>_<alias>`.
+
 ## Built-in Globals
 
 - `jbs_name` (root `name`)
@@ -346,9 +355,9 @@ result:
 
 Rules:
 
-- globals can be assigned only at the top level
-- unknown globals are compile errors (`E300`)
-- `jbs_name` and `jbs_outpath` must be plain string literals
+- globals can be assigned only at the top level.
+- unknown globals are compile errors (`E300`).
+- `jbs_name` and `jbs_outpath` must be plain string literals.
 
 Examples:
 
@@ -361,7 +370,7 @@ Invalid examples:
 
 ```jbs
 jbs_name = python("x")   # E303
-jbs_outpath = 12         # E302
+jbs_outpath = 12          # E302
 unknown_name = "x"       # E300
 ```
 
@@ -373,20 +382,20 @@ Run `jbs help globals` to print defaults and mappings.
 
 Rules:
 
-- one blank line between top-level statements
-- global assignments are emitted as `name = value`
-- block header on the first line (`param|do|submit <name>`)
-- `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces
-- opening brace `{` is on its own line
-- block body indentation is normalized to 8 spaces
-- closing brace `}` is at column 1
-- output always ends with a trailing newline
+- one blank line between top-level statements.
+- global assignments are emitted as `name = value`.
+- block header on the first line (`param|do|submit|let|analyse <name>`).
+- `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces.
+- opening brace `{` is on its own line.
+- block body indentation is normalized to 8 spaces.
+- closing brace `}` is at column 1.
+- output always ends with a trailing newline.
 
 Submit formatting constraints:
 
-- expression fields stay `key = expr`
-- raw fields stay `key = { ... }`
-- formatter does not change submit key semantics
+- expression fields stay `key = expr`.
+- raw fields stay `key = { ... }`.
+- formatter does not change submit key semantics.
 
 ## Diagnostics
 
@@ -394,8 +403,9 @@ All diagnostics include source location (`file:line:column`).
 
 Key codes:
 
-- `E020`: unknown imported parameterset.
+- `E020`: unknown imported source in `with`.
 - `E021`: unknown imported variable.
+- `E022`: ambiguous `with` source (name matches both `param` and `let`).
 - `E036`: repeated identifier in combination expression.
 - `E042`: conflicting key values during row merge.
 - `E072`: unknown submit key.
@@ -403,26 +413,33 @@ Key codes:
 - `E074`: non-raw submit keys cannot use raw-block values.
 - `E075`: duplicate submit key.
 - `E076`: malformed submit statement.
-- `E400`: duplicate patterns block name.
-- `E401`: duplicate pattern name in patterns block.
-- `E402`: invalid pattern placeholder.
+- `E300`: unknown global variable.
+- `E301`: `jbs_name` must be a string literal.
+- `E302`: `jbs_outpath` must be a string literal.
+- `E303`: `jbs_name`/`jbs_outpath` cannot use `shell()`/`python()`.
+- `E304`: unsupported global value kind (must be scalar).
+- `E305`: nested tuple/list value is not allowed.
+- `E400`: duplicate `let` block name.
+- `E401`: duplicate variable name in a `let` block.
+- `E402`: invalid placeholder in analyse extraction expression.
 - `E410`: unknown analyse target step.
-- `E411`: unknown pattern group in analyse assignment.
-- `E412`: unknown pattern name in analyse assignment.
-- `E413`: analyse alias collides with step-visible variable.
-- `E414`: duplicate analyse alias.
+- `E412`: analyse extraction expression does not evaluate to string.
+- `E413`: analyse extraction alias collides with a step-visible variable.
+- `E414`: duplicate analyse variable name.
 - `E415`: unknown symbol in analyse result tuple.
 - `E416`: malformed analyse assignment syntax.
-- `E417`: analyse block missing final tuple.
-- `W101`: `+` length mismatch with non-divisible lengths, cyclic broadcast applied.
+- `E417`: analyse block missing or malformed final tuple.
+- `W101`: `+` length mismatch with non-divisible lengths; cyclic broadcast applied.
+- `W300`: top-level global reassigned; last value wins.
 - `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
-- `W311`: step references `$name`/`${name}` for a known param variable but the corresponding paramset is not imported via `with`.
+- `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
+- `W320`: analyse helper variable shadows a step-visible variable.
 
 For `W310`/`W311`, reference scanning applies to:
 
-- `do` block body text
-- submit raw blocks (`preprocess`, `postprocess`)
-- string literals in expression-valued submit keys (all keys, not only `args_exec`)
+- `do` block body text.
+- submit raw blocks (`preprocess`, `postprocess`).
+- string literals in expression-valued submit keys.
 
 ## Known Limitations
 

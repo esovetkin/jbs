@@ -13,7 +13,7 @@ type Flags struct {
 	Help         bool
 	HelpAnalyse  bool
 	HelpDo       bool
-	HelpPatterns bool
+	HelpLet      bool
 	HelpParam    bool
 	HelpSubmit   bool
 	HelpGlobals  bool
@@ -53,9 +53,9 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.HelpAnalyse = true
 			return cfg, nil
 		}
-		if len(args) == 2 && args[1] == "patterns" {
+		if len(args) == 2 && args[1] == "let" {
 			cfg.Help = true
-			cfg.HelpPatterns = true
+			cfg.HelpLet = true
 			return cfg, nil
 		}
 		if len(args) == 2 && args[1] == "param" {
@@ -68,7 +68,7 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.HelpSubmit = true
 			return cfg, nil
 		}
-		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|param|patterns|submit]"}
+		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|let|param|submit]"}
 	}
 	if args[0] == "fmt" {
 		if len(args) != 2 {
@@ -123,7 +123,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|param|do|submit|patterns|analyse]
+  jbs help [globals|param|do|submit|let|analyse]
 
 Format jbs in place:
   jbs fmt script.jbs`

@@ -47,9 +47,9 @@ func (p *Parser) parseProgram() ast.Program {
 		if !ok {
 			p.diags.AddError(
 				"E010",
-				"expected block keyword (param/do/submit/patterns/analyse)",
+				"expected block keyword (param/do/submit/let/analyse)",
 				diag.NewSpan(p.file, start, start),
-				"start a block with param, do, submit, patterns, or analyse",
+				"start a block with param, do, submit, let, or analyse",
 			)
 			p.advance()
 			continue
@@ -65,9 +65,9 @@ func (p *Parser) parseProgram() ast.Program {
 		case "submit":
 			p.consumeWord()
 			stmts = append(stmts, p.parseSubmitBlock(start))
-		case "patterns":
+		case "let":
 			p.consumeWord()
-			stmts = append(stmts, p.parsePatternsBlock(start))
+			stmts = append(stmts, p.parseLetBlock(start))
 		case "analyse":
 			p.consumeWord()
 			stmts = append(stmts, p.parseAnalyseBlock(start))
@@ -77,7 +77,7 @@ func (p *Parser) parseProgram() ast.Program {
 				"E011",
 				fmt.Sprintf("unknown block keyword '%s'", word),
 				diag.NewSpan(p.file, start, end),
-				"valid keywords are param, do, submit, patterns, analyse",
+				"valid keywords are param, do, submit, let, analyse",
 			)
 		}
 	}
@@ -94,7 +94,7 @@ func (p *Parser) parseProgram() ast.Program {
 
 func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
-	if !ok || word == "param" || word == "do" || word == "submit" || word == "patterns" || word == "analyse" {
+	if !ok || word == "param" || word == "do" || word == "submit" || word == "let" || word == "analyse" {
 		return false
 	}
 	i := p.off
@@ -272,35 +272,35 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 	}
 }
 
-func (p *Parser) parsePatternsBlock(blockStart diag.Position) ast.PatternsBlock {
-	name, nameSpan := p.parseRequiredIdent("E080", "expected patterns block name")
+func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
+	name, nameSpan := p.parseRequiredIdent("E080", "expected let block name")
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
 		p.diags.AddError(
 			"E081",
-			"expected '{' to start patterns block body",
+			"expected '{' to start let block body",
 			diag.NewSpan(p.file, pos, pos),
-			"add '{' after patterns header",
+			"add '{' after let header",
 		)
-		return ast.PatternsBlock{
+		return ast.LetBlock{
 			Name: name,
 			Span: diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
-		return ast.PatternsBlock{
+		return ast.LetBlock{
 			Name: name,
 			Span: diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
-	patterns := parsePatternsBody(p.file, body, innerStart, p.diags)
-	return ast.PatternsBlock{
-		Name:     name,
-		Patterns: patterns,
-		BodyRaw:  body,
-		Span:     diag.NewSpan(p.file, blockStart, blockEnd),
+	assignments := parseLetBody(p.file, body, innerStart, p.diags)
+	return ast.LetBlock{
+		Name:        name,
+		Assignments: assignments,
+		BodyRaw:     body,
+		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
 
@@ -653,67 +653,28 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 	return assignments, final
 }
 
-func parsePatternsBody(file, body string, start diag.Position, diags *diag.Diagnostics) []ast.PatternDef {
+func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostics) []ast.Assignment {
 	tokens := lexer.LexFrom(file, body, start, diags)
 	tp := &tokenParser{tokens: tokens, diags: diags}
-	out := make([]ast.PatternDef, 0)
+	out := make([]ast.Assignment, 0)
 
 	for {
 		tp.skipNewlines()
 		if tp.peek().Type == lexer.TokenEOF {
 			break
 		}
-		nameTok := tp.peek()
-		if nameTok.Type != lexer.TokenIdent {
-			diags.AddError(
-				"E418",
-				"malformed patterns statement; expected 'name = \"regex\"'",
-				nameTok.Span,
-				"use syntax: variable = \"pattern\"",
-			)
-			tp.consumeUntilNewline()
-			continue
-		}
-		tp.next()
-		if tp.peek().Type != lexer.TokenEqual {
-			diags.AddError(
-				"E418",
-				"malformed patterns statement; expected '=' after pattern variable",
-				nameTok.Span,
-				"use syntax: variable = \"pattern\"",
-			)
-			tp.consumeUntilNewline()
-			continue
-		}
-		tp.next()
-		valueTok := tp.peek()
-		if valueTok.Type != lexer.TokenString {
-			diags.AddError(
-				"E418",
-				"malformed patterns statement; expected string pattern value",
-				valueTok.Span,
-				"use syntax: variable = \"pattern\"",
-			)
-			tp.consumeUntilNewline()
-			continue
-		}
-		tp.next()
-		span := diag.Merge(nameTok.Span, valueTok.Span)
-		if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline {
+		if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
 			tok := tp.peek()
 			diags.AddError(
 				"E418",
-				"unexpected trailing tokens in patterns statement",
+				"malformed let statement; expected 'name = expression'",
 				tok.Span,
-				"use one pattern definition per line",
+				"use syntax: variable = expression",
 			)
+			tp.consumeUntilNewline()
+			continue
 		}
-		tp.consumeUntilNewline()
-		out = append(out, ast.PatternDef{
-			Name:  nameTok.Value,
-			Regex: valueTok.Value,
-			Span:  span,
-		})
+		out = append(out, tp.parseAssignment())
 	}
 	return out
 }
@@ -765,9 +726,9 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	if stmtStart.Type != lexer.TokenIdent {
 		diags.AddError(
 			"E416",
-			"malformed analyse statement; expected 'name = group.pattern in \"file\"'",
+			"malformed analyse statement; expected 'name = expression' or 'name = expression in \"file\"'",
 			stmtStart.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
+			"use syntax: name = expression [in \"filename\"]",
 		)
 		tp.consumeUntilNewline()
 		return ast.AnalyseAssign{}
@@ -777,79 +738,41 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	if tp.peek().Type != lexer.TokenEqual {
 		diags.AddError(
 			"E416",
-			"malformed analyse statement; expected '=' after alias variable",
+			"malformed analyse statement; expected '=' after variable name",
 			nameTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
+			"use syntax: name = expression [in \"filename\"]",
 		)
 		tp.consumeUntilNewline()
 		return ast.AnalyseAssign{}
 	}
 	tp.next()
 
-	groupTok := tp.peek()
-	if groupTok.Type != lexer.TokenIdent {
-		diags.AddError(
-			"E416",
-			"malformed analyse statement; expected pattern group name",
-			groupTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
-		)
+	expr := tp.parseExpr()
+	if expr == nil {
 		tp.consumeUntilNewline()
 		return ast.AnalyseAssign{}
 	}
-	tp.next()
 
-	if tp.peek().Type != lexer.TokenDot {
-		diags.AddError(
-			"E416",
-			"malformed analyse statement; expected '.' between group and pattern names",
-			groupTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
-		)
-		tp.consumeUntilNewline()
-		return ast.AnalyseAssign{}
+	fileName := ""
+	span := diag.Merge(nameTok.Span, expr.GetSpan())
+	if tp.peek().Type == lexer.TokenIn {
+		tp.next()
+		fileTok := tp.peek()
+		if fileTok.Type != lexer.TokenString {
+			diags.AddError(
+				"E416",
+				"malformed analyse extraction; expected quoted file name after 'in'",
+				fileTok.Span,
+				"use syntax: alias = expression in \"filename\"",
+			)
+			tp.consumeUntilNewline()
+			return ast.AnalyseAssign{}
+		}
+		tp.next()
+		fileName = fileTok.Value
+		span = diag.Merge(nameTok.Span, fileTok.Span)
 	}
-	tp.next()
 
-	patternTok := tp.peek()
-	if patternTok.Type != lexer.TokenIdent {
-		diags.AddError(
-			"E416",
-			"malformed analyse statement; expected pattern name after '.'",
-			patternTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
-		)
-		tp.consumeUntilNewline()
-		return ast.AnalyseAssign{}
-	}
-	tp.next()
-
-	if tp.peek().Type != lexer.TokenIn {
-		diags.AddError(
-			"E416",
-			"malformed analyse statement; expected keyword 'in'",
-			patternTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
-		)
-		tp.consumeUntilNewline()
-		return ast.AnalyseAssign{}
-	}
-	tp.next()
-
-	fileTok := tp.peek()
-	if fileTok.Type != lexer.TokenString {
-		diags.AddError(
-			"E416",
-			"malformed analyse statement; expected quoted file name",
-			fileTok.Span,
-			"use syntax: alias = group.pattern in \"filename\"",
-		)
-		tp.consumeUntilNewline()
-		return ast.AnalyseAssign{}
-	}
-	tp.next()
-
-	span := diag.Merge(nameTok.Span, fileTok.Span)
 	if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline {
 		diags.AddError(
 			"E416",
@@ -861,11 +784,10 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	tp.consumeUntilNewline()
 
 	return ast.AnalyseAssign{
-		Name:         nameTok.Value,
-		PatternGroup: groupTok.Value,
-		PatternName:  patternTok.Value,
-		File:         fileTok.Value,
-		Span:         span,
+		Name: nameTok.Value,
+		Expr: expr,
+		File: fileName,
+		Span: span,
 	}
 }
 
@@ -906,8 +828,15 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		}
 
 		nameTok := tp.next()
-		title := ""
+		name := nameTok.Value
 		span := nameTok.Span
+		if tp.peek().Type == lexer.TokenDot {
+			tp.next()
+			memberTok := tp.expect(lexer.TokenIdent, "E417", "expected identifier after '.' in analyse result tuple")
+			name = name + "." + memberTok.Value
+			span = diag.Merge(span, memberTok.Span)
+		}
+		title := ""
 		if tp.peek().Type == lexer.TokenAs {
 			tp.next()
 			titleTok := tp.peek()
@@ -927,7 +856,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		}
 
 		columns = append(columns, ast.AnalyseColumn{
-			Name:  nameTok.Value,
+			Name:  name,
 			Title: title,
 			Span:  span,
 		})
@@ -1320,7 +1249,7 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 			"E061",
 			"unexpected trailing tokens after assignment expression",
 			tok.Span,
-			"remove unsupported syntax such as calls or attribute access",
+			"remove unsupported trailing syntax after the expression",
 		)
 	}
 	p.consumeUntilNewline()
@@ -1475,8 +1404,17 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 				Span: diag.Merge(modeTok.Span, close.Span),
 			}
 		}
-		p.next()
-		return ast.IdentExpr{Name: tok.Value, Span: tok.Span}
+		nameTok := p.next()
+		if p.peek().Type == lexer.TokenDot {
+			p.next()
+			memberTok := p.expect(lexer.TokenIdent, "E064", "expected identifier after '.'")
+			return ast.QualifiedIdentExpr{
+				Namespace: nameTok.Value,
+				Name:      memberTok.Value,
+				Span:      diag.Merge(nameTok.Span, memberTok.Span),
+			}
+		}
+		return ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span}
 	case lexer.TokenString:
 		p.next()
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
@@ -1593,8 +1531,16 @@ func (p *tokenParser) parseCombMul() ast.CombExpr {
 func (p *tokenParser) parseCombPrimary() ast.CombExpr {
 	tok := p.peek()
 	if tok.Type == lexer.TokenIdent {
-		p.next()
-		return ast.CombIdent{Name: tok.Value, Span: tok.Span}
+		nameTok := p.next()
+		if p.peek().Type == lexer.TokenDot {
+			p.next()
+			memberTok := p.expect(lexer.TokenIdent, "E064", "expected identifier after '.'")
+			return ast.CombIdent{
+				Name: nameTok.Value + "." + memberTok.Value,
+				Span: diag.Merge(nameTok.Span, memberTok.Span),
+			}
+		}
+		return ast.CombIdent{Name: nameTok.Value, Span: nameTok.Span}
 	}
 	if tok.Type == lexer.TokenLParen {
 		p.next()

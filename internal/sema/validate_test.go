@@ -793,7 +793,7 @@ submit run with p {
 
 func TestAnalyseUnknownStepError(t *testing.T) {
 	src := `
-patterns p {
+let p {
   a = "A: %d"
 }
 analyse missing_step {
@@ -816,7 +816,7 @@ analyse missing_step {
 	}
 }
 
-func TestAnalyseUnknownPatternGroupAndName(t *testing.T) {
+func TestAnalyseUnknownNamespaceAndMember(t *testing.T) {
 	src := `
 param p {
   a = 1
@@ -825,7 +825,7 @@ param p {
 do run with p {
   echo ok
 }
-patterns g {
+let g {
   one = "A: %d"
 }
 analyse run {
@@ -837,18 +837,18 @@ analyse run {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
-	has411 := false
+	has100 := false
 	has412 := false
 	for _, d := range diags.Items {
-		if d.Code == "E411" {
-			has411 = true
+		if d.Code == "E100" {
+			has100 = true
 		}
 		if d.Code == "E412" {
 			has412 = true
 		}
 	}
-	if !has411 || !has412 {
-		t.Fatalf("expected E411 and E412, got: %s", diags.String())
+	if !has100 || !has412 {
+		t.Fatalf("expected E100 and E412, got: %s", diags.String())
 	}
 }
 
@@ -861,7 +861,7 @@ param p {
 do run with p {
   echo ok
 }
-patterns g {
+let g {
   one = "A: %d"
 }
 analyse run {
@@ -898,7 +898,7 @@ param p {
 do run with p {
   echo ok
 }
-patterns g {
+let g {
   one = "A: %d"
 }
 analyse run {
@@ -923,10 +923,18 @@ analyse run {
 
 func TestPatternPlaceholderNormalizationAndTypeInference(t *testing.T) {
 	src := `
-patterns p {
-  i = "Count: %d"
-  f = "Time: %f"
-  w = "Word: %w"
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run {
+  i = "Count: %d" in "stdout"
+  f = "Time: %f" in "stdout"
+  w = "Word: %w" in "stdout"
+  (a, i, f, w)
 }
 `
 	diags := &diag.Diagnostics{}
@@ -935,27 +943,47 @@ patterns p {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	i := res.PatternByKey["p.i"]
-	f := res.PatternByKey["p.f"]
-	w := res.PatternByKey["p.w"]
+	if len(res.Analyse) != 1 {
+		t.Fatalf("expected one analyse spec, got %d", len(res.Analyse))
+	}
+	var i, f, w *sema.AnalyseAssignmentSpec
+	for idx := range res.Analyse[0].Assignments {
+		asn := &res.Analyse[0].Assignments[idx]
+		switch asn.Name {
+		case "i":
+			i = asn
+		case "f":
+			f = asn
+		case "w":
+			w = asn
+		}
+	}
 	if i == nil || f == nil || w == nil {
-		t.Fatalf("expected compiled patterns in pattern lookup map")
+		t.Fatalf("expected analyse extraction assignments i/f/w, got %#v", res.Analyse[0].Assignments)
 	}
-	if i.Regex != "Count: $jube_pat_int" || i.Type != "int" {
-		t.Fatalf("unexpected int pattern normalization: %#v", i)
+	if i.Template.Regex != "Count: $jube_pat_int" || i.Template.Type != "int" {
+		t.Fatalf("unexpected int pattern normalization: %#v", i.Template)
 	}
-	if f.Regex != "Time: $jube_pat_fp" || f.Type != "float" {
-		t.Fatalf("unexpected float pattern normalization: %#v", f)
+	if f.Template.Regex != "Time: $jube_pat_fp" || f.Template.Type != "float" {
+		t.Fatalf("unexpected float pattern normalization: %#v", f.Template)
 	}
-	if w.Regex != "Word: $jube_pat_wrd" || w.Type != "string" {
-		t.Fatalf("unexpected word pattern normalization: %#v", w)
+	if w.Template.Regex != "Word: $jube_pat_wrd" || w.Template.Type != "string" {
+		t.Fatalf("unexpected word pattern normalization: %#v", w.Template)
 	}
 }
 
 func TestPatternRejectsPercentS(t *testing.T) {
 	src := `
-patterns p {
-  bad = "Letter: %s"
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run {
+  bad = "Letter: %s" in "stdout"
+  (a, bad)
 }
 `
 	diags := &diag.Diagnostics{}
@@ -970,5 +998,114 @@ patterns p {
 	}
 	if !found {
 		t.Fatalf("expected E402 for %%s placeholder, got: %s", diags.String())
+	}
+}
+
+func TestParamWithLetImportAndQualifiedCombination(t *testing.T) {
+	src := `
+let l {
+  a = 1
+  b = "tag"
+}
+param p with l {
+  x = (a, b)
+  x + l.a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	ps := res.ParamByName["p"]
+	if ps == nil {
+		t.Fatalf("missing paramset p")
+	}
+	if _, ok := ps.Vars["l.a"]; !ok {
+		t.Fatalf("expected qualified variable l.a in exposed variables: %#v", ps.Vars)
+	}
+}
+
+func TestNestedTupleTransitiveAcrossBlocksRejected(t *testing.T) {
+	src := `
+let l {
+  t = (1,2)
+}
+param p {
+  x = (l.t, 3)
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E305" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E305 for transitive nested tuple, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseLocalHelperCollisionWarning(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run {
+  a = "Number: %d"
+  x = a in "stdout"
+  (a, x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	hasW320 := false
+	for _, d := range diags.Items {
+		if d.Code == "W320" {
+			hasW320 = true
+		}
+	}
+	if !hasW320 {
+		t.Fatalf("expected W320 for analyse helper collision, got: %s", diags.String())
+	}
+}
+
+func TestParamWithAmbiguousSourceNameBetweenParamAndLet(t *testing.T) {
+	src := `
+let same {
+  x = 1
+}
+param same {
+  a = 1
+  a
+}
+param q with same {
+  b = 1
+  b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E022" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E022 for ambiguous with source, got: %s", diags.String())
 	}
 }

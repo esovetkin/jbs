@@ -1,6 +1,6 @@
 # jbs help analyse
 
-The `analyse` block maps parsed values (from `patterns`) and step-visible variables into a result table.
+The `analyse` block maps parsed values and step-visible variables into a result table.
 
 In JUBE terms, jbs lowers `analyse` into JUBE `analyser` and `result` sections. The overall workflow matches the JUBE tutorial example for creating a result table.
 
@@ -11,7 +11,7 @@ Reference:
 ## What `analyse` does
 
 1. Targets one existing `do` or `submit` step.
-2. Declares pattern extractions from files produced by that step.
+2. Declares extraction assignments from files produced by that step.
 3. Defines output columns in a final tuple expression.
 
 ## Syntax
@@ -19,9 +19,12 @@ Reference:
 ```jbs
 analyse <step_name>
 {
-        <alias0> = <pattern_group>.<pattern_name> in "<file>"
-        <alias1> = <pattern_group>.<pattern_name> in "<file>"
-        ...
+        # helper assignment (compile-time expression binding)
+        helper = <expr>
+
+        # extraction assignment
+        alias0 = <expr> in "<file>"
+        alias1 = <expr> in "<file>"
 
         (<col0>, <col1> as "Custom Name", ...)
 }
@@ -29,7 +32,9 @@ analyse <step_name>
 
 Rules:
 - `<step_name>` must be a declared `do` or `submit` block.
-- Left-hand aliases (`<alias0>`, `<alias1>`) are local names for parsed values.
+- Extraction expressions must evaluate to a string.
+- `<expr>` in extraction can be a let reference (`ns.var`) or an inline string expression.
+- Left-hand extraction aliases become available in the final tuple.
 - The final tuple is required and defines result columns.
 - `as "..."` sets a custom column heading.
 
@@ -49,7 +54,7 @@ do write_number
         echo "Zahl: ${number}" > de
 }
 
-patterns pat
+let pat
 {
         number_en = "Number: %d"
         number_de = "Zahl: %d"
@@ -57,7 +62,8 @@ patterns pat
 
 analyse write_number
 {
-        en = pat.number_en in "en"
+        en_pat = pat.number_en
+        en = en_pat in "en"
         de = pat.number_de in "de"
 
         (number, en as "Number", de as "Zahl")
@@ -86,7 +92,7 @@ do run
         echo "Case: ${case}" > meta.out
 }
 
-patterns p
+let p
 {
         runtime = "Runtime: %f"
         loss = "Final loss: %f"
@@ -114,7 +120,7 @@ submit bench
         args_exec = "-lc 'echo Runtime: 3.5 > job.out'"
 }
 
-patterns p
+let p
 {
         runtime = "Runtime: %f"
 }

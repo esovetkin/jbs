@@ -62,8 +62,8 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 		return formatDoBlock(s)
 	case ast.SubmitBlock:
 		return formatSubmitBlock(s, srcRunes)
-	case ast.PatternsBlock:
-		return formatPatternsBlock(s)
+	case ast.LetBlock:
+		return formatLetBlock(s)
 	case ast.AnalyseBlock:
 		return formatAnalyseBlock(s)
 	default:
@@ -112,10 +112,10 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 	return lines
 }
 
-func formatPatternsBlock(p ast.PatternsBlock) []string {
-	lines := renderBlockHeader("patterns", p.Name, nil, nil)
+func formatLetBlock(l ast.LetBlock) []string {
+	lines := renderBlockHeader("let", l.Name, nil, nil)
 	lines = append(lines, "{")
-	body := normalizeBody(p.BodyRaw, bodyIndent)
+	body := normalizeBody(l.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
 	lines = append(lines, "}")
 	return lines

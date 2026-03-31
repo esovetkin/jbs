@@ -74,7 +74,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 					},
 				},
 				Meta: lower.PatternSetMeta{
-					Kind:   lower.PatternSetKindBase,
+					Kind:   lower.PatternSetKindLet,
 					Source: "p",
 				},
 			},
@@ -156,7 +156,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Param block 'matrix'") {
 		t.Fatalf("missing param block role comment: %s", text)
 	}
-	if !strings.Contains(text, "# Patterns block 'p'") {
+	if !strings.Contains(text, "# Let namespace 'p' used for analyse extraction") {
 		t.Fatalf("missing patternset role comment: %s", text)
 	}
 	if !strings.Contains(text, "# From analyse 'write': alias 'p0' for pattern 'p.number'") {

@@ -4,7 +4,7 @@ a
 do write with p{
 echo "Number: ${a}" > out
 }
-patterns g{ n = "Number: %d"
+let g{ n = "Number: %d"
 }
 analyse write{
 x=g.n in "out"

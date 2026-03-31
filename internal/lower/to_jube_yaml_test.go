@@ -665,7 +665,7 @@ submit run after prep with p {
 	}
 }
 
-func TestPatternsAndAnalyseLowering(t *testing.T) {
+func TestLetAndAnalyseLowering(t *testing.T) {
 	src := `
 param params {
   x = (1,2,3)
@@ -679,7 +679,7 @@ do write with params {
   echo "Zahl: ${x}" > de
 }
 
-patterns p {
+let p {
   number = "Number: %d"
   zahl = "Zahl: %d"
   letter = "Letter: %w"
@@ -776,7 +776,7 @@ do write with p {
   echo "Number: ${a}" > en
   echo "Number: ${a}" > de
 }
-patterns g {
+let g {
   number = "Number: %d"
 }
 analyse write {
@@ -829,7 +829,7 @@ param p {
 do write with p {
   echo "Number: ${a}" > en
 }
-patterns g {
+let g {
   number = "Number: %d"
 }
 analyse write {
@@ -860,10 +860,10 @@ do write with p {
   echo "A 1" > a.out
   echo "B 1" > b.out
 }
-patterns g1 {
+let g1 {
   x = "A %d"
 }
-patterns g2 {
+let g2 {
   y = "B %d"
 }
 analyse write {
@@ -881,5 +881,50 @@ analyse write {
 	}
 	if doc.Analyser[0].Use != "g1, g2" {
 		t.Fatalf("expected compact analyser use 'g1, g2', got %#v", doc.Analyser[0].Use)
+	}
+}
+
+func TestAnalyseInlineExpressionsUseDistinctSyntheticIds(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do write with p {
+  echo "A 1" > a.out
+  echo "B 1" > b.out
+}
+analyse write {
+  ax = "A %d" in "a.out"
+  by = "B %d" in "b.out"
+  (a, ax, by)
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.PatternSet) != 2 {
+		t.Fatalf("expected two synthetic pattern sets, got %#v", doc.PatternSet)
+	}
+	names := map[string]struct{}{}
+	for _, ps := range doc.PatternSet {
+		names[ps.Name] = struct{}{}
+	}
+	if _, ok := names["_jbs__ana_write_ax"]; !ok {
+		t.Fatalf("missing synthetic inline pattern set for ax: %#v", doc.PatternSet)
+	}
+	if _, ok := names["_jbs__ana_write_by"]; !ok {
+		t.Fatalf("missing synthetic inline pattern set for by: %#v", doc.PatternSet)
+	}
+	if doc.Result == nil || len(doc.Result.Table) != 1 {
+		t.Fatalf("missing result table")
+	}
+	cols := doc.Result.Table[0].Column
+	if len(cols) != 3 {
+		t.Fatalf("unexpected result columns: %#v", cols)
+	}
+	if cols[1].Expr == cols[2].Expr {
+		t.Fatalf("expected distinct synthetic ids for inline expressions, got %#v", cols)
 	}
 }

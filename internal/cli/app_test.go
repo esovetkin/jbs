@@ -51,7 +51,7 @@ func TestRunNoArgsShowsHelp(t *testing.T) {
 }
 
 func TestRunHelpTopics(t *testing.T) {
-	topics := []string{"globals", "param", "do", "patterns", "analyse", "submit"}
+	topics := []string{"globals", "param", "do", "let", "analyse", "submit"}
 	for _, topic := range topics {
 		var out bytes.Buffer
 		var errBuf bytes.Buffer
@@ -75,7 +75,7 @@ func TestRunHelpTemplateRejected(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
-	if !strings.Contains(errBuf.String(), "usage: jbs help [analyse|do|globals|param|patterns|submit]") {
+	if !strings.Contains(errBuf.String(), "usage: jbs help [analyse|do|globals|let|param|submit]") {
 		t.Fatalf("expected help usage error, got: %s", errBuf.String())
 	}
 }

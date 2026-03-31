@@ -16,25 +16,41 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 	res := &Result{
 		Program:          prog,
 		Globals:          resolvedGlobals,
+		LetNamespaces:    make([]*LetNamespace, 0),
+		LetByName:        make(map[string]*LetNamespace),
 		Paramsets:        make([]*Paramset, 0),
 		ParamByName:      make(map[string]*Paramset),
 		DoBlocks:         make([]ast.DoBlock, 0),
 		Submits:          make([]ast.SubmitBlock, 0),
 		SubmitByName:     make(map[string]*SubmitSpec),
 		StepImportByName: make(map[string]*StepImportPlan),
-		Patterns:         make([]*PatternGroup, 0),
-		PatternByGroup:   make(map[string]*PatternGroup),
-		PatternByKey:     make(map[string]*PatternTemplate),
 		Analyse:          make([]*AnalyseSpec, 0),
 	}
 
+	letSpans := make(map[string]diag.Span)
 	paramSpans := make(map[string]diag.Span)
-	patternSpans := make(map[string]diag.Span)
 	analyseBlocks := make([]ast.AnalyseBlock, 0)
 	for _, stmt := range prog.Stmts {
 		switch n := stmt.(type) {
 		case ast.GlobalAssign:
 			continue
+		case ast.LetBlock:
+			if prev, exists := letSpans[n.Name]; exists {
+				diags.AddError(
+					"E400",
+					fmt.Sprintf("duplicate let block name '%s'", n.Name),
+					n.Span,
+					"use a unique let block name",
+					diag.RelatedSpan{Message: "first definition", Span: prev},
+				)
+				continue
+			}
+			letSpans[n.Name] = n.Span
+			compiled := compileLetBlock(n, resolvedGlobals.Values, res.LetByName, diags)
+			if compiled != nil {
+				res.LetNamespaces = append(res.LetNamespaces, compiled)
+				res.LetByName[compiled.Name] = compiled
+			}
 		case ast.ParamBlock:
 			if prev, exists := paramSpans[n.Name]; exists {
 				diags.AddError(
@@ -47,32 +63,13 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 				continue
 			}
 			paramSpans[n.Name] = n.Span
-			compiled := compileParamBlock(n, res.ParamByName, resolvedGlobals.Values, diags)
+			compiled := compileParamBlock(n, res.ParamByName, resolvedGlobals.Values, res.LetByName, diags)
 			res.Paramsets = append(res.Paramsets, compiled)
 			res.ParamByName[n.Name] = compiled
 		case ast.DoBlock:
 			res.DoBlocks = append(res.DoBlocks, n)
 		case ast.SubmitBlock:
 			res.Submits = append(res.Submits, n)
-		case ast.PatternsBlock:
-			if prev, exists := patternSpans[n.Name]; exists {
-				diags.AddError(
-					"E400",
-					fmt.Sprintf("duplicate patterns block name '%s'", n.Name),
-					n.Span,
-					"use a unique patterns block name",
-					diag.RelatedSpan{Message: "first definition", Span: prev},
-				)
-				continue
-			}
-			patternSpans[n.Name] = n.Span
-			group := compilePatternsBlock(n, diags)
-			res.Patterns = append(res.Patterns, group)
-			res.PatternByGroup[group.Name] = group
-			for _, pat := range group.Patterns {
-				p := pat
-				res.PatternByKey[patternLookupKey(p.Group, p.Name)] = &p
-			}
 		case ast.AnalyseBlock:
 			analyseBlocks = append(analyseBlocks, n)
 		}
@@ -86,7 +83,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		if plan := res.StepImportByName[submit.Name]; plan != nil {
 			effective = plan.Effective
 		}
-		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.ParamByName, resolvedGlobals.Values, effective, diags)
+		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.ParamByName, resolvedGlobals.Values, res.LetByName, effective, diags)
 	}
 	validateStepVarReferences(res, diags)
 	for _, block := range analyseBlocks {
@@ -117,44 +114,62 @@ var allowedSubmitKeys = map[string]struct{}{
 	"postprocess":    {},
 }
 
-func compilePatternsBlock(block ast.PatternsBlock, diags *diag.Diagnostics) *PatternGroup {
-	group := &PatternGroup{
-		Name:     block.Name,
-		Patterns: make([]PatternTemplate, 0, len(block.Patterns)),
-		Span:     block.Span,
+func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *LetNamespace {
+	env := make(map[string]eval.Value, len(globals)+16)
+	for k, v := range globals {
+		env[k] = v
 	}
-	seen := make(map[string]diag.Span, len(block.Patterns))
-	for _, pat := range block.Patterns {
-		if prev, exists := seen[pat.Name]; exists {
+	addQualifiedLetValuesToEnv(env, lets)
+
+	out := &LetNamespace{
+		Name:    block.Name,
+		Vars:    make(map[string]eval.Value, len(block.Assignments)),
+		Modes:   make(map[string]string, len(block.Assignments)),
+		Origins: make(map[string]diag.Span, len(block.Assignments)),
+		Span:    block.Span,
+	}
+
+	seen := make(map[string]diag.Span, len(block.Assignments))
+	for _, asn := range block.Assignments {
+		if prev, exists := seen[asn.Name]; exists {
 			diags.AddError(
 				"E401",
-				fmt.Sprintf("duplicate pattern name '%s' in patterns block '%s'", pat.Name, block.Name),
-				pat.Span,
-				"use unique pattern names within a patterns block",
+				fmt.Sprintf("duplicate variable '%s' in let block '%s'", asn.Name, block.Name),
+				asn.Span,
+				"use unique variable names within a let block",
 				diag.RelatedSpan{Message: "first definition", Span: prev},
 			)
 			continue
 		}
-		seen[pat.Name] = pat.Span
-		regex, inferredType, ok := normalizePatternRegex(pat.Regex)
-		if !ok {
-			diags.AddError(
-				"E402",
-				fmt.Sprintf("invalid placeholder in pattern '%s' of patterns block '%s'", pat.Name, block.Name),
-				pat.Span,
-				"supported placeholders are %d, %f, %w and %% for a literal percent",
-			)
-			continue
+		seen[asn.Name] = asn.Span
+		warnModeExprInCollections(asn.Expr, diags)
+		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
+		expr := asn.Expr
+		if isModeExpr {
+			expr = inner
 		}
-		group.Patterns = append(group.Patterns, PatternTemplate{
-			Group: block.Name,
-			Name:  pat.Name,
-			Regex: regex,
-			Type:  inferredType,
-			Span:  pat.Span,
-		})
+		v := eval.EvalExpr(expr, env, diags)
+		if isModeExpr {
+			v = coerceModeValue(mode, v, asn.Span, diags)
+			out.Modes[asn.Name] = mode
+		} else {
+			delete(out.Modes, asn.Name)
+		}
+		if hasNestedList(v) {
+			diags.AddError(
+				"E305",
+				fmt.Sprintf("nested tuple/list value is not allowed for let variable '%s'", asn.Name),
+				asn.Span,
+				"use flat tuple/list values only",
+			)
+		}
+		out.Vars[asn.Name] = v
+		out.Origins[asn.Name] = asn.Span
+		env[asn.Name] = v
+		env[block.Name+"."+asn.Name] = v
 	}
-	return group
+
+	return out
 }
 
 func normalizePatternRegex(input string) (string, string, bool) {
@@ -236,79 +251,138 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		)
 	}
 	spec.StepKind = stepKind
-	if plan := res.StepImportByName[block.StepName]; plan != nil {
-		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ParamByName)
-	} else {
-		withItems := make([]ast.WithItem, 0)
-		for _, doBlock := range res.DoBlocks {
-			if doBlock.Name == block.StepName {
-				withItems = doBlock.WithItems
+
+	var stepWithItems []ast.WithItem
+	for _, doBlock := range res.DoBlocks {
+		if doBlock.Name == block.StepName {
+			stepWithItems = doBlock.WithItems
+			break
+		}
+	}
+	if len(stepWithItems) == 0 {
+		for _, submit := range res.Submits {
+			if submit.Name == block.StepName {
+				stepWithItems = submit.WithItems
 				break
 			}
 		}
-		if len(withItems) == 0 {
-			for _, submit := range res.Submits {
-				if submit.Name == block.StepName {
-					withItems = submit.WithItems
-					break
-				}
-			}
-		}
-		spec.StepVars = stepVisibleVariables(withItems, res.ParamByName)
+	}
+	if plan := res.StepImportByName[block.StepName]; plan != nil {
+		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ParamByName)
+	} else {
+		spec.StepVars = stepVisibleVariables(stepWithItems, res.ParamByName)
 	}
 
-	seenAssignments := make(map[string]diag.Span)
-	assignmentVars := make(map[string]diag.Span)
+	env := make(map[string]eval.Value, len(res.Globals.Values)+32)
+	for k, v := range res.Globals.Values {
+		env[k] = v
+	}
+	addQualifiedLetValuesToEnv(env, res.LetByName)
+	if plan := res.StepImportByName[block.StepName]; plan != nil {
+		addStepValuesToEnvFromPlan(env, plan, res.ParamByName)
+	} else {
+		addStepValuesToEnvFromWithItems(env, stepWithItems, res.ParamByName)
+	}
+
+	seenAssignments := make(map[string]diag.Span, len(block.Assignments))
+	assignmentVars := make(map[string]diag.Span, len(block.Assignments))
 	for _, assign := range block.Assignments {
 		if prev, exists := seenAssignments[assign.Name]; exists {
 			diags.AddError(
 				"E414",
 				fmt.Sprintf("duplicate analyse variable '%s'", assign.Name),
 				assign.Span,
-				"use unique alias names in analyse assignments",
+				"use unique variable names in analyse assignments",
 				diag.RelatedSpan{Message: "first assignment", Span: prev},
 			)
 			continue
 		}
 		seenAssignments[assign.Name] = assign.Span
+
+		if assign.File == "" {
+			if existing, ok := spec.StepVars[assign.Name]; ok {
+				diags.AddWarning(
+					"W320",
+					fmt.Sprintf("analyse helper variable '%s' shadows step-visible variable", assign.Name),
+					assign.Span,
+					"use a distinct helper variable name to avoid ambiguity",
+					diag.RelatedSpan{Message: "step variable", Span: existing},
+				)
+			}
+			warnModeExprInCollections(assign.Expr, diags)
+			value := eval.EvalExpr(assign.Expr, env, diags)
+			if hasNestedList(value) {
+				diags.AddError(
+					"E305",
+					fmt.Sprintf("nested tuple/list value is not allowed for analyse helper '%s'", assign.Name),
+					assign.Span,
+					"use flat tuple/list values only",
+				)
+			}
+			env[assign.Name] = value
+			continue
+		}
+
 		if existing, ok := spec.StepVars[assign.Name]; ok {
 			diags.AddError(
 				"E413",
-				fmt.Sprintf("analyse variable '%s' collides with step-visible variable", assign.Name),
+				fmt.Sprintf("analyse extraction variable '%s' collides with step-visible variable", assign.Name),
 				assign.Span,
-				"use a distinct alias name in analyse",
+				"use a distinct extraction variable name in analyse",
 				diag.RelatedSpan{Message: "step variable", Span: existing},
 			)
 			continue
 		}
-		group, ok := res.PatternByGroup[assign.PatternGroup]
-		if !ok {
-			diags.AddError(
-				"E411",
-				fmt.Sprintf("unknown pattern group '%s' in analyse assignment", assign.PatternGroup),
-				assign.Span,
-				"define the patterns block before using it",
-			)
-			continue
-		}
-		template := res.PatternByKey[patternLookupKey(assign.PatternGroup, assign.PatternName)]
-		if template == nil {
+		warnModeExprInCollections(assign.Expr, diags)
+		value := eval.EvalExpr(assign.Expr, env, diags)
+		if value.Kind != eval.KindString {
 			diags.AddError(
 				"E412",
-				fmt.Sprintf("unknown pattern '%s' in pattern group '%s'", assign.PatternName, assign.PatternGroup),
+				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", assign.Name),
 				assign.Span,
-				"use an existing pattern name from the selected patterns block",
-				diag.RelatedSpan{Message: "pattern group", Span: group.Span},
+				"use a string expression such as let_namespace.variable or a quoted regex pattern",
 			)
 			continue
 		}
+		regex, inferredType, ok := normalizePatternRegex(value.S)
+		if !ok {
+			diags.AddError(
+				"E402",
+				fmt.Sprintf("invalid placeholder in analyse extraction expression for '%s'", assign.Name),
+				assign.Span,
+				"supported placeholders are %d, %f, %w and %% for a literal percent",
+			)
+			continue
+		}
+
+		groupName := ""
+		patternName := ""
+		if q, ok := assign.Expr.(ast.QualifiedIdentExpr); ok {
+			if ns, exists := res.LetByName[q.Namespace]; exists {
+				if _, exists := ns.Vars[q.Name]; exists {
+					groupName = q.Namespace
+					patternName = q.Name
+				}
+			}
+		}
+		if groupName == "" {
+			groupName = "_jbs__ana_" + sanitizeStepName(block.StepName) + "_" + sanitizeStepName(assign.Name)
+			patternName = assign.Name
+		}
+
 		spec.Assignments = append(spec.Assignments, AnalyseAssignmentSpec{
-			Name:     assign.Name,
-			Group:    assign.PatternGroup,
-			Pattern:  assign.PatternName,
-			File:     assign.File,
-			Template: *template,
-			Span:     assign.Span,
+			Name:    assign.Name,
+			Group:   groupName,
+			Pattern: patternName,
+			File:    assign.File,
+			Template: PatternTemplate{
+				Group: groupName,
+				Name:  patternName,
+				Regex: regex,
+				Type:  inferredType,
+				Span:  assign.Span,
+			},
+			Span: assign.Span,
 		})
 		assignmentVars[assign.Name] = assign.Span
 	}
@@ -336,7 +410,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			"E415",
 			fmt.Sprintf("unknown symbol '%s' in analyse result tuple", col.Name),
 			col.Span,
-			"use a step-visible variable or an analyse assignment alias",
+			"use a step-visible variable or an analyse extraction alias",
 		)
 	}
 
@@ -408,6 +482,62 @@ func stepVisibleVariablesFromPlan(plan *StepImportPlan, params map[string]*Param
 		out[name] = origin.Span
 	}
 	return out
+}
+
+func addQualifiedLetValuesToEnv(env map[string]eval.Value, lets map[string]*LetNamespace) {
+	if len(lets) == 0 {
+		return
+	}
+	namespaces := make([]string, 0, len(lets))
+	for name := range lets {
+		namespaces = append(namespaces, name)
+	}
+	sort.Strings(namespaces)
+	for _, nsName := range namespaces {
+		ns := lets[nsName]
+		if ns == nil {
+			continue
+		}
+		varNames := make([]string, 0, len(ns.Vars))
+		for name := range ns.Vars {
+			varNames = append(varNames, name)
+		}
+		sort.Strings(varNames)
+		for _, name := range varNames {
+			env[nsName+"."+name] = ns.Vars[name]
+		}
+	}
+}
+
+func addStepValuesToEnvFromPlan(env map[string]eval.Value, plan *StepImportPlan, params map[string]*Paramset) {
+	if plan == nil {
+		return
+	}
+	for name, origin := range plan.Effective {
+		ps := params[origin.Paramset]
+		if ps == nil {
+			continue
+		}
+		if vals, ok := ps.Vars[name]; ok {
+			env[name] = seriesAsValue(vals)
+		}
+	}
+}
+
+func addStepValuesToEnvFromWithItems(env map[string]eval.Value, items []ast.WithItem, params map[string]*Paramset) {
+	imports := resolveImportedVars(items, params)
+	for name, origins := range imports {
+		if len(origins) == 0 {
+			continue
+		}
+		ps := params[origins[0].Paramset]
+		if ps == nil {
+			continue
+		}
+		if vals, ok := ps.Vars[name]; ok {
+			env[name] = seriesAsValue(vals)
+		}
+	}
 }
 
 func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, diags *diag.Diagnostics) GlobalState {
@@ -530,11 +660,27 @@ func isScalarGlobalValue(v eval.Value) bool {
 	}
 }
 
-func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
+func hasNestedList(v eval.Value) bool {
+	if v.Kind != eval.KindList {
+		return false
+	}
+	for _, item := range v.L {
+		if item.Kind == eval.KindList {
+			return true
+		}
+		if hasNestedList(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, lets map[string]*LetNamespace, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {
 		env[k] = v
 	}
+	addQualifiedLetValuesToEnv(env, lets)
 
 	for name, origin := range effective {
 		src := known[origin.Paramset]
@@ -622,6 +768,14 @@ func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globa
 		if isModeExpr {
 			value = coerceModeValue(mode, value, field.Span, diags)
 		}
+		if hasNestedList(value) {
+			diags.AddError(
+				"E305",
+				fmt.Sprintf("nested tuple/list value is not allowed for submit key '%s'", field.Name),
+				field.Span,
+				"use flat tuple/list values only",
+			)
+		}
 		spec.Values = append(spec.Values, SubmitValue{
 			Name:  field.Name,
 			Mode:  mode,
@@ -636,71 +790,152 @@ func isRawSubmitKey(name string) bool {
 	return name == "preprocess" || name == "postprocess"
 }
 
-func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals map[string]eval.Value, diags *diag.Diagnostics) *Paramset {
+func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *Paramset {
 	env := make(map[string]eval.Value, len(globals)+16)
 	origins := make(map[string]diag.Span, len(globals)+16)
 	modes := make(map[string]string, 16)
 	for k, v := range globals {
 		env[k] = v
 	}
+	addQualifiedLetValuesToEnv(env, lets)
+
+	resolveSource := func(name string) (*Paramset, *LetNamespace, bool) {
+		ps := known[name]
+		ls := lets[name]
+		if ps != nil && ls != nil {
+			return nil, nil, true
+		}
+		return ps, ls, false
+	}
+	letVarNames := func(ns *LetNamespace) []string {
+		names := make([]string, 0, len(ns.Vars))
+		for name := range ns.Vars {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return names
+	}
 
 	for _, item := range block.WithItems {
 		if item.From == "" {
-			src, ok := known[item.Name]
-			if !ok {
+			srcParam, srcLet, ambiguous := resolveSource(item.Name)
+			if ambiguous {
+				diags.AddError(
+					"E022",
+					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+					item.Span,
+					"disambiguate by renaming the param or let namespace",
+				)
+				continue
+			}
+			if srcLet != nil {
+				for _, name := range letVarNames(srcLet) {
+					env[name] = srcLet.Vars[name]
+					if origin, ok := srcLet.Origins[name]; ok {
+						origins[name] = origin
+					}
+					if mode, ok := srcLet.Modes[name]; ok {
+						modes[name] = mode
+					}
+				}
+				continue
+			}
+			if srcParam == nil {
 				diags.AddError(
 					"E020",
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
-					"define/import the parameterset before using it",
+					"define/import the parameterset or let namespace before using it",
 				)
 				continue
 			}
-			for _, name := range src.Order {
-				env[name] = seriesAsValue(src.Vars[name])
-				if origin, ok := src.Origins[name]; ok {
+			for _, name := range srcParam.Order {
+				env[name] = seriesAsValue(srcParam.Vars[name])
+				if origin, ok := srcParam.Origins[name]; ok {
 					origins[name] = origin
 				}
-				if mode, ok := src.Modes[name]; ok {
+				if mode, ok := srcParam.Modes[name]; ok {
 					modes[name] = mode
 				}
 			}
 			continue
 		}
 
-		src, ok := known[item.From]
-		if !ok {
+		srcParam, srcLet, ambiguous := resolveSource(item.From)
+		if ambiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
+			continue
+		}
+		if srcParam == nil && srcLet == nil {
 			diags.AddError(
 				"E020",
 				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
 				item.Span,
-				"define/import the parameterset before using it",
+				"define/import the parameterset or let namespace before using it",
 			)
 			continue
 		}
-		vals, ok := src.Vars[item.Name]
-		if ok {
-			env[item.Name] = seriesAsValue(vals)
-			if origin, ok := src.Origins[item.Name]; ok {
-				origins[item.Name] = origin
+		if srcParam != nil {
+			vals, ok := srcParam.Vars[item.Name]
+			if ok {
+				env[item.Name] = seriesAsValue(vals)
+				if origin, ok := srcParam.Origins[item.Name]; ok {
+					origins[item.Name] = origin
+				}
+				if mode, ok := srcParam.Modes[item.Name]; ok {
+					modes[item.Name] = mode
+				}
+				continue
 			}
-			if mode, ok := src.Modes[item.Name]; ok {
-				modes[item.Name] = mode
+		}
+		if srcLet != nil {
+			if v, ok := srcLet.Vars[item.Name]; ok {
+				env[item.Name] = v
+				if origin, ok := srcLet.Origins[item.Name]; ok {
+					origins[item.Name] = origin
+				}
+				if mode, ok := srcLet.Modes[item.Name]; ok {
+					modes[item.Name] = mode
+				}
+				continue
 			}
-			continue
 		}
 
 		// Mixed form support:
 		// with x from p1, p2
 		// If "p2" is not a variable in p1 but is an existing parameterset,
 		// interpret it as importing the whole parameterset p2.
-		if fallback, ok := known[item.Name]; ok {
-			for _, name := range fallback.Order {
-				env[name] = seriesAsValue(fallback.Vars[name])
-				if origin, exists := fallback.Origins[name]; exists {
+		if fallbackParam, fallbackLet, fallbackAmbiguous := resolveSource(item.Name); fallbackAmbiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
+			continue
+		} else if fallbackParam != nil {
+			for _, name := range fallbackParam.Order {
+				env[name] = seriesAsValue(fallbackParam.Vars[name])
+				if origin, exists := fallbackParam.Origins[name]; exists {
 					origins[name] = origin
 				}
-				if mode, exists := fallback.Modes[name]; exists {
+				if mode, exists := fallbackParam.Modes[name]; exists {
+					modes[name] = mode
+				}
+			}
+			continue
+		} else if fallbackLet != nil {
+			for _, name := range letVarNames(fallbackLet) {
+				env[name] = fallbackLet.Vars[name]
+				if origin, exists := fallbackLet.Origins[name]; exists {
+					origins[name] = origin
+				}
+				if mode, exists := fallbackLet.Modes[name]; exists {
 					modes[name] = mode
 				}
 			}
@@ -709,9 +944,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 
 		diags.AddError(
 			"E021",
-			fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
+			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
 			item.Span,
-			"import a variable that exists in the source parameterset",
+			"import a variable that exists in the selected source",
 		)
 	}
 
@@ -728,6 +963,14 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			modes[asn.Name] = mode
 		} else {
 			delete(modes, asn.Name)
+		}
+		if hasNestedList(value) {
+			diags.AddError(
+				"E305",
+				fmt.Sprintf("nested tuple/list value is not allowed for param variable '%s'", asn.Name),
+				asn.Span,
+				"use flat tuple/list values only",
+			)
 		}
 		env[asn.Name] = value
 		origins[asn.Name] = asn.Span
@@ -1524,31 +1767,21 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 		}
 		start := diag.NewPos(off, line, col)
 		if i+1 < len(runes) && runes[i+1] == '{' {
-			j := i + 2
-			if j < len(runes) && isIdentStart(runes[j]) {
-				j++
-				for j < len(runes) && isIdentPart(runes[j]) {
-					j++
-				}
-				if j < len(runes) && runes[j] == '}' {
-					name := string(runes[i+2 : j])
-					advanceN(j + 1)
-					end := diag.NewPos(off, line, col)
-					refs = append(refs, varRef{
-						Name: name,
-						Span: diag.NewSpan(file, start, end),
-					})
-					continue
-				}
+			j, ok := parseVarPath(runes, i+2)
+			if ok && j < len(runes) && runes[j] == '}' {
+				name := string(runes[i+2 : j])
+				advanceN(j + 1)
+				end := diag.NewPos(off, line, col)
+				refs = append(refs, varRef{
+					Name: name,
+					Span: diag.NewSpan(file, start, end),
+				})
+				continue
 			}
 			advance()
 			continue
 		}
-		if i+1 < len(runes) && isIdentStart(runes[i+1]) {
-			j := i + 2
-			for j < len(runes) && isIdentPart(runes[j]) {
-				j++
-			}
+		if j, ok := parseVarPath(runes, i+1); ok {
 			name := string(runes[i+1 : j])
 			advanceN(j)
 			end := diag.NewPos(off, line, col)
@@ -1624,6 +1857,44 @@ func isIdentStart(r rune) bool {
 
 func isIdentPart(r rune) bool {
 	return unicode.IsDigit(r) || isIdentStart(r)
+}
+
+func parseVarPath(runes []rune, start int) (int, bool) {
+	j := start
+	if j >= len(runes) || !isIdentStart(runes[j]) {
+		return 0, false
+	}
+	for {
+		j++
+		for j < len(runes) && isIdentPart(runes[j]) {
+			j++
+		}
+		if j < len(runes) && runes[j] == '.' && j+1 < len(runes) && isIdentStart(runes[j+1]) {
+			j++
+			continue
+		}
+		break
+	}
+	return j, true
+}
+
+func sanitizeStepName(input string) string {
+	if input == "" {
+		return "x"
+	}
+	var b strings.Builder
+	for _, r := range input {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune('_')
+	}
+	out := b.String()
+	if out == "" {
+		return "x"
+	}
+	return out
 }
 
 func containsString(items []string, value string) bool {

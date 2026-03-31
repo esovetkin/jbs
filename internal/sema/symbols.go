@@ -26,15 +26,14 @@ type GlobalState struct {
 type Result struct {
 	Program          ast.Program
 	Globals          GlobalState
+	LetNamespaces    []*LetNamespace
+	LetByName        map[string]*LetNamespace
 	Paramsets        []*Paramset
 	ParamByName      map[string]*Paramset
 	DoBlocks         []ast.DoBlock
 	Submits          []ast.SubmitBlock
 	SubmitByName     map[string]*SubmitSpec
 	StepImportByName map[string]*StepImportPlan
-	Patterns         []*PatternGroup
-	PatternByGroup   map[string]*PatternGroup
-	PatternByKey     map[string]*PatternTemplate
 	Analyse          []*AnalyseSpec
 }
 
@@ -67,9 +66,11 @@ type SubmitSpec struct {
 	Span   diag.Span
 }
 
-type PatternGroup struct {
+type LetNamespace struct {
 	Name     string
-	Patterns []PatternTemplate
+	Vars     map[string]eval.Value
+	Modes    map[string]string
+	Origins  map[string]diag.Span
 	Span     diag.Span
 }
 
