@@ -21,6 +21,40 @@ do <name>
 }
 ```
 
+## Variable inheritance with `after`
+
+`after` is not only an execution dependency. The dependent step also inherits variables that were visible in the predecessor step.
+
+- If `step1` has `after step0`, variables imported in `step0` are visible in `step1`.
+- If `step1` also uses `with ... from <same_paramset>`, jbs imports only variables that are not already inherited.
+- If the same variable name would come from different parameter sets (inherited vs explicit `with`), jbs raises an error.
+
+Example:
+
+```jbs
+param pm0
+{
+        a = (1, 2)
+        b = ("x", "y")
+        c = (true, false)
+        a * b * c
+}
+
+do step0
+        with (a, b) from pm0
+{
+        echo "${a} ${b}"
+}
+
+do step1
+        after step0
+        with (b, c) from pm0
+{
+        # a and b come from inheritance; c is added from explicit import
+        echo "${a} ${b} ${c}"
+}
+```
+
 ## Example 1: Basic `do` with one parameter set
 
 ```jbs

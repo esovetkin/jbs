@@ -45,6 +45,40 @@ submit <name>
 }
 ```
 
+## Variable inheritance with `after`
+
+`after` also carries variable visibility from predecessor steps.
+
+- If `submit run after prep`, then variables visible in `prep` are inherited by `run`.
+- If `run` also has `with ... from <same_paramset>`, jbs imports only variables not already inherited.
+- If an inherited variable name collides with a variable of the same name from a different parameter set in explicit `with`, jbs raises an error.
+
+Example:
+
+```jbs
+param pm0
+{
+        a = (1, 2)
+        b = ("x", "y")
+        c = (true, false)
+        a * b * c
+}
+
+do prep
+        with (a, b) from pm0
+{
+        echo "${a} ${b}" > vars.txt
+}
+
+submit run
+        after prep
+        with (b, c) from pm0
+{
+        executable = "/bin/bash"
+        args_exec = "-lc 'echo ${a} ${b} ${c}'"
+}
+```
+
 ## Lookup: submit keys -> `#SBATCH` headers
 
 From `submit.job.in`:
