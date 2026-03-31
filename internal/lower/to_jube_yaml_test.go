@@ -341,6 +341,85 @@ do setup with (a,b) from p1, p2 {
 	}
 }
 
+func TestAfterInheritanceWithParamsetUsesOnlyDeltaSubset(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 after s0 with p {
+  echo ${a} ${b}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var hasSubsetB bool
+	for _, ps := range doc.ParameterSet {
+		if strings.Contains(ps.Name, "_jbs__subset_p__b") {
+			hasSubsetB = true
+			break
+		}
+	}
+	if !hasSubsetB {
+		t.Fatalf("expected synthetic subset for non-inherited delta variable b, got %#v", doc.ParameterSet)
+	}
+	if len(doc.Step) != 2 {
+		t.Fatalf("expected two steps, got %d", len(doc.Step))
+	}
+	use := doc.Step[1].Use
+	hasSubset := false
+	hasWhole := false
+	for _, u := range use {
+		s, ok := u.(string)
+		if !ok {
+			continue
+		}
+		if s == "p" {
+			hasWhole = true
+		}
+		if strings.Contains(s, "_jbs__subset_p__b") {
+			hasSubset = true
+		}
+	}
+	if hasWhole {
+		t.Fatalf("did not expect full paramset import p for inherited+delta case: %#v", use)
+	}
+	if !hasSubset {
+		t.Fatalf("expected subset import for only variable b, got %#v", use)
+	}
+}
+
+func TestAfterInheritanceWithOnlyInheritedVarsHasNoUseEntries(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 after s0 with a from p {
+  echo ${a}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 2 {
+		t.Fatalf("expected two steps, got %d", len(doc.Step))
+	}
+	if got := len(doc.Step[1].Use); got != 0 {
+		t.Fatalf("expected no explicit use entries for fully inherited imports, got %#v", doc.Step[1].Use)
+	}
+}
+
 func TestModeDeclarationsLowering(t *testing.T) {
 	src := `
 param p {

@@ -162,22 +162,31 @@ func parameterSetComment(ps lower.ParameterSet) string {
 }
 
 func stepComment(step lower.Step) string {
+	base := fmt.Sprintf("Generated step '%s'", step.Name)
 	switch step.Meta.Kind {
 	case lower.StepKindDo:
 		src := step.Meta.Source
 		if src == "" {
 			src = step.Name
 		}
-		return fmt.Sprintf("Step generated from do block '%s'", src)
+		base = fmt.Sprintf("Step generated from do block '%s'", src)
 	case lower.StepKindSubmit:
 		src := step.Meta.Source
 		if src == "" {
 			src = step.Name
 		}
-		return fmt.Sprintf("Step generated from submit block '%s'", src)
-	default:
-		return fmt.Sprintf("Generated step '%s'", step.Name)
+		base = fmt.Sprintf("Step generated from submit block '%s'", src)
 	}
+	if len(step.Meta.InheritsFrom) == 0 {
+		return base
+	}
+	lines := []string{
+		fmt.Sprintf("%s; inherits from %s:", base, strings.Join(step.Meta.InheritsFrom, ", ")),
+	}
+	for _, name := range step.Meta.InheritedVars {
+		lines = append(lines, "- "+name)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func patternSetComment(ps lower.PatternSet) string {
@@ -310,10 +319,11 @@ func shouldInsertSpacer(line, prevNonEmpty string) bool {
 		return true
 	}
 	if strings.HasPrefix(line, "# ") {
-		return prevTrimmed != ""
+		return prevTrimmed != "" && !strings.HasPrefix(prevTrimmed, "#")
 	}
 	if strings.HasPrefix(line, "  # ") {
 		return prevTrimmed != "" &&
+			!strings.HasPrefix(prevTrimmed, "#") &&
 			prevTrimmed != "parameterset:" &&
 			prevTrimmed != "patternset:" &&
 			prevTrimmed != "step:" &&

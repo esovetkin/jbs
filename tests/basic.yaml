@@ -43,6 +43,17 @@ parameterset:
       - name: args_exec
         _: python main.py --case ${case} --nnodes ${nnodes}
 
+  # Synthetic subset parameterset derived from 'matrix' for variable-only imports
+  - name: _jbs__subset_matrix__nnodes
+    parameter:
+      - name: _jbs__idx__jbs__subset_matrix__nnodes
+        type: int
+        mode: text
+        _: 0,1
+      - name: nnodes
+        mode: python
+        _: '[1,2][$_jbs__idx__jbs__subset_matrix__nnodes]'
+
 # Steps executed by JUBE
 step:
   # Step generated from do block 'setup'
@@ -53,11 +64,12 @@ step:
       - |
         echo setup ${case}
 
-  # Step generated from submit block 'run'
+  # Step generated from submit block 'run'; inherits from setup:
+  # - case
   - name: run
     depend: setup
     use:
-      - matrix
+      - _jbs__subset_matrix__nnodes
       - run__submit_params
       - from: platform.xml
         _: jobfiles

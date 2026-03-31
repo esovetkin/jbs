@@ -24,17 +24,32 @@ type GlobalState struct {
 }
 
 type Result struct {
-	Program        ast.Program
-	Globals        GlobalState
-	Paramsets      []*Paramset
-	ParamByName    map[string]*Paramset
-	DoBlocks       []ast.DoBlock
-	Submits        []ast.SubmitBlock
-	SubmitByName   map[string]*SubmitSpec
-	Patterns       []*PatternGroup
-	PatternByGroup map[string]*PatternGroup
-	PatternByKey   map[string]*PatternTemplate
-	Analyse        []*AnalyseSpec
+	Program          ast.Program
+	Globals          GlobalState
+	Paramsets        []*Paramset
+	ParamByName      map[string]*Paramset
+	DoBlocks         []ast.DoBlock
+	Submits          []ast.SubmitBlock
+	SubmitByName     map[string]*SubmitSpec
+	StepImportByName map[string]*StepImportPlan
+	Patterns         []*PatternGroup
+	PatternByGroup   map[string]*PatternGroup
+	PatternByKey     map[string]*PatternTemplate
+	Analyse          []*AnalyseSpec
+}
+
+type VarOrigin struct {
+	Name     string
+	Paramset string
+	Span     diag.Span
+}
+
+type StepImportPlan struct {
+	StepName       string
+	Inherited      map[string]VarOrigin
+	ExplicitDelta  []ast.WithItem
+	Effective      map[string]VarOrigin
+	InheritedSteps []string
 }
 
 type SubmitValue struct {

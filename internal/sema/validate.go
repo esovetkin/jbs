@@ -14,17 +14,18 @@ import (
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
 	resolvedGlobals := resolveTopLevelGlobals(prog, globals, diags)
 	res := &Result{
-		Program:        prog,
-		Globals:        resolvedGlobals,
-		Paramsets:      make([]*Paramset, 0),
-		ParamByName:    make(map[string]*Paramset),
-		DoBlocks:       make([]ast.DoBlock, 0),
-		Submits:        make([]ast.SubmitBlock, 0),
-		SubmitByName:   make(map[string]*SubmitSpec),
-		Patterns:       make([]*PatternGroup, 0),
-		PatternByGroup: make(map[string]*PatternGroup),
-		PatternByKey:   make(map[string]*PatternTemplate),
-		Analyse:        make([]*AnalyseSpec, 0),
+		Program:          prog,
+		Globals:          resolvedGlobals,
+		Paramsets:        make([]*Paramset, 0),
+		ParamByName:      make(map[string]*Paramset),
+		DoBlocks:         make([]ast.DoBlock, 0),
+		Submits:          make([]ast.SubmitBlock, 0),
+		SubmitByName:     make(map[string]*SubmitSpec),
+		StepImportByName: make(map[string]*StepImportPlan),
+		Patterns:         make([]*PatternGroup, 0),
+		PatternByGroup:   make(map[string]*PatternGroup),
+		PatternByKey:     make(map[string]*PatternTemplate),
+		Analyse:          make([]*AnalyseSpec, 0),
 	}
 
 	paramSpans := make(map[string]diag.Span)
@@ -53,7 +54,6 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 			res.DoBlocks = append(res.DoBlocks, n)
 		case ast.SubmitBlock:
 			res.Submits = append(res.Submits, n)
-			res.SubmitByName[n.Name] = compileSubmitBlock(n, res.ParamByName, resolvedGlobals.Values, diags)
 		case ast.PatternsBlock:
 			if prev, exists := patternSpans[n.Name]; exists {
 				diags.AddError(
@@ -80,6 +80,14 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
+	buildStepImportPlans(res, diags)
+	for _, submit := range res.Submits {
+		effective := map[string]VarOrigin{}
+		if plan := res.StepImportByName[submit.Name]; plan != nil {
+			effective = plan.Effective
+		}
+		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.ParamByName, resolvedGlobals.Values, effective, diags)
+	}
 	validateStepVarReferences(res, diags)
 	for _, block := range analyseBlocks {
 		spec := compileAnalyseBlock(block, res, diags)
@@ -205,11 +213,9 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	}
 
 	stepKind := ""
-	withItems := make([]ast.WithItem, 0)
 	for _, doBlock := range res.DoBlocks {
 		if doBlock.Name == block.StepName {
 			stepKind = "do"
-			withItems = doBlock.WithItems
 			break
 		}
 	}
@@ -217,7 +223,6 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		for _, submit := range res.Submits {
 			if submit.Name == block.StepName {
 				stepKind = "submit"
-				withItems = submit.WithItems
 				break
 			}
 		}
@@ -231,7 +236,26 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		)
 	}
 	spec.StepKind = stepKind
-	spec.StepVars = stepVisibleVariables(withItems, res.ParamByName)
+	if plan := res.StepImportByName[block.StepName]; plan != nil {
+		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ParamByName)
+	} else {
+		withItems := make([]ast.WithItem, 0)
+		for _, doBlock := range res.DoBlocks {
+			if doBlock.Name == block.StepName {
+				withItems = doBlock.WithItems
+				break
+			}
+		}
+		if len(withItems) == 0 {
+			for _, submit := range res.Submits {
+				if submit.Name == block.StepName {
+					withItems = submit.WithItems
+					break
+				}
+			}
+		}
+		spec.StepVars = stepVisibleVariables(withItems, res.ParamByName)
+	}
 
 	seenAssignments := make(map[string]diag.Span)
 	assignmentVars := make(map[string]diag.Span)
@@ -372,6 +396,20 @@ func stepVisibleVariables(items []ast.WithItem, params map[string]*Paramset) map
 	return out
 }
 
+func stepVisibleVariablesFromPlan(plan *StepImportPlan, params map[string]*Paramset) map[string]diag.Span {
+	out := make(map[string]diag.Span, len(plan.Effective))
+	for name, origin := range plan.Effective {
+		if ps := params[origin.Paramset]; ps != nil {
+			if span, ok := ps.Origins[name]; ok {
+				out[name] = span
+				continue
+			}
+		}
+		out[name] = origin.Span
+	}
+	return out
+}
+
 func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, diags *diag.Diagnostics) GlobalState {
 	values := make(map[string]eval.Value, len(defaults))
 	for k, v := range defaults {
@@ -492,38 +530,19 @@ func isScalarGlobalValue(v eval.Value) bool {
 	}
 }
 
-func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, diags *diag.Diagnostics) *SubmitSpec {
+func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {
 		env[k] = v
 	}
 
-	for _, item := range block.WithItems {
-		if item.From == "" {
-			src, ok := known[item.Name]
-			if !ok {
-				continue
-			}
-			for _, name := range src.Order {
-				env[name] = seriesAsValue(src.Vars[name])
-			}
+	for name, origin := range effective {
+		src := known[origin.Paramset]
+		if src == nil {
 			continue
 		}
-
-		src, ok := known[item.From]
-		if !ok {
-			continue
-		}
-		vals, ok := src.Vars[item.Name]
-		if ok {
-			env[item.Name] = seriesAsValue(vals)
-			continue
-		}
-
-		if fallback, ok := known[item.Name]; ok {
-			for _, name := range fallback.Order {
-				env[name] = seriesAsValue(fallback.Vars[name])
-			}
+		if vals, ok := src.Vars[name]; ok {
+			env[name] = seriesAsValue(vals)
 		}
 	}
 
@@ -1001,6 +1020,271 @@ func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 	}
 }
 
+type stepDefinition struct {
+	Name      string
+	After     []string
+	WithItems []ast.WithItem
+	Span      diag.Span
+}
+
+type expandedWithImport struct {
+	Source string
+	Vars   []string
+	Full   bool
+	Span   diag.Span
+}
+
+func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
+	defs, order := collectStepDefinitions(res)
+	plans := make(map[string]*StepImportPlan, len(defs))
+	for _, stepName := range topoStepOrder(defs, order) {
+		def, ok := defs[stepName]
+		if !ok {
+			continue
+		}
+		reported := make(map[string]struct{})
+		reportConflict := func(name string, left VarOrigin, right VarOrigin, at diag.Span, relation string) {
+			a := left.Paramset
+			b := right.Paramset
+			if a == b {
+				return
+			}
+			if a > b {
+				a, b = b, a
+			}
+			key := name + "|" + a + "|" + b + "|" + relation
+			if _, exists := reported[key]; exists {
+				return
+			}
+			reported[key] = struct{}{}
+			diags.AddError(
+				"E214",
+				fmt.Sprintf(
+					"conflicting variable '%s' for step '%s' from parametersets '%s' and '%s'",
+					name,
+					stepName,
+					left.Paramset,
+					right.Paramset,
+				),
+				at,
+				"import each variable name from only one source parameterset",
+				diag.RelatedSpan{Message: "first conflicting source", Span: left.Span},
+				diag.RelatedSpan{Message: "second conflicting source", Span: right.Span},
+			)
+		}
+
+		inherited := make(map[string]VarOrigin)
+		inheritedSteps := make([]string, 0, len(def.After))
+		seenStep := make(map[string]struct{}, len(def.After))
+		for _, dep := range def.After {
+			if _, exists := seenStep[dep]; !exists {
+				seenStep[dep] = struct{}{}
+				inheritedSteps = append(inheritedSteps, dep)
+			}
+			depPlan := plans[dep]
+			if depPlan == nil {
+				continue
+			}
+			for name, origin := range depPlan.Effective {
+				if prev, exists := inherited[name]; exists {
+					if prev.Paramset != origin.Paramset {
+						reportConflict(name, prev, origin, def.Span, "inherited")
+					}
+					continue
+				}
+				inherited[name] = origin
+			}
+		}
+
+		explicitDelta := make([]ast.WithItem, 0)
+		selected := make(map[string]VarOrigin)
+		for _, item := range def.WithItems {
+			expanded, ok := expandWithItem(item, res.ParamByName)
+			if !ok {
+				continue
+			}
+			kept := make([]string, 0, len(expanded.Vars))
+			sourceParam := res.ParamByName[expanded.Source]
+			for _, name := range expanded.Vars {
+				originSpan := item.Span
+				if sourceParam != nil {
+					if origin, ok := sourceParam.Origins[name]; ok && !origin.IsZero() {
+						originSpan = origin
+					}
+				}
+				current := VarOrigin{
+					Name:     name,
+					Paramset: expanded.Source,
+					Span:     originSpan,
+				}
+				if prev, exists := inherited[name]; exists {
+					if prev.Paramset != current.Paramset {
+						reportConflict(name, prev, current, item.Span, "explicit_vs_inherited")
+					}
+					continue
+				}
+				if prev, exists := selected[name]; exists {
+					if prev.Paramset != current.Paramset {
+						// Explicit-with conflicts are already diagnosed by validateWithItems.
+						continue
+					}
+					continue
+				}
+				selected[name] = current
+				kept = append(kept, name)
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			if expanded.Full && len(kept) == len(expanded.Vars) {
+				explicitDelta = append(explicitDelta, ast.WithItem{
+					Name: expanded.Source,
+					Span: item.Span,
+				})
+				continue
+			}
+			for _, name := range kept {
+				explicitDelta = append(explicitDelta, ast.WithItem{
+					Name: name,
+					From: expanded.Source,
+					Span: item.Span,
+				})
+			}
+		}
+
+		effective := make(map[string]VarOrigin, len(inherited)+len(selected))
+		for name, origin := range inherited {
+			effective[name] = origin
+		}
+		for name, origin := range selected {
+			if prev, exists := effective[name]; exists {
+				if prev.Paramset != origin.Paramset {
+					reportConflict(name, prev, origin, def.Span, "effective")
+					continue
+				}
+			}
+			effective[name] = origin
+		}
+
+		plans[stepName] = &StepImportPlan{
+			StepName:       stepName,
+			Inherited:      inherited,
+			ExplicitDelta:  explicitDelta,
+			Effective:      effective,
+			InheritedSteps: inheritedSteps,
+		}
+	}
+	res.StepImportByName = plans
+}
+
+func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {
+	defs := make(map[string]stepDefinition)
+	order := make([]string, 0)
+	for _, stmt := range res.Program.Stmts {
+		switch node := stmt.(type) {
+		case ast.DoBlock:
+			if _, exists := defs[node.Name]; exists {
+				continue
+			}
+			defs[node.Name] = stepDefinition{
+				Name:      node.Name,
+				After:     append([]string(nil), node.After...),
+				WithItems: append([]ast.WithItem(nil), node.WithItems...),
+				Span:      node.Span,
+			}
+			order = append(order, node.Name)
+		case ast.SubmitBlock:
+			if _, exists := defs[node.Name]; exists {
+				continue
+			}
+			defs[node.Name] = stepDefinition{
+				Name:      node.Name,
+				After:     append([]string(nil), node.After...),
+				WithItems: append([]ast.WithItem(nil), node.WithItems...),
+				Span:      node.Span,
+			}
+			order = append(order, node.Name)
+		}
+	}
+	return defs, order
+}
+
+func topoStepOrder(defs map[string]stepDefinition, preferred []string) []string {
+	state := make(map[string]int, len(defs))
+	order := make([]string, 0, len(defs))
+	var visit func(string)
+	visit = func(name string) {
+		if state[name] == 2 {
+			return
+		}
+		if state[name] == 1 {
+			return
+		}
+		def, ok := defs[name]
+		if !ok {
+			return
+		}
+		state[name] = 1
+		for _, dep := range def.After {
+			if _, exists := defs[dep]; exists {
+				visit(dep)
+			}
+		}
+		state[name] = 2
+		order = append(order, name)
+	}
+	for _, name := range preferred {
+		visit(name)
+	}
+	extra := make([]string, 0, len(defs))
+	for name := range defs {
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	for _, name := range extra {
+		visit(name)
+	}
+	return order
+}
+
+func expandWithItem(item ast.WithItem, params map[string]*Paramset) (expandedWithImport, bool) {
+	if item.From == "" {
+		ps := params[item.Name]
+		if ps == nil {
+			return expandedWithImport{}, false
+		}
+		return expandedWithImport{
+			Source: ps.Name,
+			Vars:   exposedVarNames(ps),
+			Full:   true,
+			Span:   item.Span,
+		}, true
+	}
+
+	src := params[item.From]
+	if src == nil {
+		return expandedWithImport{}, false
+	}
+	if _, ok := src.Vars[item.Name]; ok {
+		return expandedWithImport{
+			Source: src.Name,
+			Vars:   []string{item.Name},
+			Full:   false,
+			Span:   item.Span,
+		}, true
+	}
+	fallback := params[item.Name]
+	if fallback == nil {
+		return expandedWithImport{}, false
+	}
+	return expandedWithImport{
+		Source: fallback.Name,
+		Vars:   exposedVarNames(fallback),
+		Full:   true,
+		Span:   item.Span,
+	}, true
+}
+
 type importedVar struct {
 	Name     string
 	Paramset string
@@ -1073,6 +1357,9 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 
 	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
 		imports := resolveImportedVars(withItems, res.ParamByName)
+		if plan := res.StepImportByName[stepName]; plan != nil {
+			imports = resolveImportedVarsFromPlan(plan)
+		}
 		warned := make(map[string]struct{})
 		for _, ref := range refs {
 			candidates := paramsetsByVar[ref.Name]
@@ -1186,6 +1473,18 @@ func resolveImportedVars(items []ast.WithItem, params map[string]*Paramset) map[
 				add(name, fallback.Name, item.Span)
 			}
 		}
+	}
+	return out
+}
+
+func resolveImportedVarsFromPlan(plan *StepImportPlan) map[string][]importedVar {
+	out := make(map[string][]importedVar, len(plan.Effective))
+	for name, origin := range plan.Effective {
+		out[name] = append(out[name], importedVar{
+			Name:     name,
+			Paramset: origin.Paramset,
+			Span:     origin.Span,
+		})
 	}
 	return out
 }

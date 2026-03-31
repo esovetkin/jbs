@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -119,8 +120,10 @@ const (
 )
 
 type StepMeta struct {
-	Kind   StepKind
-	Source string
+	Kind          StepKind
+	Source        string
+	InheritsFrom  []string
+	InheritedVars []string
 }
 
 type UseEntry struct {
@@ -663,17 +666,29 @@ func (ctx *lowerContext) appendAliasPattern(analyseStep, aliasName, internalName
 }
 
 func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
+	inherits := make([]string, 0)
+	inheritVars := make([]string, 0)
+	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
+		inherits = append(inherits, plan.InheritedSteps...)
+		inheritVars = make([]string, 0, len(plan.Inherited))
+		for name := range plan.Inherited {
+			inheritVars = append(inheritVars, name)
+		}
+		sort.Strings(inheritVars)
+	}
 	step := Step{
 		Name: block.Name,
 		Meta: StepMeta{
-			Kind:   StepKindDo,
-			Source: block.Name,
+			Kind:          StepKindDo,
+			Source:        block.Name,
+			InheritsFrom:  inherits,
+			InheritedVars: inheritVars,
 		},
 	}
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	step.Use = ctx.resolveStepUses(block.WithItems)
+	step.Use = ctx.resolveStepUsesForStep(block.Name, block.WithItems)
 
 	body := normalizeRawLiteral(block.Body)
 	step.Do = []interface{}{Literal(body)}
@@ -733,17 +748,29 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 }
 
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {
+	inherits := make([]string, 0)
+	inheritVars := make([]string, 0)
+	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
+		inherits = append(inherits, plan.InheritedSteps...)
+		inheritVars = make([]string, 0, len(plan.Inherited))
+		for name := range plan.Inherited {
+			inheritVars = append(inheritVars, name)
+		}
+		sort.Strings(inheritVars)
+	}
 	step := Step{
 		Name: block.Name,
 		Meta: StepMeta{
-			Kind:   StepKindSubmit,
-			Source: block.Name,
+			Kind:          StepKindSubmit,
+			Source:        block.Name,
+			InheritsFrom:  inherits,
+			InheritedVars: inheritVars,
 		},
 	}
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	use := ctx.resolveStepUses(block.WithItems)
+	use := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
 	use = append(use,
 		submitSet,
 		UseEntry{From: "platform.xml", Value: "jobfiles"},
@@ -769,6 +796,13 @@ func submitParameterType(name string) string {
 	default:
 		return ""
 	}
+}
+
+func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem) []interface{} {
+	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
+		return ctx.resolveStepUses(plan.ExplicitDelta)
+	}
+	return ctx.resolveStepUses(fallback)
 }
 
 func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {

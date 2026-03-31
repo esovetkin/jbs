@@ -92,8 +92,10 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 				Name: "run",
 				Use:  []interface{}{"run__submit_params"},
 				Meta: lower.StepMeta{
-					Kind:   lower.StepKindSubmit,
-					Source: "run",
+					Kind:          lower.StepKindSubmit,
+					Source:        "run",
+					InheritsFrom:  []string{"setup"},
+					InheritedVars: []string{"a", "b"},
 				},
 			},
 		},
@@ -168,6 +170,12 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	}
 	if !strings.Contains(text, "# Step generated from submit block 'run'") {
 		t.Fatalf("missing submit step comment: %s", text)
+	}
+	if !strings.Contains(text, "inherits from setup:") {
+		t.Fatalf("missing inheritance note in step comment: %s", text)
+	}
+	if !strings.Contains(text, "\n  # - a\n  # - b\n") {
+		t.Fatalf("missing inherited variable list in step comment: %s", text)
 	}
 	if !strings.Contains(text, "# Analyser generated from analyse block 'write'") {
 		t.Fatalf("missing analyser item comment: %s", text)

@@ -205,6 +205,31 @@ In `do`/`submit`:
 - `with (x, y) from p2` generates one synthetic subset parameterset for selected variables.
 - In mixed form (`with x from p2, p3`), `p3` is treated as whole-parameterset import.
 - In mixed tuple form (`with (x, y) from p2, p3`), `p3` is treated as whole-parameterset import.
+- `after` implies parameter inheritance from dependency steps.
+- if `after` already provides a variable from the same source parameterset, explicit `with` re-import of that variable is ignored.
+- if explicit `with` targets a whole parameterset after inheritance, only non-inherited variables from that parameterset are imported.
+- if the same variable name is inherited/imported from different parametersets, compilation fails with an error.
+
+Inheritance example:
+
+```jbs
+param pm0 {
+  a = (1,2)
+  b = ("x","y")
+  c = (true,false)
+  a * b * c
+}
+
+do step0 with (a,b) from pm0 {
+  echo ${a} ${b}
+}
+
+do step1 after step0 with (b,c) from pm0 {
+  # step1 sees a,b via inheritance from step0
+  # explicit with contributes only c from pm0
+  echo ${a} ${b} ${c}
+}
+```
 
 ## Lowering to JUBE YAML
 
