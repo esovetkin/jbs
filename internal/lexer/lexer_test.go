@@ -58,3 +58,44 @@ func TestLexStringKeepsBackslashNLiteral(t *testing.T) {
 		t.Fatalf("expected literal backslash-n preserved, got %q", got)
 	}
 }
+
+func TestLexSemicolonToken(t *testing.T) {
+	src := "a = 1; b = 2\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	found := false
+	for _, tok := range tokens {
+		if tok.Type == TokenSemicolon {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected semicolon token in token stream")
+	}
+}
+
+func TestLexStringKeepsSemicolonLiteral(t *testing.T) {
+	src := `x = "a;b;c"`
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	var got string
+	for _, tok := range tokens {
+		if tok.Type == TokenString {
+			got = tok.Value
+			break
+		}
+	}
+	if got == "" {
+		t.Fatalf("expected string token")
+	}
+	if got != "a;b;c" {
+		t.Fatalf("expected semicolon literal preserved, got %q", got)
+	}
+}

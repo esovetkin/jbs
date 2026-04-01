@@ -48,6 +48,12 @@ submit <name>
 }
 ```
 
+Inside `submit`, key assignments can be separated by newline or `;`:
+
+```jbs
+submit run { queue = "batch"; account = "myacct"; args_exec = "-lc hostname"; }
+```
+
 ## Variable inheritance with `after`
 
 `after` also carries variable visibility from predecessor steps.

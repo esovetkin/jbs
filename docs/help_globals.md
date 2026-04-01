@@ -6,6 +6,7 @@
 # Top-level assignments are allowed only outside param/do/submit blocks.
 # Unknown globals cause compile errors.
 # jbs_name and jbs_outpath must be plain string literals.
+# Statements can be separated by newline or ';'.
 
 # Benchmark name (root `name` field). maps_to: root:name. mode: -
 jbs_name = "jbs_benchmark"

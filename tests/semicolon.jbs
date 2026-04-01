@@ -1,0 +1,18 @@
+jbs_name = "semicolon_demo"; jbs_outpath = "out";
+
+let p {
+  number = "Number: %d"; word = "Word: %w";
+}
+
+param cases {
+  x = (1, 2); y = ("alpha", "beta"); x + y;
+}
+
+do write with cases {
+  echo "Number: ${x}" > out.log
+  echo "Word: ${y}" >> out.log
+}
+
+analyse write {
+  n = p.number in "out.log"; w = p.word in "out.log"; (x, y, n, w);
+}

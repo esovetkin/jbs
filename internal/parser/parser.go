@@ -118,17 +118,10 @@ func (p *Parser) isTopLevelAssignmentStart() bool {
 }
 
 func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
-	lineStart := p.off
-	for !p.eof() && p.peek() != '\n' {
-		p.advance()
-	}
-	line := string(p.src[lineStart:p.off])
-	if !p.eof() && p.peek() == '\n' {
-		p.advance()
-	}
-	tokens := lexer.LexFrom(p.file, line, start, p.diags)
+	stmt, stmtStart := p.readTopLevelStatement()
+	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)
 	tp := &tokenParser{tokens: tokens, diags: p.diags}
-	tp.skipNewlines()
+	tp.skipStmtSeparators()
 	if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
 		tok := tp.peek()
 		p.diags.AddError(
@@ -147,6 +140,69 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 		Expr: asn.Expr,
 		Span: asn.Span,
 	}
+}
+
+func (p *Parser) readTopLevelStatement() (string, diag.Position) {
+	startPos := p.pos()
+	startOff := p.off
+	mode := blockScanCode
+	escaped := false
+	for !p.eof() {
+		r := p.peek()
+		switch mode {
+		case blockScanSingleQuote:
+			p.advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			p.advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '#':
+				stmt := string(p.src[startOff:p.off])
+				for !p.eof() && p.peek() != '\n' {
+					p.advance()
+				}
+				if !p.eof() && p.peek() == '\n' {
+					p.advance()
+				}
+				return stmt, startPos
+			case '\n', ';':
+				stmt := string(p.src[startOff:p.off])
+				p.advance()
+				return stmt, startPos
+			case '\'':
+				mode = blockScanSingleQuote
+				p.advance()
+			case '"':
+				mode = blockScanDoubleQuote
+				p.advance()
+			default:
+				p.advance()
+			}
+		}
+	}
+	return string(p.src[startOff:p.off]), startPos
 }
 
 func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
@@ -516,6 +572,10 @@ func (p *Parser) skipTrivia() {
 			p.advance()
 			continue
 		}
+		if r == ';' {
+			p.advance()
+			continue
+		}
 		if r == '#' {
 			for !p.eof() && p.peek() != '\n' {
 				p.advance()
@@ -620,7 +680,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 	var final ast.CombExpr
 
 	for {
-		tp.skipNewlines()
+		tp.skipStmtSeparators()
 		if tp.peek().Type == lexer.TokenEOF {
 			break
 		}
@@ -629,7 +689,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 			continue
 		}
 		final = tp.parseCombExpr()
-		tp.skipNewlines()
+		tp.skipStmtSeparators()
 		if tp.peek().Type != lexer.TokenEOF {
 			tok := tp.peek()
 			diags.AddError(
@@ -659,7 +719,7 @@ func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostic
 	out := make([]ast.Assignment, 0)
 
 	for {
-		tp.skipNewlines()
+		tp.skipStmtSeparators()
 		if tp.peek().Type == lexer.TokenEOF {
 			break
 		}
@@ -671,7 +731,7 @@ func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostic
 				tok.Span,
 				"use syntax: variable = expression",
 			)
-			tp.consumeUntilNewline()
+			tp.consumeUntilStmtEnd()
 			continue
 		}
 		out = append(out, tp.parseAssignment())
@@ -686,14 +746,14 @@ func parseAnalyseBody(file, body string, start diag.Position, diags *diag.Diagno
 	var columns []ast.AnalyseColumn
 
 	for {
-		tp.skipNewlines()
+		tp.skipStmtSeparators()
 		tok := tp.peek()
 		if tok.Type == lexer.TokenEOF {
 			break
 		}
 		if tok.Type == lexer.TokenLParen {
 			columns = parseAnalyseTuple(tp, file, diags)
-			tp.skipNewlines()
+			tp.skipStmtSeparators()
 			if tp.peek().Type != lexer.TokenEOF {
 				diags.AddError(
 					"E417",
@@ -730,7 +790,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 			stmtStart.Span,
 			"use syntax: name = expression [in \"filename\"]",
 		)
-		tp.consumeUntilNewline()
+		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
 	}
 	nameTok := tp.next()
@@ -742,14 +802,14 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 			nameTok.Span,
 			"use syntax: name = expression [in \"filename\"]",
 		)
-		tp.consumeUntilNewline()
+		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
 	}
 	tp.next()
 
 	expr := tp.parseExpr()
 	if expr == nil {
-		tp.consumeUntilNewline()
+		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
 	}
 
@@ -765,7 +825,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 				fileTok.Span,
 				"use syntax: alias = expression in \"filename\"",
 			)
-			tp.consumeUntilNewline()
+			tp.consumeUntilStmtEnd()
 			return ast.AnalyseAssign{}
 		}
 		tp.next()
@@ -773,15 +833,15 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 		span = diag.Merge(nameTok.Span, fileTok.Span)
 	}
 
-	if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline {
+	if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline && tp.peek().Type != lexer.TokenSemicolon {
 		diags.AddError(
 			"E416",
 			"unexpected trailing tokens in analyse statement",
 			tp.peek().Span,
-			"use one analyse assignment per line",
+			"separate statements with newline or ';'",
 		)
 	}
-	tp.consumeUntilNewline()
+	tp.consumeUntilStmtEnd()
 
 	return ast.AnalyseAssign{
 		Name: nameTok.Value,
@@ -957,12 +1017,12 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 				Span:     diag.NewSpan(p.file, stmtStart, blockEnd),
 			}
 			fields = append(fields, field)
-			if p.hasUnexpectedTrailingTextOnLine() {
+			if p.hasUnexpectedTrailingTextAfterRawBlock() {
 				p.diags.AddError(
 					"E076",
 					"unexpected trailing text after submit raw block",
 					field.Span,
-					"place one submit statement per line",
+					"separate statements with newline or ';'",
 				)
 				p.recoverLine()
 			}
@@ -970,11 +1030,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		}
 
 		exprStart := p.pos()
-		exprOffset := p.off
-		for !p.eof() && p.peek() != '\n' {
-			p.advance()
-		}
-		exprText := string(p.src[exprOffset:p.off])
+		exprText := p.scanExprUntilStmtEnd()
 		expr := parseSubmitExpr(p.file, exprText, exprStart, p.diags)
 		fieldSpan := diag.NewSpan(p.file, stmtStart, p.pos())
 		if expr != nil {
@@ -1049,7 +1105,7 @@ func (p *submitFieldParser) pos() diag.Position {
 func (p *submitFieldParser) skipTrivia() {
 	for !p.eof() {
 		r := p.peek()
-		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' || r == ';' {
 			p.advance()
 			continue
 		}
@@ -1208,31 +1264,74 @@ func (p *submitFieldParser) recoverLine() {
 	}
 }
 
-func (p *submitFieldParser) hasUnexpectedTrailingTextOnLine() bool {
-	saveOff := p.off
-	saveLine := p.line
-	saveCol := p.col
-	defer func() {
-		p.off = saveOff
-		p.line = saveLine
-		p.col = saveCol
-	}()
-
+func (p *submitFieldParser) scanExprUntilStmtEnd() string {
+	start := p.off
+	mode := blockScanCode
+	escaped := false
 	for !p.eof() {
 		r := p.peek()
-		if r == ' ' || r == '\t' || r == '\r' {
+		switch mode {
+		case blockScanSingleQuote:
 			p.advance()
-			continue
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			p.advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '\n', ';', '#':
+				return string(p.src[start:p.off])
+			case '\'':
+				mode = blockScanSingleQuote
+				p.advance()
+			case '"':
+				mode = blockScanDoubleQuote
+				p.advance()
+			default:
+				p.advance()
+			}
 		}
-		if r == '\n' {
-			return false
-		}
-		if r == '#' {
-			return false
-		}
+	}
+	return string(p.src[start:p.off])
+}
+
+func (p *submitFieldParser) hasUnexpectedTrailingTextAfterRawBlock() bool {
+	p.skipInlineTrivia()
+	if p.eof() {
+		return false
+	}
+	switch p.peek() {
+	case ';':
+		p.advance()
+		return false
+	case '\n':
+		return false
+	case '#':
+		p.recoverLine()
+		return false
+	default:
 		return true
 	}
-	return false
 }
 
 func (p *tokenParser) parseAssignment() ast.Assignment {
@@ -1243,7 +1342,7 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 	if expr != nil {
 		span = diag.Merge(span, expr.GetSpan())
 	}
-	if p.peek().Type != lexer.TokenEOF && p.peek().Type != lexer.TokenNewline {
+	if p.peek().Type != lexer.TokenEOF && p.peek().Type != lexer.TokenNewline && p.peek().Type != lexer.TokenSemicolon {
 		tok := p.peek()
 		p.diags.AddError(
 			"E061",
@@ -1252,7 +1351,7 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 			"remove unsupported trailing syntax after the expression",
 		)
 	}
-	p.consumeUntilNewline()
+	p.consumeUntilStmtEnd()
 	return ast.Assignment{
 		Name: name.Value,
 		Expr: expr,
@@ -1562,6 +1661,27 @@ func (p *tokenParser) skipNewlines() {
 	for p.peek().Type == lexer.TokenNewline {
 		p.next()
 	}
+}
+
+func (p *tokenParser) skipStmtSeparators() {
+	for {
+		t := p.peek().Type
+		if t != lexer.TokenNewline && t != lexer.TokenSemicolon {
+			break
+		}
+		p.next()
+	}
+}
+
+func isStmtTerminator(t lexer.TokenType) bool {
+	return t == lexer.TokenEOF || t == lexer.TokenNewline || t == lexer.TokenSemicolon
+}
+
+func (p *tokenParser) consumeUntilStmtEnd() {
+	for !isStmtTerminator(p.peek().Type) {
+		p.next()
+	}
+	p.skipStmtSeparators()
 }
 
 func (p *tokenParser) consumeUntilNewline() {

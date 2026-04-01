@@ -301,3 +301,30 @@ func TestFormatSubmitInlineBodyIndentation(t *testing.T) {
 		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+func TestFormatPreservesSemicolonSeparatedStatements(t *testing.T) {
+	src := `let p{a=1; b=2; c=3}
+param q{x=(1,2); y=("a","b"); x+y}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("semicolon_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `let p
+{
+        a=1; b=2; c=3
+}
+
+param q
+{
+        x=(1,2); y=("a","b"); x+y
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}

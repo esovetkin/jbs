@@ -37,6 +37,13 @@ Rules:
 - Left-hand extraction aliases become available in the final tuple.
 - The final tuple is required and defines result columns.
 - `as "..."` sets a custom column heading.
+- Statements can be separated by newline or `;`.
+
+Compact one-line example:
+
+```jbs
+analyse write { n = p.number in "out"; w = p.word in "out"; (n, w); }
+```
 
 ## Minimal end-to-end example
 

@@ -658,6 +658,170 @@ param p {
 	}
 }
 
+func TestParseSemicolonSeparatedLetParamAnalyse(t *testing.T) {
+	src := `
+let p {
+  number = "Number: %d"; letter = "Letter: %w"; retries = 3;
+}
+
+param cases with p {
+  x = (1, 2); y = (number, letter); x + y;
+}
+
+analyse write {
+  n = p.number in "out.log"; w = "Word: %w" in "out.log"; (n, w);
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_blocks.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 3 {
+		t.Fatalf("expected 3 statements, got %d", len(prog.Stmts))
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if len(lb.Assignments) != 3 {
+		t.Fatalf("expected 3 let assignments, got %d", len(lb.Assignments))
+	}
+	pb, ok := prog.Stmts[1].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(pb.Assignments) != 2 {
+		t.Fatalf("expected 2 param assignments, got %d", len(pb.Assignments))
+	}
+	ab, ok := prog.Stmts[2].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if len(ab.Assignments) != 2 {
+		t.Fatalf("expected 2 analyse assignments, got %d", len(ab.Assignments))
+	}
+	if len(ab.Columns) != 2 {
+		t.Fatalf("expected 2 analyse columns, got %d", len(ab.Columns))
+	}
+}
+
+func TestParseSemicolonSeparatedSubmitFields(t *testing.T) {
+	src := `
+submit run {
+  queue = "batch"; account = "myacct"; args_exec = "-lc hostname";
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_submit.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(sb.Fields) != 3 {
+		t.Fatalf("expected 3 submit fields, got %d", len(sb.Fields))
+	}
+	if sb.Fields[0].Name != "queue" || sb.Fields[1].Name != "account" || sb.Fields[2].Name != "args_exec" {
+		t.Fatalf("unexpected submit field order: %#v", sb.Fields)
+	}
+}
+
+func TestParseSubmitRawThenSemicolonThenExpr(t *testing.T) {
+	src := `
+submit run {
+  preprocess = {
+    export X=1
+  }; args_exec = "-lc hostname";
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_submit_raw.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(sb.Fields) != 2 {
+		t.Fatalf("expected 2 submit fields, got %d", len(sb.Fields))
+	}
+	if !sb.Fields[0].IsRaw || sb.Fields[0].Name != "preprocess" {
+		t.Fatalf("expected first field to be raw preprocess, got %#v", sb.Fields[0])
+	}
+	if sb.Fields[1].IsRaw || sb.Fields[1].Name != "args_exec" {
+		t.Fatalf("expected second field to be expression args_exec, got %#v", sb.Fields[1])
+	}
+}
+
+func TestParseSemicolonSeparatedTopLevelGlobals(t *testing.T) {
+	src := `jbs_name = "demo"; jbs_outpath = "out";
+param p { a = 1; a; }
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_globals.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 3 {
+		t.Fatalf("expected 3 statements, got %d", len(prog.Stmts))
+	}
+	if _, ok := prog.Stmts[0].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected first statement to be global assignment")
+	}
+	if _, ok := prog.Stmts[1].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected second statement to be global assignment")
+	}
+	if _, ok := prog.Stmts[2].(ast.ParamBlock); !ok {
+		t.Fatalf("expected third statement to be param block")
+	}
+}
+
+func TestParseRepeatedSemicolonSeparators(t *testing.T) {
+	src := `
+let p {
+  a = 1;;; b = 2;;
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_repeated.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if len(lb.Assignments) != 2 {
+		t.Fatalf("expected 2 assignments, got %d", len(lb.Assignments))
+	}
+}
+
+func TestParseRepeatedTopLevelSeparators(t *testing.T) {
+	src := `jbs_name = "demo";;; jbs_outpath = "out";
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("semicolon_top_repeated.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected 2 top-level assignments, got %d", len(prog.Stmts))
+	}
+}
+
 func TestParseUnterminatedBlockStillReportsE025(t *testing.T) {
 	src := `
 param p {

@@ -81,6 +81,8 @@ Format jbs in place:
   jbs fmt script.jbs
 ```
 
+In `param`, `let`, `analyse`, `submit`, and top-level global assignments, statements can be separated by either newlines or `;`.
+
 ### `param <name> [with ...] { ... }`
 
 Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets. The last expression defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used there can then be referenced in `do` and `submit` statements.

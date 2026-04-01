@@ -16,6 +16,15 @@ param <name> [with ...]
 }
 ```
 
+You can separate statements with newline or `;`:
+
+```jbs
+param quick
+{
+        a = (1, 2); b = ("x", "y"); a + b;
+}
+```
+
 ## 1) Basic param
 
 ```jbs

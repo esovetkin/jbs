@@ -3,17 +3,18 @@
 ## Grammar
 
 ```ebnf
-program       := stmt* EOF
+program       := stmt (sep stmt)* sep? EOF
+sep           := (NEWLINE | ";")+
 stmt          := global_assign | let_block | param_block | do_block | submit_block | analyse_block
 
-global_assign := IDENT "=" expr NEWLINE
+global_assign := IDENT "=" expr
 
 let_block     := "let" IDENT "{" let_stmt* "}"
-let_stmt      := IDENT "=" expr NEWLINE
+let_stmt      := IDENT "=" expr
 
 param_block   := "param" IDENT with_clause? "{" param_stmt* final_expr "}"
-param_stmt    := IDENT "=" expr NEWLINE
-final_expr    := comb_expr NEWLINE
+param_stmt    := IDENT "=" expr
+final_expr    := comb_expr
 
 with_clause   := "with" with_item ("," with_item)*
 with_item     := IDENT ("from" IDENT)?
@@ -34,9 +35,21 @@ submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
 submit_value  := expr | raw_block
 
 analyse_block := "analyse" IDENT "{" analyse_stmt* analyse_tuple "}"
-analyse_stmt  := IDENT "=" expr ("in" STRING)? NEWLINE
+analyse_stmt  := IDENT "=" expr ("in" STRING)?
 analyse_tuple := "(" analyse_col ("," analyse_col)* ","? ")"
 analyse_col   := (IDENT | IDENT "." IDENT) ("as" STRING)?
+```
+
+## Statement Separators
+
+In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by newline or `;`.
+
+Example:
+
+```jbs
+let p { a = 1; b = 2 }
+param q { x = (1,2); y = ("a","b"); x + y; }
+analyse step { n = "N: %d" in "out"; (n); }
 ```
 
 ## Expressions

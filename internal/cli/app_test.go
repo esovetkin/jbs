@@ -38,6 +38,25 @@ do prep with p {
 	}
 }
 
+func TestRunCompileSemicolonFixture(t *testing.T) {
+	in := filepath.Join("..", "..", "tests", "semicolon.jbs")
+	expectedPath := filepath.Join("..", "..", "tests", "semicolon.yaml")
+	expected, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read expected fixture: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if out.String() != string(expected) {
+		t.Fatalf("semicolon fixture mismatch\n--- got ---\n%s\n--- expected ---\n%s", out.String(), string(expected))
+	}
+}
+
 func TestRunNoArgsShowsHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
