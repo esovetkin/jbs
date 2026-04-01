@@ -176,23 +176,31 @@ func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 			if r == '"' {
 				mode = blockScanCode
 			}
-		default:
-			switch r {
-			case '#':
-				stmt := string(p.src[startOff:p.off])
-				for !p.eof() && p.peek() != '\n' {
+			default:
+				switch r {
+				case '#':
+					stmt := string(p.src[startOff:p.off])
+					for !p.eof() && p.peek() != '\n' {
+						p.advance()
+					}
+					if !p.eof() && p.peek() == '\n' {
+						p.advance()
+					}
+					return stmt, startPos
+				case '\n':
+					if p.off > startOff && p.src[p.off-1] == '\\' {
+						p.advance()
+						continue
+					}
+					stmt := string(p.src[startOff:p.off])
 					p.advance()
-				}
-				if !p.eof() && p.peek() == '\n' {
+					return stmt, startPos
+				case ';':
+					stmt := string(p.src[startOff:p.off])
 					p.advance()
-				}
-				return stmt, startPos
-			case '\n', ';':
-				stmt := string(p.src[startOff:p.off])
-				p.advance()
-				return stmt, startPos
-			case '\'':
-				mode = blockScanSingleQuote
+					return stmt, startPos
+				case '\'':
+					mode = blockScanSingleQuote
 				p.advance()
 			case '"':
 				mode = blockScanDoubleQuote
@@ -1083,6 +1091,14 @@ func (p *submitFieldParser) peek() rune {
 	return p.src[p.off]
 }
 
+func (p *submitFieldParser) peekN(n int) rune {
+	idx := p.off + n
+	if idx < 0 || idx >= len(p.src) {
+		return 0
+	}
+	return p.src[idx]
+}
+
 func (p *submitFieldParser) advance() rune {
 	if p.eof() {
 		return 0
@@ -1297,13 +1313,20 @@ func (p *submitFieldParser) scanExprUntilStmtEnd() string {
 			if r == '"' {
 				mode = blockScanCode
 			}
-		default:
-			switch r {
-			case '\n', ';', '#':
-				return string(p.src[start:p.off])
-			case '\'':
-				mode = blockScanSingleQuote
-				p.advance()
+			default:
+				switch r {
+				case '\\':
+					if p.peekN(1) == '\n' {
+						p.advance()
+						p.advance()
+						continue
+					}
+					p.advance()
+				case '\n', ';', '#':
+					return string(p.src[start:p.off])
+				case '\'':
+					mode = blockScanSingleQuote
+					p.advance()
 			case '"':
 				mode = blockScanDoubleQuote
 				p.advance()

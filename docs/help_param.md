@@ -25,6 +25,19 @@ param quick
 }
 ```
 
+For multiline expressions, use explicit backslash-newline continuation (`\\\n`):
+
+```jbs
+param multiline
+{
+        x = 1 + \
+            2 + 3
+        x
+}
+```
+
+Implicit continuation from operators on the next line is not supported.
+
 ## 1) Basic param
 
 ```jbs

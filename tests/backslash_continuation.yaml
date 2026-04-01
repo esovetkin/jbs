@@ -1,0 +1,31 @@
+# From jbs_name
+name: backslash
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'p'
+  - name: p
+    parameter:
+      - name: _jbs__idx_p
+        type: int
+        mode: text
+        _: "0"
+      - name: text
+        mode: python
+        _: '["hello_world"][$_jbs__idx_p]'
+      - name: value
+        mode: python
+        _: '[3][$_jbs__idx_p]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'step'
+  - name: step
+    use:
+      - p
+    do:
+      - |
+        echo ${text} ${value}

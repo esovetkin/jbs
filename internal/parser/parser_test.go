@@ -838,6 +838,161 @@ param p {
 	}
 }
 
+func TestParseParamBackslashContinuationInAssignment(t *testing.T) {
+	src := `
+param p {
+  v = 1 + \
+      2 + 3
+  v
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_backslash_assign.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(pb.Assignments) != 1 || pb.Assignments[0].Name != "v" {
+		t.Fatalf("expected assignment v, got %#v", pb.Assignments)
+	}
+}
+
+func TestParseParamBackslashContinuationInFinalComb(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = (3,4)
+  a + \
+  b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_backslash_comb.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.Final == nil {
+		t.Fatalf("expected final combination expression")
+	}
+}
+
+func TestParseTopLevelGlobalBackslashContinuation(t *testing.T) {
+	src := `jbs_name = "demo_" + \
+           "x"
+jbs_outpath = "out"
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("global_backslash.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Stmts))
+	}
+	if _, ok := prog.Stmts[0].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected first statement to be global assignment")
+	}
+	if _, ok := prog.Stmts[1].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected second statement to be global assignment")
+	}
+}
+
+func TestParseSubmitBackslashContinuationInExpr(t *testing.T) {
+	src := `
+submit run {
+  args_exec = "-lc " + \
+              "hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_backslash_expr.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(sb.Fields) != 1 || sb.Fields[0].Name != "args_exec" || sb.Fields[0].Expr == nil {
+		t.Fatalf("expected args_exec expression field, got %#v", sb.Fields)
+	}
+}
+
+func TestParseAssignmentNewlineWithoutBackslashStillFails(t *testing.T) {
+	src := `
+param p {
+  v = 1 +
+      2
+  v
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("param_newline_no_backslash.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse error without backslash continuation")
+	}
+	if !hasDiagCode(diags.Items, "E058") {
+		t.Fatalf("expected E058, got: %s", diags.String())
+	}
+}
+
+func TestParseDanglingBackslashStillFails(t *testing.T) {
+	src := `
+param p {
+  v = 1 + \ 
+  v
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("param_dangling_backslash.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse error for dangling backslash")
+	}
+	if !hasDiagCode(diags.Items, "E003") {
+		t.Fatalf("expected E003 for dangling backslash, got: %s", diags.String())
+	}
+}
+
+func TestParseCommentTrailingBackslashDoesNotContinue(t *testing.T) {
+	src := `
+let p {
+  a = 1 # trailing \
+  b = 2
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("comment_backslash_no_continue.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if len(lb.Assignments) != 2 {
+		t.Fatalf("expected two assignments, got %d", len(lb.Assignments))
+	}
+}
+
 func hasDiagCode(items []diag.Diagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {

@@ -99,3 +99,51 @@ func TestLexStringKeepsSemicolonLiteral(t *testing.T) {
 		t.Fatalf("expected semicolon literal preserved, got %q", got)
 	}
 }
+
+func TestLexBackslashNewlineContinuation(t *testing.T) {
+	src := "a = 1 + \\\n2\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	newlineCount := 0
+	for _, tok := range tokens {
+		if tok.Type == TokenNewline {
+			newlineCount++
+		}
+	}
+	if newlineCount != 1 {
+		t.Fatalf("expected exactly one newline token, got %d", newlineCount)
+	}
+
+	hasPlusThenTwo := false
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i].Type == TokenPlus && tokens[i+1].Type == TokenNumber && tokens[i+1].Value == "2" {
+			hasPlusThenTwo = true
+			break
+		}
+	}
+	if !hasPlusThenTwo {
+		t.Fatalf("expected '+' followed directly by numeric token 2 after continuation")
+	}
+}
+
+func TestLexCommentTrailingBackslashDoesNotContinue(t *testing.T) {
+	src := "a = 1 # trailing \\\nb = 2\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	newlineCount := 0
+	for _, tok := range tokens {
+		if tok.Type == TokenNewline {
+			newlineCount++
+		}
+	}
+	if newlineCount != 2 {
+		t.Fatalf("expected two newline tokens (comment line + second line), got %d", newlineCount)
+	}
+}

@@ -57,6 +57,25 @@ func TestRunCompileSemicolonFixture(t *testing.T) {
 	}
 }
 
+func TestRunCompileBackslashContinuationFixture(t *testing.T) {
+	in := filepath.Join("..", "..", "tests", "backslash_continuation.jbs")
+	expectedPath := filepath.Join("..", "..", "tests", "backslash_continuation.yaml")
+	expected, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read expected fixture: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if out.String() != string(expected) {
+		t.Fatalf("backslash continuation fixture mismatch\n--- got ---\n%s\n--- expected ---\n%s", out.String(), string(expected))
+	}
+}
+
 func TestRunNoArgsShowsHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer

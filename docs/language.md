@@ -44,12 +44,25 @@ analyse_col   := (IDENT | IDENT "." IDENT) ("as" STRING)?
 
 In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by newline or `;`.
 
+Multiline expressions require explicit backslash-newline continuation (`\\\n`).
+Implicit operator-based newline continuation is not supported.
+
 Example:
 
 ```jbs
 let p { a = 1; b = 2 }
 param q { x = (1,2); y = ("a","b"); x + y; }
 analyse step { n = "N: %d" in "out"; (n); }
+```
+
+Backslash continuation example:
+
+```jbs
+param p {
+        x = 1 + \
+            2 + 3
+        x
+}
 ```
 
 ## Expressions

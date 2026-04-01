@@ -42,6 +42,11 @@ func (l *Lexer) run() {
 			l.advance()
 			continue
 		}
+		if r == '\\' && l.peekN(1) == '\n' {
+			l.advance()
+			l.advance()
+			continue
+		}
 		if r == '\n' {
 			start := l.pos()
 			l.advance()
