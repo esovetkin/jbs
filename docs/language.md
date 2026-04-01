@@ -276,9 +276,9 @@ All parameter sets lower to indexed representation:
 parameterset:
   - name: grouped
     parameter:
-      - { name: _jbs__idx_grouped, type: int, mode: text, _: "0,1,2" }
-      - { name: a, mode: python, _: "[1,2,1][$_jbs__idx_grouped]" }
-      - { name: b, mode: python, _: "['x','y','z'][$_jbs__idx_grouped]" }
+      - { name: _ji_grouped, type: int, mode: text, _: "0,1,2" }
+      - { name: a, mode: python, _: "[1,2,1][$_ji_grouped]" }
+      - { name: b, mode: python, _: "['x','y','z'][$_ji_grouped]" }
 ```
 
 Compact jbs source for the indexed YAML example above:
@@ -343,11 +343,11 @@ patternset:
   - name: p
     pattern:
       # From analyse 'write': alias 'p0' for pattern 'p.number'
-      - name: _jbs_pattern__p_number__write__p0
+      - name: _jp__p_number__write__p0
         type: int
         _: 'Number: $jube_pat_int'
       # From analyse 'write': alias 'p1' for pattern 'p.letter'
-      - name: _jbs_pattern__p_letter__write__p1
+      - name: _jp__p_letter__write__p1
         type: string
         _: 'Letter: $jube_pat_wrd'
 
@@ -370,12 +370,12 @@ result:
         - title: a
           _: a
         - title: p0
-          _: _jbs_pattern__p_number__write__p0
+          _: _jp__p_number__write__p0
         - title: letter
-          _: _jbs_pattern__p_letter__write__p1
+          _: _jp__p_letter__write__p1
 ```
 
-Inline extraction expressions in `analyse` create synthetic pattern groups of the form `_jbs__ana_<step>_<alias>`.
+Inline extraction expressions in `analyse` create synthetic pattern groups of the form `_ja_<step>_<alias>`.
 
 ## Built-in Globals
 

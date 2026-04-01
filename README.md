@@ -41,7 +41,7 @@ analyse ex_step {
 % awk '!/^[[:space:]]*(#|$)/' taster.jbs | wc
      14      57     352
 % awk '!/^[[:space:]]*(#|$)/' taster.yaml | wc
-     59     133    1546
+     59     133    1432
 % jube-autorun taster.yaml
 ...
 ```

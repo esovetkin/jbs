@@ -62,7 +62,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 				Name: "p",
 				Pattern: []lower.Pattern{
 					{
-						Name:  "_jbs_pattern__p_number__write__p0",
+						Name:  "_jp__p_number__write__p0",
 						Type:  "int",
 						Value: lower.SingleQuoted("Number: $jube_pat_int"),
 						Meta: lower.PatternMeta{
@@ -122,7 +122,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 					Style: "csv",
 					Column: []lower.ResultColumn{
 						{Title: "a", Expr: "a"},
-						{Title: "p0", Expr: "_jbs_pattern__p_number__write__p0"},
+						{Title: "p0", Expr: "_jp__p_number__write__p0"},
 					},
 					Meta: lower.ResultTableMeta{Source: "write"},
 				},

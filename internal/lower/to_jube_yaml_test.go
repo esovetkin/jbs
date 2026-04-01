@@ -42,7 +42,7 @@ param p {
 	if len(ps.Parameter) != 4 {
 		t.Fatalf("expected i + 3 params, got %d", len(ps.Parameter))
 	}
-	if ps.Parameter[0].Name != "_jbs__idx_p" || ps.Parameter[0].Type != "int" || ps.Parameter[0].Mode != "text" {
+	if ps.Parameter[0].Name != "_ji_p" || ps.Parameter[0].Type != "int" || ps.Parameter[0].Mode != "text" {
 		t.Fatalf("expected indexed lowering via context index parameter, got %#v", ps.Parameter[0])
 	}
 	if ps.Parameter[0].Value != "0,1,2,3,4,5,6,7,8,9,10,11" {
@@ -68,8 +68,8 @@ param p {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
 	ps := doc.ParameterSet[0]
-	if ps.Parameter[0].Name != "_jbs__idx_p" {
-		t.Fatalf("expected grouped index parameter _jbs__idx_p, got %s", ps.Parameter[0].Name)
+	if ps.Parameter[0].Name != "_ji_p" {
+		t.Fatalf("expected grouped index parameter _ji_p, got %s", ps.Parameter[0].Name)
 	}
 	if ps.Parameter[0].Value != "0,1,2" {
 		t.Fatalf("expected grouped indices 0,1,2 got %#v", ps.Parameter[0].Value)
@@ -98,7 +98,7 @@ do task with a from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_task_param__a") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_js__task__param__a") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -109,10 +109,10 @@ do task with a from param {
 	if len(subset.Parameter) != 3 {
 		t.Fatalf("expected i + rows + a in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_task_param__a" || subset.Parameter[0].Value != "0,2,4" {
+	if subset.Parameter[0].Name != "_ji__task__param__a" || subset.Parameter[0].Value != "0,2,4" {
 		t.Fatalf("expected masked context index for subset, got %#v", subset.Parameter[0])
 	}
-	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_task_param__a" || subset.Parameter[1].Mode != "python" {
+	if subset.Parameter[1].Name != "_jr__task__param__a" || subset.Parameter[1].Mode != "python" {
 		t.Fatalf("expected python rows context param, got %#v", subset.Parameter[1])
 	}
 	if subset.Parameter[1].Separator != "####" {
@@ -122,7 +122,7 @@ do task with a from param {
 	if !ok {
 		t.Fatalf("expected single-quoted rows lookup expression, got %T", subset.Parameter[1].Value)
 	}
-	if string(rowsExpr) != "{\"0\":\"0,1\",\"2\":\"2,3\",\"4\":\"4,5\"}[\"${_jbs__idx__jbs__subset_task_param__a}\"]" {
+	if string(rowsExpr) != "{\"0\":\"0,1\",\"2\":\"2,3\",\"4\":\"4,5\"}[\"${_ji__task__param__a}\"]" {
 		t.Fatalf("unexpected rows context payload: %q", string(rowsExpr))
 	}
 	if subset.Parameter[2].Name != "a" || subset.Parameter[2].Mode != "python" {
@@ -132,7 +132,7 @@ do task with a from param {
 	if !ok {
 		t.Fatalf("expected single-quoted python expression, got %T", subset.Parameter[2].Value)
 	}
-	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_task_param__a]" {
+	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_ji__task__param__a]" {
 		t.Fatalf("unexpected subset a expression: %q", string(gotExpr))
 	}
 }
@@ -156,7 +156,7 @@ do task with (a,b) from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_task_param__a_b") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_js__task__param__a_b") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -167,10 +167,10 @@ do task with (a,b) from param {
 	if len(subset.Parameter) != 4 {
 		t.Fatalf("expected i + rows + a + b in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_task_param__a_b" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
+	if subset.Parameter[0].Name != "_ji__task__param__a_b" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
 		t.Fatalf("unexpected tuple subset i mask: %#v", subset.Parameter[0])
 	}
-	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_task_param__a_b" || subset.Parameter[1].Mode != "python" {
+	if subset.Parameter[1].Name != "_jr__task__param__a_b" || subset.Parameter[1].Mode != "python" {
 		t.Fatalf("expected rows helper for tuple subset, got %#v", subset.Parameter[1])
 	}
 	if subset.Parameter[1].Separator != "####" {
@@ -180,7 +180,7 @@ do task with (a,b) from param {
 	if !okTupleRows {
 		t.Fatalf("expected single-quoted tuple rows lookup expression, got %T", subset.Parameter[1].Value)
 	}
-	if string(tupleRowsExpr) != "{\"0\":\"0\",\"1\":\"1\",\"2\":\"2\",\"3\":\"3\",\"4\":\"4\",\"5\":\"5\"}[\"${_jbs__idx__jbs__subset_task_param__a_b}\"]" {
+	if string(tupleRowsExpr) != "{\"0\":\"0\",\"1\":\"1\",\"2\":\"2\",\"3\":\"3\",\"4\":\"4\",\"5\":\"5\"}[\"${_ji__task__param__a_b}\"]" {
 		t.Fatalf("unexpected tuple rows helper payload: %q", string(tupleRowsExpr))
 	}
 	if subset.Parameter[2].Mode != "python" || subset.Parameter[3].Mode != "python" {
@@ -191,10 +191,10 @@ do task with (a,b) from param {
 	if !okA || !okB {
 		t.Fatalf("expected single-quoted tuple expressions, got %T %T", subset.Parameter[2].Value, subset.Parameter[3].Value)
 	}
-	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_task_param__a_b]" {
+	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_ji__task__param__a_b]" {
 		t.Fatalf("unexpected a expression: %q", string(aExpr))
 	}
-	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$_jbs__idx__jbs__subset_task_param__a_b]" {
+	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$_ji__task__param__a_b]" {
 		t.Fatalf("unexpected b expression: %q", string(bExpr))
 	}
 }
@@ -232,7 +232,7 @@ submit run after prep with p {
 	var hasSubset bool
 	var hasSubmitSet bool
 	for _, ps := range doc.ParameterSet {
-		if strings.HasPrefix(ps.Name, "_jbs__subset_") {
+		if strings.HasPrefix(ps.Name, "_js__") {
 			hasSubset = true
 		}
 		if strings.HasSuffix(ps.Name, "__submit_params") {
@@ -311,7 +311,7 @@ do setup with a from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "_jbs__subset_setup_p1__") {
+			if strings.HasPrefix(s, "_js__setup__p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -354,7 +354,7 @@ do setup with (a,b) from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "_jbs__subset_setup_p1__") {
+			if strings.HasPrefix(s, "_js__setup__p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -387,7 +387,7 @@ do s1 after s0 with p {
 	}
 	var hasSubsetB bool
 	for _, ps := range doc.ParameterSet {
-		if strings.Contains(ps.Name, "_jbs__subset_s1_p__b") {
+		if strings.Contains(ps.Name, "_js__s1__p__b") {
 			hasSubsetB = true
 			break
 		}
@@ -409,7 +409,7 @@ do s1 after s0 with p {
 		if s == "p" {
 			hasWhole = true
 		}
-		if strings.Contains(s, "_jbs__subset_s1_p__b") {
+		if strings.Contains(s, "_js__s1__p__b") {
 			hasSubset = true
 		}
 	}
@@ -466,7 +466,7 @@ do s1 after s0 with b from p {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if doc.ParameterSet[i].Name == "_jbs__subset_s1_p__b" {
+		if doc.ParameterSet[i].Name == "_js__s1__p__b" {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -477,16 +477,16 @@ do s1 after s0 with b from p {
 	if len(subset.Parameter) != 3 {
 		t.Fatalf("expected contextual subset params i + rows + b, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_s1_p__b" || subset.Parameter[0].Separator != "," {
+	if subset.Parameter[0].Name != "_ji__s1__p__b" || subset.Parameter[0].Separator != "," {
 		t.Fatalf("expected contextual index with separator ',', got %#v", subset.Parameter[0])
 	}
-	if subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s0_p__a" {
+	if subset.Parameter[0].Value != "$_jr__s0__p__a" {
 		t.Fatalf("expected inherited rows context reference, got %#v", subset.Parameter[0].Value)
 	}
-	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_s1_p__b" || subset.Parameter[1].Mode != "text" {
+	if subset.Parameter[1].Name != "_jr__s1__p__b" || subset.Parameter[1].Mode != "text" {
 		t.Fatalf("expected contextual rows helper, got %#v", subset.Parameter[1])
 	}
-	if subset.Parameter[1].Value != "${_jbs__idx__jbs__subset_s1_p__b}" {
+	if subset.Parameter[1].Value != "${_ji__s1__p__b}" {
 		t.Fatalf("expected contextual rows helper to mirror idx, got %#v", subset.Parameter[1].Value)
 	}
 }
@@ -516,19 +516,19 @@ do s2 after s1 with c from p {
 	var s1Subset, s2Subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
 		switch doc.ParameterSet[i].Name {
-		case "_jbs__subset_s1_p__b":
+		case "_js__s1__p__b":
 			s1Subset = &doc.ParameterSet[i]
-		case "_jbs__subset_s2_p__c":
+		case "_js__s2__p__c":
 			s2Subset = &doc.ParameterSet[i]
 		}
 	}
 	if s1Subset == nil || s2Subset == nil {
 		t.Fatalf("expected contextual subsets for s1 and s2, got %#v", doc.ParameterSet)
 	}
-	if s1Subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s0_p__a" {
+	if s1Subset.Parameter[0].Value != "$_jr__s0__p__a" {
 		t.Fatalf("expected s1 contextual source from s0 rows helper, got %#v", s1Subset.Parameter[0].Value)
 	}
-	if s2Subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s1_p__b" {
+	if s2Subset.Parameter[0].Value != "$_jr__s1__p__b" {
 		t.Fatalf("expected s2 contextual source from s1 rows helper, got %#v", s2Subset.Parameter[0].Value)
 	}
 }
@@ -580,8 +580,8 @@ param p {
 	if len(ps.Parameter) != 3 {
 		t.Fatalf("expected i + two parameters, got %d", len(ps.Parameter))
 	}
-	if ps.Parameter[0].Name != "_jbs__idx_p" {
-		t.Fatalf("expected context index variable _jbs__idx_p, got %#v", ps.Parameter[0])
+	if ps.Parameter[0].Name != "_ji_p" {
+		t.Fatalf("expected context index variable _ji_p, got %#v", ps.Parameter[0])
 	}
 	var queue, system lower.Parameter
 	for _, p := range ps.Parameter {
@@ -766,7 +766,7 @@ submit run after prep with p {
 		switch {
 		case ps.Name == "p":
 			paramSet = ps
-		case strings.HasPrefix(ps.Name, "_jbs__subset_"):
+		case strings.HasPrefix(ps.Name, "_js__"):
 			subsetSet = ps
 		case strings.HasSuffix(ps.Name, "__submit_params"):
 			submitSet = ps
@@ -899,13 +899,13 @@ analyse write {
 	if len(table.Column) != 5 {
 		t.Fatalf("unexpected columns: %#v", table.Column)
 	}
-	if table.Column[2].Title != "p0" || table.Column[2].Expr != "_jbs_pattern__p_number__write__p0" {
+	if table.Column[2].Title != "p0" || table.Column[2].Expr != "_jp__p_number__write__p0" {
 		t.Fatalf("unexpected first analyse result column: %#v", table.Column[2])
 	}
-	if table.Column[3].Title != "de zahl" || table.Column[3].Expr != "_jbs_pattern__p_zahl__write__p1" {
+	if table.Column[3].Title != "de zahl" || table.Column[3].Expr != "_jp__p_zahl__write__p1" {
 		t.Fatalf("unexpected aliased result column: %#v", table.Column[3])
 	}
-	if table.Column[4].Title != "p2" || table.Column[4].Expr != "_jbs_pattern__p_letter__write__p2" {
+	if table.Column[4].Title != "p2" || table.Column[4].Expr != "_jp__p_letter__write__p2" {
 		t.Fatalf("unexpected second analyse result column: %#v", table.Column[4])
 	}
 }
@@ -956,10 +956,10 @@ analyse write {
 	for _, pat := range doc.PatternSet[0].Pattern {
 		names[pat.Name] = struct{}{}
 	}
-	if _, ok := names["_jbs_pattern__g_number__write__p0"]; !ok {
+	if _, ok := names["_jp__g_number__write__p0"]; !ok {
 		t.Fatalf("expected alias pattern p0 in grouped set: %#v", doc.PatternSet[0].Pattern)
 	}
-	if _, ok := names["_jbs_pattern__g_number__write__p1"]; !ok {
+	if _, ok := names["_jp__g_number__write__p1"]; !ok {
 		t.Fatalf("expected alias pattern p1 in grouped set: %#v", doc.PatternSet[0].Pattern)
 	}
 }
@@ -989,7 +989,7 @@ analyse write {
 		t.Fatalf("unexpected result shape: %#v", doc.Result)
 	}
 	col := doc.Result.Table[0].Column[1]
-	if col.Title != "number" || col.Expr != "_jbs_pattern__g_number__write__number" {
+	if col.Title != "number" || col.Expr != "_jp__g_number__write__number" {
 		t.Fatalf("unexpected analyse column mapping: %#v", col)
 	}
 }
@@ -1055,10 +1055,10 @@ analyse write {
 	for _, ps := range doc.PatternSet {
 		names[ps.Name] = struct{}{}
 	}
-	if _, ok := names["_jbs__ana_write_ax"]; !ok {
+	if _, ok := names["_ja_write_ax"]; !ok {
 		t.Fatalf("missing synthetic inline pattern set for ax: %#v", doc.PatternSet)
 	}
-	if _, ok := names["_jbs__ana_write_by"]; !ok {
+	if _, ok := names["_ja_write_by"]; !ok {
 		t.Fatalf("missing synthetic inline pattern set for by: %#v", doc.PatternSet)
 	}
 	if doc.Result == nil || len(doc.Result.Table) != 1 {

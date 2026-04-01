@@ -9,16 +9,16 @@ parameterset:
   # Param block 'cases'
   - name: cases
     parameter:
-      - name: _jbs__idx_cases
+      - name: _ji_cases
         type: int
         mode: text
         _: 0,1
       - name: x
         mode: python
-        _: '[1,2][$_jbs__idx_cases]'
+        _: '[1,2][$_ji_cases]'
       - name: "y"
         mode: python
-        _: '["alpha","beta"][$_jbs__idx_cases]'
+        _: '["alpha","beta"][$_ji_cases]'
 
 # Pattern sets used for result extraction
 patternset:
@@ -26,11 +26,11 @@ patternset:
   - name: p
     pattern:
       # From analyse 'write': alias 'n' for pattern 'p.number'
-      - name: _jbs_pattern__p_number__write__n
+      - name: _jp__p_number__write__n
         type: int
         _: 'Number: $jube_pat_int'
       # From analyse 'write': alias 'w' for pattern 'p.word'
-      - name: _jbs_pattern__p_word__write__w
+      - name: _jp__p_word__write__w
         type: string
         _: 'Word: $jube_pat_wrd'
 
@@ -70,6 +70,6 @@ result:
         - title: "y"
           _: "y"
         - title: "n"
-          _: _jbs_pattern__p_number__write__n
+          _: _jp__p_number__write__n
         - title: w
-          _: _jbs_pattern__p_word__write__w
+          _: _jp__p_word__write__w

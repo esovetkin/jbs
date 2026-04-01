@@ -9,16 +9,16 @@ parameterset:
   # Param block 'p'
   - name: p
     parameter:
-      - name: _jbs__idx_p
+      - name: _ji_p
         type: int
         mode: text
         _: "0"
       - name: text
         mode: python
-        _: '["hello_world"][$_jbs__idx_p]'
+        _: '["hello_world"][$_ji_p]'
       - name: value
         mode: python
-        _: '[3][$_jbs__idx_p]'
+        _: '[3][$_ji_p]'
 
 # Steps executed by JUBE
 step:

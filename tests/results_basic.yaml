@@ -9,16 +9,16 @@ parameterset:
   # Param block 'params'
   - name: params
     parameter:
-      - name: _jbs__idx_params
+      - name: _ji_params
         type: int
         mode: text
         _: 0,1,2
       - name: a
         mode: python
-        _: '["a","b","c"][$_jbs__idx_params]'
+        _: '["a","b","c"][$_ji_params]'
       - name: x
         mode: python
-        _: '[1,2,3][$_jbs__idx_params]'
+        _: '[1,2,3][$_ji_params]'
 
 # Pattern sets used for result extraction
 patternset:
@@ -26,15 +26,15 @@ patternset:
   - name: p
     pattern:
       # From analyse 'write': alias 'p0' for pattern 'p.number'
-      - name: _jbs_pattern__p_number__write__p0
+      - name: _jp__p_number__write__p0
         type: int
         _: 'Number: $jube_pat_int'
       # From analyse 'write': alias 'p1' for pattern 'p.zahl'
-      - name: _jbs_pattern__p_zahl__write__p1
+      - name: _jp__p_zahl__write__p1
         type: int
         _: 'Zahl: $jube_pat_int'
       # From analyse 'write': alias 'p2' for pattern 'p.letter'
-      - name: _jbs_pattern__p_letter__write__p2
+      - name: _jp__p_letter__write__p2
         type: string
         _: 'Letter: $jube_pat_wrd'
 
@@ -77,8 +77,8 @@ result:
         - title: x
           _: x
         - title: p0
-          _: _jbs_pattern__p_number__write__p0
+          _: _jp__p_number__write__p0
         - title: de zahl
-          _: _jbs_pattern__p_zahl__write__p1
+          _: _jp__p_zahl__write__p1
         - title: p2
-          _: _jbs_pattern__p_letter__write__p2
+          _: _jp__p_letter__write__p2

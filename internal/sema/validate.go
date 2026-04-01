@@ -366,7 +366,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			}
 		}
 		if groupName == "" {
-			groupName = "_jbs__ana_" + sanitizeStepName(block.StepName) + "_" + sanitizeStepName(assign.Name)
+			groupName = "_ja_" + sanitizeStepName(block.StepName) + "_" + sanitizeStepName(assign.Name)
 			patternName = assign.Name
 		}
 

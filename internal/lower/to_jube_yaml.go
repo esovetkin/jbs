@@ -727,8 +727,7 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 }
 
 func analyseAliasPatternName(group, pattern, step, alias string) string {
-	return "_jbs_pattern__" + sanitize(group) + "_" + sanitize(pattern) +
-		"__" + sanitize(step) + "__" + sanitize(alias)
+	return shortPatternAliasName(group, pattern, step, alias)
 }
 
 func (ctx *lowerContext) appendAliasPattern(analyseStep, aliasName, internalName string, tmpl sema.PatternTemplate) {
@@ -1044,9 +1043,11 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		rowCount = 1
 	}
 
-	name := ctx.uniqueName("_jbs__subset_" + sanitize(stepName) + "_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
-	rowsVar := "_jbs__rows_" + sanitize(name)
-	idxName := indexVariableName(name)
+	baseName := shortSubsetBaseName(stepName, source, vars)
+	name := ctx.uniqueName(baseName)
+	suffix := strings.TrimPrefix(name, baseName)
+	rowsVar := shortSubsetRowsName(stepName, source, vars) + suffix
+	idxName := shortSubsetIndexName(stepName, source, vars) + suffix
 	idxRef := "$" + idxName
 
 	valuesByName := make(map[string][]eval.Value, len(vars))
@@ -1292,9 +1293,31 @@ func contains(items []string, item string) bool {
 }
 
 func indexVariableName(context string) string {
+	return shortParamIndexName(context)
+}
+
+// Synthetic naming contract: _ji_<ctx>, _js__<step>__<source>__<vars>, _ji__<step>__<source>__<vars>, _jr__<step>__<source>__<vars>, _jp__<group>_<pattern>__<step>__<alias>.
+func shortParamIndexName(context string) string {
 	name := sanitize(context)
 	if name == "" {
 		name = "set"
 	}
-	return "_jbs__idx_" + name
+	return "_ji_" + name
+}
+
+func shortSubsetBaseName(step, source string, vars []string) string {
+	return "_js__" + sanitize(step) + "__" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_"))
+}
+
+func shortSubsetIndexName(step, source string, vars []string) string {
+	return "_ji__" + sanitize(step) + "__" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_"))
+}
+
+func shortSubsetRowsName(step, source string, vars []string) string {
+	return "_jr__" + sanitize(step) + "__" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_"))
+}
+
+func shortPatternAliasName(group, pattern, step, alias string) string {
+	return "_jp__" + sanitize(group) + "_" + sanitize(pattern) +
+		"__" + sanitize(step) + "__" + sanitize(alias)
 }
