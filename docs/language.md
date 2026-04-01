@@ -256,6 +256,9 @@ In `do`/`submit`:
 - if `after` already provides a variable from the same source parameter set, explicit `with` re-import of that variable is ignored.
 - if explicit `with` targets a whole parameter set after inheritance, only non-inherited variables from that parameter set are imported.
 - if the same variable name is inherited/imported from different parameter sets, compilation fails.
+- inherited imports also carry source-row context from their source parameter set.
+- when a dependent step imports additional variables from the same source, jbs refines that inherited source-row context instead of creating an independent Cartesian dimension.
+- this source-row context propagation is transitive across `after` chains (for example, `step0 -> step1 -> step2`).
 
 ## Lowering to JUBE YAML
 

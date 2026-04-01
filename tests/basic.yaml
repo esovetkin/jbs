@@ -20,16 +20,20 @@ parameterset:
         mode: python
         _: '[1,2][$_jbs__idx_matrix]'
 
-  # Synthetic subset parameterset derived from 'matrix' for variable-only imports
-  - name: _jbs__subset_matrix__case
+  # Synthetic subset parameterset for step 'setup' derived from 'matrix' for variable-only imports
+  - name: _jbs__subset_setup_matrix__case
     parameter:
-      - name: _jbs__idx__jbs__subset_matrix__case
+      - name: _jbs__idx__jbs__subset_setup_matrix__case
         type: int
         mode: text
         _: 0,1
+      - name: _jbs__rows__jbs__subset_setup_matrix__case
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1"}["${_jbs__idx__jbs__subset_setup_matrix__case}"]'
       - name: case
         mode: python
-        _: '["ddp","fsdp"][$_jbs__idx__jbs__subset_matrix__case]'
+        _: '["ddp","fsdp"][$_jbs__idx__jbs__subset_setup_matrix__case]'
 
   # Parameters for submit block 'run'
   - name: run__submit_params
@@ -43,23 +47,27 @@ parameterset:
       - name: args_exec
         _: python main.py --case ${case} --nnodes ${nnodes}
 
-  # Synthetic subset parameterset derived from 'matrix' for variable-only imports
-  - name: _jbs__subset_matrix__nnodes
+  # Synthetic subset parameterset for step 'run' derived from 'matrix' for variable-only imports
+  - name: _jbs__subset_run_matrix__nnodes
     parameter:
-      - name: _jbs__idx__jbs__subset_matrix__nnodes
+      - name: _jbs__idx__jbs__subset_run_matrix__nnodes
         type: int
         mode: text
-        _: 0,1
+        separator: ','
+        _: $_jbs__rows__jbs__subset_setup_matrix__case
+      - name: _jbs__rows__jbs__subset_run_matrix__nnodes
+        mode: text
+        _: ${_jbs__idx__jbs__subset_run_matrix__nnodes}
       - name: nnodes
         mode: python
-        _: '[1,2][$_jbs__idx__jbs__subset_matrix__nnodes]'
+        _: '[1,2][$_jbs__idx__jbs__subset_run_matrix__nnodes]'
 
 # Steps executed by JUBE
 step:
   # Step generated from do block 'setup'
   - name: setup
     use:
-      - _jbs__subset_matrix__case
+      - _jbs__subset_setup_matrix__case
     do:
       - |
         echo setup ${case}
@@ -69,7 +77,7 @@ step:
   - name: run
     depend: setup
     use:
-      - _jbs__subset_matrix__nnodes
+      - _jbs__subset_run_matrix__nnodes
       - run__submit_params
       - from: platform.xml
         _: jobfiles

@@ -61,6 +61,8 @@ submit run { queue = "batch"; account = "myacct"; args_exec = "-lc hostname"; }
 - If `submit run after prep`, then variables visible in `prep` are inherited by `run`.
 - If `run` also has `with ... from <same_paramset>`, jbs imports only variables not already inherited.
 - If an inherited variable name collides with a variable of the same name from a different parameter set in explicit `with`, jbs raises an error.
+- jbs preserves source-row constraints from inherited imports, so dependent submits do not introduce unintended Cartesian blow-ups.
+- this source-row inheritance is transitive across multi-step chains.
 
 Example:
 

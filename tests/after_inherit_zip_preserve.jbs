@@ -1,0 +1,13 @@
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+
+do s0 with a from p {
+  echo ${a}
+}
+
+do s1 after s0 with p {
+  echo ${a} ${b}
+}

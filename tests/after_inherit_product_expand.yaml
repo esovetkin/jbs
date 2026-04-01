@@ -1,0 +1,71 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'p'
+  - name: p
+    parameter:
+      - name: _jbs__idx_p
+        type: int
+        mode: text
+        _: 0,1,2,3
+      - name: a
+        mode: python
+        _: '[1,1,2,2][$_jbs__idx_p]'
+      - name: b
+        mode: python
+        _: '["x","y","x","y"][$_jbs__idx_p]'
+
+  # Synthetic subset parameterset for step 's0' derived from 'p' for variable-only imports
+  - name: _jbs__subset_s0_p__a
+    parameter:
+      - name: _jbs__idx__jbs__subset_s0_p__a
+        type: int
+        mode: text
+        _: 0,2
+      - name: _jbs__rows__jbs__subset_s0_p__a
+        mode: python
+        separator: '####'
+        _: '{"0":"0,1","2":"2,3"}["${_jbs__idx__jbs__subset_s0_p__a}"]'
+      - name: a
+        mode: python
+        _: '[1,1,2,2][$_jbs__idx__jbs__subset_s0_p__a]'
+
+  # Synthetic subset parameterset for step 's1' derived from 'p' for variable-only imports
+  - name: _jbs__subset_s1_p__b
+    parameter:
+      - name: _jbs__idx__jbs__subset_s1_p__b
+        type: int
+        mode: text
+        separator: ','
+        _: $_jbs__rows__jbs__subset_s0_p__a
+      - name: _jbs__rows__jbs__subset_s1_p__b
+        mode: text
+        _: ${_jbs__idx__jbs__subset_s1_p__b}
+      - name: b
+        mode: python
+        _: '["x","y","x","y"][$_jbs__idx__jbs__subset_s1_p__b]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 's0'
+  - name: s0
+    use:
+      - _jbs__subset_s0_p__a
+    do:
+      - |
+        echo ${a}
+
+  # Step generated from do block 's1'; inherits from s0:
+  # - a
+  - name: s1
+    depend: s0
+    use:
+      - _jbs__subset_s1_p__b
+    do:
+      - |
+        echo ${a} ${b}

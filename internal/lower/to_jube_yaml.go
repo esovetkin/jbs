@@ -55,6 +55,7 @@ const (
 type ParameterSetMeta struct {
 	Kind   ParameterSetKind
 	Source string
+	Step   string
 }
 
 type ParameterSet struct {
@@ -190,8 +191,15 @@ type Options struct {
 }
 
 type subsetKey struct {
-	Source string
-	Vars   string
+	Step          string
+	Source        string
+	Vars          string
+	InheritedRows string
+}
+
+type subsetInfo struct {
+	Name    string
+	RowsVar string
 }
 
 type lowerContext struct {
@@ -199,7 +207,8 @@ type lowerContext struct {
 	doc                    Document
 	diags                  *diag.Diagnostics
 	names                  map[string]struct{}
-	subsetNames            map[subsetKey]string
+	subsetNames            map[subsetKey]subsetInfo
+	stepSourceRows         map[string]map[string]string
 	patternSetIndexByGroup map[string]int
 	analyserNames          map[string]string
 }
@@ -209,7 +218,8 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 		res:                    res,
 		diags:                  diags,
 		names:                  make(map[string]struct{}),
-		subsetNames:            make(map[subsetKey]string),
+		subsetNames:            make(map[subsetKey]subsetInfo),
+		stepSourceRows:         make(map[string]map[string]string),
 		patternSetIndexByGroup: make(map[string]int),
 		analyserNames:          make(map[string]string),
 	}
@@ -317,7 +327,20 @@ func lowerIndexedParameters(
 		Mode:  "text",
 		Value: joinIntIndices(indices),
 	})
+	params = append(params, lowerIndexedPayloadParameters(order, valuesByName, modes, indices, idxRef, origin, diags)...)
+	return params
+}
 
+func lowerIndexedPayloadParameters(
+	order []string,
+	valuesByName map[string][]eval.Value,
+	modes map[string]string,
+	indices []int,
+	idxRef string,
+	origin func(name string) diag.Span,
+	diags *diag.Diagnostics,
+) []Parameter {
+	params := make([]Parameter, 0, len(order))
 	for _, name := range order {
 		fullValues := valuesByName[name]
 		selectedValues := pickValuesAtIndices(fullValues, indices)
@@ -349,6 +372,55 @@ func lowerIndexedParameters(
 				param.Value = asString(selectedValues[0])
 			default:
 				param.Value = asString(selectedValues[0])
+			}
+			params = append(params, param)
+			continue
+		}
+
+		params = append(params, Parameter{
+			Name:  name,
+			Mode:  "python",
+			Value: SingleQuoted(pythonIndexExpr(fullValues, idxRef)),
+		})
+	}
+	return params
+}
+
+func lowerContextualPayloadParameters(
+	order []string,
+	valuesByName map[string][]eval.Value,
+	modes map[string]string,
+	idxRef string,
+	origin func(name string) diag.Span,
+	diags *diag.Diagnostics,
+) []Parameter {
+	params := make([]Parameter, 0, len(order))
+	for _, name := range order {
+		fullValues := valuesByName[name]
+		if len(fullValues) == 0 {
+			fullValues = []eval.Value{eval.Null()}
+		}
+		if mode := modes[name]; mode != "" {
+			param := Parameter{Name: name, Mode: mode}
+			switch mode {
+			case "python":
+				if allEqualValues(fullValues) {
+					param.Value = SingleQuoted(asString(fullValues[0]))
+				} else {
+					param.Value = SingleQuoted(pythonIndexExpr(fullValues, idxRef))
+				}
+			case "shell":
+				if !allEqualValues(fullValues) {
+					diags.AddError(
+						"E216",
+						fmt.Sprintf("%s(...) parameter '%s' cannot vary across indexed rows", mode, name),
+						origin(name),
+						"use a single expression value for mode-declared parameters",
+					)
+				}
+				param.Value = asString(fullValues[0])
+			default:
+				param.Value = asString(fullValues[0])
 			}
 			params = append(params, param)
 			continue
@@ -500,6 +572,19 @@ func pythonIndexExpr(values []eval.Value, indexVar string) string {
 		parts = append(parts, pythonLiteral(value))
 	}
 	return "[" + strings.Join(parts, ",") + "][" + indexVar + "]"
+}
+
+func pythonStringMapLookupExpr(keys []int, values []string, varName string) string {
+	parts := make([]string, 0, len(keys))
+	for i := range keys {
+		key := strconv.Quote(strconv.Itoa(keys[i]))
+		value := ""
+		if i < len(values) {
+			value = values[i]
+		}
+		parts = append(parts, key+":"+strconv.Quote(value))
+	}
+	return "{" + strings.Join(parts, ",") + "}" + "[\"${" + varName + "}\"]"
 }
 
 func pythonLiteral(v eval.Value) string {
@@ -693,7 +778,9 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	step.Use = ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	step.Use = resolution.Use
+	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
 
 	body := normalizeRawLiteral(block.Body)
 	step.Do = []interface{}{Literal(body)}
@@ -775,7 +862,9 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) St
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	use := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
+	use := append([]interface{}{}, resolution.Use...)
 	use = append(use,
 		submitSet,
 		UseEntry{From: "platform.xml", Value: "jobfiles"},
@@ -803,18 +892,26 @@ func submitParameterType(name string) string {
 	}
 }
 
-func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem) []interface{} {
-	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
-		return ctx.resolveStepUses(plan.ExplicitDelta)
-	}
-	return ctx.resolveStepUses(fallback)
+type stepUseResolution struct {
+	Use        []interface{}
+	SourceRows map[string]string
 }
 
-func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {
+func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem) stepUseResolution {
+	inheritedSteps := make([]string, 0)
+	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
+		inheritedSteps = append(inheritedSteps, plan.InheritedSteps...)
+		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta)
+	}
+	return ctx.resolveStepUses(stepName, inheritedSteps, fallback)
+}
+
+func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []ast.WithItem) stepUseResolution {
 	uses := make([]interface{}, 0)
 	grouped := make(map[string][]string)
 	groupOrder := make([]string, 0)
 	seenDirect := make(map[string]struct{})
+	sourceRows := ctx.inheritedRowsForStep(stepName, inheritedSteps)
 
 	for _, item := range items {
 		if item.From == "" {
@@ -853,51 +950,155 @@ func (ctx *lowerContext) resolveStepUses(items []ast.WithItem) []interface{} {
 	}
 
 	for _, source := range groupOrder {
-		subset := ctx.ensureSubsetParameterSet(source, grouped[source])
+		subset, rowsVar := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], sourceRows[source])
 		if subset != "" {
 			uses = append(uses, subset)
 		}
+		if rowsVar != "" {
+			sourceRows[source] = rowsVar
+		}
 	}
-	return uses
+	return stepUseResolution{
+		Use:        uses,
+		SourceRows: sourceRows,
+	}
 }
 
-func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) string {
-	k := subsetKey{Source: source, Vars: strings.Join(vars, ",")}
+func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[string]string {
+	out := make(map[string]string)
+	conflicts := make(map[string]struct{})
+	for _, dep := range inheritedSteps {
+		depRows := ctx.stepSourceRows[dep]
+		if len(depRows) == 0 {
+			continue
+		}
+		for source, rowsVar := range depRows {
+			if rowsVar == "" {
+				continue
+			}
+			if prev, exists := out[source]; exists && prev != rowsVar {
+				if _, reported := conflicts[source]; !reported {
+					ctx.diags.AddError(
+						"E232",
+						fmt.Sprintf("conflicting inherited row context for source '%s' in step '%s'", source, stepName),
+						ctx.stepSpan(stepName),
+						"ensure dependencies constrain the same source consistently",
+						diag.RelatedSpan{Message: fmt.Sprintf("dependency '%s'", dep), Span: ctx.stepSpan(dep)},
+					)
+				}
+				conflicts[source] = struct{}{}
+				delete(out, source)
+				continue
+			}
+			if _, bad := conflicts[source]; bad {
+				continue
+			}
+			out[source] = rowsVar
+		}
+	}
+	return out
+}
+
+func (ctx *lowerContext) stepSpan(stepName string) diag.Span {
+	for _, block := range ctx.res.DoBlocks {
+		if block.Name == stepName {
+			return block.Span
+		}
+	}
+	for _, block := range ctx.res.Submits {
+		if block.Name == stepName {
+			return block.Span
+		}
+	}
+	return diag.Span{}
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []string, inheritedRowsVar string) (string, string) {
+	k := subsetKey{
+		Step:          stepName,
+		Source:        source,
+		Vars:          strings.Join(vars, ","),
+		InheritedRows: inheritedRowsVar,
+	}
 	if existing, ok := ctx.subsetNames[k]; ok {
-		return existing
+		return existing.Name, existing.RowsVar
 	}
 
 	src := ctx.res.ParamByName[source]
 	if src == nil {
 		// Semantic analysis already reports unknown parameter set imports with
 		// precise spans. Skip lower-stage duplicate diagnostics.
-		return ""
+		return "", ""
 	}
-	rowCount := len(src.Rows)
-	if rowCount == 0 {
-		for _, name := range vars {
-			if n := len(src.Vars[name]); n > rowCount {
-				rowCount = n
-			}
-		}
-	}
+
+	rowCount := sourceRowCount(src)
 	if rowCount == 0 {
 		rowCount = 1
 	}
 
-	name := ctx.uniqueName("_jbs__subset_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
+	name := ctx.uniqueName("_jbs__subset_" + sanitize(stepName) + "_" + sanitize(source) + "__" + sanitize(strings.Join(vars, "_")))
+	rowsVar := "_jbs__rows_" + sanitize(name)
+	idxName := indexVariableName(name)
+	idxRef := "$" + idxName
+
 	valuesByName := make(map[string][]eval.Value, len(vars))
 	for _, variable := range vars {
 		valuesByName[variable] = valuesFor(src, variable, rowCount)
 	}
 
-	mask := firstOccurrenceMaskIndices(vars, valuesByName, rowCount)
-	if len(mask) == 0 {
-		mask = []int{0}
+	params := make([]Parameter, 0, len(vars)+2)
+	if inheritedRowsVar == "" {
+		groups := buildRowGroups(vars, valuesByName, rowCount)
+		repIndices := make([]int, 0, len(groups))
+		rowGroupStrings := make([]string, 0, len(groups))
+		for _, group := range groups {
+			repIndices = append(repIndices, group.Rep)
+			rowGroupStrings = append(rowGroupStrings, joinIntIndices(group.Rows))
+		}
+		if len(repIndices) == 0 {
+			repIndices = []int{0}
+			rowGroupStrings = []string{"0"}
+		}
+		params = append(params, Parameter{
+			Name:  idxName,
+			Type:  "int",
+			Mode:  "text",
+			Value: joinIntIndices(repIndices),
+		})
+		params = append(params, Parameter{
+			Name:      rowsVar,
+			Mode:      "python",
+			Separator: ReservedSeparator,
+			Value:     SingleQuoted(pythonStringMapLookupExpr(repIndices, rowGroupStrings, idxName)),
+		})
+		params = append(params, lowerIndexedPayloadParameters(vars, valuesByName, src.Modes, repIndices, idxRef, func(varName string) diag.Span {
+			return originFor(src, varName)
+		}, ctx.diags)...)
+	} else {
+		params = append(params, Parameter{
+			Name:      idxName,
+			Type:      "int",
+			Mode:      "text",
+			Separator: ",",
+			Value:     "$" + inheritedRowsVar,
+		})
+		params = append(params, Parameter{
+			Name:  rowsVar,
+			Mode:  "text",
+			Value: "${" + idxName + "}",
+		})
+		params = append(params, lowerContextualPayloadParameters(vars, valuesByName, src.Modes, idxRef, func(varName string) diag.Span {
+			return originFor(src, varName)
+		}, ctx.diags)...)
 	}
-	params := lowerIndexedParameters(vars, valuesByName, src.Modes, mask, indexVariableName(name), func(varName string) diag.Span {
-		return originFor(src, varName)
-	}, ctx.diags)
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
 		Name:      name,
@@ -905,32 +1106,57 @@ func (ctx *lowerContext) ensureSubsetParameterSet(source string, vars []string) 
 		Meta: ParameterSetMeta{
 			Kind:   ParameterSetKindSubset,
 			Source: source,
+			Step:   stepName,
 		},
 	})
 	ctx.names[name] = struct{}{}
-	ctx.subsetNames[k] = name
-	return name
+	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: rowsVar}
+	return name, rowsVar
 }
 
-func firstOccurrenceMaskIndices(vars []string, valuesByName map[string][]eval.Value, rowCount int) []int {
+type rowGroup struct {
+	Rep  int
+	Rows []int
+}
+
+func sourceRowCount(ps *sema.Paramset) int {
+	if ps == nil {
+		return 0
+	}
+	if n := len(ps.Rows); n > 0 {
+		return n
+	}
+	rowCount := 0
+	for _, name := range ps.Order {
+		if n := len(ps.Vars[name]); n > rowCount {
+			rowCount = n
+		}
+	}
+	return rowCount
+}
+
+func buildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int) []rowGroup {
 	if rowCount <= 0 {
 		return nil
 	}
 	if len(vars) == 0 {
-		return sequentialIndices(rowCount)
+		return []rowGroup{{Rep: 0, Rows: sequentialIndices(rowCount)}}
 	}
-
-	seen := make(map[string]struct{})
-	indices := make([]int, 0, rowCount)
+	indexByKey := make(map[string]int)
+	groups := make([]rowGroup, 0, rowCount)
 	for row := 0; row < rowCount; row++ {
 		key := tupleKeyAt(vars, valuesByName, row)
-		if _, exists := seen[key]; exists {
+		if idx, exists := indexByKey[key]; exists {
+			groups[idx].Rows = append(groups[idx].Rows, row)
 			continue
 		}
-		seen[key] = struct{}{}
-		indices = append(indices, row)
+		indexByKey[key] = len(groups)
+		groups = append(groups, rowGroup{
+			Rep:  row,
+			Rows: []int{row},
+		})
 	}
-	return indices
+	return groups
 }
 
 func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {

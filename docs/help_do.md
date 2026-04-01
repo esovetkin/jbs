@@ -28,6 +28,10 @@ do <name>
 - If `step1` has `after step0`, variables imported in `step0` are visible in `step1`.
 - If `step1` also uses `with ... from <same_paramset>`, jbs imports only variables that are not already inherited.
 - If the same variable name would come from different parameter sets (inherited vs explicit `with`), jbs raises an error.
+- jbs also preserves source-row constraints from inherited imports:
+  - direct-sum pairing (`+`) is not broken in downstream steps
+  - outer-product expansions (`*`) remain valid where expected
+- row constraints propagate transitively across chains such as `step0 -> step1 -> step2`.
 
 Example:
 

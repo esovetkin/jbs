@@ -146,6 +146,9 @@ func parameterSetComment(ps lower.ParameterSet) string {
 		}
 		return fmt.Sprintf("Param block '%s'", src)
 	case lower.ParameterSetKindSubset:
+		if ps.Meta.Step != "" && ps.Meta.Source != "" {
+			return fmt.Sprintf("Synthetic subset parameterset for step '%s' derived from '%s' for variable-only imports", ps.Meta.Step, ps.Meta.Source)
+		}
 		if ps.Meta.Source != "" {
 			return fmt.Sprintf("Synthetic subset parameterset derived from '%s' for variable-only imports", ps.Meta.Source)
 		}

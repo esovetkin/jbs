@@ -98,7 +98,7 @@ do task with a from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_param__a") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_task_param__a") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -106,20 +106,33 @@ do task with a from param {
 	if subset == nil {
 		t.Fatalf("expected subset parameterset for a import")
 	}
-	if len(subset.Parameter) != 2 {
-		t.Fatalf("expected i + a in subset, got %#v", subset.Parameter)
+	if len(subset.Parameter) != 3 {
+		t.Fatalf("expected i + rows + a in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_param__a" || subset.Parameter[0].Value != "0,2,4" {
+	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_task_param__a" || subset.Parameter[0].Value != "0,2,4" {
 		t.Fatalf("expected masked context index for subset, got %#v", subset.Parameter[0])
 	}
-	if subset.Parameter[1].Name != "a" || subset.Parameter[1].Mode != "python" {
-		t.Fatalf("expected python indexed a param, got %#v", subset.Parameter[1])
+	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_task_param__a" || subset.Parameter[1].Mode != "python" {
+		t.Fatalf("expected python rows context param, got %#v", subset.Parameter[1])
 	}
-	gotExpr, ok := subset.Parameter[1].Value.(lower.SingleQuoted)
+	if subset.Parameter[1].Separator != "####" {
+		t.Fatalf("expected rows context separator ####, got %#v", subset.Parameter[1].Separator)
+	}
+	rowsExpr, ok := subset.Parameter[1].Value.(lower.SingleQuoted)
 	if !ok {
-		t.Fatalf("expected single-quoted python expression, got %T", subset.Parameter[1].Value)
+		t.Fatalf("expected single-quoted rows lookup expression, got %T", subset.Parameter[1].Value)
 	}
-	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_param__a]" {
+	if string(rowsExpr) != "{\"0\":\"0,1\",\"2\":\"2,3\",\"4\":\"4,5\"}[\"${_jbs__idx__jbs__subset_task_param__a}\"]" {
+		t.Fatalf("unexpected rows context payload: %q", string(rowsExpr))
+	}
+	if subset.Parameter[2].Name != "a" || subset.Parameter[2].Mode != "python" {
+		t.Fatalf("expected python indexed a param, got %#v", subset.Parameter[2])
+	}
+	gotExpr, ok := subset.Parameter[2].Value.(lower.SingleQuoted)
+	if !ok {
+		t.Fatalf("expected single-quoted python expression, got %T", subset.Parameter[2].Value)
+	}
+	if string(gotExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_task_param__a]" {
 		t.Fatalf("unexpected subset a expression: %q", string(gotExpr))
 	}
 }
@@ -143,7 +156,7 @@ do task with (a,b) from param {
 	}
 	var subset *lower.ParameterSet
 	for i := range doc.ParameterSet {
-		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_param__a_b") {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, "_jbs__subset_task_param__a_b") {
 			subset = &doc.ParameterSet[i]
 			break
 		}
@@ -151,24 +164,37 @@ do task with (a,b) from param {
 	if subset == nil {
 		t.Fatalf("expected subset parameterset for (a,b) import")
 	}
-	if len(subset.Parameter) != 3 {
-		t.Fatalf("expected i + a + b in subset, got %#v", subset.Parameter)
+	if len(subset.Parameter) != 4 {
+		t.Fatalf("expected i + rows + a + b in subset, got %#v", subset.Parameter)
 	}
-	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_param__a_b" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
+	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_task_param__a_b" || subset.Parameter[0].Value != "0,1,2,3,4,5" {
 		t.Fatalf("unexpected tuple subset i mask: %#v", subset.Parameter[0])
 	}
-	if subset.Parameter[1].Mode != "python" || subset.Parameter[2].Mode != "python" {
+	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_task_param__a_b" || subset.Parameter[1].Mode != "python" {
+		t.Fatalf("expected rows helper for tuple subset, got %#v", subset.Parameter[1])
+	}
+	if subset.Parameter[1].Separator != "####" {
+		t.Fatalf("expected tuple rows helper separator ####, got %#v", subset.Parameter[1].Separator)
+	}
+	tupleRowsExpr, okTupleRows := subset.Parameter[1].Value.(lower.SingleQuoted)
+	if !okTupleRows {
+		t.Fatalf("expected single-quoted tuple rows lookup expression, got %T", subset.Parameter[1].Value)
+	}
+	if string(tupleRowsExpr) != "{\"0\":\"0\",\"1\":\"1\",\"2\":\"2\",\"3\":\"3\",\"4\":\"4\",\"5\":\"5\"}[\"${_jbs__idx__jbs__subset_task_param__a_b}\"]" {
+		t.Fatalf("unexpected tuple rows helper payload: %q", string(tupleRowsExpr))
+	}
+	if subset.Parameter[2].Mode != "python" || subset.Parameter[3].Mode != "python" {
 		t.Fatalf("expected python indexed tuple subset params, got %#v", subset.Parameter)
 	}
-	aExpr, okA := subset.Parameter[1].Value.(lower.SingleQuoted)
-	bExpr, okB := subset.Parameter[2].Value.(lower.SingleQuoted)
+	aExpr, okA := subset.Parameter[2].Value.(lower.SingleQuoted)
+	bExpr, okB := subset.Parameter[3].Value.(lower.SingleQuoted)
 	if !okA || !okB {
-		t.Fatalf("expected single-quoted tuple expressions, got %T %T", subset.Parameter[1].Value, subset.Parameter[2].Value)
+		t.Fatalf("expected single-quoted tuple expressions, got %T %T", subset.Parameter[2].Value, subset.Parameter[3].Value)
 	}
-	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_param__a_b]" {
+	if string(aExpr) != "[\"a\",\"a\",\"b\",\"b\",\"c\",\"c\"][$_jbs__idx__jbs__subset_task_param__a_b]" {
 		t.Fatalf("unexpected a expression: %q", string(aExpr))
 	}
-	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$_jbs__idx__jbs__subset_param__a_b]" {
+	if string(bExpr) != "[\"1\",\"2\",\"1\",\"2\",\"1\",\"2\"][$_jbs__idx__jbs__subset_task_param__a_b]" {
 		t.Fatalf("unexpected b expression: %q", string(bExpr))
 	}
 }
@@ -285,7 +311,7 @@ do setup with a from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "_jbs__subset_p1__") {
+			if strings.HasPrefix(s, "_jbs__subset_setup_p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -328,7 +354,7 @@ do setup with (a,b) from p1, p2 {
 			if s == "p2" {
 				hasP2 = true
 			}
-			if strings.HasPrefix(s, "_jbs__subset_p1__") {
+			if strings.HasPrefix(s, "_jbs__subset_setup_p1__") {
 				hasSubsetP1 = true
 			}
 		}
@@ -361,7 +387,7 @@ do s1 after s0 with p {
 	}
 	var hasSubsetB bool
 	for _, ps := range doc.ParameterSet {
-		if strings.Contains(ps.Name, "_jbs__subset_p__b") {
+		if strings.Contains(ps.Name, "_jbs__subset_s1_p__b") {
 			hasSubsetB = true
 			break
 		}
@@ -383,7 +409,7 @@ do s1 after s0 with p {
 		if s == "p" {
 			hasWhole = true
 		}
-		if strings.Contains(s, "_jbs__subset_p__b") {
+		if strings.Contains(s, "_jbs__subset_s1_p__b") {
 			hasSubset = true
 		}
 	}
@@ -417,6 +443,124 @@ do s1 after s0 with a from p {
 	}
 	if got := len(doc.Step[1].Use); got != 0 {
 		t.Fatalf("expected no explicit use entries for fully inherited imports, got %#v", doc.Step[1].Use)
+	}
+}
+
+func TestAfterInheritanceSubsetUsesInheritedRowsContext(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 after s0 with b from p {
+  echo ${a} ${b}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var subset *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if doc.ParameterSet[i].Name == "_jbs__subset_s1_p__b" {
+			subset = &doc.ParameterSet[i]
+			break
+		}
+	}
+	if subset == nil {
+		t.Fatalf("expected contextual subset for step s1")
+	}
+	if len(subset.Parameter) != 3 {
+		t.Fatalf("expected contextual subset params i + rows + b, got %#v", subset.Parameter)
+	}
+	if subset.Parameter[0].Name != "_jbs__idx__jbs__subset_s1_p__b" || subset.Parameter[0].Separator != "," {
+		t.Fatalf("expected contextual index with separator ',', got %#v", subset.Parameter[0])
+	}
+	if subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s0_p__a" {
+		t.Fatalf("expected inherited rows context reference, got %#v", subset.Parameter[0].Value)
+	}
+	if subset.Parameter[1].Name != "_jbs__rows__jbs__subset_s1_p__b" || subset.Parameter[1].Mode != "text" {
+		t.Fatalf("expected contextual rows helper, got %#v", subset.Parameter[1])
+	}
+	if subset.Parameter[1].Value != "${_jbs__idx__jbs__subset_s1_p__b}" {
+		t.Fatalf("expected contextual rows helper to mirror idx, got %#v", subset.Parameter[1].Value)
+	}
+}
+
+func TestAfterInheritanceTransitiveContextPropagation(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y","z")
+  c = ("u","v","w")
+  a * (b + c)
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 after s0 with b from p {
+  echo ${a} ${b}
+}
+do s2 after s1 with c from p {
+  echo ${a} ${b} ${c}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var s1Subset, s2Subset *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		switch doc.ParameterSet[i].Name {
+		case "_jbs__subset_s1_p__b":
+			s1Subset = &doc.ParameterSet[i]
+		case "_jbs__subset_s2_p__c":
+			s2Subset = &doc.ParameterSet[i]
+		}
+	}
+	if s1Subset == nil || s2Subset == nil {
+		t.Fatalf("expected contextual subsets for s1 and s2, got %#v", doc.ParameterSet)
+	}
+	if s1Subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s0_p__a" {
+		t.Fatalf("expected s1 contextual source from s0 rows helper, got %#v", s1Subset.Parameter[0].Value)
+	}
+	if s2Subset.Parameter[0].Value != "$_jbs__rows__jbs__subset_s1_p__b" {
+		t.Fatalf("expected s2 contextual source from s1 rows helper, got %#v", s2Subset.Parameter[0].Value)
+	}
+}
+
+func TestAfterInheritanceConflictingRowContextsRaiseError(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  c = ("u","v")
+  a + b + c
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 with b from p {
+  echo ${b}
+}
+do s2 after s0,s1 with c from p {
+  echo ${a} ${b} ${c}
+}
+`
+	_, diags := compileDoc(t, src)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E232" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E232 for conflicting inherited row contexts, got: %s", diags.String())
 	}
 }
 

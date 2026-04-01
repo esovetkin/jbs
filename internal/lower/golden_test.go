@@ -20,6 +20,18 @@ func TestGoldenResultsBasic(t *testing.T) {
 	assertGolden(t, "results_basic")
 }
 
+func TestGoldenAfterInheritZipPreserve(t *testing.T) {
+	assertGolden(t, "after_inherit_zip_preserve")
+}
+
+func TestGoldenAfterInheritProductExpand(t *testing.T) {
+	assertGolden(t, "after_inherit_product_expand")
+}
+
+func TestGoldenAfterInheritTransitiveChain(t *testing.T) {
+	assertGolden(t, "after_inherit_transitive_chain")
+}
+
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
 	inputPath := filepath.Join("..", "..", "tests", name+".jbs")
