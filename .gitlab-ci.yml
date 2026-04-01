@@ -10,6 +10,7 @@
 
 stages:
   - deploy
+  - jube_testing
 
 build_test_install:
   extends: .template
@@ -37,3 +38,39 @@ build_test_install:
     - INSTALL_NAME="jbs_${SAFE_SUFFIX}"
     - install -m 0755 jbs "$INSTALL_DIR/$INSTALL_NAME"
     - echo "Installed $INSTALL_DIR/$INSTALL_NAME"
+
+jube_testing:
+  extends: .template
+  stage: jube_testing
+  needs:
+    - build_test_install
+  variables:
+    INSTALL_DIR: "/p/project1/atmlaml/sovetkin1/jbs/bin"
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      variables:
+        INSTALL_SUFFIX: "$CI_COMMIT_TAG"
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+      variables:
+        INSTALL_SUFFIX: "$CI_COMMIT_BRANCH"
+    - when: never
+  script:
+    - module load JUBE
+    - SAFE_SUFFIX="$(printf '%s' "$INSTALL_SUFFIX" | sed 's#[^A-Za-z0-9._-]#_#g')"
+    - JBS_BIN="$INSTALL_DIR/jbs_${SAFE_SUFFIX}"
+    - test -x "$JBS_BIN"
+    - mkdir -p .jube-testing
+    - |
+      set -euo pipefail
+      for jbs_file in examples/*.jbs; do
+        name="$(basename "$jbs_file" .jbs)"
+        run_dir=".jube-testing/$name"
+        rm -rf "$run_dir"
+        mkdir -p "$run_dir"
+        "$JBS_BIN" "$CI_PROJECT_DIR/$jbs_file" -o "$run_dir/$name.yaml"
+        (
+          cd "$run_dir"
+          jube-autorun "$name.yaml"
+          jube status out | grep -q "FINISHED"
+        )
+      done

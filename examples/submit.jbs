@@ -1,0 +1,50 @@
+use submit_defaults from jsc
+
+param jobs
+{
+        id = (1, 2)
+        label = ("alpha", "beta")
+        id + label
+}
+
+do prep
+        with jobs
+{
+        echo "id=${id}" > prep.out
+        echo "label=${label}" >> prep.out
+}
+
+submit run0
+        after prep
+        use submit_defaults
+        with jobs
+{
+        account = "atmlaml"
+        executable = "/bin/bash"
+        args_exec = "-lc 'echo id=${id} > run.out; echo label=${label} >> run.out'"
+}
+
+analyse run0
+{
+        parsed_id = "id=%d" in "run.out"
+        parsed_label = "label=%w" in "run.out"
+
+        (id, label, parsed_id, parsed_label)
+}
+
+submit run1
+        after run0
+        use submit_defaults
+{
+        account = "atmlaml"
+        executable = "/bin/bash"
+        args_exec = "-lc 'echo id=${id} > run.out; echo label=${label} >> run.out'"
+}
+
+analyse run1
+{
+        parsed_id = "id=%d" in "run.out"
+        parsed_label = "label=%w" in "run.out"
+
+        (id, label, parsed_id, parsed_label)
+}

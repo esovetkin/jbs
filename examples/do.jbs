@@ -1,0 +1,83 @@
+param p0
+{
+        a = (0, 1, 2, 3, 4, 5)
+        b = ("a", "b", "c")
+        c = ("x", "z")
+        d = (true, false)
+
+        d * (a + b) + c
+}
+
+param p1
+{
+        a = ("a", "b")
+        b = (0, 1, 2, 3)
+        a + b
+}
+
+do step0
+        with a from p0
+{
+        echo "a=${a}" > step0.out
+}
+
+do step1
+        after step0
+        with (b, c) from p0
+{
+        echo "a=${a}" > step1.out
+        echo "b=${b}" >> step1.out
+        echo "c=${c}" >> step1.out
+}
+
+do step2
+        after step0
+        with b from p1, d from p0
+{
+        echo "a=${a}" > step2.out
+        echo "b=${b}" >> step2.out
+        echo "d=${d}" >> step2.out
+}
+
+do step3
+        after step2
+        with c from p0
+{
+        echo "a=${a}" > step3.out
+        echo "b=${b}" >> step3.out
+        echo "c=${c}" >> step3.out
+        echo "d=${d}" >> step3.out
+}
+
+do step4
+        after step1
+        with d from p0
+{
+        echo "a=${a}" > step4.out
+        echo "c=${c}" >> step4.out
+        echo "d=${d}" >> step4.out
+}
+
+do step5
+        after step3
+{
+        echo "a=${a}" > step5.out
+        echo "b=${b}" >> step5.out
+        echo "c=${c}" >> step5.out
+        echo "d=${d}" >> step5.out
+}
+
+do step_p1
+        with p1
+{
+        echo "a=${a}" > step_p1.out
+        echo "b=${b}" >> step_p1.out
+}
+
+analyse step5
+{
+        a_parsed = "a=%d" in "step5.out"
+        b_parsed = "b=%d" in "step5.out"
+
+        (a, b, c, d, a_parsed as "parsed_a", b_parsed as "parsed_b")
+}
