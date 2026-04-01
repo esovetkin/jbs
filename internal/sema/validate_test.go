@@ -1,6 +1,7 @@
 package sema_test
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/diag"
@@ -17,6 +18,32 @@ func diagCount(diags *diag.Diagnostics, code string) int {
 		}
 	}
 	return count
+}
+
+func hasW310For(diags *diag.Diagnostics, param, variable string) bool {
+	target := "exposed variable '" + variable + "' from param '" + param + "'"
+	for _, d := range diags.Items {
+		if d.Code != "W310" {
+			continue
+		}
+		if strings.Contains(d.Message, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func w310HintFor(diags *diag.Diagnostics, param, variable string) string {
+	target := "exposed variable '" + variable + "' from param '" + param + "'"
+	for _, d := range diags.Items {
+		if d.Code != "W310" {
+			continue
+		}
+		if strings.Contains(d.Message, target) {
+			return d.Hint
+		}
+	}
+	return ""
 }
 
 func TestImportRebindingIsLocal(t *testing.T) {
@@ -402,6 +429,9 @@ do run with p {
 	if got := diagCount(diags, "W310"); got != 1 {
 		t.Fatalf("expected exactly one W310, got %d: %s", got, diags.String())
 	}
+	if hint := w310HintFor(diags, "p", "b"); hint != "remove it from the final expression or reference it with $b/${b} in a step" {
+		t.Fatalf("unexpected W310 hint: %q", hint)
+	}
 	if got := diagCount(diags, "W311"); got != 0 {
 		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
 	}
@@ -546,6 +576,196 @@ do run with x from p {
 	}
 	if got := diagCount(diags, "W310"); got != 1 {
 		t.Fatalf("expected one W310 for y, got %d: %s", got, diags.String())
+	}
+}
+
+func TestW310OverlapUsesOnlyImportedOrigin(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+param p1 {
+  b = (3,4)
+  b
+}
+do s with b from p1 {
+  echo ${b}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 2 {
+		t.Fatalf("expected two W310 warnings, got %d: %s", got, diags.String())
+	}
+	if !hasW310For(diags, "p0", "a") {
+		t.Fatalf("expected W310 for p0.a, got: %s", diags.String())
+	}
+	if !hasW310For(diags, "p0", "b") {
+		t.Fatalf("expected W310 for p0.b, got: %s", diags.String())
+	}
+	if hasW310For(diags, "p1", "b") {
+		t.Fatalf("did not expect W310 for p1.b, got: %s", diags.String())
+	}
+}
+
+func TestW310ImportedButUnusedStillWarns(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("x","y")
+  a * b
+}
+do s0 with p0 {
+  echo ${a}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 1 {
+		t.Fatalf("expected one W310 warning, got %d: %s", got, diags.String())
+	}
+	if !hasW310For(diags, "p0", "b") {
+		t.Fatalf("expected W310 for p0.b, got: %s", diags.String())
+	}
+}
+
+func TestW310ComplexOverlapGraph(t *testing.T) {
+	src := `
+param p0
+{
+        a = (0, 1, 2, 3, 4, 5)
+        b = ("a", "b", "c")
+        c = ("x", "z")
+        d = (true, false)
+
+        d * (a + b) + c
+}
+
+param p1
+{
+        a = ("a", "b")
+        b = (0, 1, 2, 3)
+        a + b
+}
+
+do step0
+        with a from p0
+{
+        echo "a=${a}" > step0.out
+}
+
+do step1
+        after step0
+        with c from p0
+{
+        echo "a=${a}" > step1.out
+        echo "c=${c}" >> step1.out
+}
+
+do step2
+        after step0
+        with b from p1, d from p0
+{
+        echo "a=${a}" > step2.out
+        echo "b=${b}" >> step2.out
+        echo "d=${d}" >> step2.out
+}
+
+do step3
+        after step2
+        with c from p0
+{
+        echo "a=${a}" > step3.out
+        echo "b=${b}" >> step3.out
+        echo "c=${c}" >> step3.out
+        echo "d=${d}" >> step3.out
+}
+
+do step4
+        after step1
+        with d from p0
+{
+        echo "a=${a}" > step4.out
+        echo "c=${c}" >> step4.out
+        echo "d=${d}" >> step4.out
+}
+
+do step5
+        after step3
+{
+        echo "a=${a}" > step5.out
+        echo "b=${b}" >> step5.out
+        echo "c=${c}" >> step5.out
+        echo "d=${d}" >> step5.out
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 2 {
+		t.Fatalf("expected two W310 warnings, got %d: %s", got, diags.String())
+	}
+	if !hasW310For(diags, "p0", "b") {
+		t.Fatalf("expected W310 for p0.b, got: %s", diags.String())
+	}
+	if !hasW310For(diags, "p1", "a") {
+		t.Fatalf("expected W310 for p1.a, got: %s", diags.String())
+	}
+	if hasW310For(diags, "p0", "a") {
+		t.Fatalf("did not expect W310 for p0.a, got: %s", diags.String())
+	}
+	if hasW310For(diags, "p1", "b") {
+		t.Fatalf("did not expect W310 for p1.b, got: %s", diags.String())
+	}
+}
+
+func TestW311OverlapRemainsCompatible(t *testing.T) {
+	src := `
+param p0 {
+  b = ("x","y")
+  b
+}
+param p1 {
+  b = (1,2)
+  b
+}
+do s {
+  echo ${b}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one W311 warning, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 for unresolved overlap reference, got %d: %s", got, diags.String())
 	}
 }
 

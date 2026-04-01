@@ -1564,12 +1564,22 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		}
 	}
 
-	markUsed := func(name string) {
-		for _, psName := range paramsetsByVar[name] {
-			if _, ok := used[psName]; !ok {
-				used[psName] = make(map[string]bool)
-			}
-			used[psName][name] = true
+	markUsedExact := func(psName, name string) {
+		if _, ok := used[psName]; !ok {
+			used[psName] = make(map[string]bool)
+		}
+		used[psName][name] = true
+	}
+
+	markUsedByImports := func(name string, imports []importedVar) {
+		for _, imp := range imports {
+			markUsedExact(imp.Paramset, name)
+		}
+	}
+
+	markUsedCandidates := func(name string, candidates []string) {
+		for _, psName := range candidates {
+			markUsedExact(psName, name)
 		}
 	}
 
@@ -1609,10 +1619,12 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			if len(candidates) == 0 {
 				continue
 			}
-			markUsed(ref.Name)
-			if len(imports[ref.Name]) > 0 {
+			origins := imports[ref.Name]
+			if len(origins) > 0 {
+				markUsedByImports(ref.Name, origins)
 				continue
 			}
+			markUsedCandidates(ref.Name, candidates)
 			key := stepName + "::" + ref.Name
 			if _, exists := warned[key]; exists {
 				continue
@@ -1655,7 +1667,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				"W310",
 				fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, psName),
 				origin,
-				"remove it from the final expression or reference it with $name/${name} in a step",
+				fmt.Sprintf("remove it from the final expression or reference it with $%s/${%s} in a step", varName, varName),
 			)
 		}
 	}
