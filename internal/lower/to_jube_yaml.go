@@ -15,6 +15,8 @@ import (
 	"jbs/internal/sema"
 )
 
+// ReservedSeparator keeps grouped source-row IDs opaque in synthetic _jr__
+// helpers until inherited row-context expansion is explicitly requested.
 const ReservedSeparator = "####"
 
 type Literal string
@@ -794,10 +796,9 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 			if field.IsRaw {
 				raw := normalizeRawLiteral(field.Raw)
 				params = append(params, Parameter{
-					Name:      field.Name,
-					Mode:      "text",
-					Separator: "|",
-					Value:     Literal(raw),
+					Name:  field.Name,
+					Mode:  "text",
+					Value: Literal(raw),
 				})
 				continue
 			}
@@ -1075,8 +1076,10 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			Value: joinIntIndices(repIndices),
 		})
 		params = append(params, Parameter{
-			Name:      rowsVar,
-			Mode:      "python",
+			Name: rowsVar,
+			Mode: "python",
+			// Keep row groups like "0,1" opaque at this stage so they are
+			// transported as one value across step dependencies.
 			Separator: ReservedSeparator,
 			Value:     SingleQuoted(pythonStringMapLookupExpr(repIndices, rowGroupStrings, idxName)),
 		})
@@ -1085,9 +1088,10 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		}, ctx.diags)...)
 	} else {
 		params = append(params, Parameter{
-			Name:      idxName,
-			Type:      "int",
-			Mode:      "text",
+			Name: idxName,
+			Type: "int",
+			Mode: "text",
+			// In inherited context we intentionally split grouped row IDs.
 			Separator: ",",
 			Value:     "$" + inheritedRowsVar,
 		})

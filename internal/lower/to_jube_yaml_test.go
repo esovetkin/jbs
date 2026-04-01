@@ -623,6 +623,9 @@ submit run with p {
   preprocess = {
     export X=1
   }
+  postprocess = {
+    export Y=2
+  }
   args_exec = "echo ok"
 }
 `
@@ -650,6 +653,7 @@ submit run with p {
 	foundNodes := false
 	foundTasks := false
 	foundPreprocess := false
+	foundPostprocess := false
 	for _, p := range submitSet.Parameter {
 		if p.Name == "queue" {
 			foundQueue = true
@@ -677,6 +681,9 @@ submit run with p {
 			if p.Mode != "text" {
 				t.Fatalf("expected preprocess mode text, got %q", p.Mode)
 			}
+			if p.Separator != "" {
+				t.Fatalf("expected preprocess separator to be omitted, got %q", p.Separator)
+			}
 			body, ok := p.Value.(lower.Literal)
 			if !ok {
 				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
@@ -692,8 +699,24 @@ submit run with p {
 				t.Fatalf("expected normalized preprocess body, got: %q", text)
 			}
 		}
+		if p.Name == "postprocess" {
+			foundPostprocess = true
+			if p.Mode != "text" {
+				t.Fatalf("expected postprocess mode text, got %q", p.Mode)
+			}
+			if p.Separator != "" {
+				t.Fatalf("expected postprocess separator to be omitted, got %q", p.Separator)
+			}
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected postprocess literal payload, got %T", p.Value)
+			}
+			if string(body) != "export Y=2\n" {
+				t.Fatalf("expected normalized postprocess body, got: %q", string(body))
+			}
+		}
 	}
-	if !foundQueue || !foundNodes || !foundTasks || !foundPreprocess {
+	if !foundQueue || !foundNodes || !foundTasks || !foundPreprocess || !foundPostprocess {
 		t.Fatalf("missing required params in submit set: %#v", submitSet.Parameter)
 	}
 }

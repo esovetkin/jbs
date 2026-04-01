@@ -27,6 +27,7 @@ parameterset:
         type: int
         mode: text
         _: 0,1
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
       - name: _jr__setup__matrix__case
         mode: python
         separator: '####'
@@ -41,7 +42,6 @@ parameterset:
     parameter:
       - name: preprocess
         mode: text
-        separator: '|'
         _: |
           export X=1
       - name: args_exec

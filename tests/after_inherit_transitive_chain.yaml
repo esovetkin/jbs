@@ -30,6 +30,7 @@ parameterset:
         type: int
         mode: text
         _: 0,3
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
       - name: _jr__s0__p__a
         mode: python
         separator: '####'

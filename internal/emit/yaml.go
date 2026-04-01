@@ -60,6 +60,7 @@ func annotateParameterSets(seq *yaml.Node, sets []lower.ParameterSet) {
 			continue
 		}
 		setHeadComment(item, parameterSetComment(sets[i]))
+		annotateParameterEntries(mapValueNode(item, "parameter"), sets[i])
 	}
 }
 
@@ -100,6 +101,23 @@ func annotatePatternEntries(seq *yaml.Node, patterns []lower.Pattern) {
 			continue
 		}
 		comment := patternEntryComment(patterns[i])
+		if comment == "" {
+			continue
+		}
+		setHeadComment(item, comment)
+	}
+}
+
+func annotateParameterEntries(seq *yaml.Node, set lower.ParameterSet) {
+	if seq == nil || seq.Kind != yaml.SequenceNode {
+		return
+	}
+	for i := 0; i < len(set.Parameter) && i < len(seq.Content); i++ {
+		item := seqItem(seq, i)
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		comment := parameterEntryComment(set.Meta, set.Parameter[i])
 		if comment == "" {
 			continue
 		}
@@ -162,6 +180,16 @@ func parameterSetComment(ps lower.ParameterSet) string {
 	default:
 		return fmt.Sprintf("Generated parameterset '%s'", ps.Name)
 	}
+}
+
+func parameterEntryComment(meta lower.ParameterSetMeta, p lower.Parameter) string {
+	if meta.Kind != lower.ParameterSetKindSubset {
+		return ""
+	}
+	if !strings.HasPrefix(p.Name, "_jr__") || p.Separator != lower.ReservedSeparator {
+		return ""
+	}
+	return "Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing"
 }
 
 func stepComment(step lower.Step) string {

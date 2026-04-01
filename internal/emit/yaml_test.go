@@ -210,3 +210,75 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 		t.Fatalf("encoded yaml with comments does not parse: %v", err)
 	}
 }
+
+func TestYAMLRawSubmitBlocksOmitSeparatorKey(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		ParameterSet: []lower.ParameterSet{
+			{
+				Name:     "run__submit_params",
+				InitWith: "platform.xml:systemParameter",
+				Parameter: []lower.Parameter{
+					{Name: "preprocess", Mode: "text", Value: lower.Literal("export X=1\n")},
+					{Name: "postprocess", Mode: "text", Value: lower.Literal("export Y=2\n")},
+				},
+				Meta: lower.ParameterSetMeta{
+					Kind:   lower.ParameterSetKindSubmitInit,
+					Source: "run",
+				},
+			},
+		},
+	}
+
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if strings.Contains(text, "- name: preprocess\n        mode: text\n        separator:") {
+		t.Fatalf("preprocess must not emit separator key: %s", text)
+	}
+	if strings.Contains(text, "- name: postprocess\n        mode: text\n        separator:") {
+		t.Fatalf("postprocess must not emit separator key: %s", text)
+	}
+}
+
+func TestYAMLAnnotatesJRReservedSeparatorHelper(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		ParameterSet: []lower.ParameterSet{
+			{
+				Name: "_js__s0__p__a",
+				Parameter: []lower.Parameter{
+					{Name: "_ji__s0__p__a", Type: "int", Mode: "text", Value: "0,2"},
+					{
+						Name:      "_jr__s0__p__a",
+						Mode:      "python",
+						Separator: lower.ReservedSeparator,
+						Value:     lower.SingleQuoted("{\"0\":\"0,1\",\"2\":\"2,3\"}[\"${_ji__s0__p__a}\"]"),
+					},
+					{Name: "a", Mode: "python", Value: lower.SingleQuoted("[1,1,2,2][$_ji__s0__p__a]")},
+				},
+				Meta: lower.ParameterSetMeta{
+					Kind:   lower.ParameterSetKindSubset,
+					Source: "p",
+					Step:   "s0",
+				},
+			},
+		},
+	}
+
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing") {
+		t.Fatalf("missing _jr helper comment: %s", text)
+	}
+	if !strings.Contains(text, "separator: '####'") {
+		t.Fatalf("missing reserved separator output: %s", text)
+	}
+}
