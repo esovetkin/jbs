@@ -161,6 +161,73 @@ func TestParseFlagsFmtRejectsCheckFlag(t *testing.T) {
 	}
 }
 
+func TestParseFlagsPrintParamDefaults(t *testing.T) {
+	f, err := ParseFlags([]string{"printparam", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.PrintParam {
+		t.Fatalf("expected printparam mode")
+	}
+	if f.PrintType != "pretty" {
+		t.Fatalf("expected default print type pretty, got %q", f.PrintType)
+	}
+	if f.Output != "-" {
+		t.Fatalf("expected default output '-', got %q", f.Output)
+	}
+	if f.Input != "input.jbs" {
+		t.Fatalf("unexpected input: %s", f.Input)
+	}
+}
+
+func TestParseFlagsPrintParamPretty(t *testing.T) {
+	f, err := ParseFlags([]string{"printparam", "--type", "pretty", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.PrintType != "pretty" {
+		t.Fatalf("expected print type pretty, got %q", f.PrintType)
+	}
+}
+
+func TestParseFlagsPrintParamCSV(t *testing.T) {
+	f, err := ParseFlags([]string{"printparam", "-t=csv", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.PrintType != "csv" {
+		t.Fatalf("expected print type csv, got %q", f.PrintType)
+	}
+}
+
+func TestParseFlagsPrintParamOutput(t *testing.T) {
+	f, err := ParseFlags([]string{"printparam", "--output", "out.txt", "input.jbs"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f.Output != "out.txt" {
+		t.Fatalf("expected output out.txt, got %q", f.Output)
+	}
+}
+
+func TestParseFlagsPrintParamRejectsCheck(t *testing.T) {
+	if _, err := ParseFlags([]string{"printparam", "--check", "input.jbs"}); err == nil {
+		t.Fatalf("expected usage error for check flag in printparam mode")
+	}
+}
+
+func TestParseFlagsPrintParamRejectsUnknownType(t *testing.T) {
+	if _, err := ParseFlags([]string{"printparam", "-t", "json", "input.jbs"}); err == nil {
+		t.Fatalf("expected usage error for unknown printparam type")
+	}
+}
+
+func TestParseFlagsPrintParamMissingInput(t *testing.T) {
+	if _, err := ParseFlags([]string{"printparam", "-t", "pretty"}); err == nil {
+		t.Fatalf("expected usage error for missing printparam input")
+	}
+}
+
 func TestParseFlagsTooManyArgs(t *testing.T) {
 	_, err := ParseFlags([]string{"a.jbs", "b.jbs"})
 	if err == nil {

@@ -118,6 +118,137 @@ func TestRunHelpTemplateRejected(t *testing.T) {
 	}
 }
 
+func TestRunPrintParamPrettyStdout(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+
+do s0 with a from p {
+  echo ${a}
+}
+
+do s1 after s0 with b from p {
+  echo ${a} ${b}
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "pp.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	expected := strings.Join([]string{
+		"| p.a | p.b | step   |",
+		"|-----|-----|--------|",
+		"| 1   |     | do: s0 |",
+		"| 2   |     | do: s0 |",
+		"| 1   | x   | do: s1 |",
+		"| 2   | y   | do: s1 |",
+		"",
+	}, "\n")
+	if out.String() != expected {
+		t.Fatalf("unexpected pretty printparam output\n--- got ---\n%s\n--- expected ---\n%s", out.String(), expected)
+	}
+}
+
+func TestRunPrintParamCSVStdout(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+
+do s0 with a from p {
+  echo ${a}
+}
+
+do s1 after s0 with b from p {
+  echo ${a} ${b}
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "pp_csv.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam", "-t", "csv", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	expected := strings.Join([]string{
+		"p.a,p.b,step",
+		"1,,do: s0",
+		"2,,do: s0",
+		"1,x,do: s1",
+		"2,y,do: s1",
+		"",
+	}, "\n")
+	if out.String() != expected {
+		t.Fatalf("unexpected csv printparam output\n--- got ---\n%s\n--- expected ---\n%s", out.String(), expected)
+	}
+}
+
+func TestRunPrintParamOutputFile(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+
+do s with p {
+  echo ${a}
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "pp_out.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	outPath := filepath.Join(dir, "printparam.csv")
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam", "-t", "csv", "-o", outPath, in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected empty stdout for file output, got: %s", out.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "p.a,step\n1,do: s\n2,do: s\n") {
+		t.Fatalf("unexpected file output: %s", string(data))
+	}
+}
+
+func TestRunPrintParamUsageError(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam"}, &out, &errBuf)
+	if code != 2 {
+		t.Fatalf("expected exit 2, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>") {
+		t.Fatalf("expected printparam usage error, got: %s", errBuf.String())
+	}
+}
+
 func TestRunShowsSourceExcerptOnError(t *testing.T) {
 	src := `
 param p {

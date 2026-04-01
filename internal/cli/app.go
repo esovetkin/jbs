@@ -13,6 +13,7 @@ import (
 	jbsformat "jbs/internal/format"
 	"jbs/internal/lower"
 	"jbs/internal/parser"
+	"jbs/internal/printparam"
 	"jbs/internal/sema"
 )
 
@@ -37,6 +38,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	if flags.Fmt {
 		return runFmt(flags.Input, stdout, stderr)
+	}
+	if flags.PrintParam {
+		return runPrintParam(flags, stdout, stderr)
 	}
 	if flags.Input == "" {
 		fmt.Fprintln(stderr, "missing input file")
@@ -75,6 +79,47 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		_, err = stdout.Write(outBytes)
 	} else {
 		err = os.WriteFile(flags.Output, outBytes, 0o644)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to write output: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runPrintParam(flags Flags, stdout, stderr io.Writer) int {
+	src, err := os.ReadFile(flags.Input)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to read input file %q: %v\n", flags.Input, err)
+		return 1
+	}
+
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse(flags.Input, string(src), diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+		return 1
+	}
+
+	table := printparam.Build(res, diags)
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+	}
+	if diags.HasErrors() {
+		return 1
+	}
+
+	out, err := printparam.Render(table, printparam.RenderType(flags.PrintType))
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to render printparam output: %v\n", err)
+		return 1
+	}
+
+	if flags.Output == "-" {
+		_, err = io.WriteString(stdout, out)
+	} else {
+		err = os.WriteFile(flags.Output, []byte(out), 0o644)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to write output: %v\n", err)

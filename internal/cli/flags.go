@@ -6,17 +6,19 @@ import (
 )
 
 type Flags struct {
-	Input        string
-	Output       string
-	Check        bool
-	Fmt          bool
-	Help         bool
-	HelpAnalyse  bool
-	HelpDo       bool
-	HelpLet      bool
-	HelpParam    bool
-	HelpSubmit   bool
-	HelpGlobals  bool
+	Input       string
+	Output      string
+	Check       bool
+	Fmt         bool
+	PrintParam  bool
+	PrintType   string
+	Help        bool
+	HelpAnalyse bool
+	HelpDo      bool
+	HelpLet     bool
+	HelpParam   bool
+	HelpSubmit  bool
+	HelpGlobals bool
 }
 
 type UsageError struct {
@@ -82,6 +84,52 @@ func ParseFlags(args []string) (Flags, error) {
 		cfg.Output = ""
 		return cfg, nil
 	}
+	if args[0] == "printparam" {
+		cfg.PrintParam = true
+		cfg.PrintType = "pretty"
+		for i := 1; i < len(args); i++ {
+			arg := args[i]
+			switch {
+			case arg == "-t" || arg == "--type":
+				if i+1 >= len(args) {
+					return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+				}
+				i++
+				cfg.PrintType = args[i]
+			case strings.HasPrefix(arg, "--type="):
+				cfg.PrintType = strings.TrimPrefix(arg, "--type=")
+			case strings.HasPrefix(arg, "-t="):
+				cfg.PrintType = strings.TrimPrefix(arg, "-t=")
+			case arg == "-o" || arg == "--output":
+				if i+1 >= len(args) {
+					return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+				}
+				i++
+				cfg.Output = args[i]
+			case strings.HasPrefix(arg, "--output="):
+				cfg.Output = strings.TrimPrefix(arg, "--output=")
+			case strings.HasPrefix(arg, "-o="):
+				cfg.Output = strings.TrimPrefix(arg, "-o=")
+			case arg == "-c" || arg == "--check":
+				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+			case strings.HasPrefix(arg, "-"):
+				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+			default:
+				if cfg.Input == "" {
+					cfg.Input = arg
+					continue
+				}
+				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+			}
+		}
+		if cfg.Input == "" {
+			return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
+		}
+		if cfg.PrintType != "pretty" && cfg.PrintType != "csv" {
+			return Flags{}, UsageError{Message: fmt.Sprintf("unknown printparam type: %s", cfg.PrintType)}
+		}
+		return cfg, nil
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
@@ -124,6 +172,10 @@ Options:
 
 Read examples/help:
   jbs help [globals|param|do|submit|let|analyse]
+
+Inspect step parameter expansion:
+  jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+  defaults: -t pretty, -o -
 
 Format jbs in place:
   jbs fmt script.jbs`

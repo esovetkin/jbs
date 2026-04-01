@@ -77,8 +77,21 @@ Options:
 Read examples/help:
   jbs help [globals|param|do|submit|let|analyse]
 
+Inspect step parameter expansion:
+  jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+
 Format jbs in place:
   jbs fmt script.jbs
+```
+
+`printparam` defaults are `-t pretty` and `-o -` (stdout).
+
+```bash
+# pretty markdown table to stdout
+jbs printparam script.jbs
+
+# csv output to file
+jbs printparam -t csv -o params.csv script.jbs
 ```
 
 In `param`, `let`, `analyse`, `submit`, and top-level global assignments, statements can be separated by either newlines or `;`.
