@@ -26,9 +26,15 @@ type wpState struct {
 
 type sourceGroup struct {
 	Source string
-	Vars   []string
+	Kind   sema.SourceKind
+	Vars   []sourceVar
 	Full   bool
 	Span   diag.Span
+}
+
+type sourceVar struct {
+	Visible   string
+	SourceVar string
 }
 
 type sourceChoice struct {
@@ -42,7 +48,7 @@ type rowGroup struct {
 }
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
-	columns := collectQualifiedColumns(res.Paramsets)
+	columns := collectQualifiedColumns(res.ImportSourceByName)
 	steps := collectStepsInProgramOrder(res.Program)
 	defs := make(map[string]stepDef, len(steps))
 	preferred := make([]string, 0, len(steps))
@@ -56,8 +62,8 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 		step := defs[stepName]
 		plan := res.StepImportByName[stepName]
 		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
-		groups := groupExplicitDeltaBySource(plan, res.ParamByName)
-		statesByStep[stepName] = expandStep(parents, groups, res.ParamByName, step.Span, diags)
+		groups := groupExplicitDeltaBySource(plan, res.ImportSourceByName)
+		statesByStep[stepName] = expandStep(parents, groups, res.ImportSourceByName, step.Span, diags)
 	}
 
 	rows := make([]Row, 0)
@@ -68,15 +74,19 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 			vals := make(map[string]string)
 			for name, value := range state.Values {
 				originParam := ""
+				sourceVar := name
 				if plan != nil {
 					if origin, ok := plan.Effective[name]; ok {
 						originParam = origin.Paramset
+						if origin.SourceVar != "" {
+							sourceVar = origin.SourceVar
+						}
 					}
 				}
 				if originParam == "" {
 					continue
 				}
-				vals[originParam+"."+name] = value.String()
+				vals[originParam+"."+sourceVar] = value.String()
 			}
 			rows = append(rows, Row{
 				StepKind: step.Kind,
@@ -89,15 +99,21 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	return Table{Columns: columns, Rows: rows}
 }
 
-func collectQualifiedColumns(paramsets []*sema.Paramset) []string {
+func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {
 	out := make([]string, 0)
 	seen := make(map[string]struct{})
-	for _, ps := range paramsets {
-		if ps == nil {
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, sourceName := range names {
+		src := sources[sourceName]
+		if src == nil {
 			continue
 		}
-		for _, name := range exposedVarNames(ps) {
-			key := ps.Name + "." + name
+		for _, name := range sourceVarNames(src) {
+			key := src.Name + "." + name
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -200,43 +216,48 @@ func inheritParentStates(after []string, byStep map[string][]wpState, at diag.Sp
 	return combined
 }
 
-func groupExplicitDeltaBySource(plan *sema.StepImportPlan, params map[string]*sema.Paramset) []sourceGroup {
+func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*sema.ImportSource) []sourceGroup {
 	if plan == nil {
 		return nil
 	}
 	order := make([]string, 0)
 	bySource := make(map[string]*sourceGroup)
 	for _, item := range plan.ExplicitDelta {
-		source := item.From
-		full := false
-		if source == "" {
-			source = item.Name
-			full = true
-		}
+		source := item.Source
 		if source == "" {
 			continue
 		}
 		g, ok := bySource[source]
 		if !ok {
-			g = &sourceGroup{Source: source, Vars: make([]string, 0), Span: item.Span}
+			g = &sourceGroup{Source: source, Kind: item.Kind, Vars: make([]sourceVar, 0), Span: item.Span}
 			bySource[source] = g
 			order = append(order, source)
 		}
 		if g.Span.IsZero() {
 			g.Span = item.Span
 		}
-		if full {
+		if item.Full {
 			g.Full = true
-			if ps := params[source]; ps != nil {
-				g.Vars = exposedVarNames(ps)
+			if src := sources[source]; src != nil {
+				for _, name := range sourceVarNames(src) {
+					if containsSourceVisible(g.Vars, name) {
+						continue
+					}
+					g.Vars = append(g.Vars, sourceVar{Visible: name, SourceVar: name})
+				}
 			}
 			continue
 		}
-		if g.Full {
-			continue
+		visible := item.Visible
+		if visible == "" {
+			visible = item.SourceVar
 		}
-		if !containsString(g.Vars, item.Name) {
-			g.Vars = append(g.Vars, item.Name)
+		sourceVarName := item.SourceVar
+		if sourceVarName == "" {
+			sourceVarName = visible
+		}
+		if !containsSourceVisible(g.Vars, visible) {
+			g.Vars = append(g.Vars, sourceVar{Visible: visible, SourceVar: sourceVarName})
 		}
 	}
 
@@ -249,7 +270,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, params map[string]*se
 	return out
 }
 
-func expandStep(parents []wpState, groups []sourceGroup, params map[string]*sema.Paramset, at diag.Span, diags *diag.Diagnostics) []wpState {
+func expandStep(parents []wpState, groups []sourceGroup, sources map[string]*sema.ImportSource, at diag.Span, diags *diag.Diagnostics) []wpState {
 	if len(parents) == 0 {
 		return nil
 	}
@@ -257,7 +278,7 @@ func expandStep(parents []wpState, groups []sourceGroup, params map[string]*sema
 	for _, group := range groups {
 		next := make([]wpState, 0)
 		for _, state := range states {
-			choices := buildChoices(state, group, params)
+			choices := buildChoices(state, group, sources)
 			for _, choice := range choices {
 				merged, ok := mergeWithChoice(state, group.Source, choice, at, diags)
 				if !ok {
@@ -274,12 +295,12 @@ func expandStep(parents []wpState, groups []sourceGroup, params map[string]*sema
 	return states
 }
 
-func buildChoices(state wpState, group sourceGroup, params map[string]*sema.Paramset) []sourceChoice {
-	ps := params[group.Source]
-	if ps == nil {
+func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.ImportSource) []sourceChoice {
+	src := sources[group.Source]
+	if src == nil {
 		return nil
 	}
-	rowCount := sourceRowCount(ps)
+	rowCount := sourceRowCount(src)
 	if rowCount == 0 {
 		rowCount = 1
 	}
@@ -287,13 +308,21 @@ func buildChoices(state wpState, group sourceGroup, params map[string]*sema.Para
 	vars := group.Vars
 	if group.Full {
 		if len(vars) == 0 {
-			vars = exposedVarNames(ps)
+			for _, name := range sourceVarNames(src) {
+				vars = append(vars, sourceVar{Visible: name, SourceVar: name})
+			}
 		}
 	}
 
 	valuesByName := make(map[string][]eval.Value, len(vars))
-	for _, name := range vars {
-		valuesByName[name] = valuesFor(ps, name, rowCount)
+	visibleNames := make([]string, 0, len(vars))
+	for _, v := range vars {
+		sourceVarName := v.SourceVar
+		if sourceVarName == "" {
+			sourceVarName = v.Visible
+		}
+		valuesByName[v.Visible] = valuesFor(src, sourceVarName, rowCount)
+		visibleNames = append(visibleNames, v.Visible)
 	}
 
 	if rows, ok := state.SourceRows[group.Source]; ok && len(rows) > 0 {
@@ -302,8 +331,8 @@ func buildChoices(state wpState, group sourceGroup, params map[string]*sema.Para
 			if idx < 0 || idx >= rowCount {
 				continue
 			}
-			vals := make(map[string]eval.Value, len(vars))
-			for _, name := range vars {
+			vals := make(map[string]eval.Value, len(visibleNames))
+			for _, name := range visibleNames {
 				series := valuesByName[name]
 				value := eval.Null()
 				if idx < len(series) {
@@ -322,8 +351,8 @@ func buildChoices(state wpState, group sourceGroup, params map[string]*sema.Para
 	if group.Full {
 		choices := make([]sourceChoice, 0, rowCount)
 		for idx := 0; idx < rowCount; idx++ {
-			vals := make(map[string]eval.Value, len(vars))
-			for _, name := range vars {
+			vals := make(map[string]eval.Value, len(visibleNames))
+			for _, name := range visibleNames {
 				series := valuesByName[name]
 				value := eval.Null()
 				if idx < len(series) {
@@ -339,11 +368,11 @@ func buildChoices(state wpState, group sourceGroup, params map[string]*sema.Para
 		return choices
 	}
 
-	groups := buildRowGroups(vars, valuesByName, rowCount)
+	groups := buildRowGroups(visibleNames, valuesByName, rowCount)
 	choices := make([]sourceChoice, 0, len(groups))
 	for _, grp := range groups {
-		vals := make(map[string]eval.Value, len(vars))
-		for _, name := range vars {
+		vals := make(map[string]eval.Value, len(visibleNames))
+		for _, name := range visibleNames {
 			series := valuesByName[name]
 			value := eval.Null()
 			if grp.Rep >= 0 && grp.Rep < len(series) {
@@ -441,36 +470,22 @@ func cloneStateSlice(states []wpState) []wpState {
 	return out
 }
 
-func sourceRowCount(ps *sema.Paramset) int {
-	if ps == nil {
+func sourceRowCount(src *sema.ImportSource) int {
+	if src == nil {
 		return 0
 	}
-	if n := len(ps.Rows); n > 0 {
-		return n
-	}
 	rowCount := 0
-	for _, name := range ps.Order {
-		if n := len(ps.Vars[name]); n > rowCount {
+	for _, name := range sourceVarNames(src) {
+		if n := len(src.Vars[name]); n > rowCount {
 			rowCount = n
 		}
 	}
 	return rowCount
 }
 
-func valuesFor(ps *sema.Paramset, name string, rowCount int) []eval.Value {
+func valuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
 	values := make([]eval.Value, 0, rowCount)
-	if len(ps.Rows) > 0 {
-		for _, row := range ps.Rows {
-			if cell, ok := row.Values[name]; ok {
-				values = append(values, cell.Value)
-			}
-		}
-		if len(values) == rowCount {
-			return values
-		}
-	}
-
-	base := ps.Vars[name]
+	base := src.Vars[name]
 	if len(base) == 0 {
 		for i := 0; i < rowCount; i++ {
 			values = append(values, eval.Null())
@@ -550,17 +565,17 @@ func valueKey(v eval.Value) string {
 	}
 }
 
-func exposedVarNames(ps *sema.Paramset) []string {
-	if ps == nil {
+func sourceVarNames(src *sema.ImportSource) []string {
+	if src == nil {
 		return nil
 	}
-	if len(ps.Order) > 0 {
-		out := make([]string, len(ps.Order))
-		copy(out, ps.Order)
+	if len(src.Order) > 0 {
+		out := make([]string, len(src.Order))
+		copy(out, src.Order)
 		return out
 	}
-	names := make([]string, 0, len(ps.Vars))
-	for name := range ps.Vars {
+	names := make([]string, 0, len(src.Vars))
+	for name := range src.Vars {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -612,6 +627,15 @@ func uniqueStrings(items []string) []string {
 func containsString(items []string, value string) bool {
 	for _, item := range items {
 		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSourceVisible(items []sourceVar, visible string) bool {
+	for _, item := range items {
+		if item.Visible == visible {
 			return true
 		}
 	}

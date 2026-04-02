@@ -34,10 +34,10 @@ submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
                  "preprocess" | "postprocess"
 submit_value  := expr | raw_block
 
-analyse_block := "analyse" IDENT "{" analyse_stmt* analyse_tuple "}"
+analyse_block := "analyse" IDENT with_clause? "{" analyse_stmt* analyse_tuple "}"
 analyse_stmt  := IDENT "=" expr ("in" STRING)?
 analyse_tuple := "(" analyse_col ("," analyse_col)* ","? ")"
-analyse_col   := (IDENT | IDENT "." IDENT) ("as" STRING)?
+analyse_col   := IDENT ("as" STRING)?
 ```
 
 ## Statement Separators
@@ -72,7 +72,6 @@ Supported assignment expressions:
 - scalar literals: string/int/float/bool
 - tuples/lists
 - identifiers
-- qualified identifiers: `namespace.variable`
 - unary `+`, `-`
 - binary `+`, `-`, `*`, `/`, `%`
 - comparison operators
@@ -219,7 +218,7 @@ let p {
 }
 ```
 
-`namespace.variable` can be used in `param`, `submit`, and `analyse` expressions.
+Import variables with `with`.
 
 `param` can import a full let namespace into local scope:
 
@@ -231,7 +230,8 @@ param cases with p {
 }
 ```
 
-Nested tuples/lists are rejected (`E305`) in `let`, `param`, submit expression fields, and analyse helper assignments.
+Tuple/list values are rejected in `let` (`E403`).
+Nested tuples/lists are rejected (`E305`) in `param`, submit expression fields, and analyse helper assignments.
 
 ## Import Semantics (`with`)
 
@@ -260,6 +260,12 @@ In `do`/`submit`:
 - when a dependent step imports additional variables from the same source, jbs refines that inherited source-row context instead of creating an independent Cartesian dimension.
 - this source-row context propagation is transitive across `after` chains (for example, `step0 -> step1 -> step2`).
 
+In `analyse`:
+
+- `with` imports are allowed only from `let` namespaces.
+- imported let variables in `analyse` must be strings (`E422`).
+- `with` imports from `param` are rejected (`E420`).
+
 ## Lowering to JUBE YAML
 
 ### `param` lowering
@@ -279,16 +285,6 @@ parameterset:
       - { name: _ji_grouped, type: int, mode: text, _: "0,1,2" }
       - { name: a, mode: python, _: "[1,2,1][$_ji_grouped]" }
       - { name: b, mode: python, _: "['x','y','z'][$_ji_grouped]" }
-```
-
-Compact jbs source for the indexed YAML example above:
-
-```jbs
-param grouped {
-        a = (1, 2)
-        b = ("x", "y", "z")
-        a + b
-}
 ```
 
 ### `do` lowering
@@ -327,9 +323,9 @@ let p {
   letter = "Letter: %w"
 }
 
-analyse write {
-  p0 = p.number in "en"
-  p1 = p.letter in "en"
+analyse write with p {
+  p0 = number in "en"
+  p1 = letter in "en"
   # `as "letter"` sets the output column name for `p1`;
   # columns for `a` and `p0` keep their original names.
   (a, p0, p1 as "letter")
@@ -451,6 +447,7 @@ Key codes:
 - `E400`: duplicate `let` block name.
 - `E401`: duplicate variable name in a `let` block.
 - `E402`: invalid placeholder in analyse extraction expression.
+- `E403`: let variable must be scalar.
 - `E410`: unknown analyse target step.
 - `E412`: analyse extraction expression does not evaluate to string.
 - `E413`: analyse extraction alias collides with a step-visible variable.
@@ -458,6 +455,8 @@ Key codes:
 - `E415`: unknown symbol in analyse result tuple.
 - `E416`: malformed analyse assignment syntax.
 - `E417`: analyse block missing or malformed final tuple.
+- `E420`: analyse with-clause imports from non-let source.
+- `E422`: analyse with-clause imported let variable is not string-valued.
 - `W101`: `+` length mismatch with non-divisible lengths; cyclic broadcast applied.
 - `W300`: top-level global reassigned; last value wins.
 - `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.

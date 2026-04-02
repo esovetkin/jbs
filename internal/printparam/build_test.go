@@ -213,3 +213,28 @@ do s with p, q {
 		}
 	}
 }
+
+func TestBuildLetSourceImport(t *testing.T) {
+	src := `
+let l {
+  x = 1
+  y = "a"
+}
+do s with l {
+  echo ${x} ${y}
+}
+`
+	res := compileForPrintParam(t, src)
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected build errors: %s", diags.String())
+	}
+	rows := stepRows(table, "s")
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].Values["l.x"] != "1" || rows[0].Values["l.y"] != "a" {
+		t.Fatalf("unexpected row 0 values: %#v", rows[0].Values)
+	}
+}

@@ -4,7 +4,7 @@ Disclaimer: JBS is still in early development and may contain bugs. If you find 
 
 ## Motivation and Quick Start
 
-[JUBE](https://apps.fz-juelich.de/jsc/jube/docu/) configuration files can be tedious to write. They contain repetitive syntax, their structure is often non-local (you need to jump across sections to match names), and small YAML indentation mistakes can break runs. The goal of JBS is to simplify this workflow and help users create JUBE configurations faster and more safely.
+[JUBE](https://apps.fz-juelich.de/jsc/jube/docu/) configuration files can be tedious to write. They contain repetitive syntax, their structure is often non-local (you need to jump across sections to match names), and small YAML indentation mistakes can break runs. The goal of JBS is to simplify this workflow and help users create JUBE configurations faster and more safely. See [docs/motivation.md](docs/motivation.md) for more details.
 
 Here is a small example. The following script runs `ex_step` six times (without Slurm job submission) and creates a result table from parsed output.
 
@@ -46,7 +46,7 @@ analyse ex_step {
 ...
 ```
 
-In addition to compiling JUBE configuration files, JBS reports useful errors and warnings, such as unused variables, missing imports, variable name collisions, and circular dependencies. See [docs/motivation.md](docs/motivation.md) for more details.
+In addition to compiling JUBE configuration files, JBS reports useful errors and warnings, such as unused variables, missing imports, variable name collisions, and circular dependencies.
 
 ## Build and Test
 
@@ -104,20 +104,23 @@ See `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
 
 ### `let <namespace> { name = "regex-with-%d/%f/%w" ... }`
 
-`let` defines namespaced variables that can be reused across the script. In `analyse`, pattern expressions can reference `let` variables (for example `p.number`) or inline strings. Placeholder shortcuts (`%d`, `%f`, `%w`) follow JUBE pattern conventions. See lowering details [here](docs/language.md#let--analyse-lowering).
+`let` defines reusable scalar variables. `let` values must be scalar (`string|int|float|bool` or `shell()/python()` strings).
 
 See `jbs help let` or [docs/help_let.md](docs/help_let.md).
 
-### `analyse <step_name> { ... }`
+### `analyse <step_name> [with ...] { ... }`
 
-`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Extraction assignments use either `let` references (`namespace.variable`) or inline string expressions before `in "file"`. The final tuple defines output columns.
+`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. The pattern variables are defined in extraction expressions or imported via `with` (let-only, string-only).
 
 ```jbs
-analyse <step_name> {
-        value = expression in "file"
+analyse <step_name>
+        [with <let_ns>, <var> from <let_ns2>, ...]
+{
+        value0 = expression in "file"
+        value1 = "<pattern>" in "file"
         ...
 
-        (value [as "column_name"], ...)
+        (value0 [as "column_name"], value1, ...)
 }
 ```
 
@@ -155,5 +158,7 @@ See [docs/language.md](docs/language.md) for grammar and semantics.
 - [JUBE's include path](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-include_tag).
 
   I have never used this, so I need examples to understand the functionality and decide the best way to include it in JBS.
+
+- non-slurm `submit`s could be implemented through an argument
 
 Useful link to the [general JUBE structure](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-general_structure_yaml).

@@ -56,6 +56,7 @@ func (l LetBlock) GetSpan() diag.Span { return l.Span }
 
 type AnalyseBlock struct {
 	StepName    string
+	WithItems   []WithItem
 	Assignments []AnalyseAssign
 	Columns     []AnalyseColumn
 	BodyRaw     string

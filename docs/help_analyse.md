@@ -18,6 +18,7 @@ Reference:
 
 ```jbs
 analyse <step_name>
+        [with <let_ns>, <var> from <let_ns2>, ...]
 {
         # helper assignment (compile-time expression binding)
         helper = <expr>
@@ -32,8 +33,9 @@ analyse <step_name>
 
 Rules:
 - `<step_name>` must be a declared `do` or `submit` block.
-- Extraction expressions must evaluate to a string.
-- `<expr>` in extraction can be a let reference (`ns.var`) or an inline string expression.
+- `with` in `analyse` can import only from `let` namespaces.
+- Imported `let` variables in `analyse` must be strings.
+- Extraction expressions must evaluate to string.
 - Left-hand extraction aliases become available in the final tuple.
 - The final tuple is required and defines result columns.
 - `as "..."` sets a custom column heading.
@@ -42,7 +44,7 @@ Rules:
 Compact one-line example:
 
 ```jbs
-analyse write { n = p.number in "out"; w = p.word in "out"; (n, w); }
+analyse write with p { n = number in "out"; w = word in "out"; (n, w); }
 ```
 
 ## Minimal end-to-end example
@@ -68,10 +70,10 @@ let pat
 }
 
 analyse write_number
+        with pat
 {
-        en_pat = pat.number_en
-        en = en_pat in "en"
-        de = pat.number_de in "de"
+        en = number_en in "en"
+        de = number_de in "de"
 
         (number, en as "Number", de as "Zahl")
 }
@@ -107,10 +109,11 @@ let p
 }
 
 analyse run
+        with p
 {
-        rt = p.runtime in "job.out"
-        ls = p.loss in "job.out"
-        cs = p.case_name in "meta.out"
+        rt = runtime in "job.out"
+        ls = loss in "job.out"
+        cs = case_name in "meta.out"
 
         (case, cs as "parsed_case", rt as "runtime_s", ls as "final_loss")
 }
@@ -133,8 +136,9 @@ let p
 }
 
 analyse bench
+        with p
 {
-        t = p.runtime in "job.out"
+        t = runtime in "job.out"
         (t as "runtime_seconds")
 }
 ```
@@ -143,9 +147,10 @@ analyse bench
 
 ```jbs
 analyse write
+        with p
 {
-        p0 = p.number_en in "en"
-        p1 = p.number_de in "de"
+        p0 = number_en in "en"
+        p1 = number_de in "de"
 
         (number, p0, p1 as "German")
 }

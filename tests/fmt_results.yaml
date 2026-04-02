@@ -16,7 +16,8 @@ let g
 }
 
 analyse write
+        with g
 {
-        x=g.n in "out"
+        x=n in "out"
         (a,x as "num")
 }

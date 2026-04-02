@@ -1,8 +1,8 @@
 # jbs help let
 
-The `let` block defines a namespace of reusable variables.
+The `let` block defines a namespace of reusable scalar variables.
 
-You can reference values from a let namespace using `<namespace>.<variable>` in `param`, `submit`, and `analyse` expressions.
+`let` values can be imported with `with` in `param`, `do`, `submit`, and `analyse`.
 
 ## Syntax
 
@@ -14,6 +14,14 @@ let <name>
         ...
 }
 ```
+
+## Rules
+
+- `let` values must be scalar.
+- Allowed value kinds: string, int, float, bool.
+- `shell("...")` and `python("...")` are allowed as scalar string-producing assignments.
+- Tuple/list values are not allowed in `let`.
+- Import variables with `with` and use unqualified names.
 
 ## Example
 
@@ -40,15 +48,48 @@ do write
 }
 
 analyse write
+        with p
 {
-        n = p.number in "out.log"
-        w = "Word: %w" in "out.log"
+        n = number in "out.log"
+        w = letter in "out.log"
         (n, w)
 }
 ```
 
+## Step Imports from `let`
+
+`do`/`submit` support all `with` forms for let namespaces:
+
+```jbs
+let l
+{
+        systemname = shell("hostname")
+        queue = "batch"
+}
+
+do s1
+        with l
+{
+        echo ${systemname} ${queue}
+}
+
+do s2
+        with systemname from l
+{
+        echo ${systemname}
+}
+
+do s3
+        with (systemname, queue) from l
+{
+        echo ${systemname} ${queue}
+}
+```
+
+For step imports from `let`, jbs generates synthetic YAML `parameterset` entries and adds them to `step.use`.
+
 ## Notes
 
-- Flat tuples/lists are allowed in `let` assignments.
-- Nested tuple/list values are rejected.
 - In `param`, `with <let_name>` imports all let variables into local scope.
+- In `analyse`, `with` imports are allowed only from `let` namespaces and imported let variables must be strings.
+- `W310`/`W311` also apply to variables defined in `let` blocks.

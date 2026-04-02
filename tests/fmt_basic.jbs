@@ -10,7 +10,7 @@ c=(1, 2)
 a*b*c
 }
 
-do task with a from paramset{
+do task with (a,b,c) from paramset{
 echo ${a} ${b} ${c}
 }
 

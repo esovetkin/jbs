@@ -282,3 +282,33 @@ func TestYAMLAnnotatesJRReservedSeparatorHelper(t *testing.T) {
 		t.Fatalf("missing reserved separator output: %s", text)
 	}
 }
+
+func TestYAMLAnnotatesLetSubsetParameterSetComment(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		ParameterSet: []lower.ParameterSet{
+			{
+				Name: "_js__s0__l__systemname",
+				Parameter: []lower.Parameter{
+					{Name: "_ji__s0__l__systemname", Type: "int", Mode: "text", Value: "0"},
+					{Name: "systemname", Mode: "shell", Value: "hostname"},
+				},
+				Meta: lower.ParameterSetMeta{
+					Kind:   lower.ParameterSetKindSubset,
+					Source: "l",
+					Step:   "s0",
+				},
+			},
+		},
+	}
+
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "Synthetic subset parameterset for step 's0' derived from 'l' for variable-only imports") {
+		t.Fatalf("missing let subset comment: %s", text)
+	}
+}

@@ -122,7 +122,7 @@ func formatLetBlock(l ast.LetBlock) []string {
 }
 
 func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, nil)
+	lines := renderBlockHeader("analyse", a.StepName, nil, a.WithItems)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)

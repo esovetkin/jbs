@@ -12,7 +12,7 @@ param paramset
 }
 
 do task
-        with a from paramset
+        with a from paramset, b from paramset, c from paramset
 {
         echo ${a} ${b} ${c}
 }

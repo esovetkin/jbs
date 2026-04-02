@@ -231,9 +231,9 @@ func TestFormatAnalyseInlineBodyIndentation(t *testing.T) {
 let p{number = "Number: %d"
         word = "Word: %w"
 }
-analyse write{x = p.number
+analyse write with p{x = number
         n = x in "out"
-        w = p.word in "out"
+        w = word in "out"
                  (n, w)
 }
 `
@@ -258,10 +258,11 @@ let p
 }
 
 analyse write
+        with p
 {
-        x = p.number
+        x = number
         n = x in "out"
-        w = p.word in "out"
+        w = word in "out"
         (n, w)
 }
 `

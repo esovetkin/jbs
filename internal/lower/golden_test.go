@@ -32,6 +32,10 @@ func TestGoldenAfterInheritTransitiveChain(t *testing.T) {
 	assertGolden(t, "after_inherit_transitive_chain")
 }
 
+func TestGoldenLetStepImports(t *testing.T) {
+	assertGolden(t, "let_step_imports")
+}
+
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
 	inputPath := filepath.Join("..", "..", "tests", name+".jbs")

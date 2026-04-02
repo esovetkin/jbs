@@ -12,7 +12,7 @@ do run
 with p, a from p
 after prep
 {
-  echo ${a}
+  echo ${a} ${b}
 }
 
 submit bench

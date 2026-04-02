@@ -370,6 +370,16 @@ func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
 
 func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 	stepName, stepSpan := p.parseRequiredIdent("E416", "expected analyse target step name")
+	after, withItems := p.parseOptionalAfterAndWith()
+	if len(after) > 0 {
+		span := diag.NewSpan(p.file, blockStart, p.pos())
+		p.diags.AddError(
+			"E416",
+			"analyse block does not support an after-clause",
+			span,
+			"use syntax: analyse <step_name> [with ...] { ... }",
+		)
+	}
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
@@ -380,20 +390,23 @@ func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 			"add '{' after analyse header",
 		)
 		return ast.AnalyseBlock{
-			StepName: stepName,
-			Span:     diag.NewSpan(p.file, blockStart, stepSpan.End),
+			StepName:  stepName,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, stepSpan.End),
 		}
 	}
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.AnalyseBlock{
-			StepName: stepName,
-			Span:     diag.NewSpan(p.file, blockStart, stepSpan.End),
+			StepName:  stepName,
+			WithItems: withItems,
+			Span:      diag.NewSpan(p.file, blockStart, stepSpan.End),
 		}
 	}
 	assignments, columns := parseAnalyseBody(p.file, body, innerStart, p.diags)
 	return ast.AnalyseBlock{
 		StepName:    stepName,
+		WithItems:   withItems,
 		Assignments: assignments,
 		Columns:     columns,
 		BodyRaw:     body,

@@ -16,10 +16,12 @@ let p {
   letter = "Letter: %w"
 }
 
-analyse write {
-  p0 = p.number in "en"
-  p1 = p.zahl in "de"
-  p2 = p.letter in "en"
+analyse write
+  with p
+{
+  p0 = number in "en"
+  p1 = zahl in "de"
+  p2 = letter in "en"
   (
     a,
     x,

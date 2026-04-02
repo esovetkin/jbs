@@ -14,7 +14,7 @@ do run
         after prep
         with p, a from p
 {
-        echo ${a}
+        echo ${a} ${b}
 }
 
 submit bench

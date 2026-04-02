@@ -260,7 +260,7 @@ do step1 after step0 with (b,c) from pm0 {
 	if len(plan.ExplicitDelta) != 1 {
 		t.Fatalf("expected one explicit delta item (c), got %#v", plan.ExplicitDelta)
 	}
-	if plan.ExplicitDelta[0].Name != "c" || plan.ExplicitDelta[0].From != "pm0" {
+	if plan.ExplicitDelta[0].Visible != "c" || plan.ExplicitDelta[0].Source != "pm0" || plan.ExplicitDelta[0].SourceVar != "c" {
 		t.Fatalf("unexpected explicit delta for step1: %#v", plan.ExplicitDelta[0])
 	}
 	for _, name := range []string{"a", "b", "c"} {
@@ -1058,17 +1058,13 @@ analyse run {
 	prog := parser.Parse("in.jbs", src, diags)
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	has100 := false
-	has412 := false
 	for _, d := range diags.Items {
 		if d.Code == "E100" {
 			has100 = true
 		}
-		if d.Code == "E412" {
-			has412 = true
-		}
 	}
-	if !has100 || !has412 {
-		t.Fatalf("expected E100 and E412, got: %s", diags.String())
+	if !has100 {
+		t.Fatalf("expected E100, got: %s", diags.String())
 	}
 }
 
@@ -1084,10 +1080,10 @@ do run with p {
 let g {
   one = "A: %d"
 }
-analyse run {
-  a = g.one in "stdout"
-  p0 = g.one in "stdout"
-  p0 = g.one in "stdout"
+analyse run with g {
+  a = one in "stdout"
+  p0 = one in "stdout"
+  p0 = one in "stdout"
   (a, p0)
 }
 `
@@ -1121,8 +1117,8 @@ do run with p {
 let g {
   one = "A: %d"
 }
-analyse run {
-  p0 = g.one in "stdout"
+analyse run with g {
+  p0 = one in "stdout"
   (a, p0, unknown)
 }
 `
@@ -1221,7 +1217,102 @@ analyse run {
 	}
 }
 
-func TestParamWithLetImportAndQualifiedCombination(t *testing.T) {
+func TestAnalyseWithParamRejected(t *testing.T) {
+	src := `
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run with p {
+  x = "A: %d" in "stdout"
+  (a, x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E420" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E420 for analyse with param import, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseWithLetImportRequiresString(t *testing.T) {
+	src := `
+let l {
+  p = 3
+  s = "A: %d"
+}
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run with l {
+  x = s in "stdout"
+  (a, x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E422" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E422 for non-string let import in analyse, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseWithSelectedNonStringLetImportRejected(t *testing.T) {
+	src := `
+let l {
+  p = 3
+  s = "A: %d"
+}
+param p {
+  a = 1
+  a
+}
+do run with p {
+  echo ok
+}
+analyse run with p from l {
+  x = "A: %d" in "stdout"
+  (a, x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E422" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E422 for selected non-string let import in analyse, got: %s", diags.String())
+	}
+}
+
+func TestParamWithLetImportQualifiedCombinationRejected(t *testing.T) {
 	src := `
 let l {
   a = 1
@@ -1234,16 +1325,16 @@ param p with l {
 `
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
-	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected errors: %s", diags.String())
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E111" || d.Code == "E100" {
+			found = true
+			break
+		}
 	}
-	ps := res.ParamByName["p"]
-	if ps == nil {
-		t.Fatalf("missing paramset p")
-	}
-	if _, ok := ps.Vars["l.a"]; !ok {
-		t.Fatalf("expected qualified variable l.a in exposed variables: %#v", ps.Vars)
+	if !found {
+		t.Fatalf("expected qualified let usage rejection, got: %s", diags.String())
 	}
 }
 
@@ -1262,13 +1353,13 @@ param p {
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	found := false
 	for _, d := range diags.Items {
-		if d.Code == "E305" {
+		if d.Code == "E403" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected E305 for transitive nested tuple, got: %s", diags.String())
+		t.Fatalf("expected E403 for let tuple rejection, got: %s", diags.String())
 	}
 }
 
@@ -1327,5 +1418,150 @@ param q with same {
 	}
 	if !found {
 		t.Fatalf("expected E022 for ambiguous with source, got: %s", diags.String())
+	}
+}
+
+func TestStepWithLetNamespaceImport(t *testing.T) {
+	src := `
+let l {
+  systemname = shell("hostname")
+  queue = "batch"
+}
+do s0 with l {
+  echo ${systemname} ${queue}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected valid step let import, got: %s", diags.String())
+	}
+	plan := res.StepImportByName["s0"]
+	if plan == nil {
+		t.Fatalf("missing step import plan for s0")
+	}
+	if _, ok := plan.Effective["systemname"]; !ok {
+		t.Fatalf("expected systemname in effective imports: %#v", plan.Effective)
+	}
+	if _, ok := plan.Effective["queue"]; !ok {
+		t.Fatalf("expected queue in effective imports: %#v", plan.Effective)
+	}
+}
+
+func TestStepWithTupleImportFromLet(t *testing.T) {
+	src := `
+let l {
+  x = 1
+  y = 2
+  z = 3
+}
+do s0 with (x,y) from l {
+  echo ${x} ${y}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected valid tuple import from let, got: %s", diags.String())
+	}
+	plan := res.StepImportByName["s0"]
+	if plan == nil {
+		t.Fatalf("missing step import plan for s0")
+	}
+	if _, ok := plan.Effective["x"]; !ok {
+		t.Fatalf("expected x in effective imports: %#v", plan.Effective)
+	}
+	if _, ok := plan.Effective["y"]; !ok {
+		t.Fatalf("expected y in effective imports: %#v", plan.Effective)
+	}
+	if _, ok := plan.Effective["z"]; ok {
+		t.Fatalf("did not expect z in effective imports: %#v", plan.Effective)
+	}
+}
+
+func TestQualifiedLetReferenceInStepErrors(t *testing.T) {
+	src := `
+let l {
+  systemname = shell("hostname")
+}
+do s0 {
+  echo ${l.systemname}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	has100 := false
+	for _, d := range diags.Items {
+		if d.Code == "E100" {
+			has100 = true
+			break
+		}
+	}
+	if !has100 {
+		t.Fatalf("expected E100 for qualified let reference, got: %s", diags.String())
+	}
+}
+
+func TestLetWarningsW310AndW311(t *testing.T) {
+	src := `
+let l {
+  x = 1
+  y = 2
+}
+do s0 {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one W311 for x missing import, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 1 {
+		t.Fatalf("expected one W310 for let.y unused, got %d: %s", got, diags.String())
+	}
+}
+
+func TestLetVariablesUsedInAnalyseDoNotTriggerW310(t *testing.T) {
+	src := `
+param p0 {
+  a = ("a")
+  x = (1)
+  a + x
+}
+do write with p0 {
+  echo "Number: ${x}" > en
+  echo "Zahl: ${x}" > de
+  echo "Letter: ${a}" >> en
+}
+let p {
+  number = "Number: %d"
+  zahl = "Zahl: %d"
+  letter = "Letter: %w"
+}
+analyse write
+  with p
+{
+  p0 = number in "en"
+  p1 = zahl in "de"
+  p2 = letter in "en"
+  (a, x, p0, p1, p2)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 when let vars are used in analyse with-clause, got %d: %s", got, diags.String())
 	}
 }

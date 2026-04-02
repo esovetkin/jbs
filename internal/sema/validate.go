@@ -14,17 +14,18 @@ import (
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
 	resolvedGlobals := resolveTopLevelGlobals(prog, globals, diags)
 	res := &Result{
-		Program:          prog,
-		Globals:          resolvedGlobals,
-		LetNamespaces:    make([]*LetNamespace, 0),
-		LetByName:        make(map[string]*LetNamespace),
-		Paramsets:        make([]*Paramset, 0),
-		ParamByName:      make(map[string]*Paramset),
-		DoBlocks:         make([]ast.DoBlock, 0),
-		Submits:          make([]ast.SubmitBlock, 0),
-		SubmitByName:     make(map[string]*SubmitSpec),
-		StepImportByName: make(map[string]*StepImportPlan),
-		Analyse:          make([]*AnalyseSpec, 0),
+		Program:            prog,
+		Globals:            resolvedGlobals,
+		LetNamespaces:      make([]*LetNamespace, 0),
+		LetByName:          make(map[string]*LetNamespace),
+		ImportSourceByName: make(map[string]*ImportSource),
+		Paramsets:          make([]*Paramset, 0),
+		ParamByName:        make(map[string]*Paramset),
+		DoBlocks:           make([]ast.DoBlock, 0),
+		Submits:            make([]ast.SubmitBlock, 0),
+		SubmitByName:       make(map[string]*SubmitSpec),
+		StepImportByName:   make(map[string]*StepImportPlan),
+		Analyse:            make([]*AnalyseSpec, 0),
 	}
 
 	letSpans := make(map[string]diag.Span)
@@ -75,6 +76,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		}
 	}
 
+	buildImportSources(res)
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
 	buildStepImportPlans(res, diags)
@@ -83,7 +85,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		if plan := res.StepImportByName[submit.Name]; plan != nil {
 			effective = plan.Effective
 		}
-		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.ParamByName, resolvedGlobals.Values, res.LetByName, effective, diags)
+		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.ImportSourceByName, resolvedGlobals.Values, effective, diags)
 	}
 	validateStepVarReferences(res, diags)
 	for _, block := range analyseBlocks {
@@ -119,7 +121,11 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map
 	for k, v := range globals {
 		env[k] = v
 	}
-	addQualifiedLetValuesToEnv(env, lets)
+	for _, ns := range lets {
+		for name, value := range ns.Vars {
+			env[name] = value
+		}
+	}
 
 	out := &LetNamespace{
 		Name:    block.Name,
@@ -155,20 +161,104 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map
 		} else {
 			delete(out.Modes, asn.Name)
 		}
-		if hasNestedList(v) {
+		if v.Kind == eval.KindList {
 			diags.AddError(
-				"E305",
-				fmt.Sprintf("nested tuple/list value is not allowed for let variable '%s'", asn.Name),
+				"E403",
+				fmt.Sprintf("let variable '%s' must be scalar", asn.Name),
 				asn.Span,
-				"use flat tuple/list values only",
+				"use string/int/float/bool or shell()/python() scalar values",
 			)
+			continue
 		}
 		out.Vars[asn.Name] = v
 		out.Origins[asn.Name] = asn.Span
 		env[asn.Name] = v
-		env[block.Name+"."+asn.Name] = v
 	}
 
+	return out
+}
+
+func buildImportSources(res *Result) {
+	res.ImportSourceByName = make(map[string]*ImportSource)
+	for _, ps := range res.Paramsets {
+		if ps == nil {
+			continue
+		}
+		res.ImportSourceByName[ps.Name] = importSourceFromParam(ps)
+	}
+	for _, ls := range res.LetNamespaces {
+		if ls == nil {
+			continue
+		}
+		res.ImportSourceByName[ls.Name] = importSourceFromLet(ls)
+	}
+}
+
+func importSourceFromParam(ps *Paramset) *ImportSource {
+	return &ImportSource{
+		Name:    ps.Name,
+		Kind:    SourceKindParam,
+		Vars:    cloneSeriesMap(ps.Vars),
+		Origins: cloneSpanMap(ps.Origins),
+		Modes:   cloneModeMap(ps.Modes),
+		Order:   append([]string(nil), exposedVarNames(ps)...),
+		Span:    ps.Block.Span,
+	}
+}
+
+func importSourceFromLet(ns *LetNamespace) *ImportSource {
+	vars := make(map[string][]eval.Value, len(ns.Vars))
+	order := make([]string, 0, len(ns.Vars))
+	for name := range ns.Vars {
+		order = append(order, name)
+	}
+	sort.Strings(order)
+	for _, name := range order {
+		vars[name] = valueAsSeries(ns.Vars[name])
+	}
+	return &ImportSource{
+		Name:    ns.Name,
+		Kind:    SourceKindLet,
+		Vars:    vars,
+		Origins: cloneSpanMap(ns.Origins),
+		Modes:   cloneModeMap(ns.Modes),
+		Order:   order,
+		Span:    ns.Span,
+	}
+}
+
+func valueAsSeries(v eval.Value) []eval.Value {
+	if v.Kind == eval.KindList {
+		out := make([]eval.Value, len(v.L))
+		copy(out, v.L)
+		return out
+	}
+	return []eval.Value{v}
+}
+
+func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
+	out := make(map[string][]eval.Value, len(src))
+	for name, vals := range src {
+		cp := make([]eval.Value, len(vals))
+		copy(cp, vals)
+		out[name] = cp
+	}
+	return out
+}
+
+func cloneSpanMap(src map[string]diag.Span) map[string]diag.Span {
+	out := make(map[string]diag.Span, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneModeMap(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
 	return out
 }
 
@@ -268,20 +358,31 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		}
 	}
 	if plan := res.StepImportByName[block.StepName]; plan != nil {
-		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ParamByName)
+		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ImportSourceByName)
 	} else {
-		spec.StepVars = stepVisibleVariables(stepWithItems, res.ParamByName)
+		spec.StepVars = stepVisibleVariables(stepWithItems, res.ImportSourceByName)
 	}
 
 	env := make(map[string]eval.Value, len(res.Globals.Values)+32)
 	for k, v := range res.Globals.Values {
 		env[k] = v
 	}
-	addQualifiedLetValuesToEnv(env, res.LetByName)
 	if plan := res.StepImportByName[block.StepName]; plan != nil {
-		addStepValuesToEnvFromPlan(env, plan, res.ParamByName)
+		addStepValuesToEnvFromPlan(env, plan, res.ImportSourceByName)
 	} else {
-		addStepValuesToEnvFromWithItems(env, stepWithItems, res.ParamByName)
+		addStepValuesToEnvFromWithItems(env, stepWithItems, res.ImportSourceByName)
+	}
+	analyseImports := resolveAnalyseWithImports(block.WithItems, res, diags)
+	for visible, imported := range analyseImports {
+		ns := res.LetByName[imported.Source]
+		if ns == nil {
+			continue
+		}
+		v, ok := ns.Vars[imported.SourceVar]
+		if !ok {
+			continue
+		}
+		env[visible] = v
 	}
 
 	seenAssignments := make(map[string]diag.Span, len(block.Assignments))
@@ -334,13 +435,17 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			continue
 		}
 		warnModeExprInCollections(assign.Expr, diags)
+		before := len(diags.Items)
 		value := eval.EvalExpr(assign.Expr, env, diags)
 		if value.Kind != eval.KindString {
+			if hasErrorCodeSince(diags, before, "E100") {
+				continue
+			}
 			diags.AddError(
 				"E412",
 				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", assign.Name),
 				assign.Span,
-				"use a string expression such as let_namespace.variable or a quoted regex pattern",
+				"use a string expression such as an imported let variable or a quoted regex pattern",
 			)
 			continue
 		}
@@ -357,12 +462,10 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 
 		groupName := ""
 		patternName := ""
-		if q, ok := assign.Expr.(ast.QualifiedIdentExpr); ok {
-			if ns, exists := res.LetByName[q.Namespace]; exists {
-				if _, exists := ns.Vars[q.Name]; exists {
-					groupName = q.Namespace
-					patternName = q.Name
-				}
+		if ident, ok := assign.Expr.(ast.IdentExpr); ok {
+			if imported, exists := analyseImports[ident.Name]; exists {
+				groupName = imported.Source
+				patternName = imported.SourceVar
 			}
 		}
 		if groupName == "" {
@@ -417,64 +520,242 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	return spec
 }
 
-func stepVisibleVariables(items []ast.WithItem, params map[string]*Paramset) map[string]diag.Span {
-	out := make(map[string]diag.Span)
+type analyseLetImport struct {
+	Source    string
+	SourceVar string
+	Span      diag.Span
+}
+
+func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseLetImport {
+	out := make(map[string]analyseLetImport)
+	reported := make(map[string]struct{})
+	resolveSource := func(name string) (*ImportSource, bool) {
+		_, hasParam := res.ParamByName[name]
+		_, hasLet := res.LetByName[name]
+		if hasParam && hasLet {
+			return nil, true
+		}
+		return res.ImportSourceByName[name], false
+	}
+	addImported := func(visible string, src *ImportSource, sourceVar string, span diag.Span) {
+		if src == nil {
+			return
+		}
+		if sourceVar == "" {
+			sourceVar = visible
+		}
+		if src.Kind != SourceKindLet {
+			diags.AddError(
+				"E420",
+				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
+				span,
+				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
+			)
+			return
+		}
+		ns := res.LetByName[src.Name]
+		if ns == nil {
+			return
+		}
+		v, ok := ns.Vars[sourceVar]
+		if !ok {
+			return
+		}
+		if v.Kind != eval.KindString {
+			diags.AddError(
+				"E422",
+				fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", sourceVar, src.Name),
+				span,
+				"use string-valued let variables for analyse imports",
+			)
+			return
+		}
+		if prev, exists := out[visible]; exists {
+			if prev.Source == src.Name && prev.SourceVar == sourceVar {
+				return
+			}
+			a := prev.Source
+			b := src.Name
+			if a > b {
+				a, b = b, a
+			}
+			key := visible + "|" + a + "|" + b
+			if _, seen := reported[key]; seen {
+				return
+			}
+			reported[key] = struct{}{}
+			diags.AddError(
+				"E214",
+				fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", visible, prev.Source, src.Name),
+				span,
+				"import each analyse variable from only one let namespace",
+				diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
+			)
+			return
+		}
+		out[visible] = analyseLetImport{
+			Source:    src.Name,
+			SourceVar: sourceVar,
+			Span:      span,
+		}
+	}
+
 	for _, item := range items {
 		if item.From == "" {
-			ps := params[item.Name]
-			if ps == nil {
+			src, ambiguous := resolveSource(item.Name)
+			if ambiguous {
+				diags.AddError(
+					"E022",
+					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+					item.Span,
+					"disambiguate by renaming the param or let namespace",
+				)
 				continue
 			}
-			for _, name := range ps.Order {
-				if _, exists := out[name]; exists {
-					continue
-				}
-				if origin, ok := ps.Origins[name]; ok {
-					out[name] = origin
-				} else {
-					out[name] = item.Span
-				}
+			if src == nil {
+				diags.AddError(
+					"E020",
+					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
+					item.Span,
+					"import from an existing let namespace",
+				)
+				continue
+			}
+			if src.Kind != SourceKindLet {
+				addImported("", src, "", item.Span)
+				continue
+			}
+			for _, name := range sourceVarNames(src) {
+				addImported(name, src, name, item.Span)
 			}
 			continue
 		}
 
-		ps := params[item.From]
-		if ps == nil {
+		src, ambiguous := resolveSource(item.From)
+		if ambiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
 			continue
 		}
-		if _, ok := ps.Vars[item.Name]; ok {
-			if _, exists := out[item.Name]; !exists {
-				if origin, ok := ps.Origins[item.Name]; ok {
-					out[item.Name] = origin
-				} else {
-					out[item.Name] = item.Span
-				}
-			}
+		if src == nil {
+			diags.AddError(
+				"E020",
+				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
+				item.Span,
+				"import from an existing let namespace",
+			)
 			continue
 		}
-		fallback := params[item.Name]
-		if fallback == nil {
+		if src.Kind != SourceKindLet {
+			diags.AddError(
+				"E420",
+				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
+				item.Span,
+				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
+			)
 			continue
 		}
-		for _, name := range fallback.Order {
-			if _, exists := out[name]; exists {
+		if _, ok := src.Vars[item.Name]; ok {
+			addImported(item.Name, src, item.Name, item.Span)
+			continue
+		}
+		fallback, fallbackAmbiguous := resolveSource(item.Name)
+		if fallbackAmbiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
+			continue
+		}
+		if fallback != nil {
+			if fallback.Kind != SourceKindLet {
+				diags.AddError(
+					"E420",
+					fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", fallback.Name),
+					item.Span,
+					"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
+				)
 				continue
 			}
-			if origin, ok := fallback.Origins[name]; ok {
-				out[name] = origin
-			} else {
-				out[name] = item.Span
+			for _, name := range sourceVarNames(fallback) {
+				addImported(name, fallback, name, item.Span)
 			}
+			continue
+		}
+		diags.AddError(
+			"E021",
+			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
+			item.Span,
+			"import a variable that exists in the selected let namespace",
+		)
+	}
+
+	return out
+}
+
+func hasErrorCodeSince(diags *diag.Diagnostics, start int, code string) bool {
+	if diags == nil {
+		return false
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(diags.Items) {
+		return false
+	}
+	for i := start; i < len(diags.Items); i++ {
+		item := diags.Items[i]
+		if item.Severity != diag.SeverityError {
+			continue
+		}
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func stepVisibleVariables(items []ast.WithItem, sources map[string]*ImportSource) map[string]diag.Span {
+	out := make(map[string]diag.Span)
+	imports := resolveImportedVars(items, sources)
+	for name, origins := range imports {
+		if len(origins) == 0 {
+			continue
+		}
+		origin := origins[0]
+		src := sources[origin.Paramset]
+		if src == nil {
+			out[name] = origin.Span
+			continue
+		}
+		sourceVar := origin.SourceVar
+		if sourceVar == "" {
+			sourceVar = name
+		}
+		if s, ok := src.Origins[sourceVar]; ok {
+			out[name] = s
+		} else {
+			out[name] = origin.Span
 		}
 	}
 	return out
 }
 
-func stepVisibleVariablesFromPlan(plan *StepImportPlan, params map[string]*Paramset) map[string]diag.Span {
+func stepVisibleVariablesFromPlan(plan *StepImportPlan, sources map[string]*ImportSource) map[string]diag.Span {
 	out := make(map[string]diag.Span, len(plan.Effective))
 	for name, origin := range plan.Effective {
-		if ps := params[origin.Paramset]; ps != nil {
-			if span, ok := ps.Origins[name]; ok {
+		if src := sources[origin.Paramset]; src != nil {
+			sourceVar := origin.SourceVar
+			if sourceVar == "" {
+				sourceVar = name
+			}
+			if span, ok := src.Origins[sourceVar]; ok {
 				out[name] = span
 				continue
 			}
@@ -484,57 +765,41 @@ func stepVisibleVariablesFromPlan(plan *StepImportPlan, params map[string]*Param
 	return out
 }
 
-func addQualifiedLetValuesToEnv(env map[string]eval.Value, lets map[string]*LetNamespace) {
-	if len(lets) == 0 {
-		return
-	}
-	namespaces := make([]string, 0, len(lets))
-	for name := range lets {
-		namespaces = append(namespaces, name)
-	}
-	sort.Strings(namespaces)
-	for _, nsName := range namespaces {
-		ns := lets[nsName]
-		if ns == nil {
-			continue
-		}
-		varNames := make([]string, 0, len(ns.Vars))
-		for name := range ns.Vars {
-			varNames = append(varNames, name)
-		}
-		sort.Strings(varNames)
-		for _, name := range varNames {
-			env[nsName+"."+name] = ns.Vars[name]
-		}
-	}
-}
-
-func addStepValuesToEnvFromPlan(env map[string]eval.Value, plan *StepImportPlan, params map[string]*Paramset) {
+func addStepValuesToEnvFromPlan(env map[string]eval.Value, plan *StepImportPlan, sources map[string]*ImportSource) {
 	if plan == nil {
 		return
 	}
 	for name, origin := range plan.Effective {
-		ps := params[origin.Paramset]
-		if ps == nil {
+		src := sources[origin.Paramset]
+		if src == nil {
 			continue
 		}
-		if vals, ok := ps.Vars[name]; ok {
+		sourceVar := origin.SourceVar
+		if sourceVar == "" {
+			sourceVar = name
+		}
+		if vals, ok := src.Vars[sourceVar]; ok {
 			env[name] = seriesAsValue(vals)
 		}
 	}
 }
 
-func addStepValuesToEnvFromWithItems(env map[string]eval.Value, items []ast.WithItem, params map[string]*Paramset) {
-	imports := resolveImportedVars(items, params)
+func addStepValuesToEnvFromWithItems(env map[string]eval.Value, items []ast.WithItem, sources map[string]*ImportSource) {
+	imports := resolveImportedVars(items, sources)
 	for name, origins := range imports {
 		if len(origins) == 0 {
 			continue
 		}
-		ps := params[origins[0].Paramset]
-		if ps == nil {
+		origin := origins[0]
+		src := sources[origin.Paramset]
+		if src == nil {
 			continue
 		}
-		if vals, ok := ps.Vars[name]; ok {
+		sourceVar := origin.SourceVar
+		if sourceVar == "" {
+			sourceVar = name
+		}
+		if vals, ok := src.Vars[sourceVar]; ok {
 			env[name] = seriesAsValue(vals)
 		}
 	}
@@ -675,19 +940,22 @@ func hasNestedList(v eval.Value) bool {
 	return false
 }
 
-func compileSubmitBlock(block ast.SubmitBlock, known map[string]*Paramset, globals map[string]eval.Value, lets map[string]*LetNamespace, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
+func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource, globals map[string]eval.Value, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {
 		env[k] = v
 	}
-	addQualifiedLetValuesToEnv(env, lets)
 
 	for name, origin := range effective {
-		src := known[origin.Paramset]
+		src := sources[origin.Paramset]
 		if src == nil {
 			continue
 		}
-		if vals, ok := src.Vars[name]; ok {
+		sourceVar := origin.SourceVar
+		if sourceVar == "" {
+			sourceVar = name
+		}
+		if vals, ok := src.Vars[sourceVar]; ok {
 			env[name] = seriesAsValue(vals)
 		}
 	}
@@ -797,7 +1065,6 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	for k, v := range globals {
 		env[k] = v
 	}
-	addQualifiedLetValuesToEnv(env, lets)
 
 	resolveSource := func(name string) (*Paramset, *LetNamespace, bool) {
 		ps := known[name]
@@ -1256,10 +1523,10 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 
 func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 	for _, block := range res.DoBlocks {
-		validateWithItems(block.WithItems, res.ParamByName, diags)
+		validateWithItems(block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
 	}
 	for _, block := range res.Submits {
-		validateWithItems(block.WithItems, res.ParamByName, diags)
+		validateWithItems(block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
 	}
 }
 
@@ -1272,10 +1539,18 @@ type stepDefinition struct {
 
 type expandedWithImport struct {
 	Source string
-	Vars   []string
+	Kind   SourceKind
+	Vars   []expandedVar
 	Full   bool
 	Span   diag.Span
 }
+
+type expandedVar struct {
+	Visible   string
+	SourceVar string
+}
+
+type stepConflictReporter func(name string, left VarOrigin, right VarOrigin, at diag.Span, relation string)
 
 func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 	defs, order := collectStepDefinitions(res)
@@ -1339,26 +1614,33 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 
-		explicitDelta := make([]ast.WithItem, 0)
+		explicitDelta := make([]PlannedImport, 0)
 		selected := make(map[string]VarOrigin)
 		for _, item := range def.WithItems {
-			expanded, ok := expandWithItem(item, res.ParamByName)
+			expanded, ok := expandWithItem(item, res.ParamByName, res.LetByName, res.ImportSourceByName)
 			if !ok {
 				continue
 			}
-			kept := make([]string, 0, len(expanded.Vars))
-			sourceParam := res.ParamByName[expanded.Source]
-			for _, name := range expanded.Vars {
+			kept := make([]expandedVar, 0, len(expanded.Vars))
+			sourceObj := res.ImportSourceByName[expanded.Source]
+			for _, v := range expanded.Vars {
+				name := v.Visible
 				originSpan := item.Span
-				if sourceParam != nil {
-					if origin, ok := sourceParam.Origins[name]; ok && !origin.IsZero() {
+				if sourceObj != nil {
+					sourceVar := v.SourceVar
+					if sourceVar == "" {
+						sourceVar = name
+					}
+					if origin, ok := sourceObj.Origins[sourceVar]; ok && !origin.IsZero() {
 						originSpan = origin
 					}
 				}
 				current := VarOrigin{
-					Name:     name,
-					Paramset: expanded.Source,
-					Span:     originSpan,
+					Name:      name,
+					SourceVar: v.SourceVar,
+					Paramset:  expanded.Source,
+					Kind:      expanded.Kind,
+					Span:      originSpan,
 				}
 				if prev, exists := inherited[name]; exists {
 					if prev.Paramset != current.Paramset {
@@ -1374,27 +1656,30 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 					continue
 				}
 				selected[name] = current
-				kept = append(kept, name)
+				kept = append(kept, v)
 			}
 			if len(kept) == 0 {
 				continue
 			}
 			if expanded.Full && len(kept) == len(expanded.Vars) {
-				explicitDelta = append(explicitDelta, ast.WithItem{
-					Name: expanded.Source,
-					Span: item.Span,
+				explicitDelta = append(explicitDelta, PlannedImport{
+					Source: expanded.Source,
+					Kind:   expanded.Kind,
+					Full:   true,
+					Span:   item.Span,
 				})
 				continue
 			}
-			for _, name := range kept {
-				explicitDelta = append(explicitDelta, ast.WithItem{
-					Name: name,
-					From: expanded.Source,
-					Span: item.Span,
+			for _, keptVar := range kept {
+				explicitDelta = append(explicitDelta, PlannedImport{
+					Source:    expanded.Source,
+					Kind:      expanded.Kind,
+					Visible:   keptVar.Visible,
+					SourceVar: keptVar.SourceVar,
+					Span:      item.Span,
 				})
 			}
 		}
-
 		effective := make(map[string]VarOrigin, len(inherited)+len(selected))
 		for name, origin := range inherited {
 			effective[name] = origin
@@ -1490,48 +1775,78 @@ func topoStepOrder(defs map[string]stepDefinition, preferred []string) []string 
 	return order
 }
 
-func expandWithItem(item ast.WithItem, params map[string]*Paramset) (expandedWithImport, bool) {
+func expandWithItem(
+	item ast.WithItem,
+	params map[string]*Paramset,
+	lets map[string]*LetNamespace,
+	sources map[string]*ImportSource,
+) (expandedWithImport, bool) {
+	resolveSource := func(name string) (*ImportSource, bool) {
+		_, hasParam := params[name]
+		_, hasLet := lets[name]
+		if hasParam && hasLet {
+			return nil, true
+		}
+		src := sources[name]
+		if src == nil {
+			return nil, false
+		}
+		return src, false
+	}
 	if item.From == "" {
-		ps := params[item.Name]
-		if ps == nil {
+		src, ambiguous := resolveSource(item.Name)
+		if ambiguous || src == nil {
 			return expandedWithImport{}, false
 		}
+		vars := make([]expandedVar, 0, len(src.Order))
+		for _, name := range src.Order {
+			vars = append(vars, expandedVar{Visible: name, SourceVar: name})
+		}
 		return expandedWithImport{
-			Source: ps.Name,
-			Vars:   exposedVarNames(ps),
+			Source: src.Name,
+			Kind:   src.Kind,
+			Vars:   vars,
 			Full:   true,
 			Span:   item.Span,
 		}, true
 	}
 
-	src := params[item.From]
-	if src == nil {
+	src, ambiguous := resolveSource(item.From)
+	if ambiguous || src == nil {
 		return expandedWithImport{}, false
 	}
 	if _, ok := src.Vars[item.Name]; ok {
 		return expandedWithImport{
 			Source: src.Name,
-			Vars:   []string{item.Name},
+			Kind:   src.Kind,
+			Vars:   []expandedVar{{Visible: item.Name, SourceVar: item.Name}},
 			Full:   false,
 			Span:   item.Span,
 		}, true
 	}
-	fallback := params[item.Name]
-	if fallback == nil {
+	fallback, fallbackAmbiguous := resolveSource(item.Name)
+	if fallbackAmbiguous || fallback == nil {
 		return expandedWithImport{}, false
+	}
+	vars := make([]expandedVar, 0, len(fallback.Order))
+	for _, name := range fallback.Order {
+		vars = append(vars, expandedVar{Visible: name, SourceVar: name})
 	}
 	return expandedWithImport{
 		Source: fallback.Name,
-		Vars:   exposedVarNames(fallback),
+		Kind:   fallback.Kind,
+		Vars:   vars,
 		Full:   true,
 		Span:   item.Span,
 	}, true
 }
 
 type importedVar struct {
-	Name     string
-	Paramset string
-	Span     diag.Span
+	Name      string
+	SourceVar string
+	Paramset  string
+	Kind      SourceKind
+	Span      diag.Span
 }
 
 type varRef struct {
@@ -1540,62 +1855,81 @@ type varRef struct {
 }
 
 func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
-	exposedByParam := make(map[string]map[string]diag.Span)
-	paramsetsByVar := make(map[string][]string)
+	type sourceCandidate struct {
+		Source    string
+		SourceVar string
+	}
+	exposedBySource := make(map[string]map[string]diag.Span)
+	candidatesByVar := make(map[string][]sourceCandidate)
 	used := make(map[string]map[string]bool)
 
-	for _, ps := range res.Paramsets {
-		varNames := exposedVarNames(ps)
+	sourceNames := make([]string, 0, len(res.ImportSourceByName))
+	for name := range res.ImportSourceByName {
+		sourceNames = append(sourceNames, name)
+	}
+	sort.Strings(sourceNames)
+	for _, sourceName := range sourceNames {
+		src := res.ImportSourceByName[sourceName]
+		if src == nil {
+			continue
+		}
+		varNames := sourceVarNames(src)
 		if len(varNames) == 0 {
 			continue
 		}
-		if _, ok := exposedByParam[ps.Name]; !ok {
-			exposedByParam[ps.Name] = make(map[string]diag.Span)
+		if _, ok := exposedBySource[sourceName]; !ok {
+			exposedBySource[sourceName] = make(map[string]diag.Span)
 		}
 		for _, name := range varNames {
-			origin := ps.Origins[name]
+			origin := src.Origins[name]
 			if origin.IsZero() {
-				origin = ps.Block.Span
+				origin = src.Span
 			}
-			exposedByParam[ps.Name][name] = origin
-			if !containsString(paramsetsByVar[name], ps.Name) {
-				paramsetsByVar[name] = append(paramsetsByVar[name], ps.Name)
-			}
+			exposedBySource[sourceName][name] = origin
+			candidatesByVar[name] = append(candidatesByVar[name], sourceCandidate{
+				Source:    sourceName,
+				SourceVar: name,
+			})
 		}
 	}
 
-	markUsedExact := func(psName, name string) {
-		if _, ok := used[psName]; !ok {
-			used[psName] = make(map[string]bool)
+	markUsedExact := func(sourceName, sourceVar string) {
+		if _, ok := used[sourceName]; !ok {
+			used[sourceName] = make(map[string]bool)
 		}
-		used[psName][name] = true
+		used[sourceName][sourceVar] = true
 	}
 
-	markUsedByImports := func(name string, imports []importedVar) {
+	markUsedByImports := func(imports []importedVar) {
 		for _, imp := range imports {
-			markUsedExact(imp.Paramset, name)
+			sourceVar := imp.SourceVar
+			if sourceVar == "" {
+				sourceVar = imp.Name
+			}
+			markUsedExact(imp.Paramset, sourceVar)
 		}
 	}
 
-	markUsedCandidates := func(name string, candidates []string) {
-		for _, psName := range candidates {
-			markUsedExact(psName, name)
+	markUsedCandidates := func(candidates []sourceCandidate) {
+		for _, cand := range candidates {
+			markUsedExact(cand.Source, cand.SourceVar)
 		}
 	}
 
-	warnMissing := func(stepName string, ref varRef, candidates []string) {
+	warnMissing := func(stepName string, ref varRef, candidates []sourceCandidate) {
 		if len(candidates) == 0 {
 			return
 		}
 		originSpan := diag.Span{}
-		source := candidates[0]
-		if byVar, ok := exposedByParam[source]; ok {
-			originSpan = byVar[ref.Name]
+		source := candidates[0].Source
+		sourceVar := candidates[0].SourceVar
+		if byVar, ok := exposedBySource[source]; ok {
+			originSpan = byVar[sourceVar]
 		}
 		related := []diag.RelatedSpan{}
 		if !originSpan.IsZero() {
 			related = append(related, diag.RelatedSpan{
-				Message: fmt.Sprintf("parameter source '%s'", source),
+				Message: fmt.Sprintf("source '%s'", source),
 				Span:    originSpan,
 			})
 		}
@@ -1603,28 +1937,42 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			"W311",
 			fmt.Sprintf("variable '%s' is referenced in step '%s' but not imported via with-clause", ref.Name, stepName),
 			ref.Span,
-			"add `with <paramset>` or `with <variable> from <paramset>`",
+			"add `with <source>` or `with <variable> from <source>`",
 			related...,
 		)
 	}
 
 	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
-		imports := resolveImportedVars(withItems, res.ParamByName)
+		imports := resolveImportedVars(withItems, res.ImportSourceByName)
 		if plan := res.StepImportByName[stepName]; plan != nil {
 			imports = resolveImportedVarsFromPlan(plan)
 		}
 		warned := make(map[string]struct{})
+		unknownDotted := make(map[string]struct{})
 		for _, ref := range refs {
-			candidates := paramsetsByVar[ref.Name]
+			if strings.Contains(ref.Name, ".") {
+				key := stepName + "::" + ref.Name
+				if _, exists := unknownDotted[key]; !exists {
+					unknownDotted[key] = struct{}{}
+					diags.AddError(
+						"E100",
+						fmt.Sprintf("unknown variable '%s'", ref.Name),
+						ref.Span,
+						"import and reference variables by unqualified name using with-clauses",
+					)
+				}
+				continue
+			}
+			candidates := candidatesByVar[ref.Name]
 			if len(candidates) == 0 {
 				continue
 			}
 			origins := imports[ref.Name]
 			if len(origins) > 0 {
-				markUsedByImports(ref.Name, origins)
+				markUsedByImports(origins)
 				continue
 			}
-			markUsedCandidates(ref.Name, candidates)
+			markUsedCandidates(candidates)
 			key := stepName + "::" + ref.Name
 			if _, exists := warned[key]; exists {
 				continue
@@ -1657,17 +2005,43 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		}
 		processStep(block.Name, block.WithItems, refs)
 	}
+	for _, stmt := range res.Program.Stmts {
+		block, ok := stmt.(ast.AnalyseBlock)
+		if !ok {
+			continue
+		}
+		imports := resolveImportedVars(block.WithItems, res.ImportSourceByName)
+		for _, origins := range imports {
+			for _, origin := range origins {
+				if origin.Kind != SourceKindLet {
+					continue
+				}
+				sourceVar := origin.SourceVar
+				if sourceVar == "" {
+					sourceVar = origin.Name
+				}
+				markUsedExact(origin.Paramset, sourceVar)
+			}
+		}
+	}
 
-	for psName, byVar := range exposedByParam {
+	for sourceName, byVar := range exposedBySource {
+		src := res.ImportSourceByName[sourceName]
 		for varName, origin := range byVar {
-			if used[psName][varName] {
+			if used[sourceName][varName] {
 				continue
+			}
+			message := fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, sourceName)
+			hint := fmt.Sprintf("remove it from the final expression or reference it with $%s/${%s} in a step", varName, varName)
+			if src != nil && src.Kind == SourceKindLet {
+				message = fmt.Sprintf("exposed variable '%s' from let '%s' is never used in any do/submit/analyse block", varName, sourceName)
+				hint = fmt.Sprintf("remove it from the let block or reference it with %s via with-imports", varName)
 			}
 			diags.AddWarning(
 				"W310",
-				fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, psName),
+				message,
 				origin,
-				fmt.Sprintf("remove it from the final expression or reference it with $%s/${%s} in a step", varName, varName),
+				hint,
 			)
 		}
 	}
@@ -1687,45 +2061,47 @@ func exposedVarNames(ps *Paramset) []string {
 	return names
 }
 
-func resolveImportedVars(items []ast.WithItem, params map[string]*Paramset) map[string][]importedVar {
+func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource) map[string][]importedVar {
 	out := make(map[string][]importedVar)
 	seen := make(map[string]struct{})
-	add := func(name, paramset string, span diag.Span) {
-		key := paramset + "::" + name
+	add := func(name, sourceVar, source string, kind SourceKind, span diag.Span) {
+		key := source + "::" + sourceVar + "::" + name
 		if _, ok := seen[key]; ok {
 			return
 		}
 		seen[key] = struct{}{}
 		out[name] = append(out[name], importedVar{
-			Name:     name,
-			Paramset: paramset,
-			Span:     span,
+			Name:      name,
+			SourceVar: sourceVar,
+			Paramset:  source,
+			Kind:      kind,
+			Span:      span,
 		})
 	}
 
 	for _, item := range items {
 		if item.From == "" {
-			ps, ok := params[item.Name]
-			if !ok {
+			src := sources[item.Name]
+			if src == nil {
 				continue
 			}
-			for _, name := range exposedVarNames(ps) {
-				add(name, ps.Name, item.Span)
+			for _, name := range sourceVarNames(src) {
+				add(name, name, src.Name, src.Kind, item.Span)
 			}
 			continue
 		}
 
-		src, ok := params[item.From]
-		if !ok {
+		src := sources[item.From]
+		if src == nil {
 			continue
 		}
 		if _, ok := src.Vars[item.Name]; ok {
-			add(item.Name, src.Name, item.Span)
+			add(item.Name, item.Name, src.Name, src.Kind, item.Span)
 			continue
 		}
-		if fallback, ok := params[item.Name]; ok {
-			for _, name := range exposedVarNames(fallback) {
-				add(name, fallback.Name, item.Span)
+		if fallback := sources[item.Name]; fallback != nil {
+			for _, name := range sourceVarNames(fallback) {
+				add(name, name, fallback.Name, fallback.Kind, item.Span)
 			}
 		}
 	}
@@ -1736,12 +2112,31 @@ func resolveImportedVarsFromPlan(plan *StepImportPlan) map[string][]importedVar 
 	out := make(map[string][]importedVar, len(plan.Effective))
 	for name, origin := range plan.Effective {
 		out[name] = append(out[name], importedVar{
-			Name:     name,
-			Paramset: origin.Paramset,
-			Span:     origin.Span,
+			Name:      name,
+			SourceVar: origin.SourceVar,
+			Paramset:  origin.Paramset,
+			Kind:      origin.Kind,
+			Span:      origin.Span,
 		})
 	}
 	return out
+}
+
+func sourceVarNames(src *ImportSource) []string {
+	if src == nil {
+		return nil
+	}
+	if len(src.Order) > 0 {
+		names := make([]string, len(src.Order))
+		copy(names, src.Order)
+		return names
+	}
+	names := make([]string, 0, len(src.Vars))
+	for name := range src.Vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func collectShellLikeRefs(text string, base diag.Position, file string) []varRef {
@@ -1918,7 +2313,13 @@ func containsString(items []string, value string) bool {
 	return false
 }
 
-func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags *diag.Diagnostics) {
+func validateWithItems(
+	items []ast.WithItem,
+	params map[string]*Paramset,
+	lets map[string]*LetNamespace,
+	sources map[string]*ImportSource,
+	diags *diag.Diagnostics,
+) {
 	type importOrigin struct {
 		source string
 		span   diag.Span
@@ -1943,9 +2344,9 @@ func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags 
 			reported[key] = struct{}{}
 			diags.AddError(
 				"E214",
-				fmt.Sprintf("conflicting variable '%s' imported from parametersets '%s' and '%s'", name, prev.source, source),
+				fmt.Sprintf("conflicting variable '%s' imported from sources '%s' and '%s'", name, prev.source, source),
 				span,
-				"import each variable name from only one source parameterset",
+				"import each variable name from only one source",
 				diag.RelatedSpan{Message: "first conflicting import", Span: prev.span},
 			)
 			return
@@ -1953,45 +2354,58 @@ func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags 
 		seen[name] = importOrigin{source: source, span: span}
 	}
 
-	paramVarNames := func(ps *Paramset) []string {
-		if len(ps.Order) > 0 {
-			out := make([]string, len(ps.Order))
-			copy(out, ps.Order)
-			return out
+	resolveSource := func(name string) (*ImportSource, bool) {
+		_, hasParam := params[name]
+		_, hasLet := lets[name]
+		if hasParam && hasLet {
+			return nil, true
 		}
-		names := make([]string, 0, len(ps.Vars))
-		for name := range ps.Vars {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		return names
+		return sources[name], false
 	}
 
 	for _, item := range items {
 		if item.From == "" {
-			ps, ok := params[item.Name]
-			if !ok {
+			src, ambiguous := resolveSource(item.Name)
+			if ambiguous {
+				diags.AddError(
+					"E022",
+					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+					item.Span,
+					"disambiguate by renaming the param or let namespace",
+				)
+				continue
+			}
+			if src == nil {
 				diags.AddError(
 					"E020",
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
-					"import an existing parameterset",
+					"import an existing parameterset or let namespace",
 				)
 			} else {
-				for _, varName := range paramVarNames(ps) {
-					addImported(varName, ps.Name, item.Span)
+				for _, varName := range sourceVarNames(src) {
+					addImported(varName, src.Name, item.Span)
 				}
 			}
 			continue
 		}
 
-		src, ok := params[item.From]
-		if !ok {
+		src, ambiguous := resolveSource(item.From)
+		if ambiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
+			continue
+		}
+		if src == nil {
 			diags.AddError(
 				"E020",
 				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
 				item.Span,
-				"import from an existing parameterset",
+				"import from an existing parameterset or let namespace",
 			)
 			continue
 		}
@@ -2000,17 +2414,27 @@ func validateWithItems(items []ast.WithItem, params map[string]*Paramset, diags 
 			addImported(item.Name, src.Name, item.Span)
 			continue
 		}
-		if fallback, ok := params[item.Name]; ok {
-			for _, varName := range paramVarNames(fallback) {
+		fallback, fallbackAmbiguous := resolveSource(item.Name)
+		if fallbackAmbiguous {
+			diags.AddError(
+				"E022",
+				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+				item.Span,
+				"disambiguate by renaming the param or let namespace",
+			)
+			continue
+		}
+		if fallback != nil {
+			for _, varName := range sourceVarNames(fallback) {
 				addImported(varName, fallback.Name, item.Span)
 			}
 			continue
 		}
 		diags.AddError(
 			"E021",
-			fmt.Sprintf("unknown variable '%s' in parameterset '%s'", item.Name, item.From),
+			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
 			item.Span,
-			"import a variable that exists in the source parameterset",
+			"import a variable that exists in the selected source",
 		)
 	}
 }

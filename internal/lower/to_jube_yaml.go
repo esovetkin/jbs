@@ -897,59 +897,105 @@ type stepUseResolution struct {
 	SourceRows map[string]string
 }
 
+type subsetVarSpec struct {
+	Visible   string
+	SourceVar string
+}
+
 func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem) stepUseResolution {
 	inheritedSteps := make([]string, 0)
 	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
 		inheritedSteps = append(inheritedSteps, plan.InheritedSteps...)
 		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta)
 	}
-	return ctx.resolveStepUses(stepName, inheritedSteps, fallback)
+	return ctx.resolveStepUsesLegacy(stepName, inheritedSteps, fallback)
 }
 
-func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []ast.WithItem) stepUseResolution {
+func (ctx *lowerContext) resolveStepUsesLegacy(stepName string, inheritedSteps []string, items []ast.WithItem) stepUseResolution {
+	planned := make([]sema.PlannedImport, 0, len(items))
+	for _, item := range items {
+		if item.From == "" {
+			planned = append(planned, sema.PlannedImport{
+				Source: item.Name,
+				Kind:   sema.SourceKindParam,
+				Full:   true,
+				Span:   item.Span,
+			})
+			continue
+		}
+		planned = append(planned, sema.PlannedImport{
+			Source:    item.From,
+			Kind:      sema.SourceKindParam,
+			Visible:   item.Name,
+			SourceVar: item.Name,
+			Span:      item.Span,
+		})
+	}
+	return ctx.resolveStepUses(stepName, inheritedSteps, planned)
+}
+
+func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.PlannedImport) stepUseResolution {
 	uses := make([]interface{}, 0)
-	grouped := make(map[string][]string)
+	grouped := make(map[string][]subsetVarSpec)
 	groupOrder := make([]string, 0)
 	seenDirect := make(map[string]struct{})
 	sourceRows := ctx.inheritedRowsForStep(stepName, inheritedSteps)
+	sources := ctx.res.ImportSourceByName
 
 	for _, item := range items {
-		if item.From == "" {
-			if _, seen := seenDirect[item.Name]; seen {
-				continue
-			}
-			seenDirect[item.Name] = struct{}{}
-			uses = append(uses, item.Name)
-			continue
-		}
-
-		// Mixed form support:
-		// with x from p1, p2
-		// If p2 is not variable in p1 but is an existing parameterset, treat it
-		// as full parameterset import.
-		if src := ctx.res.ParamByName[item.From]; src != nil {
-			if _, ok := src.Vars[item.Name]; !ok {
-				if _, isParamset := ctx.res.ParamByName[item.Name]; isParamset {
-					if _, seen := seenDirect[item.Name]; seen {
-						continue
+		if item.Full {
+			if src := sources[item.Source]; src != nil {
+				if item.Kind == sema.SourceKindParam && sourceRows[item.Source] == "" {
+					if _, seen := seenDirect[item.Source]; !seen {
+						seenDirect[item.Source] = struct{}{}
+						uses = append(uses, item.Source)
 					}
-					seenDirect[item.Name] = struct{}{}
-					uses = append(uses, item.Name)
 					continue
 				}
+				if _, ok := grouped[item.Source]; !ok {
+					grouped[item.Source] = make([]subsetVarSpec, 0)
+					groupOrder = append(groupOrder, item.Source)
+				}
+				for _, name := range sourceVarNames(src) {
+					if containsSubsetVisible(grouped[item.Source], name) {
+						continue
+					}
+					grouped[item.Source] = append(grouped[item.Source], subsetVarSpec{
+						Visible:   name,
+						SourceVar: name,
+					})
+				}
 			}
+			continue
 		}
-
-		if _, ok := grouped[item.From]; !ok {
-			grouped[item.From] = make([]string, 0)
-			groupOrder = append(groupOrder, item.From)
+		if _, ok := grouped[item.Source]; !ok {
+			grouped[item.Source] = make([]subsetVarSpec, 0)
+			groupOrder = append(groupOrder, item.Source)
 		}
-		if !contains(grouped[item.From], item.Name) {
-			grouped[item.From] = append(grouped[item.From], item.Name)
+		if !containsSubsetVisible(grouped[item.Source], item.Visible) {
+			sourceVar := item.SourceVar
+			if sourceVar == "" {
+				sourceVar = item.Visible
+			}
+			grouped[item.Source] = append(grouped[item.Source], subsetVarSpec{
+				Visible:   item.Visible,
+				SourceVar: sourceVar,
+			})
 		}
 	}
 
 	for _, source := range groupOrder {
+		src := sources[source]
+		if src != nil && src.Kind == sema.SourceKindLet {
+			subset, rowsVar := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
+			if subset != "" {
+				uses = append(uses, subset)
+			}
+			if rowsVar != "" {
+				sourceRows[source] = rowsVar
+			}
+			continue
+		}
 		subset, rowsVar := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], sourceRows[source])
 		if subset != "" {
 			uses = append(uses, subset)
@@ -1021,44 +1067,63 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return out
 }
 
-func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []string, inheritedRowsVar string) (string, string) {
+func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, inheritedRowsVar string) (string, string) {
+	varKeys := make([]string, 0, len(vars))
+	for _, v := range vars {
+		varKeys = append(varKeys, v.Visible+"="+v.SourceVar)
+	}
 	k := subsetKey{
 		Step:          stepName,
 		Source:        source,
-		Vars:          strings.Join(vars, ","),
+		Vars:          strings.Join(varKeys, ","),
 		InheritedRows: inheritedRowsVar,
 	}
 	if existing, ok := ctx.subsetNames[k]; ok {
 		return existing.Name, existing.RowsVar
 	}
 
-	src := ctx.res.ParamByName[source]
+	src := ctx.res.ImportSourceByName[source]
 	if src == nil {
 		// Semantic analysis already reports unknown parameter set imports with
 		// precise spans. Skip lower-stage duplicate diagnostics.
 		return "", ""
 	}
 
-	rowCount := sourceRowCount(src)
+	rowCount := sourceRowCountFromSource(src)
 	if rowCount == 0 {
 		rowCount = 1
 	}
 
-	baseName := shortSubsetBaseName(stepName, source, vars)
+	visibleNames := make([]string, 0, len(vars))
+	for _, v := range vars {
+		visibleNames = append(visibleNames, v.Visible)
+	}
+
+	baseName := shortSubsetBaseName(stepName, source, visibleNames)
 	name := ctx.uniqueName(baseName)
 	suffix := strings.TrimPrefix(name, baseName)
-	rowsVar := shortSubsetRowsName(stepName, source, vars) + suffix
-	idxName := shortSubsetIndexName(stepName, source, vars) + suffix
+	rowsVar := shortSubsetRowsName(stepName, source, visibleNames) + suffix
+	idxName := shortSubsetIndexName(stepName, source, visibleNames) + suffix
 	idxRef := "$" + idxName
 
 	valuesByName := make(map[string][]eval.Value, len(vars))
+	modeByName := make(map[string]string, len(vars))
+	sourceVarByVisible := make(map[string]string, len(vars))
 	for _, variable := range vars {
-		valuesByName[variable] = valuesFor(src, variable, rowCount)
+		sourceVar := variable.SourceVar
+		if sourceVar == "" {
+			sourceVar = variable.Visible
+		}
+		sourceVarByVisible[variable.Visible] = sourceVar
+		valuesByName[variable.Visible] = sourceValuesFor(src, sourceVar, rowCount)
+		if mode, ok := src.Modes[sourceVar]; ok {
+			modeByName[variable.Visible] = mode
+		}
 	}
 
 	params := make([]Parameter, 0, len(vars)+2)
 	if inheritedRowsVar == "" {
-		groups := buildRowGroups(vars, valuesByName, rowCount)
+		groups := buildRowGroups(visibleNames, valuesByName, rowCount)
 		repIndices := make([]int, 0, len(groups))
 		rowGroupStrings := make([]string, 0, len(groups))
 		for _, group := range groups {
@@ -1083,8 +1148,12 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			Separator: ReservedSeparator,
 			Value:     SingleQuoted(pythonStringMapLookupExpr(repIndices, rowGroupStrings, idxName)),
 		})
-		params = append(params, lowerIndexedPayloadParameters(vars, valuesByName, src.Modes, repIndices, idxRef, func(varName string) diag.Span {
-			return originFor(src, varName)
+		params = append(params, lowerIndexedPayloadParameters(visibleNames, valuesByName, modeByName, repIndices, idxRef, func(varName string) diag.Span {
+			sourceVar := sourceVarByVisible[varName]
+			if span, ok := src.Origins[sourceVar]; ok {
+				return span
+			}
+			return src.Span
 		}, ctx.diags)...)
 	} else {
 		params = append(params, Parameter{
@@ -1100,8 +1169,12 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			Mode:  "text",
 			Value: "${" + idxName + "}",
 		})
-		params = append(params, lowerContextualPayloadParameters(vars, valuesByName, src.Modes, idxRef, func(varName string) diag.Span {
-			return originFor(src, varName)
+		params = append(params, lowerContextualPayloadParameters(visibleNames, valuesByName, modeByName, idxRef, func(varName string) diag.Span {
+			sourceVar := sourceVarByVisible[varName]
+			if span, ok := src.Origins[sourceVar]; ok {
+				return span
+			}
+			return src.Span
 		}, ctx.diags)...)
 	}
 
@@ -1117,6 +1190,74 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 	ctx.names[name] = struct{}{}
 	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: rowsVar}
 	return name, rowsVar
+}
+
+func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec) (string, string) {
+	varKeys := make([]string, 0, len(vars))
+	for _, v := range vars {
+		varKeys = append(varKeys, v.Visible+"="+v.SourceVar)
+	}
+	k := subsetKey{
+		Step:          stepName,
+		Source:        source,
+		Vars:          strings.Join(varKeys, ","),
+		InheritedRows: "",
+	}
+	if existing, ok := ctx.subsetNames[k]; ok {
+		return existing.Name, existing.RowsVar
+	}
+
+	src := ctx.res.ImportSourceByName[source]
+	if src == nil {
+		return "", ""
+	}
+
+	visibleNames := make([]string, 0, len(vars))
+	for _, v := range vars {
+		visibleNames = append(visibleNames, v.Visible)
+	}
+	baseName := shortSubsetBaseName(stepName, source, visibleNames)
+	name := ctx.uniqueName(baseName)
+
+	params := make([]Parameter, 0, len(vars))
+	for _, variable := range vars {
+		sourceVar := variable.SourceVar
+		if sourceVar == "" {
+			sourceVar = variable.Visible
+		}
+		vals := sourceValuesFor(src, sourceVar, 1)
+		value := eval.Null()
+		if len(vals) > 0 {
+			value = vals[0]
+		}
+		param := Parameter{Name: variable.Visible}
+		if mode, ok := src.Modes[sourceVar]; ok && mode != "" {
+			param.Mode = mode
+			switch mode {
+			case "python":
+				param.Value = SingleQuoted(asString(value))
+			default:
+				param.Value = asString(value)
+			}
+		} else {
+			param.Mode = "text"
+			param.Value = asString(value)
+		}
+		params = append(params, param)
+	}
+
+	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
+		Name:      name,
+		Parameter: params,
+		Meta: ParameterSetMeta{
+			Kind:   ParameterSetKindSubset,
+			Source: source,
+			Step:   stepName,
+		},
+	})
+	ctx.names[name] = struct{}{}
+	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: ""}
+	return name, ""
 }
 
 type rowGroup struct {
@@ -1138,6 +1279,34 @@ func sourceRowCount(ps *sema.Paramset) int {
 		}
 	}
 	return rowCount
+}
+
+func sourceRowCountFromSource(src *sema.ImportSource) int {
+	if src == nil {
+		return 0
+	}
+	rowCount := 0
+	for _, name := range sourceVarNames(src) {
+		if n := len(src.Vars[name]); n > rowCount {
+			rowCount = n
+		}
+	}
+	return rowCount
+}
+
+func sourceValuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
+	values := make([]eval.Value, 0, rowCount)
+	base := src.Vars[name]
+	if len(base) == 0 {
+		for range rowCount {
+			values = append(values, eval.Null())
+		}
+		return values
+	}
+	for i := range rowCount {
+		values = append(values, base[i%len(base)])
+	}
+	return values
 }
 
 func buildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int) []rowGroup {
@@ -1294,6 +1463,32 @@ func contains(items []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func containsSubsetVisible(items []subsetVarSpec, name string) bool {
+	for _, item := range items {
+		if item.Visible == name {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceVarNames(src *sema.ImportSource) []string {
+	if src == nil {
+		return nil
+	}
+	if len(src.Order) > 0 {
+		out := make([]string, len(src.Order))
+		copy(out, src.Order)
+		return out
+	}
+	names := make([]string, 0, len(src.Vars))
+	for name := range src.Vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func indexVariableName(context string) string {

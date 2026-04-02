@@ -13,6 +13,8 @@ do write with cases {
   echo "Word: ${y}" >> out.log
 }
 
-analyse write {
-  n = p.number in "out.log"; w = p.word in "out.log"; (x, y, n, w);
+analyse write
+  with p
+{
+  n = number in "out.log"; w = word in "out.log"; (x, y, n, w);
 }

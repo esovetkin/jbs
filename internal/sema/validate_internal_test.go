@@ -57,9 +57,10 @@ func TestCollectExprStringRefs(t *testing.T) {
 }
 
 func TestResolveImportedVarsMixedFallback(t *testing.T) {
-	params := map[string]*Paramset{
+	sources := map[string]*ImportSource{
 		"p1": {
 			Name:  "p1",
+			Kind:  SourceKindParam,
 			Order: []string{"a", "x"},
 			Vars: map[string][]eval.Value{
 				"a": {eval.Int(1)},
@@ -68,6 +69,7 @@ func TestResolveImportedVarsMixedFallback(t *testing.T) {
 		},
 		"p2": {
 			Name:  "p2",
+			Kind:  SourceKindParam,
 			Order: []string{"b"},
 			Vars: map[string][]eval.Value{
 				"b": {eval.String("v")},
@@ -78,11 +80,11 @@ func TestResolveImportedVarsMixedFallback(t *testing.T) {
 		{Name: "x", From: "p1", Span: diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))},
 		{Name: "p2", From: "p1", Span: diag.NewSpan("in.jbs", diag.NewPos(2, 1, 3), diag.NewPos(3, 1, 4))},
 	}
-	got := resolveImportedVars(items, params)
-	if len(got["x"]) != 1 || got["x"][0].Paramset != "p1" {
+	got := resolveImportedVars(items, sources)
+	if len(got["x"]) != 1 || got["x"][0].Paramset != "p1" || got["x"][0].SourceVar != "x" {
 		t.Fatalf("expected x imported from p1, got %#v", got["x"])
 	}
-	if len(got["b"]) != 1 || got["b"][0].Paramset != "p2" {
+	if len(got["b"]) != 1 || got["b"][0].Paramset != "p2" || got["b"][0].SourceVar != "b" {
 		t.Fatalf("expected b imported from p2 fallback, got %#v", got["b"])
 	}
 }

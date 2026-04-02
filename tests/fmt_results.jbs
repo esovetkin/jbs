@@ -6,7 +6,8 @@ echo "Number: ${a}" > out
 }
 let g{ n = "Number: %d"
 }
-analyse write{
-x=g.n in "out"
+analyse write
+with g{
+x=n in "out"
 (a,x as "num")
 }

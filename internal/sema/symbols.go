@@ -23,30 +23,60 @@ type GlobalState struct {
 	Spans  map[string]diag.Span
 }
 
+type SourceKind string
+
+const (
+	SourceKindParam SourceKind = "param"
+	SourceKindLet   SourceKind = "let"
+)
+
+type ImportSource struct {
+	Name    string
+	Kind    SourceKind
+	Vars    map[string][]eval.Value
+	Origins map[string]diag.Span
+	Modes   map[string]string
+	Order   []string
+	Span    diag.Span
+}
+
 type Result struct {
-	Program          ast.Program
-	Globals          GlobalState
-	LetNamespaces    []*LetNamespace
-	LetByName        map[string]*LetNamespace
-	Paramsets        []*Paramset
-	ParamByName      map[string]*Paramset
-	DoBlocks         []ast.DoBlock
-	Submits          []ast.SubmitBlock
-	SubmitByName     map[string]*SubmitSpec
-	StepImportByName map[string]*StepImportPlan
-	Analyse          []*AnalyseSpec
+	Program            ast.Program
+	Globals            GlobalState
+	LetNamespaces      []*LetNamespace
+	LetByName          map[string]*LetNamespace
+	ImportSourceByName map[string]*ImportSource
+	Paramsets          []*Paramset
+	ParamByName        map[string]*Paramset
+	DoBlocks           []ast.DoBlock
+	Submits            []ast.SubmitBlock
+	SubmitByName       map[string]*SubmitSpec
+	StepImportByName   map[string]*StepImportPlan
+	Analyse            []*AnalyseSpec
 }
 
 type VarOrigin struct {
-	Name     string
-	Paramset string
-	Span     diag.Span
+	Name      string
+	SourceVar string
+	Paramset  string
+	Kind      SourceKind
+	Span      diag.Span
+}
+
+type PlannedImport struct {
+	Source    string
+	Kind      SourceKind
+	Visible   string
+	SourceVar string
+	Full      bool
+	Implicit  bool
+	Span      diag.Span
 }
 
 type StepImportPlan struct {
 	StepName       string
 	Inherited      map[string]VarOrigin
-	ExplicitDelta  []ast.WithItem
+	ExplicitDelta  []PlannedImport
 	Effective      map[string]VarOrigin
 	InheritedSteps []string
 }
@@ -67,11 +97,11 @@ type SubmitSpec struct {
 }
 
 type LetNamespace struct {
-	Name     string
-	Vars     map[string]eval.Value
-	Modes    map[string]string
-	Origins  map[string]diag.Span
-	Span     diag.Span
+	Name    string
+	Vars    map[string]eval.Value
+	Modes   map[string]string
+	Origins map[string]diag.Span
+	Span    diag.Span
 }
 
 type PatternTemplate struct {

@@ -852,10 +852,10 @@ let p {
   letter = "Letter: %w"
 }
 
-analyse write {
-  p0 = p.number in "en"
-  p1 = p.zahl in "de"
-  p2 = p.letter in "en"
+analyse write with p {
+  p0 = number in "en"
+  p1 = zahl in "de"
+  p2 = letter in "en"
   (
     a,
     x,
@@ -946,9 +946,9 @@ do write with p {
 let g {
   number = "Number: %d"
 }
-analyse write {
-  p0 = g.number in "en"
-  p1 = g.number in "de"
+analyse write with g {
+  p0 = number in "en"
+  p1 = number in "de"
   (a, p0, p1)
 }
 `
@@ -999,8 +999,8 @@ do write with p {
 let g {
   number = "Number: %d"
 }
-analyse write {
-  number = g.number in "en"
+analyse write with g {
+  number = number in "en"
   (a, number)
 }
 `
@@ -1033,9 +1033,9 @@ let g1 {
 let g2 {
   y = "B %d"
 }
-analyse write {
-  ax = g1.x in "a.out"
-  by = g2.y in "b.out"
+analyse write with g1, g2 {
+  ax = x in "a.out"
+  by = y in "b.out"
   (a, ax, by)
 }
 `
@@ -1093,5 +1093,72 @@ analyse write {
 	}
 	if cols[1].Expr == cols[2].Expr {
 		t.Fatalf("expected distinct synthetic ids for inline expressions, got %#v", cols)
+	}
+}
+
+func TestStepWithLetNamespaceLowersToSyntheticSubset(t *testing.T) {
+	src := `
+let l {
+  systemname = shell("hostname")
+  queue = "batch"
+}
+do run with l {
+  echo ${systemname} ${queue}
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.ParameterSet) != 1 {
+		t.Fatalf("expected one synthetic parameterset for let import, got %#v", doc.ParameterSet)
+	}
+	ps := doc.ParameterSet[0]
+	if !strings.HasPrefix(ps.Name, "_js__run__l__") {
+		t.Fatalf("expected let synthetic subset name, got %#v", ps.Name)
+	}
+	if len(doc.Step) != 1 || len(doc.Step[0].Use) != 1 {
+		t.Fatalf("expected one step use entry, got %#v", doc.Step)
+	}
+	if useName, ok := doc.Step[0].Use[0].(string); !ok || useName != ps.Name {
+		t.Fatalf("expected step to use synthetic let subset %q, got %#v", ps.Name, doc.Step[0].Use)
+	}
+	foundSystem := false
+	foundQueue := false
+	for _, p := range ps.Parameter {
+		if p.Name == "systemname" && p.Mode == "shell" {
+			foundSystem = true
+		}
+		if p.Name == "queue" && p.Mode == "text" {
+			foundQueue = true
+		}
+	}
+	if !foundSystem || !foundQueue {
+		t.Fatalf("expected systemname(shell) and queue(text) in synthetic subset, got %#v", ps.Parameter)
+	}
+}
+
+func TestQualifiedLetReferenceIsRejected(t *testing.T) {
+	src := `
+let l {
+  systemname = shell("hostname")
+}
+do run {
+  echo ${l.systemname}
+}
+`
+	_, diags := compileDoc(t, src)
+	if !diags.HasErrors() {
+		t.Fatalf("expected errors for qualified let reference")
+	}
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E100" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E100 for qualified let reference, got: %s", diags.String())
 	}
 }

@@ -494,6 +494,60 @@ analyse write {
 	}
 }
 
+func TestParseAnalyseWithClause(t *testing.T) {
+	src := `
+analyse write with p, (x, y) from q {
+  n = "N: %d" in "out"
+  (n)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("analyse_with.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if len(ab.WithItems) != 3 {
+		t.Fatalf("expected 3 with-items, got %#v", ab.WithItems)
+	}
+	if ab.WithItems[0].Name != "p" || ab.WithItems[0].From != "" {
+		t.Fatalf("unexpected first with-item: %#v", ab.WithItems[0])
+	}
+	if ab.WithItems[1].Name != "x" || ab.WithItems[1].From != "q" {
+		t.Fatalf("unexpected second with-item: %#v", ab.WithItems[1])
+	}
+	if ab.WithItems[2].Name != "y" || ab.WithItems[2].From != "q" {
+		t.Fatalf("unexpected third with-item: %#v", ab.WithItems[2])
+	}
+}
+
+func TestParseAnalyseRejectsAfterClause(t *testing.T) {
+	src := `
+analyse write after prep {
+  n = "N: %d" in "out"
+  (n)
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("analyse_after.jbs", src, diags)
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E416" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E416, got: %s", diags.String())
+	}
+}
+
 func TestParseParamMultilineListTupleRegression(t *testing.T) {
 	src := `
 param p {
