@@ -469,8 +469,3 @@ For `W310`/`W311`, reference scanning applies to:
 - `do` block body text.
 - submit raw blocks (`preprocess`, `postprocess`).
 - string literals in expression-valued submit keys.
-
-## Known Limitations
-
-- YAML emission only.
-- No XML emission.

@@ -126,6 +126,7 @@ From `platform.xml:executesub`, the replacements are:
 Other useful placeholders:
 - `#BENCHNAME#` comes from JUBE internals:
   - `${jube_benchmark_name}_${jube_step_name}_${jube_wp_id}`
+- `$jube_benchmark_home`, `$jube_wp_abspath` and other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
 
 ## Lookup: launch line replacement
 
@@ -191,6 +192,8 @@ submit run
 ```
 
 ## Example: Practical GPU submit block
+
+XXX this is pretty much useless. Update it to reflect defaults usable on our systems
 
 ```jbs
 param cases

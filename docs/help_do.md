@@ -127,6 +127,7 @@ do build
 Why this is useful:
 - Keep immutable/shared input in `$jube_benchmark_home`.
 - Keep per-run artifacts in the workpackage (`$jube_wp_abspath`).
+- See other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
 
 ## Example 4: Import selected variables with `with ... from ...`
 
