@@ -8,14 +8,22 @@ import (
 	"strings"
 
 	helpdocs "jbs/docs"
+	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/emit"
 	jbsformat "jbs/internal/format"
+	"jbs/internal/imports"
 	"jbs/internal/lower"
-	"jbs/internal/parser"
 	"jbs/internal/printparam"
 	"jbs/internal/sema"
+	"jbs/shared"
 )
+
+type analysisBundle struct {
+	Program ast.Program
+	Sources map[string]string
+	Result  *sema.Result
+}
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	flags, err := ParseFlags(args)
@@ -39,6 +47,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Fmt {
 		return runFmt(flags.Input, stdout, stderr)
 	}
+	if flags.Embed {
+		return runEmbed(flags.EmbedName, stdout, stderr)
+	}
 	if flags.PrintParam {
 		return runPrintParam(flags, stdout, stderr)
 	}
@@ -48,19 +59,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	src, err := os.ReadFile(flags.Input)
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(flags.Input, diags)
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to read input file %q: %v\n", flags.Input, err)
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", flags.Input, err)
 		return 1
 	}
-
-	diags := &diag.Diagnostics{}
-	prog := parser.Parse(flags.Input, string(src), diags)
-	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
-	doc := lower.ToJUBEYAML(res, lower.Options{InputPath: flags.Input}, diags)
+	doc := lower.ToJUBEYAML(bundle.Result, lower.Options{InputPath: flags.Input}, diags)
 
 	if len(diags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
 	if diags.HasErrors() {
 		return 1
@@ -88,23 +96,20 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runPrintParam(flags Flags, stdout, stderr io.Writer) int {
-	src, err := os.ReadFile(flags.Input)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to read input file %q: %v\n", flags.Input, err)
-		return 1
-	}
-
 	diags := &diag.Diagnostics{}
-	prog := parser.Parse(flags.Input, string(src), diags)
-	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	bundle, err := analyzeInput(flags.Input, diags)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", flags.Input, err)
+		return 1
+	}
 	if diags.HasErrors() {
-		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 		return 1
 	}
 
-	table := printparam.Build(res, diags)
+	table := printparam.Build(bundle.Result, diags)
 	if len(diags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
 	if diags.HasErrors() {
 		return 1
@@ -143,15 +148,29 @@ func runFmt(path string, stdout, stderr io.Writer) int {
 	}
 
 	diags := &diag.Diagnostics{}
-	formatted, err := jbsformat.JBS(path, string(src), diags)
+	bundle, err := analyzeInput(path, diags)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
+		return 1
+	}
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
+	}
+	if diags.HasErrors() {
+		return 1
+	}
+
+	// Validate through import expansion first, then format syntax locally.
+	formatDiags := &diag.Diagnostics{}
+	formatted, err := jbsformat.JBS(path, string(src), formatDiags)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to format %q: %v\n", path, err)
 		return 1
 	}
-	if len(diags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnostics(*diags, string(src)))
+	if len(formatDiags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnostics(*formatDiags, string(src)))
 	}
-	if diags.HasErrors() {
+	if formatDiags.HasErrors() {
 		return 1
 	}
 	if formatted == string(src) {
@@ -159,6 +178,48 @@ func runFmt(path string, stdout, stderr io.Writer) int {
 	}
 	if err := writeFileAtomic(path, []byte(formatted), info.Mode().Perm()); err != nil {
 		fmt.Fprintf(stderr, "failed to write formatted file %q: %v\n", path, err)
+		return 1
+	}
+	return 0
+}
+
+func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("determine working directory: %w", err)
+	}
+	loadRes, err := imports.LoadAndExpand(path, cwd, diags)
+	if err != nil {
+		return nil, err
+	}
+	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
+	return &analysisBundle{
+		Program: loadRes.Program,
+		Sources: loadRes.Sources,
+		Result:  res,
+	}, nil
+}
+
+func runEmbed(name string, stdout, stderr io.Writer) int {
+	if strings.TrimSpace(name) == "" {
+		files, err := shared.List()
+		if err != nil {
+			fmt.Fprintf(stderr, "failed to list embedded files: %v\n", err)
+			return 1
+		}
+		for _, file := range files {
+			fmt.Fprintln(stdout, file)
+		}
+		return 0
+	}
+	text, err := shared.Read(name)
+	if err != nil {
+		fmt.Fprintf(stderr, "unknown embedded file %q\n", name)
+		return 1
+	}
+	_, err = io.WriteString(stdout, text)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to write embedded content: %v\n", err)
 		return 1
 	}
 	return 0
@@ -201,15 +262,32 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func formatDiagnostics(diags diag.Diagnostics, source string) string {
+	defaultFile := "<input>"
+	if len(diags.Items) > 0 && diags.Items[0].Span.File != "" {
+		defaultFile = diags.Items[0].Span.File
+	}
+	sourceByFile := map[string]string{defaultFile: source}
+	return formatDiagnosticsWithSources(diags, sourceByFile, defaultFile)
+}
+
+func formatDiagnosticsWithSources(diags diag.Diagnostics, sources map[string]string, defaultFile string) string {
 	if len(diags.Items) == 0 {
 		return ""
 	}
-	lines := strings.Split(source, "\n")
 	var b strings.Builder
 	for _, item := range diags.Items {
 		fmt.Fprintf(&b, "%s %s %s\n", strings.ToUpper(string(item.Severity)), item.Code, item.Span.String())
 		b.WriteString(item.Message)
 		b.WriteByte('\n')
+		file := item.Span.File
+		if file == "" {
+			file = defaultFile
+		}
+		source := sources[file]
+		if source == "" && defaultFile != "" {
+			source = sources[defaultFile]
+		}
+		lines := strings.Split(source, "\n")
 		if excerpt := sourceExcerpt(lines, item.Span); excerpt != "" {
 			b.WriteString(excerpt)
 			b.WriteByte('\n')
@@ -278,6 +356,8 @@ func helpTopic(flags Flags) string {
 		return "param"
 	case flags.HelpSubmit:
 		return "submit"
+	case flags.HelpUse:
+		return "use"
 	default:
 		return ""
 	}

@@ -85,7 +85,7 @@ func TestFormatParseErrorReturnsNoOutput(t *testing.T) {
 		t.Fatalf("unexpected format error: %v", err)
 	}
 	if !diags.HasErrors() {
-		t.Fatalf("expected parse/sema errors")
+		t.Fatalf("expected parse errors")
 	}
 	if got != "" {
 		t.Fatalf("expected empty formatted output on errors, got %q", got)
@@ -141,6 +141,80 @@ func TestGlobalsRemainContiguous(t *testing.T) {
 	wantPrefix := "jbs_name = \"x\"\njbs_outpath = \"y\"\n\nparam p\n"
 	if !strings.HasPrefix(got, wantPrefix) {
 		t.Fatalf("unexpected global grouping:\n%s", got)
+	}
+}
+
+func TestFormatTopLevelUseStatements(t *testing.T) {
+	src := `use jsc
+use "./path/mod.jbs" as mod
+use a,b from jsc
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("use_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `use jsc
+
+use "./path/mod.jbs" as mod
+
+use a, b from jsc
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatSubmitHeaderWithUseClause(t *testing.T) {
+	src := `let defaults{queue="batch"}
+param p{a=1
+a
+}
+do prep{echo prep}
+submit run
+with p
+use defaults
+after prep
+{
+args_exec="-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_use_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !strings.Contains(got, "submit run\n        after prep\n        use defaults\n        with p\n{") {
+		t.Fatalf("expected canonical submit header with use clause, got:\n%s", got)
+	}
+}
+
+func TestFormatSubmitHeaderWithRepeatedUseClauses(t *testing.T) {
+	src := `let defaults{queue="batch"}
+let gpu_defaults{gres="gpu:4"}
+submit run
+use defaults
+use gpu_defaults
+{
+args_exec="-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_use_repeated_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !strings.Contains(got, "submit run\n        use defaults, gpu_defaults\n{") {
+		t.Fatalf("expected canonical merged submit use clause, got:\n%s", got)
 	}
 }
 

@@ -47,9 +47,9 @@ func (p *Parser) parseProgram() ast.Program {
 		if !ok {
 			p.diags.AddError(
 				"E010",
-				"expected block keyword (param/do/submit/let/analyse)",
+				"expected block keyword (param/do/submit/let/analyse/use)",
 				diag.NewSpan(p.file, start, start),
-				"start a block with param, do, submit, let, or analyse",
+				"start a block with param, do, submit, let, analyse, or use",
 			)
 			p.advance()
 			continue
@@ -71,13 +71,16 @@ func (p *Parser) parseProgram() ast.Program {
 		case "analyse":
 			p.consumeWord()
 			stmts = append(stmts, p.parseAnalyseBlock(start))
+		case "use":
+			p.consumeWord()
+			stmts = append(stmts, p.parseUseStmt(start))
 		default:
 			end := p.consumeWord()
 			p.diags.AddError(
 				"E011",
 				fmt.Sprintf("unknown block keyword '%s'", word),
 				diag.NewSpan(p.file, start, end),
-				"valid keywords are param, do, submit, let, analyse",
+				"valid keywords are param, do, submit, let, analyse, use",
 			)
 		}
 	}
@@ -94,7 +97,7 @@ func (p *Parser) parseProgram() ast.Program {
 
 func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
-	if !ok || word == "param" || word == "do" || word == "submit" || word == "let" || word == "analyse" {
+	if !ok || word == "param" || word == "do" || word == "submit" || word == "let" || word == "analyse" || word == "use" {
 		return false
 	}
 	i := p.off
@@ -142,6 +145,189 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 	}
 }
 
+func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
+	stmt, stmtStart := p.readTopLevelStatement()
+	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipStmtSeparators()
+
+	zero := diag.NewSpan(p.file, start, start)
+	if tp.peek().Type == lexer.TokenEOF {
+		p.diags.AddError(
+			"E430",
+			"malformed use statement; expected module name, path, or selective import",
+			zero,
+			"use syntax: use <module> | use \"path.jbs\" as alias | use x,y from <module_or_path>",
+		)
+		return ast.UseStmt{Span: zero}
+	}
+
+	first := tp.peek()
+	mergeSpan := func(a diag.Span, b diag.Span) diag.Span {
+		if a.IsZero() {
+			return b
+		}
+		return diag.Merge(a, b)
+	}
+
+	ensureEOF := func(span diag.Span) bool {
+		if tp.peek().Type == lexer.TokenEOF {
+			return true
+		}
+		p.diags.AddError(
+			"E430",
+			"unexpected trailing tokens in use statement",
+			tp.peek().Span,
+			"use one use statement per line",
+		)
+		return false
+	}
+
+	parseUseSource := func(tok lexer.Token) (ast.UseSource, bool) {
+		switch tok.Type {
+		case lexer.TokenIdent:
+			return ast.UseSource{
+				Kind:  ast.UseSourceBare,
+				Value: tok.Value,
+				Span:  tok.Span,
+			}, true
+		case lexer.TokenString:
+			return ast.UseSource{
+				Kind:  ast.UseSourcePath,
+				Value: tok.Value,
+				Span:  tok.Span,
+			}, true
+		default:
+			p.diags.AddError(
+				"E430",
+				"expected module name or quoted path in use statement",
+				tok.Span,
+				"use an identifier or quoted .jbs path",
+			)
+			return ast.UseSource{}, false
+		}
+	}
+
+	if first.Type == lexer.TokenString {
+		pathTok := tp.next()
+		asTok := tp.peek()
+		if asTok.Type != lexer.TokenAs {
+			p.diags.AddError(
+				"E430",
+				"quoted path import requires alias",
+				asTok.Span,
+				"use syntax: use \"path.jbs\" as alias",
+			)
+			return ast.UseStmt{
+				Source: ast.UseSource{Kind: ast.UseSourcePath, Value: pathTok.Value, Span: pathTok.Span},
+				Span:   pathTok.Span,
+			}
+		}
+		tp.next()
+		aliasTok := tp.peek()
+		if aliasTok.Type != lexer.TokenIdent {
+			p.diags.AddError(
+				"E430",
+				"expected alias identifier after 'as'",
+				aliasTok.Span,
+				"use syntax: use \"path.jbs\" as alias",
+			)
+			return ast.UseStmt{
+				Source: ast.UseSource{Kind: ast.UseSourcePath, Value: pathTok.Value, Span: pathTok.Span},
+				Span:   mergeSpan(pathTok.Span, asTok.Span),
+			}
+		}
+		aliasTok = tp.next()
+		span := mergeSpan(pathTok.Span, aliasTok.Span)
+		ensureEOF(span)
+		return ast.UseStmt{
+			Source: ast.UseSource{
+				Kind:  ast.UseSourcePath,
+				Value: pathTok.Value,
+				Span:  pathTok.Span,
+			},
+			Alias: aliasTok.Value,
+			Span:  span,
+		}
+	}
+
+	if first.Type != lexer.TokenIdent {
+		p.diags.AddError(
+			"E430",
+			"malformed use statement; expected identifier list or quoted path",
+			first.Span,
+			"use syntax: use <module> | use \"path.jbs\" as alias | use x,y from <module_or_path>",
+		)
+		return ast.UseStmt{Span: first.Span}
+	}
+
+	names := make([]string, 0, 4)
+	span := diag.Span{}
+	for {
+		nameTok := tp.peek()
+		if nameTok.Type != lexer.TokenIdent {
+			p.diags.AddError(
+				"E430",
+				"expected identifier in use statement",
+				nameTok.Span,
+				"use syntax: use x,y from module",
+			)
+			break
+		}
+		nameTok = tp.next()
+		names = append(names, nameTok.Value)
+		span = mergeSpan(span, nameTok.Span)
+		if tp.peek().Type != lexer.TokenComma {
+			break
+		}
+		commaTok := tp.next()
+		span = mergeSpan(span, commaTok.Span)
+	}
+
+	if tp.peek().Type == lexer.TokenFrom {
+		fromTok := tp.next()
+		srcTok := tp.peek()
+		src, ok := parseUseSource(srcTok)
+		if !ok {
+			return ast.UseStmt{
+				Names: names,
+				Span:  mergeSpan(span, fromTok.Span),
+			}
+		}
+		tp.next()
+		outSpan := mergeSpan(span, src.Span)
+		ensureEOF(outSpan)
+		return ast.UseStmt{
+			Names:  names,
+			Source: src,
+			Span:   outSpan,
+		}
+	}
+
+	if len(names) != 1 {
+		p.diags.AddError(
+			"E430",
+			"namespace import accepts exactly one module name",
+			span,
+			"use syntax: use <module> or use x,y from <module_or_path>",
+		)
+		return ast.UseStmt{Names: names, Span: span}
+	}
+	if !ensureEOF(span) {
+		return ast.UseStmt{Names: names, Span: span}
+	}
+	source := ast.UseSource{
+		Kind:  ast.UseSourceBare,
+		Value: names[0],
+		Span:  span,
+	}
+	return ast.UseStmt{
+		Source: source,
+		Alias:  names[0],
+		Span:   span,
+	}
+}
+
 func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 	startPos := p.pos()
 	startOff := p.off
@@ -176,31 +362,31 @@ func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 			if r == '"' {
 				mode = blockScanCode
 			}
-			default:
-				switch r {
-				case '#':
-					stmt := string(p.src[startOff:p.off])
-					for !p.eof() && p.peek() != '\n' {
-						p.advance()
-					}
-					if !p.eof() && p.peek() == '\n' {
-						p.advance()
-					}
-					return stmt, startPos
-				case '\n':
-					if p.off > startOff && p.src[p.off-1] == '\\' {
-						p.advance()
-						continue
-					}
-					stmt := string(p.src[startOff:p.off])
+		default:
+			switch r {
+			case '#':
+				stmt := string(p.src[startOff:p.off])
+				for !p.eof() && p.peek() != '\n' {
 					p.advance()
-					return stmt, startPos
-				case ';':
-					stmt := string(p.src[startOff:p.off])
+				}
+				if !p.eof() && p.peek() == '\n' {
 					p.advance()
-					return stmt, startPos
-				case '\'':
-					mode = blockScanSingleQuote
+				}
+				return stmt, startPos
+			case '\n':
+				if p.off > startOff && p.src[p.off-1] == '\\' {
+					p.advance()
+					continue
+				}
+				stmt := string(p.src[startOff:p.off])
+				p.advance()
+				return stmt, startPos
+			case ';':
+				stmt := string(p.src[startOff:p.off])
+				p.advance()
+				return stmt, startPos
+			case '\'':
+				mode = blockScanSingleQuote
 				p.advance()
 			case '"':
 				mode = blockScanDoubleQuote
@@ -295,7 +481,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 
 func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 	name, nameSpan := p.parseRequiredIdent("E040", "expected submit block name")
-	after, withItems := p.parseOptionalAfterAndWith()
+	after, useNames, withItems := p.parseOptionalAfterUseAndWith()
 	p.skipTrivia()
 
 	if p.peek() != '{' {
@@ -309,6 +495,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		return ast.SubmitBlock{
 			Name:      name,
 			After:     after,
+			UseNames:  useNames,
 			WithItems: withItems,
 			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -319,6 +506,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		return ast.SubmitBlock{
 			Name:      name,
 			After:     after,
+			UseNames:  useNames,
 			WithItems: withItems,
 			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -329,6 +517,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 	return ast.SubmitBlock{
 		Name:      name,
 		After:     after,
+		UseNames:  useNames,
 		WithItems: withItems,
 		Fields:    fields,
 		BodyRaw:   body,
@@ -448,6 +637,33 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 	return after, withItems
 }
 
+func (p *Parser) parseOptionalAfterUseAndWith() ([]string, []string, []ast.WithItem) {
+	after := make([]string, 0)
+	useNames := make([]string, 0)
+	withItems := make([]ast.WithItem, 0)
+	for {
+		p.skipTriviaInline()
+		word, ok := p.peekWord()
+		if !ok {
+			break
+		}
+		switch word {
+		case "after":
+			p.consumeWord()
+			after = append(after, p.parseNameList()...)
+		case "with":
+			p.consumeWord()
+			withItems = append(withItems, p.parseWithItems()...)
+		case "use":
+			p.consumeWord()
+			useNames = append(useNames, p.parseNameList()...)
+		default:
+			return after, useNames, withItems
+		}
+	}
+	return after, useNames, withItems
+}
+
 func (p *Parser) parseWithItems() []ast.WithItem {
 	items := make([]ast.WithItem, 0)
 	currentFrom := ""
@@ -463,7 +679,7 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 		word, ok := p.peekWord()
 		if ok && word == "from" {
 			p.consumeWord()
-			srcName, fromSpan := p.parseRequiredIdent("E024", "expected source parameterset name after 'from'")
+			srcName, fromSpan := p.parseQualifiedName("E024", "expected source parameterset name after 'from'")
 			src = srcName
 			srcSpan = fromSpan
 			currentFrom = srcName
@@ -495,7 +711,7 @@ type withName struct {
 func (p *Parser) parseWithNames() ([]withName, bool) {
 	p.skipTriviaInline()
 	if p.peek() != '(' {
-		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
+		name, span := p.parseQualifiedName("E023", "expected identifier in with clause")
 		if name == "" {
 			return nil, false
 		}
@@ -520,7 +736,7 @@ func (p *Parser) parseWithNames() ([]withName, bool) {
 			return names, len(names) > 0
 		}
 
-		name, span := p.parseRequiredIdent("E023", "expected identifier in with clause")
+		name, span := p.parseQualifiedName("E023", "expected identifier in with clause")
 		if name == "" {
 			return names, len(names) > 0
 		}
@@ -539,6 +755,29 @@ func (p *Parser) parseWithNames() ([]withName, bool) {
 			return names, len(names) > 0
 		}
 	}
+}
+
+func (p *Parser) parseQualifiedName(code, message string) (string, diag.Span) {
+	name, span := p.parseRequiredIdent(code, message)
+	if name == "" {
+		return "", span
+	}
+	parts := []string{name}
+	for {
+		p.skipTriviaInline()
+		if p.peek() != '.' {
+			break
+		}
+		p.advance()
+		p.skipTriviaInline()
+		next, nextSpan := p.parseRequiredIdent(code, message)
+		if next == "" {
+			return strings.Join(parts, "."), span
+		}
+		parts = append(parts, next)
+		span = diag.Merge(span, nextSpan)
+	}
+	return strings.Join(parts, "."), span
 }
 
 func (p *Parser) parseNameList() []string {
@@ -1326,20 +1565,20 @@ func (p *submitFieldParser) scanExprUntilStmtEnd() string {
 			if r == '"' {
 				mode = blockScanCode
 			}
-			default:
-				switch r {
-				case '\\':
-					if p.peekN(1) == '\n' {
-						p.advance()
-						p.advance()
-						continue
-					}
+		default:
+			switch r {
+			case '\\':
+				if p.peekN(1) == '\n' {
 					p.advance()
-				case '\n', ';', '#':
-					return string(p.src[start:p.off])
-				case '\'':
-					mode = blockScanSingleQuote
 					p.advance()
+					continue
+				}
+				p.advance()
+			case '\n', ';', '#':
+				return string(p.src[start:p.off])
+			case '\'':
+				mode = blockScanSingleQuote
+				p.advance()
 			case '"':
 				mode = blockScanDoubleQuote
 				p.advance()

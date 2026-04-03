@@ -1,0 +1,24 @@
+use jsc
+use "./local.jbs" as local
+use submit_defaults, prep_step from jsc
+
+let submit_defaults{
+queue="batch"
+}
+
+param p{
+a=(1,2)
+a
+}
+
+do prep{
+echo prep
+}
+
+submit run
+with p
+use submit_defaults
+after prep
+{
+args_exec="-lc hostname"
+}

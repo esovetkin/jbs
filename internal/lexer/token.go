@@ -45,6 +45,7 @@ const (
 	TokenAfter     TokenType = "after"
 	TokenIn        TokenType = "in"
 	TokenAs        TokenType = "as"
+	TokenUse       TokenType = "use"
 )
 
 type Token struct {
@@ -73,4 +74,5 @@ var keywords = map[string]TokenType{
 	"after":   TokenAfter,
 	"in":      TokenIn,
 	"as":      TokenAs,
+	"use":     TokenUse,
 }

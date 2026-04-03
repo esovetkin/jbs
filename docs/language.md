@@ -17,8 +17,9 @@ param_stmt    := IDENT "=" expr
 final_expr    := comb_expr
 
 with_clause   := "with" with_item ("," with_item)*
-with_item     := IDENT ("from" IDENT)?
-              | "(" IDENT ("," IDENT)+ ")" ("from" IDENT)?
+qualified_name := IDENT ("." IDENT)*
+with_item     := qualified_name ("from" qualified_name)?
+              | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
 
 do_block      := "do" IDENT after_clause? with_clause? raw_block
 submit_block  := "submit" IDENT after_clause? with_clause? "{" submit_stmt* "}"
@@ -242,6 +243,8 @@ Supported forms:
 - mixed form: `with x from p2, p3`
 - tuple form: `with (x, y) from p2`
 - mixed tuple form: `with (x, y) from p2, p3`
+- qualified source form: `with lib.p2`
+- qualified `from` form: `with x from lib.p2`
 - let import forms in `param`:
   - `with l`
   - `with x from l`
@@ -265,6 +268,36 @@ In `analyse`:
 - `with` imports are allowed only from `let` namespaces.
 - imported let variables in `analyse` must be strings (`E422`).
 - `with` imports from `param` are rejected (`E420`).
+
+In submit headers:
+
+- `submit ... use <name>` is special and accepts only `let` namespaces.
+- multiple submit-header `use` clauses are allowed and merged in order.
+- later `use` namespaces override earlier ones for the same submit key (last-win).
+- collisions across different `use` namespaces for the same submit key emit warning `W072`.
+- using a `param` source in submit-header `use` is rejected (`E071`).
+
+Example:
+
+```jbs
+let defaults {
+  queue = "batch"
+}
+
+let gpu_defaults {
+  queue = "devel"
+  gres = "gpu:4"
+}
+
+submit run
+  use defaults
+  use gpu_defaults
+{
+  args_exec = "-lc hostname"
+}
+```
+
+`queue` resolves to `devel` (from `gpu_defaults`) and emits `W072` because both namespaces define `queue`.
 
 ## Lowering to JUBE YAML
 
@@ -462,6 +495,7 @@ Key codes:
 - `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
 - `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
 - `W320`: analyse helper variable shadows a step-visible variable.
+- `W072`: submit default key is defined in multiple submit-header `use` namespaces; later namespace wins.
 
 For `W310`/`W311`, reference scanning applies to:
 

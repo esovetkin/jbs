@@ -7,8 +7,8 @@ import (
 
 	"jbs/internal/diag"
 	"jbs/internal/emit"
+	"jbs/internal/imports"
 	"jbs/internal/lower"
-	"jbs/internal/parser"
 	"jbs/internal/sema"
 )
 
@@ -36,23 +36,38 @@ func TestGoldenLetStepImports(t *testing.T) {
 	assertGolden(t, "let_step_imports")
 }
 
+func TestGoldenUseEmbedDefaults(t *testing.T) {
+	assertGolden(t, "use_embed_defaults")
+}
+
+func TestGoldenUseImportStepChain(t *testing.T) {
+	assertGolden(t, "use_import_step_chain")
+}
+
+func TestGoldenUseSubmitDefaultsOverride(t *testing.T) {
+	assertGolden(t, "use_submit_defaults_override")
+}
+
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
-	inputPath := filepath.Join("..", "..", "tests", name+".jbs")
-	expectedPath := filepath.Join("..", "..", "tests", name+".yaml")
-
-	src, err := os.ReadFile(inputPath)
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
-		t.Fatalf("read input: %v", err)
+		t.Fatalf("resolve repo root: %v", err)
 	}
+	inputPath := filepath.Join(repoRoot, "tests", name+".jbs")
+	expectedPath := filepath.Join(repoRoot, "tests", name+".yaml")
+
 	expected, err := os.ReadFile(expectedPath)
 	if err != nil {
 		t.Fatalf("read expected: %v", err)
 	}
 
 	diags := &diag.Diagnostics{}
-	prog := parser.Parse(inputPath, string(src), diags)
-	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	loadRes, err := imports.LoadAndExpand(inputPath, repoRoot, diags)
+	if err != nil {
+		t.Fatalf("load+expand: %v", err)
+	}
+	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
 	doc := lower.ToJUBEYAML(res, lower.Options{InputPath: inputPath}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())

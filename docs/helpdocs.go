@@ -16,6 +16,7 @@ var topicToFile = map[string]string{
 	"let":      "help_let.md",
 	"param":    "help_param.md",
 	"submit":   "help_submit.md",
+	"use":      "help_use.md",
 }
 
 func Page(topic string) (string, error) {

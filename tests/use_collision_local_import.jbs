@@ -1,0 +1,6 @@
+let submit_defaults
+{
+        queue = "local"
+}
+
+use submit_defaults from jsc

@@ -1,0 +1,54 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Parameters for submit block 'run'
+  - name: run__submit_params
+    init_with: platform.xml:systemParameter
+    parameter:
+      - name: gres
+        _: gpu:4
+      - name: nodes
+        type: int
+        _: "1"
+      - name: outerrfile
+        _: job.err
+      - name: outlogfile
+        _: job.out
+      - name: queue
+        mode: python
+        _: '__import__(''os'').environ.get(''JUBE_QUEUE'', { ''juwelsbooster'': ''develbooster'',  ''jurecadc'': ''dc-hwai'',  ''jusuf'': ''batch''})'
+      - name: starter
+        _: srun
+      - name: tasks
+        type: int
+        _: "1"
+      - name: threadspertask
+        type: int
+        _: "48"
+      - name: timelimit
+        _: "00:15:00"
+      - name: args_exec
+        _: -lc hostname
+
+# Steps executed by JUBE
+step:
+  # Step generated from submit block 'run'
+  - name: run
+    use:
+      - run__submit_params
+      - from: platform.xml
+        _: jobfiles
+      - from: platform.xml
+        _: executesub
+      - from: platform.xml
+        _: executeset
+    do:
+      - done_file: $done_file
+        error_file: $error_file
+        _: ${submit} --parsable ${submit_script} > run.jobid
+      - echo "true" > success

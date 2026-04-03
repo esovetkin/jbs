@@ -114,6 +114,36 @@ func TestParseFlagsHelpSubmit(t *testing.T) {
 	}
 }
 
+func TestParseFlagsHelpUse(t *testing.T) {
+	f, err := ParseFlags([]string{"help", "use"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Help || !f.HelpUse {
+		t.Fatalf("expected help use mode")
+	}
+}
+
+func TestParseFlagsEmbedList(t *testing.T) {
+	f, err := ParseFlags([]string{"embed"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Embed || f.EmbedName != "" {
+		t.Fatalf("expected embed list mode, got %#v", f)
+	}
+}
+
+func TestParseFlagsEmbedName(t *testing.T) {
+	f, err := ParseFlags([]string{"embed", "jsc"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !f.Embed || f.EmbedName != "jsc" {
+		t.Fatalf("expected embed file mode for jsc, got %#v", f)
+	}
+}
+
 func TestParseFlagsHelpParam(t *testing.T) {
 	f, err := ParseFlags([]string{"help", "param"})
 	if err != nil {

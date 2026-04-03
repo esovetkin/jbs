@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
@@ -119,6 +120,107 @@ do task
 	}
 	if db.WithItems[1].Name != "x" || db.WithItems[1].From != "params2" {
 		t.Fatalf("unexpected second with item: %#v", db.WithItems[1])
+	}
+}
+
+func TestParseWithQualifiedSourceName(t *testing.T) {
+	src := `
+do task with test_lib.p {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("with_qualified_name.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if got := len(db.WithItems); got != 1 {
+		t.Fatalf("expected one with item, got %d", got)
+	}
+	if db.WithItems[0].Name != "test_lib.p" || db.WithItems[0].From != "" {
+		t.Fatalf("unexpected with item: %#v", db.WithItems[0])
+	}
+}
+
+func TestParseWithQualifiedFromSource(t *testing.T) {
+	src := `
+do task with x from test_lib.p {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("with_qualified_from.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if got := len(db.WithItems); got != 1 {
+		t.Fatalf("expected one with item, got %d", got)
+	}
+	if db.WithItems[0].Name != "x" || db.WithItems[0].From != "test_lib.p" {
+		t.Fatalf("unexpected with item: %#v", db.WithItems[0])
+	}
+}
+
+func TestParseWithTupleQualifiedFromSource(t *testing.T) {
+	src := `
+do task with (x,y) from test_lib.p {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("with_tuple_qualified_from.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if got := len(db.WithItems); got != 2 {
+		t.Fatalf("expected two with items, got %d", got)
+	}
+	if db.WithItems[0].Name != "x" || db.WithItems[0].From != "test_lib.p" {
+		t.Fatalf("unexpected first with item: %#v", db.WithItems[0])
+	}
+	if db.WithItems[1].Name != "y" || db.WithItems[1].From != "test_lib.p" {
+		t.Fatalf("unexpected second with item: %#v", db.WithItems[1])
+	}
+}
+
+func TestParseWithQualifiedMalformed(t *testing.T) {
+	src := `
+do task with test_lib. {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("with_qualified_malformed.jbs", src, diags)
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E023" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E023 for malformed qualified with item, got: %s", diags.String())
 	}
 }
 
@@ -620,6 +722,201 @@ func TestParseParamCommentApostropheDoesNotBreakBlock(t *testing.T) {
 param p {
   a = (1, 2)
   # ` + "`a + b` is like python's zip" + `
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("comment_apostrophe.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if !strings.Contains(pb.BodyRaw, "`a + b` is like python's zip") {
+		t.Fatalf("expected apostrophe/backtick comment in BodyRaw, got %q", pb.BodyRaw)
+	}
+}
+
+func TestParseUseBareModule(t *testing.T) {
+	src := "use jsc\n"
+	diags := &diag.Diagnostics{}
+	prog := Parse("use_bare.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	useStmt, ok := prog.Stmts[0].(ast.UseStmt)
+	if !ok {
+		t.Fatalf("expected use statement, got %T", prog.Stmts[0])
+	}
+	if useStmt.Source.Kind != ast.UseSourceBare || useStmt.Source.Value != "jsc" {
+		t.Fatalf("unexpected use source: %#v", useStmt.Source)
+	}
+	if useStmt.Alias != "jsc" {
+		t.Fatalf("expected alias 'jsc', got %q", useStmt.Alias)
+	}
+	if len(useStmt.Names) != 0 {
+		t.Fatalf("expected no selective names, got %#v", useStmt.Names)
+	}
+}
+
+func TestParseUsePathAlias(t *testing.T) {
+	src := `use "./mods/base.jbs" as base` + "\n"
+	diags := &diag.Diagnostics{}
+	prog := Parse("use_path_alias.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	useStmt, ok := prog.Stmts[0].(ast.UseStmt)
+	if !ok {
+		t.Fatalf("expected use statement, got %T", prog.Stmts[0])
+	}
+	if useStmt.Source.Kind != ast.UseSourcePath {
+		t.Fatalf("expected path source, got %#v", useStmt.Source)
+	}
+	if useStmt.Source.Value != "./mods/base.jbs" {
+		t.Fatalf("unexpected path value: %q", useStmt.Source.Value)
+	}
+	if useStmt.Alias != "base" {
+		t.Fatalf("unexpected alias: %q", useStmt.Alias)
+	}
+}
+
+func TestParseUseSelectiveImports(t *testing.T) {
+	src := `
+use submit_defaults, common_setup_step from jsc
+use helper from "./local.jbs"
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("use_selective.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Stmts))
+	}
+	first, ok := prog.Stmts[0].(ast.UseStmt)
+	if !ok {
+		t.Fatalf("expected first stmt use, got %T", prog.Stmts[0])
+	}
+	if len(first.Names) != 2 || first.Names[0] != "submit_defaults" || first.Names[1] != "common_setup_step" {
+		t.Fatalf("unexpected selective names: %#v", first.Names)
+	}
+	if first.Source.Kind != ast.UseSourceBare || first.Source.Value != "jsc" {
+		t.Fatalf("unexpected first source: %#v", first.Source)
+	}
+	second, ok := prog.Stmts[1].(ast.UseStmt)
+	if !ok {
+		t.Fatalf("expected second stmt use, got %T", prog.Stmts[1])
+	}
+	if len(second.Names) != 1 || second.Names[0] != "helper" {
+		t.Fatalf("unexpected second selective names: %#v", second.Names)
+	}
+	if second.Source.Kind != ast.UseSourcePath || second.Source.Value != "./local.jbs" {
+		t.Fatalf("unexpected second source: %#v", second.Source)
+	}
+}
+
+func TestParseUseMalformedForms(t *testing.T) {
+	sources := []string{
+		`use "./x.jbs"`,
+		`use a, b`,
+		`use x from`,
+	}
+	for _, src := range sources {
+		diags := &diag.Diagnostics{}
+		_ = Parse("use_bad.jbs", src+"\n", diags)
+		found := false
+		for _, item := range diags.Items {
+			if item.Code == "E430" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected E430 for malformed use statement %q, got: %s", src, diags.String())
+		}
+	}
+}
+
+func TestParseSubmitHeaderSingleUseClause(t *testing.T) {
+	src := `
+submit run
+  after prep
+  use defaults, gpu_defaults
+  with p
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_use_ok.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block, got %T", prog.Stmts[0])
+	}
+	if len(sb.UseNames) != 2 || sb.UseNames[0] != "defaults" || sb.UseNames[1] != "gpu_defaults" {
+		t.Fatalf("unexpected submit use names: %#v", sb.UseNames)
+	}
+	if len(sb.After) != 1 || sb.After[0] != "prep" {
+		t.Fatalf("unexpected after clause: %#v", sb.After)
+	}
+	if len(sb.WithItems) != 1 || sb.WithItems[0].Name != "p" {
+		t.Fatalf("unexpected with clause: %#v", sb.WithItems)
+	}
+}
+
+func TestParseSubmitHeaderRepeatedUseClausesAreMerged(t *testing.T) {
+	src := `
+submit run
+  use defaults
+  use gpu_defaults
+  use fast_defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_use_merged.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block, got %T", prog.Stmts[0])
+	}
+	want := []string{"defaults", "gpu_defaults", "fast_defaults"}
+	if len(sb.UseNames) != len(want) {
+		t.Fatalf("unexpected submit use names length: got=%d want=%d values=%#v", len(sb.UseNames), len(want), sb.UseNames)
+	}
+	for i := range want {
+		if sb.UseNames[i] != want[i] {
+			t.Fatalf("unexpected submit use names: got=%#v want=%#v", sb.UseNames, want)
+		}
+	}
+}
+
+func TestParseParamCommentQuoteDoesNotBreakBlock(t *testing.T) {
+	src := `
+param p {
+  # it's a comment in param block
+  a = (1, 2)
   a
 }
 `

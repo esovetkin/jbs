@@ -15,6 +15,7 @@ If you only care about `#SBATCH` lines and the launch command, jump to:
 ```jbs
 submit <name>
         [after <step0>, <step1>, ...]
+        [use <let_namespace0>, <let_namespace1>, ...]
         [with <paramset>, <var> from <paramset2>, ...]
 {
         # expression keys
@@ -47,6 +48,31 @@ submit <name>
         }
 }
 ```
+
+`submit ... use ...` is restricted to `let` namespaces. Using a `param` source in submit-header `use` is an error.
+
+Multiple `use` clauses are allowed and are merged in order:
+
+```jbs
+submit run
+        use defaults
+        use gpu_defaults
+{
+        args_exec = "-lc hostname"
+}
+```
+
+is equivalent to:
+
+```jbs
+submit run
+        use defaults, gpu_defaults
+{
+        args_exec = "-lc hostname"
+}
+```
+
+Defaults follow last-win precedence by key across `use` namespaces. If the same key is provided by multiple `use` namespaces, jbs emits warning `W072`.
 
 Inside `submit`, key assignments can be separated by newline or `;`:
 

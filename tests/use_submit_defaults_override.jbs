@@ -1,0 +1,8 @@
+use submit_defaults from jsc
+
+submit run
+        use submit_defaults
+{
+        queue = "custom"
+        args_exec = "-lc hostname"
+}

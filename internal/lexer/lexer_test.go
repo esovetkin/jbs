@@ -147,3 +147,21 @@ func TestLexCommentTrailingBackslashDoesNotContinue(t *testing.T) {
 		t.Fatalf("expected two newline tokens (comment line + second line), got %d", newlineCount)
 	}
 }
+
+func TestLexUseKeyword(t *testing.T) {
+	src := "use jsc\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	if len(tokens) < 2 {
+		t.Fatalf("expected at least two tokens, got %d", len(tokens))
+	}
+	if tokens[0].Type != TokenUse {
+		t.Fatalf("expected first token to be TokenUse, got %s", tokens[0].Type)
+	}
+	if tokens[1].Type != TokenIdent || tokens[1].Value != "jsc" {
+		t.Fatalf("unexpected second token: %#v", tokens[1])
+	}
+}

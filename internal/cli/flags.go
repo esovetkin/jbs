@@ -10,6 +10,8 @@ type Flags struct {
 	Output      string
 	Check       bool
 	Fmt         bool
+	Embed       bool
+	EmbedName   string
 	PrintParam  bool
 	PrintType   string
 	Help        bool
@@ -18,6 +20,7 @@ type Flags struct {
 	HelpLet     bool
 	HelpParam   bool
 	HelpSubmit  bool
+	HelpUse     bool
 	HelpGlobals bool
 }
 
@@ -70,7 +73,23 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.HelpSubmit = true
 			return cfg, nil
 		}
-		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|let|param|submit]"}
+		if len(args) == 2 && args[1] == "use" {
+			cfg.Help = true
+			cfg.HelpUse = true
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|let|param|submit|use]"}
+	}
+	if args[0] == "embed" {
+		cfg.Embed = true
+		if len(args) == 1 {
+			return cfg, nil
+		}
+		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
+			cfg.EmbedName = args[1]
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs embed [filename]"}
 	}
 	if args[0] == "fmt" {
 		if len(args) != 2 {
@@ -171,7 +190,10 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|param|do|submit|let|analyse]
+  jbs help [globals|param|do|submit|let|analyse|use]
+
+Inspect embedded shared scripts:
+  jbs embed [filename]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs

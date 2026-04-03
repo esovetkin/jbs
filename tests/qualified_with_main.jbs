@@ -1,0 +1,27 @@
+use "./tests/qualified_with_lib.jbs" as test_lib
+use p from test_lib
+use l from test_lib
+
+do s0
+        with p
+{
+        echo ${x}
+}
+
+do s1
+        with test_lib.p
+{
+        echo ${x}
+}
+
+do s2
+        with test_lib.l
+{
+        echo ${x}
+}
+
+do s3
+        with l
+{
+        echo ${x}
+}

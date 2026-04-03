@@ -19,6 +19,31 @@ type Program struct {
 
 func (p Program) GetSpan() diag.Span { return p.Span }
 
+type UseSourceKind string
+
+const (
+	UseSourceBare UseSourceKind = "bare"
+	UseSourcePath UseSourceKind = "path"
+)
+
+type UseSource struct {
+	Kind  UseSourceKind
+	Value string
+	Span  diag.Span
+}
+
+func (u UseSource) GetSpan() diag.Span { return u.Span }
+
+type UseStmt struct {
+	Names  []string
+	Source UseSource
+	Alias  string
+	Span   diag.Span
+}
+
+func (u UseStmt) stmtNode()          {}
+func (u UseStmt) GetSpan() diag.Span { return u.Span }
+
 type WithItem struct {
 	Name string
 	From string
@@ -110,6 +135,7 @@ func (d DoBlock) GetSpan() diag.Span { return d.Span }
 type SubmitBlock struct {
 	Name      string
 	After     []string
+	UseNames  []string
 	WithItems []WithItem
 	Fields    []SubmitField
 	BodyRaw   string

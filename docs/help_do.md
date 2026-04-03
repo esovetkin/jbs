@@ -21,6 +21,30 @@ do <name>
 }
 ```
 
+`with` also supports namespace-qualified module references when you import a module alias first:
+
+```jbs
+use test_lib
+
+do s
+        with test_lib.p
+{
+        echo ${x}
+}
+```
+
+You can also qualify `from` sources:
+
+```jbs
+use test_lib
+
+do s
+        with x from test_lib.p
+{
+        echo ${x}
+}
+```
+
 ## Variable inheritance with `after`
 
 `after` is not only an execution dependency. The dependent step also inherits variables that were visible in the predecessor step.

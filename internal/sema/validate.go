@@ -962,9 +962,101 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 
 	spec := &SubmitSpec{
 		Name:   block.Name,
-		Values: make([]SubmitValue, 0, len(block.Fields)),
+		Values: make([]SubmitValue, 0, len(block.Fields)+len(block.UseNames)*4),
 		Span:   block.Span,
 	}
+	resolved := make(map[string]SubmitValue, len(block.Fields)+len(block.UseNames)*4)
+	order := make([]string, 0, len(block.Fields)+len(block.UseNames)*4)
+	setValue := func(v SubmitValue) {
+		if _, exists := resolved[v.Name]; !exists {
+			order = append(order, v.Name)
+		}
+		resolved[v.Name] = v
+	}
+	type submitUseOrigin struct {
+		useName string
+		span    diag.Span
+	}
+	seenFromUse := make(map[string]submitUseOrigin, len(block.UseNames)*4)
+
+	for _, useName := range block.UseNames {
+		src := sources[useName]
+		if src == nil {
+			diags.AddError(
+				"E078",
+				fmt.Sprintf("unknown submit use namespace '%s'", useName),
+				block.Span,
+				"use an existing let namespace in submit header use clause",
+			)
+			continue
+		}
+		if src.Kind != SourceKindLet {
+			diags.AddError(
+				"E071",
+				fmt.Sprintf("submit use source '%s' must be a let namespace", useName),
+				block.Span,
+				"use a let namespace in submit header use clause",
+			)
+			continue
+		}
+		for _, varName := range sourceVarNames(src) {
+			if _, ok := allowedSubmitKeys[varName]; !ok {
+				origin := src.Origins[varName]
+				if origin.IsZero() {
+					origin = src.Span
+				}
+				diags.AddWarning(
+					"W070",
+					fmt.Sprintf("submit default '%s' from let '%s' is ignored (not a submit key)", varName, useName),
+					origin,
+					"keep only valid submit keys in submit defaults",
+				)
+				continue
+			}
+			if isRawSubmitKey(varName) {
+				origin := src.Origins[varName]
+				if origin.IsZero() {
+					origin = src.Span
+				}
+				diags.AddWarning(
+					"W071",
+					fmt.Sprintf("submit default '%s' from let '%s' is ignored (raw-block key)", varName, useName),
+					origin,
+					"set raw-block submit keys directly in submit body",
+				)
+				continue
+			}
+			vals := src.Vars[varName]
+			value := eval.Null()
+			if len(vals) > 0 {
+				value = vals[0]
+			}
+			span := src.Origins[varName]
+			if span.IsZero() {
+				span = src.Span
+			}
+			if prev, exists := seenFromUse[varName]; exists && prev.useName != useName {
+				diags.AddWarning(
+					"W072",
+					fmt.Sprintf("submit default '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
+					span,
+					"merge defaults explicitly or keep one namespace per submit key",
+					diag.RelatedSpan{Message: "first definition", Span: prev.span},
+				)
+			}
+			seenFromUse[varName] = submitUseOrigin{
+				useName: useName,
+				span:    span,
+			}
+			setValue(SubmitValue{
+				Name:  varName,
+				Mode:  src.Modes[varName],
+				Value: value,
+				Span:  span,
+			})
+		}
+	}
+
 	seen := make(map[string]diag.Span)
 	for _, field := range block.Fields {
 		if _, ok := allowedSubmitKeys[field.Name]; !ok {
@@ -998,7 +1090,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				)
 				continue
 			}
-			spec.Values = append(spec.Values, SubmitValue{
+			setValue(SubmitValue{
 				Name:  field.Name,
 				Raw:   field.Raw,
 				IsRaw: true,
@@ -1044,12 +1136,15 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				"use flat tuple/list values only",
 			)
 		}
-		spec.Values = append(spec.Values, SubmitValue{
+		setValue(SubmitValue{
 			Name:  field.Name,
 			Mode:  mode,
 			Value: value,
 			Span:  field.Span,
 		})
+	}
+	for _, name := range order {
+		spec.Values = append(spec.Values, resolved[name])
 	}
 	return spec
 }
@@ -1991,6 +2086,21 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		processStep(block.Name, block.WithItems, refs)
 	}
 	for _, block := range res.Submits {
+		for _, useName := range block.UseNames {
+			src := res.ImportSourceByName[useName]
+			if src == nil || src.Kind != SourceKindLet {
+				continue
+			}
+			for _, name := range sourceVarNames(src) {
+				if _, ok := allowedSubmitKeys[name]; !ok {
+					continue
+				}
+				if isRawSubmitKey(name) {
+					continue
+				}
+				markUsedExact(useName, name)
+			}
+		}
 		refs := make([]varRef, 0)
 		for _, field := range block.Fields {
 			if field.IsRaw {

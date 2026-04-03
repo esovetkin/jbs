@@ -89,7 +89,7 @@ func TestRunNoArgsShowsHelp(t *testing.T) {
 }
 
 func TestRunHelpTopics(t *testing.T) {
-	topics := []string{"globals", "param", "do", "let", "analyse", "submit"}
+	topics := []string{"globals", "param", "do", "let", "analyse", "submit", "use"}
 	for _, topic := range topics {
 		var out bytes.Buffer
 		var errBuf bytes.Buffer
@@ -113,8 +113,44 @@ func TestRunHelpTemplateRejected(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("expected exit 2, got %d", code)
 	}
-	if !strings.Contains(errBuf.String(), "usage: jbs help [analyse|do|globals|let|param|submit]") {
+	if !strings.Contains(errBuf.String(), "usage: jbs help [analyse|do|globals|let|param|submit|use]") {
 		t.Fatalf("expected help usage error, got: %s", errBuf.String())
+	}
+}
+
+func TestRunEmbedList(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"embed"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "jsc.jbs") {
+		t.Fatalf("expected jsc.jbs in embed list, got: %s", out.String())
+	}
+}
+
+func TestRunEmbedContent(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"embed", "jsc"}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "let submit_defaults") {
+		t.Fatalf("expected embedded jsc content, got: %s", out.String())
+	}
+}
+
+func TestRunEmbedUnknown(t *testing.T) {
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"embed", "does_not_exist"}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "unknown embedded file") {
+		t.Fatalf("expected unknown embedded file error, got: %s", errBuf.String())
 	}
 }
 
@@ -249,6 +285,85 @@ func TestRunPrintParamUsageError(t *testing.T) {
 	}
 }
 
+func TestRunPrintParamExcludesSubmitUseDefaultsOnlyColumns(t *testing.T) {
+	src := `
+let submit_defaults {
+  queue = "batch"
+  gres = "gpu:4"
+}
+
+submit run
+  use submit_defaults
+{
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "pp_submit_defaults_only.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, "step") || !strings.Contains(text, "submit: run") {
+		t.Fatalf("expected step-only printparam output, got: %s", text)
+	}
+	if strings.Contains(text, "submit_defaults.") {
+		t.Fatalf("unexpected submit_defaults columns in printparam output: %s", text)
+	}
+}
+
+func TestRunPrintParamExcludesSubmitUseDefaultsButKeepsWithImportedLetAndParam(t *testing.T) {
+	src := `
+use submit_defaults from jsc
+
+let l {
+  x = 1
+}
+
+param p {
+  a = (1,2,3)
+  b = ("a","b")
+  a*b
+}
+
+submit run
+  use submit_defaults
+  with p, l
+{
+  preprocess = {
+    echo ${a} $b $x
+  }
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "pp_submit_mixed.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"printparam", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	text := out.String()
+	for _, want := range []string{"l.x", "p.a", "p.b"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected printparam output to include %q, got: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "submit_defaults.") {
+		t.Fatalf("unexpected submit_defaults columns in printparam output: %s", text)
+	}
+}
+
 func TestRunShowsSourceExcerptOnError(t *testing.T) {
 	src := `
 param p {
@@ -274,6 +389,477 @@ param p {
 	}
 	if !strings.Contains(errText, "^") {
 		t.Fatalf("expected caret marker in diagnostics, got: %s", errText)
+	}
+}
+
+func TestRunShowsImportedFileExcerptOnError(t *testing.T) {
+	dir := t.TempDir()
+	libPath := filepath.Join(dir, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte(`
+param p {
+  a = @
+  a
+}
+`), 0o644); err != nil {
+		t.Fatalf("write imported file: %v", err)
+	}
+	entry := filepath.Join(dir, "main.jbs")
+	if err := os.WriteFile(entry, []byte(`use p from "./lib.jbs"`+"\n"), 0o644); err != nil {
+		t.Fatalf("write entry: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", entry}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	errText := errBuf.String()
+	if !strings.Contains(errText, "lib.jbs") {
+		t.Fatalf("expected imported filename in diagnostics, got: %s", errText)
+	}
+	if !strings.Contains(errText, "a = @") || !strings.Contains(errText, "^") {
+		t.Fatalf("expected imported source excerpt and caret, got: %s", errText)
+	}
+}
+
+func TestRunRepeatedSubmitUseClauseAllowedAndWarnsOnCollision(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+}
+let gpu_defaults {
+  queue = "devel"
+}
+submit run
+  use defaults
+  use gpu_defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	dir := t.TempDir()
+	in := filepath.Join(dir, "bad_submit_use.jbs")
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "W072") {
+		t.Fatalf("expected W072 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckUseCollisionLocalImportFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "use_collision_local_import.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "E534") {
+		t.Fatalf("expected E534 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckUseCollisionImportImportFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "use_collision_import_import.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "E534") {
+		t.Fatalf("expected E534 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckUseSubmitDoubleHeaderFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "use_submit_double_use_header.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "W072") {
+		t.Fatalf("did not expect W072 for disjoint submit defaults, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckSubmitUseMultiOkFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "submit_use_multi_ok.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "W072") {
+		t.Fatalf("did not expect W072 for disjoint submit defaults, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckSubmitUseMultiCollisionWarnFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "submit_use_multi_collision_warn.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "W072") {
+		t.Fatalf("expected W072 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckQualifiedWithFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "qualified_with_main.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+}
+
+func TestRunCheckQualifiedWithMissingSymbolFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "qualified_with_missing_symbol.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "E532") {
+		t.Fatalf("expected E532 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunCheckSubmitUseParamInvalidFixture(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(origWD, "..", ".."))
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("chdir repo root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	in := filepath.Join("tests", "submit_use_param_invalid.jbs")
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "E071") {
+		t.Fatalf("expected E071 in diagnostics, got: %s", errBuf.String())
+	}
+}
+
+func TestRunQualifiedWithFormsFromModuleAlias(t *testing.T) {
+	dir := t.TempDir()
+	lib := `
+param p
+{
+        x = 1 if true else 0
+        x
+}
+
+let l
+{
+        x = 1
+}
+`
+	main := `
+use test_lib
+use p from test_lib
+use l from test_lib
+
+do s0 with p {
+    echo ${x}
+}
+
+do s1 with test_lib.p {
+    echo ${x}
+}
+
+do s2 with test_lib.l {
+    echo ${x}
+}
+
+do s3 with l {
+    echo ${x}
+}
+`
+	libPath := filepath.Join(dir, "test_lib.jbs")
+	mainPath := filepath.Join(dir, "test.jbs")
+	if err := os.WriteFile(libPath, []byte(lib), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	if err := os.WriteFile(mainPath, []byte(main), 0o644); err != nil {
+		t.Fatalf("write main: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	commands := [][]string{
+		{"-c", "test.jbs"},
+		{"fmt", "test.jbs"},
+	}
+	for _, args := range commands {
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		code := Run(args, &out, &errBuf)
+		if code != 0 {
+			t.Fatalf("args=%v expected exit code 0, got %d stderr=%s", args, code, errBuf.String())
+		}
+	}
+
+	formatted, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("read formatted file: %v", err)
+	}
+	if !strings.Contains(string(formatted), "with test_lib.p") {
+		t.Fatalf("expected formatted file to keep qualified with for param import, got:\n%s", string(formatted))
+	}
+	if !strings.Contains(string(formatted), "with test_lib.l") {
+		t.Fatalf("expected formatted file to keep qualified with for let import, got:\n%s", string(formatted))
+	}
+}
+
+func TestRunFmtAndCheckParityForQualifiedWithCases(t *testing.T) {
+	cases := []struct {
+		name         string
+		lib          string
+		main         string
+		wantCode     int
+		wantDiagPart string
+	}{
+		{
+			name: "valid",
+			lib: `
+param p
+{
+        x = 1 if true else 0
+        x
+}
+
+let l
+{
+        x = 1
+}
+`,
+			main: `
+use test_lib
+
+do s0 with test_lib.p {
+    echo ${x}
+}
+
+do s1 with test_lib.l {
+    echo ${x}
+}
+`,
+			wantCode: 0,
+		},
+		{
+			name: "unknown_alias",
+			lib: `
+param p
+{
+        x = 1
+        x
+}
+`,
+			main: `
+do s0 with unknown_alias.p {
+    echo ${x}
+}
+`,
+			wantCode:     1,
+			wantDiagPart: "E537",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			libPath := filepath.Join(dir, "test_lib.jbs")
+			mainPath := filepath.Join(dir, "test.jbs")
+			if err := os.WriteFile(libPath, []byte(tc.lib), 0o644); err != nil {
+				t.Fatalf("write lib: %v", err)
+			}
+			if err := os.WriteFile(mainPath, []byte(tc.main), 0o644); err != nil {
+				t.Fatalf("write main: %v", err)
+			}
+
+			origWD, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("getwd: %v", err)
+			}
+			t.Cleanup(func() { _ = os.Chdir(origWD) })
+			if err := os.Chdir(dir); err != nil {
+				t.Fatalf("chdir temp dir: %v", err)
+			}
+
+			commands := [][]string{
+				{"-c", "test.jbs"},
+				{"fmt", "test.jbs"},
+			}
+			for _, args := range commands {
+				var out bytes.Buffer
+				var errBuf bytes.Buffer
+				code := Run(args, &out, &errBuf)
+				if code != tc.wantCode {
+					t.Fatalf("args=%v expected exit %d, got %d stderr=%s", args, tc.wantCode, code, errBuf.String())
+				}
+				if tc.wantDiagPart != "" && !strings.Contains(errBuf.String(), tc.wantDiagPart) {
+					t.Fatalf("args=%v expected diagnostics to contain %q, got: %s", args, tc.wantDiagPart, errBuf.String())
+				}
+			}
+		})
+	}
+}
+
+func TestRunFmtShowsImportedFileDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	lib := `
+param p
+{
+        x = @
+        x
+}
+`
+	main := `
+use test_lib
+use p from test_lib
+
+do s0 with p {
+    echo ${x}
+}
+`
+	libPath := filepath.Join(dir, "test_lib.jbs")
+	mainPath := filepath.Join(dir, "test.jbs")
+	if err := os.WriteFile(libPath, []byte(lib), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	if err := os.WriteFile(mainPath, []byte(main), 0o644); err != nil {
+		t.Fatalf("write main: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"fmt", "test.jbs"}, &out, &errBuf)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "test_lib.jbs") {
+		t.Fatalf("expected diagnostics to reference imported file, got: %s", errBuf.String())
 	}
 }
 

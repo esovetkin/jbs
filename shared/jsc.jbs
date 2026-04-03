@@ -1,0 +1,17 @@
+let submit_defaults
+{
+        queue = python("__import__('os').environ.get('JUBE_QUEUE', "+\
+        "{"+\
+        " 'juwelsbooster': 'develbooster', "+\
+        " 'jurecadc': 'dc-hwai', "+\
+        " 'jusuf': 'batch'"+\
+        "})")
+        nodes = 1
+        tasks = 1
+        threadspertask = 48
+        gres = "gpu:4"
+        timelimit = "00:15:00"
+        outlogfile = "job.out"
+        outerrfile = "job.err"
+        starter = "srun"
+}

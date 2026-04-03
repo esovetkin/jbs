@@ -48,7 +48,7 @@ type rowGroup struct {
 }
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
-	columns := collectQualifiedColumns(res.ImportSourceByName)
+	candidateColumns := collectQualifiedColumns(res.ImportSourceByName)
 	steps := collectStepsInProgramOrder(res.Program)
 	defs := make(map[string]stepDef, len(steps))
 	preferred := make([]string, 0, len(steps))
@@ -67,26 +67,27 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	}
 
 	rows := make([]Row, 0)
+	usedCols := make(map[string]struct{})
 	for _, step := range steps {
 		plan := res.StepImportByName[step.Name]
 		states := statesByStep[step.Name]
 		for _, state := range states {
 			vals := make(map[string]string)
 			for name, value := range state.Values {
-				originParam := ""
-				sourceVar := name
-				if plan != nil {
-					if origin, ok := plan.Effective[name]; ok {
-						originParam = origin.Paramset
-						if origin.SourceVar != "" {
-							sourceVar = origin.SourceVar
-						}
-					}
-				}
-				if originParam == "" {
+				if plan == nil {
 					continue
 				}
-				vals[originParam+"."+sourceVar] = value.String()
+				origin, ok := plan.Effective[name]
+				if !ok || origin.Paramset == "" {
+					continue
+				}
+				sourceVar := name
+				if origin.SourceVar != "" {
+					sourceVar = origin.SourceVar
+				}
+				key := origin.Paramset + "." + sourceVar
+				vals[key] = value.String()
+				usedCols[key] = struct{}{}
 			}
 			rows = append(rows, Row{
 				StepKind: step.Kind,
@@ -96,7 +97,52 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 		}
 	}
 
+	columns := filterColumnsByUsage(candidateColumns, usedCols)
+	columns = pruneHeaderOnlyColumns(columns, rows)
 	return Table{Columns: columns, Rows: rows}
+}
+
+func filterColumnsByUsage(candidates []string, used map[string]struct{}) []string {
+	out := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := used[candidate]; !ok {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	extra := make([]string, 0)
+	for key := range used {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		extra = append(extra, key)
+	}
+	sort.Strings(extra)
+	out = append(out, extra...)
+	return out
+}
+
+func pruneHeaderOnlyColumns(cols []string, rows []Row) []string {
+	out := make([]string, 0, len(cols))
+	for _, col := range cols {
+		present := false
+		for _, row := range rows {
+			// Check key presence, not row.Values[col] value; empty string can be valid data.
+			if _, ok := row.Values[col]; ok {
+				present = true
+				break
+			}
+		}
+		if present {
+			out = append(out, col)
+		}
+	}
+	return out
 }
 
 func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {

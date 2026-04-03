@@ -148,6 +148,30 @@ param derived3 with (x, y) from base
 }
 ```
 
+Import from a module alias namespace:
+
+```jbs
+use "./lib.jbs" as lib
+
+param derived4 with lib.base
+{
+        z = ("u", "v", "w")
+        z
+}
+```
+
+Qualified `from` is also supported:
+
+```jbs
+use "./lib.jbs" as lib
+
+param derived5 with x from lib.base
+{
+        y = (1, 2, 3)
+        x + y
+}
+```
+
 ## 6) python() / shell() in param
 
 `python()` and `shell()` are allowed as standalone assignment values:

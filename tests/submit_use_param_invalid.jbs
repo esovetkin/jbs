@@ -1,0 +1,11 @@
+param p
+{
+        a = 1
+        a
+}
+
+submit run
+        use p
+{
+        args_exec = "-lc hostname"
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 	"jbs/internal/lower"
 	"jbs/internal/parser"
 	"jbs/internal/sema"
@@ -20,8 +21,25 @@ func diagCount(diags *diag.Diagnostics, code string) int {
 	return count
 }
 
+func hasDiagCode(diags *diag.Diagnostics, code string) bool {
+	return diagCount(diags, code) > 0
+}
+
 func hasW310For(diags *diag.Diagnostics, param, variable string) bool {
 	target := "exposed variable '" + variable + "' from param '" + param + "'"
+	for _, d := range diags.Items {
+		if d.Code != "W310" {
+			continue
+		}
+		if strings.Contains(d.Message, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasW310ForLet(diags *diag.Diagnostics, namespace, variable string) bool {
+	target := "exposed variable '" + variable + "' from let '" + namespace + "'"
 	for _, d := range diags.Items {
 		if d.Code != "W310" {
 			continue
@@ -1563,5 +1581,250 @@ analyse write
 	}
 	if got := diagCount(diags, "W310"); got != 0 {
 		t.Fatalf("did not expect W310 when let vars are used in analyse with-clause, got %d: %s", got, diags.String())
+	}
+}
+
+func submitValueByName(spec *sema.SubmitSpec, name string) (sema.SubmitValue, bool) {
+	if spec == nil {
+		return sema.SubmitValue{}, false
+	}
+	for _, value := range spec.Values {
+		if value.Name == name {
+			return value, true
+		}
+	}
+	return sema.SubmitValue{}, false
+}
+
+func TestSubmitHeaderUseAppliesDefaultsAndExplicitOverride(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+  nodes = 2
+  tasks = 2
+}
+submit run
+  use defaults
+{
+  queue = "devel"
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	queue, ok := submitValueByName(spec, "queue")
+	if !ok {
+		t.Fatalf("missing queue submit value: %#v", spec.Values)
+	}
+	if queue.Value.Kind != eval.KindString || queue.Value.S != "devel" {
+		t.Fatalf("expected queue override to be 'devel', got %#v", queue.Value)
+	}
+	if nodes, ok := submitValueByName(spec, "nodes"); !ok || nodes.Value.I != 2 {
+		t.Fatalf("expected nodes default=2, got %#v", spec.Values)
+	}
+	if tasks, ok := submitValueByName(spec, "tasks"); !ok || tasks.Value.I != 2 {
+		t.Fatalf("expected tasks default=2, got %#v", spec.Values)
+	}
+	if _, ok := submitValueByName(spec, "args_exec"); !ok {
+		t.Fatalf("expected explicit args_exec in submit values: %#v", spec.Values)
+	}
+}
+
+func TestSubmitHeaderUseMultipleClausesLastWinsAndWarnsOnCollision(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+  tasks = 2
+}
+let gpu_defaults {
+  queue = "devel"
+  gres = "gpu:4"
+}
+submit run
+  use defaults
+  use gpu_defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	queue, ok := submitValueByName(spec, "queue")
+	if !ok {
+		t.Fatalf("missing queue submit value: %#v", spec.Values)
+	}
+	if queue.Value.Kind != eval.KindString || queue.Value.S != "devel" {
+		t.Fatalf("expected queue to come from last use namespace, got %#v", queue.Value)
+	}
+	if got := diagCount(diags, "W072"); got != 1 {
+		t.Fatalf("expected one W072 collision warning, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitHeaderUseMultipleClausesNoCollisionNoWarning(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+}
+let gpu_defaults {
+  gres = "gpu:4"
+}
+submit run
+  use defaults
+  use gpu_defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	if got := diagCount(diags, "W072"); got != 0 {
+		t.Fatalf("did not expect W072 without collisions, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitHeaderUseMultipleClausesSameNamespaceRepeatedNoCollisionWarning(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+}
+submit run
+  use defaults
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W072"); got != 0 {
+		t.Fatalf("did not expect W072 for repeated same use namespace, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitHeaderUseWarnsForIgnoredKeys(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+  ignored_key = 1
+  preprocess = "module load CUDA"
+}
+submit run
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	if got := diagCount(diags, "W070"); got != 1 {
+		t.Fatalf("expected one W070 for ignored non-submit key, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W071"); got != 1 {
+		t.Fatalf("expected one W071 for ignored raw submit key, got %d: %s", got, diags.String())
+	}
+	if _, ok := submitValueByName(spec, "ignored_key"); ok {
+		t.Fatalf("did not expect ignored_key in submit values: %#v", spec.Values)
+	}
+	if _, ok := submitValueByName(spec, "preprocess"); ok {
+		t.Fatalf("did not expect preprocess default imported from let: %#v", spec.Values)
+	}
+}
+
+func TestSubmitHeaderUseRejectsParamSource(t *testing.T) {
+	src := `
+param defaults {
+  a = 1
+  a
+}
+submit run
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E071") {
+		t.Fatalf("expected E071 for submit use param source, got: %s", diags.String())
+	}
+}
+
+func TestSubmitHeaderUseUnknownNamespace(t *testing.T) {
+	src := `
+submit run
+  use missing
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E078") {
+		t.Fatalf("expected E078 for unknown submit use namespace, got: %s", diags.String())
+	}
+}
+
+func TestSubmitHeaderUseCountsAsUsageForW310(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+  gres = "gpu:4"
+}
+submit run
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310ForLet(diags, "defaults", "queue") {
+		t.Fatalf("did not expect W310 for defaults.queue when used by submit header use, got: %s", diags.String())
+	}
+	if hasW310ForLet(diags, "defaults", "gres") {
+		t.Fatalf("did not expect W310 for defaults.gres when used by submit header use, got: %s", diags.String())
 	}
 }

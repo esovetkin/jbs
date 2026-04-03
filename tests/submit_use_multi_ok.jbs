@@ -1,0 +1,16 @@
+let defaults
+{
+        queue = "batch"
+}
+
+let gpu_defaults
+{
+        gres = "gpu:4"
+}
+
+submit run
+        use defaults
+        use gpu_defaults
+{
+        args_exec = "-lc hostname"
+}

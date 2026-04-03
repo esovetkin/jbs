@@ -75,7 +75,10 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|param|do|submit|let|analyse]
+  jbs help [globals|param|do|submit|let|analyse|use]
+
+Inspect embedded shared scripts:
+  jbs embed [filename]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
@@ -84,9 +87,15 @@ Format jbs in place:
   jbs fmt script.jbs
 ```
 
+### `let <namespace> { name = "regex-with-%d/%f/%w" ... }`
+
+`let` defines a namespace with reusable scalar variables. `let` values must be scalar (`string|int|float|bool` or `shell()/python()` strings).
+
+See `jbs help let` or [docs/help_let.md](docs/help_let.md).
+
 ### `param <name> [with ...] { ... }`
 
-Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets. The last expression defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used in that expression can then be referenced in `do` and `submit` statements.
+Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets or namespaces. The last expression in `param` block defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used in that expression can then be referenced in `do` and `submit` statements (with `$<variable`).
 
 See `jbs help param` or [docs/help_param.md](docs/help_param.md).
 
@@ -96,17 +105,11 @@ See `jbs help param` or [docs/help_param.md](docs/help_param.md).
 
 See `jbs help do` or [docs/help_do.md](docs/help_do.md).
 
-### `submit <name> [with ...] [after ...] { key = value ... }`
+### `submit <name> [with ...] [after ...] [use ...] { key = value ... }`
 
-The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently relies on [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in).
+The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently supports only Slurm jobs templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
 
 See `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
-
-### `let <namespace> { name = "regex-with-%d/%f/%w" ... }`
-
-`let` defines reusable scalar variables. `let` values must be scalar (`string|int|float|bool` or `shell()/python()` strings).
-
-See `jbs help let` or [docs/help_let.md](docs/help_let.md).
 
 ### `analyse <step_name> [with ...] { ... }`
 
@@ -125,6 +128,18 @@ analyse <step_name>
 ```
 
 See `jbs help analyse` or [docs/help_analyse.md](docs/help_analyse.md).
+
+### `use ...`
+
+`use` imports reusable definitions from embedded or local `.jbs` scripts.
+
+```jbs
+use jsc
+use "./defaults.jbs" as local_defaults
+use submit_defaults from jsc
+```
+
+See `jbs help use` or [docs/help_use.md](docs/help_use.md).
 
 See [docs/language.md](docs/language.md) for grammar and semantics.
 

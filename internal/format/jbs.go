@@ -6,9 +6,7 @@ import (
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
-	"jbs/internal/lower"
 	"jbs/internal/parser"
-	"jbs/internal/sema"
 )
 
 const (
@@ -16,9 +14,10 @@ const (
 	bodyIndent   = "        "
 )
 
+// JBS normalizes source formatting from syntax only.
+// Semantic validation happens in CLI analysis flow.
 func JBS(file string, src string, diags *diag.Diagnostics) (string, error) {
 	prog := parser.Parse(file, src, diags)
-	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	if diags.HasErrors() {
 		return "", nil
 	}
@@ -56,6 +55,8 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 	switch s := stmt.(type) {
 	case ast.GlobalAssign:
 		return formatGlobalAssign(s, srcRunes)
+	case ast.UseStmt:
+		return formatUseStmt(s)
 	case ast.ParamBlock:
 		return formatParamBlock(s)
 	case ast.DoBlock:
@@ -83,7 +84,7 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 }
 
 func formatParamBlock(p ast.ParamBlock) []string {
-	lines := renderBlockHeader("param", p.Name, nil, p.WithItems)
+	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems)
 	lines = append(lines, "{")
 	body := normalizeBody(p.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -92,7 +93,7 @@ func formatParamBlock(p ast.ParamBlock) []string {
 }
 
 func formatDoBlock(d ast.DoBlock) []string {
-	lines := renderBlockHeader("do", d.Name, d.After, d.WithItems)
+	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems)
 	lines = append(lines, "{")
 	body := normalizeBody(d.Body, bodyIndent)
 	lines = append(lines, body...)
@@ -101,7 +102,7 @@ func formatDoBlock(d ast.DoBlock) []string {
 }
 
 func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
-	lines := renderBlockHeader("submit", s.Name, s.After, s.WithItems)
+	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems)
 	lines = append(lines, "{")
 	body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
 	if len(body) == 0 && len(s.Fields) > 0 {
@@ -113,7 +114,7 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 }
 
 func formatLetBlock(l ast.LetBlock) []string {
-	lines := renderBlockHeader("let", l.Name, nil, nil)
+	lines := renderBlockHeader("let", l.Name, nil, nil, nil)
 	lines = append(lines, "{")
 	body := normalizeBody(l.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -122,7 +123,7 @@ func formatLetBlock(l ast.LetBlock) []string {
 }
 
 func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, a.WithItems)
+	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -152,10 +153,31 @@ func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []string {
 	return lines
 }
 
-func renderBlockHeader(kind, name string, after []string, with []ast.WithItem) []string {
+func formatUseStmt(u ast.UseStmt) []string {
+	if len(u.Names) == 0 {
+		if u.Source.Kind == ast.UseSourcePath {
+			alias := u.Alias
+			if alias == "" {
+				alias = "module"
+			}
+			return []string{`use "` + u.Source.Value + `" as ` + alias}
+		}
+		return []string{"use " + u.Source.Value}
+	}
+	target := u.Source.Value
+	if u.Source.Kind == ast.UseSourcePath {
+		target = `"` + target + `"`
+	}
+	return []string{"use " + strings.Join(u.Names, ", ") + " from " + target}
+}
+
+func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem) []string {
 	lines := []string{kind + " " + name}
 	if len(after) > 0 {
 		lines = append(lines, clauseIndent+"after "+strings.Join(after, ", "))
+	}
+	if len(useNames) > 0 {
+		lines = append(lines, clauseIndent+"use "+strings.Join(useNames, ", "))
 	}
 	if len(with) > 0 {
 		lines = append(lines, clauseIndent+"with "+renderWithClause(with))

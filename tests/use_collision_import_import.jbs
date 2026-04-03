@@ -1,0 +1,2 @@
+use shared from "./tests/use_collision_import_import_m1.jbs"
+use shared from "./tests/use_collision_import_import_m2.jbs"

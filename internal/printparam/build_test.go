@@ -1,6 +1,7 @@
 package printparam
 
 import (
+	"slices"
 	"testing"
 
 	"jbs/internal/diag"
@@ -28,6 +29,22 @@ func stepRows(table Table, step string) []Row {
 		}
 	}
 	return out
+}
+
+func assertNoHeaderOnlyColumns(t *testing.T, table Table) {
+	t.Helper()
+	for _, col := range table.Columns {
+		present := false
+		for _, row := range table.Rows {
+			if _, ok := row.Values[col]; ok {
+				present = true
+				break
+			}
+		}
+		if !present {
+			t.Fatalf("column %q is header-only in table: %#v", col, table.Columns)
+		}
+	}
 }
 
 func TestBuildFullImport(t *testing.T) {
@@ -230,6 +247,9 @@ do s with l {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected build errors: %s", diags.String())
 	}
+	if len(table.Columns) != 2 || table.Columns[0] != "l.x" || table.Columns[1] != "l.y" {
+		t.Fatalf("unexpected columns for step-imported let namespace: %#v", table.Columns)
+	}
 	rows := stepRows(table, "s")
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
@@ -237,4 +257,92 @@ do s with l {
 	if rows[0].Values["l.x"] != "1" || rows[0].Values["l.y"] != "a" {
 		t.Fatalf("unexpected row 0 values: %#v", rows[0].Values)
 	}
+	assertNoHeaderOnlyColumns(t, table)
+}
+
+func TestBuildSubmitUseDefaultsDoesNotCreateColumns(t *testing.T) {
+	src := `
+let submit_defaults {
+  queue = "batch"
+  gres = "gpu:4"
+}
+
+submit run
+  use submit_defaults
+{
+}
+`
+	res := compileForPrintParam(t, src)
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected build errors: %s", diags.String())
+	}
+	if len(table.Columns) != 0 {
+		t.Fatalf("expected no columns for submit-header defaults only, got %#v", table.Columns)
+	}
+	rows := stepRows(table, "run")
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	assertNoHeaderOnlyColumns(t, table)
+}
+
+func TestBuildSubmitUseDefaultsExcludedButWithLetAndParamIncluded(t *testing.T) {
+	src := `
+let submit_defaults {
+  queue = "batch"
+  gres = "gpu:4"
+}
+
+let l {
+  x = 1
+}
+
+param p {
+  a = (1,2,3)
+  b = ("a","b")
+  a*b
+}
+
+submit run
+  use submit_defaults
+  with p, l
+{
+  preprocess = {
+    echo ${a} $b $x
+  }
+}
+`
+	res := compileForPrintParam(t, src)
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected build errors: %s", diags.String())
+	}
+	want := []string{"l.x", "p.a", "p.b"}
+	if !slices.Equal(table.Columns, want) {
+		t.Fatalf("unexpected columns: got=%#v want=%#v", table.Columns, want)
+	}
+	for _, col := range table.Columns {
+		if len(col) >= len("submit_defaults.") && col[:len("submit_defaults.")] == "submit_defaults." {
+			t.Fatalf("unexpected submit_defaults column in table: %#v", table.Columns)
+		}
+	}
+	rows := stepRows(table, "run")
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows, got %d", len(rows))
+	}
+	for i, row := range rows {
+		if _, ok := row.Values["l.x"]; !ok {
+			t.Fatalf("row %d missing l.x: %#v", i, row.Values)
+		}
+		if _, ok := row.Values["p.a"]; !ok {
+			t.Fatalf("row %d missing p.a: %#v", i, row.Values)
+		}
+		if _, ok := row.Values["p.b"]; !ok {
+			t.Fatalf("row %d missing p.b: %#v", i, row.Values)
+		}
+	}
+	assertNoHeaderOnlyColumns(t, table)
 }
