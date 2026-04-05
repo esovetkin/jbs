@@ -23,9 +23,6 @@ parameterset:
         _: custom
       - name: starter
         _: srun
-      - name: tasks
-        type: int
-        _: "1"
       - name: threadspertask
         type: int
         _: "48"
@@ -33,6 +30,9 @@ parameterset:
         _: "00:15:00"
       - name: args_exec
         _: -lc hostname
+      - name: tasks
+        type: int
+        _: "1"
 
 # Steps executed by JUBE
 step:

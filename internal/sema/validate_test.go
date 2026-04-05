@@ -1638,6 +1638,57 @@ submit run
 	}
 }
 
+func TestSubmitAutoAddsTasksFromNodesWhenMissing(t *testing.T) {
+	src := `
+submit run {
+  nodes = 4
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	tasks, ok := submitValueByName(spec, "tasks")
+	if !ok {
+		t.Fatalf("expected auto tasks in submit values: %#v", spec.Values)
+	}
+	if tasks.Value.Kind != eval.KindInt || tasks.Value.I != 4 {
+		t.Fatalf("expected tasks to inherit nodes value 4, got %#v", tasks.Value)
+	}
+}
+
+func TestSubmitAutoAddsTasksAsNodesReferenceWhenNodesMissing(t *testing.T) {
+	src := `
+submit run {
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	tasks, ok := submitValueByName(spec, "tasks")
+	if !ok {
+		t.Fatalf("expected auto tasks in submit values: %#v", spec.Values)
+	}
+	if tasks.Value.Kind != eval.KindString || tasks.Value.S != "$nodes" {
+		t.Fatalf("expected tasks to default to \"$nodes\", got %#v", tasks.Value)
+	}
+}
+
 func TestSubmitHeaderUseMultipleClausesLastWinsAndWarnsOnCollision(t *testing.T) {
 	src := `
 let defaults {

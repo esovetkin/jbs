@@ -1143,6 +1143,22 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			Span:  field.Span,
 		})
 	}
+	if _, hasTasks := resolved["tasks"]; !hasTasks {
+		if nodes, hasNodes := resolved["nodes"]; hasNodes {
+			setValue(SubmitValue{
+				Name:  "tasks",
+				Mode:  nodes.Mode,
+				Value: nodes.Value,
+				Span:  nodes.Span,
+			})
+		} else {
+			setValue(SubmitValue{
+				Name:  "tasks",
+				Value: eval.String("$nodes"),
+				Span:  block.Span,
+			})
+		}
+	}
 	accountEmptyOrMissing, accountSpan := submitKeyMissingOrEmpty(resolved, "account", block.Span)
 	if accountEmptyOrMissing {
 		diags.AddWarning(

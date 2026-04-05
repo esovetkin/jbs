@@ -329,7 +329,10 @@ parameterset:
 ### `submit` lowering
 
 - emits a synthetic submit parameter set with `init_with: "platform.xml:systemParameter"`.
-- emits only submit keys explicitly set in the block.
+- emits submit keys explicitly set in the block.
+- auto-injects `tasks` when missing:
+  - if `nodes` is set/resolved, `tasks` is set to the same value.
+  - otherwise `tasks` is set to `$nodes`.
 - `preprocess` and `postprocess` are raw-block keys.
 - no implicit preamble is injected into `do`/`submit` raw blocks.
 - emits submit step operations:

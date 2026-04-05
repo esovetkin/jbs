@@ -721,7 +721,7 @@ submit run with p {
 	}
 }
 
-func TestSubmitEmitsOnlyExplicitKeys(t *testing.T) {
+func TestSubmitAutoAddsTasksFromNodesReferenceWhenMissing(t *testing.T) {
 	src := `
 param p {
   a = 1
@@ -748,13 +748,24 @@ submit run with p {
 	if submitSet == nil {
 		t.Fatalf("submit parameterset missing")
 	}
-	if len(submitSet.Parameter) != 2 {
-		t.Fatalf("expected exactly 2 submit params, got %#v", submitSet.Parameter)
+	if len(submitSet.Parameter) != 3 {
+		t.Fatalf("expected executable,args_exec plus auto tasks, got %#v", submitSet.Parameter)
 	}
+	foundTasks := false
 	for _, p := range submitSet.Parameter {
+		if p.Name == "tasks" {
+			foundTasks = true
+			if p.Value != "$nodes" {
+				t.Fatalf("expected auto tasks to reference nodes, got %#v", p.Value)
+			}
+			continue
+		}
 		if p.Name != "executable" && p.Name != "args_exec" {
 			t.Fatalf("unexpected implicit submit parameter %q in %#v", p.Name, submitSet.Parameter)
 		}
+	}
+	if !foundTasks {
+		t.Fatalf("expected auto tasks parameter in submit set: %#v", submitSet.Parameter)
 	}
 }
 

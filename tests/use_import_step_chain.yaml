@@ -25,6 +25,9 @@ parameterset:
         _: batch
       - name: args_exec
         _: -lc echo ${a}
+      - name: tasks
+        type: int
+        _: $nodes
 
 # Steps executed by JUBE
 step:

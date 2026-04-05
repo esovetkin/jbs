@@ -7,7 +7,7 @@ let submit_defaults
         " 'jusuf': 'batch'"+\
         "})")
         nodes = 1
-        tasks = 1
+        # this might depend on the system
         threadspertask = 48
         gres = "gpu:4"
         timelimit = "00:15:00"

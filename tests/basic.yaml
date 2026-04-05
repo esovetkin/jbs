@@ -46,6 +46,9 @@ parameterset:
           export X=1
       - name: args_exec
         _: python main.py --case ${case} --nnodes ${nnodes}
+      - name: tasks
+        type: int
+        _: $nodes
 
   # Synthetic subset parameterset for step 'run' derived from 'matrix' for variable-only imports
   - name: _js__run__matrix__nnodes
