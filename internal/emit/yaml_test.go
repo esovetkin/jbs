@@ -36,6 +36,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	doc := lower.Document{
 		Name:    "demo",
 		Outpath: "out",
+		Comment: "hello",
 		ParameterSet: []lower.ParameterSet{
 			{
 				Name:      "matrix",
@@ -141,6 +142,9 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# From jbs_outpath") {
 		t.Fatalf("missing outpath comment: %s", text)
 	}
+	if !strings.Contains(text, "# benchmark comment\ncomment: hello") {
+		t.Fatalf("missing benchmark comment root field annotation: %s", text)
+	}
 	if !strings.Contains(text, "# Parameter sets used to create workpackage combinations") {
 		t.Fatalf("missing parameterset section comment: %s", text)
 	}
@@ -183,7 +187,7 @@ func TestYAMLIncludesSectionAndRoleComments(t *testing.T) {
 	if !strings.Contains(text, "# Result table generated from analyse block 'write'") {
 		t.Fatalf("missing result table comment: %s", text)
 	}
-	if !strings.Contains(text, "\n\n# From jbs_outpath\noutpath: out\n\n# Parameter sets used to create workpackage combinations") {
+	if !strings.Contains(text, "\n\n# From jbs_outpath\noutpath: out\n\n# benchmark comment\ncomment: hello\n\n# Parameter sets used to create workpackage combinations") {
 		t.Fatalf("missing blank-line separation between root fields/sections: %s", text)
 	}
 	if !strings.Contains(text, "\n\n  # Parameters for submit block 'run'") {

@@ -36,6 +36,7 @@ func (s SingleQuoted) MarshalYAML() (interface{}, error) {
 type Document struct {
 	Name         string         `yaml:"name"`
 	Outpath      string         `yaml:"outpath"`
+	Comment      string         `yaml:"comment,omitempty"`
 	ParameterSet []ParameterSet `yaml:"parameterset,omitempty"`
 	PatternSet   []PatternSet   `yaml:"patternset,omitempty"`
 	Step         []Step         `yaml:"step,omitempty"`
@@ -228,6 +229,7 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 	ctx.doc = Document{
 		Name:    globalString(res.Globals, "jbs_name", "jbs_benchmark"),
 		Outpath: globalString(res.Globals, "jbs_outpath", "out"),
+		Comment: globalString(res.Globals, "jbs_comment", ""),
 	}
 
 	for _, param := range res.Paramsets {

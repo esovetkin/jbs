@@ -23,6 +23,11 @@ func BuiltinGlobals() []GlobalSpec {
 			DefaultExpr: "out",
 			Description: "Benchmark output path (root outpath field).",
 		},
+		{
+			Name:        "jbs_comment",
+			DefaultExpr: "",
+			Description: "Benchmark comment (root comment field).",
+		},
 	}
 }
 
@@ -30,6 +35,7 @@ func BuiltinGlobalValues() map[string]eval.Value {
 	return map[string]eval.Value{
 		"jbs_name":    eval.String("jbs_benchmark"),
 		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
 	}
 }
 

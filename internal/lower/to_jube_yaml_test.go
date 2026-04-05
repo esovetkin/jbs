@@ -610,6 +610,7 @@ func TestRootGlobalsAndSubmitFieldsDriveOutput(t *testing.T) {
 	src := `
 jbs_name = "demo_bench"
 jbs_outpath = "results"
+jbs_comment = "demo comment"
 
 param p {
   a = 1
@@ -638,6 +639,9 @@ submit run with p {
 	}
 	if doc.Outpath != "results" {
 		t.Fatalf("expected root outpath from jbs_outpath, got %q", doc.Outpath)
+	}
+	if doc.Comment != "demo comment" {
+		t.Fatalf("expected root comment from jbs_comment, got %q", doc.Comment)
 	}
 	var submitSet *lower.ParameterSet
 	for i := range doc.ParameterSet {

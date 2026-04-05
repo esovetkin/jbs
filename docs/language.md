@@ -413,6 +413,7 @@ Inline extraction expressions in `analyse` create synthetic pattern groups of th
 
 - `jbs_name` (root `name`)
 - `jbs_outpath` (root `outpath`)
+- `jbs_comment` (root `comment`)
 
 Rules:
 
@@ -425,6 +426,7 @@ Examples:
 ```jbs
 jbs_name = "demo"
 jbs_outpath = "results"
+jbs_comment = "My benchmark note"
 ```
 
 Invalid examples:

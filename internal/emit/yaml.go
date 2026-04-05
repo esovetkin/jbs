@@ -37,6 +37,7 @@ func annotateComments(root *yaml.Node, doc lower.Document) {
 
 	setHeadComment(mapKeyNode(m, "name"), "From jbs_name")
 	setHeadComment(mapKeyNode(m, "outpath"), "From jbs_outpath")
+	setHeadComment(mapKeyNode(m, "comment"), "benchmark comment")
 	setHeadComment(mapKeyNode(m, "parameterset"), "Parameter sets used to create workpackage combinations")
 	setHeadComment(mapKeyNode(m, "patternset"), "Pattern sets used for result extraction")
 	setHeadComment(mapKeyNode(m, "step"), "Steps executed by JUBE")
