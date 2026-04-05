@@ -1828,3 +1828,132 @@ submit run
 		t.Fatalf("did not expect W310 for defaults.gres when used by submit header use, got: %s", diags.String())
 	}
 }
+
+func TestSubmitWarnsForEmptyAccountAndQueue(t *testing.T) {
+	src := `
+submit run {
+  account = ""
+  queue = ""
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W073"); got != 2 {
+		t.Fatalf("expected two W073 warnings for empty account/queue, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitWarnsForMissingAccountAndQueue(t *testing.T) {
+	src := `
+submit run {
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W073"); got != 2 {
+		t.Fatalf("expected two W073 warnings for missing account/queue, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitWarnsWhenExecutableAndArgsExecAreBothEmpty(t *testing.T) {
+	src := `
+submit run {
+  starter = "srun"
+  executable = ""
+  args_exec = ""
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W074"); got != 1 {
+		t.Fatalf("expected one W074 warning for empty executable+args_exec, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitWarnsWhenExecutableAndArgsExecAreBothMissingWithStarterSet(t *testing.T) {
+	src := `
+submit run {
+  account = "acc"
+  queue = "batch"
+  starter = "srun"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W074"); got != 1 {
+		t.Fatalf("expected one W074 warning for missing executable+args_exec, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitDoesNotWarnWhenExecutableAndArgsExecAreBothMissingAndStarterMissing(t *testing.T) {
+	src := `
+submit run {
+  account = "acc"
+  queue = "batch"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W074"); got != 0 {
+		t.Fatalf("did not expect W074 when starter is missing, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitDoesNotWarnWhenExecutableAndArgsExecAreBothEmptyAndStarterEmpty(t *testing.T) {
+	src := `
+submit run {
+  starter = ""
+  executable = ""
+  args_exec = ""
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W074"); got != 0 {
+		t.Fatalf("did not expect W074 when starter is empty, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitDoesNotWarnWhenOnlyOneLaunchFieldIsEmpty(t *testing.T) {
+	src := `
+submit run {
+  executable = ""
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W074"); got != 0 {
+		t.Fatalf("did not expect W074 when args_exec is set, got %d: %s", got, diags.String())
+	}
+}

@@ -1143,10 +1143,92 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			Span:  field.Span,
 		})
 	}
+	accountEmptyOrMissing, accountSpan := submitKeyMissingOrEmpty(resolved, "account", block.Span)
+	if accountEmptyOrMissing {
+		diags.AddWarning(
+			"W073",
+			"submit key 'account' is missing or empty",
+			accountSpan,
+			"set a non-empty account",
+		)
+	}
+	queueEmptyOrMissing, queueSpan := submitKeyMissingOrEmpty(resolved, "queue", block.Span)
+	if queueEmptyOrMissing {
+		diags.AddWarning(
+			"W073",
+			"submit key 'queue' is missing or empty",
+			queueSpan,
+			"set a non-empty queue",
+		)
+	}
+	executableEmptyOrMissing, executableSpan := submitKeyMissingOrEmpty(resolved, "executable", block.Span)
+	argsExecEmptyOrMissing, argsExecSpan := submitKeyMissingOrEmpty(resolved, "args_exec", block.Span)
+	if executableEmptyOrMissing && argsExecEmptyOrMissing {
+		starterEmptyOrMissing, _ := submitKeyMissingOrEmpty(resolved, "starter", block.Span)
+		if !starterEmptyOrMissing {
+			primary := argsExecSpan
+			if primary.IsZero() {
+				primary = executableSpan
+			}
+			related := []diag.RelatedSpan{}
+			if !executableSpan.IsZero() && executableSpan != primary {
+				related = append(related, diag.RelatedSpan{
+					Message: "executable is missing or empty",
+					Span:    executableSpan,
+				})
+			}
+			if !argsExecSpan.IsZero() && argsExecSpan != primary {
+				related = append(related, diag.RelatedSpan{
+					Message: "args_exec is missing or empty",
+					Span:    argsExecSpan,
+				})
+			}
+			diags.AddWarning(
+				"W074",
+				"submit keys 'executable' and 'args_exec' are both missing or empty",
+				primary,
+				"set at least one of executable or args_exec to a non-empty value",
+				related...,
+			)
+		}
+	}
 	for _, name := range order {
 		spec.Values = append(spec.Values, resolved[name])
 	}
 	return spec
+}
+
+func submitValueHasEmptyString(v SubmitValue) bool {
+	if v.IsRaw {
+		return false
+	}
+	return evalValueHasEmptyString(v.Value)
+}
+
+func submitKeyMissingOrEmpty(resolved map[string]SubmitValue, key string, fallback diag.Span) (bool, diag.Span) {
+	v, ok := resolved[key]
+	if !ok {
+		return true, fallback
+	}
+	return submitValueHasEmptyString(v), v.Span
+}
+
+func evalValueHasEmptyString(v eval.Value) bool {
+	switch v.Kind {
+	case eval.KindString:
+		return v.S == ""
+	case eval.KindList:
+		if len(v.L) == 0 {
+			return true
+		}
+		for _, item := range v.L {
+			if item.Kind != eval.KindString || item.S != "" {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func isRawSubmitKey(name string) bool {

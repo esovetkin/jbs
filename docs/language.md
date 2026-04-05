@@ -496,6 +496,8 @@ Key codes:
 - `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
 - `W320`: analyse helper variable shadows a step-visible variable.
 - `W072`: submit default key is defined in multiple submit-header `use` namespaces; later namespace wins.
+- `W073`: submit key `account` or `queue` is missing or resolves to an empty string.
+- `W074`: submit keys `executable` and `args_exec` are both missing or resolve to empty strings while `starter` is set to a non-empty value.
 
 For `W310`/`W311`, reference scanning applies to:
 
