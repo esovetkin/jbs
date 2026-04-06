@@ -2,169 +2,136 @@ package cli
 
 import "testing"
 
-func TestParseFlagsDefaults(t *testing.T) {
-	f, err := ParseFlags([]string{"input.jbs"})
+func mustParseFlags(t *testing.T, args []string) Flags {
+	t.Helper()
+	f, err := ParseFlags(args)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v (args=%v)", err, args)
 	}
-	if f.Input != "input.jbs" {
-		t.Fatalf("unexpected input: %s", f.Input)
-	}
-	if f.Output != "-" {
-		t.Fatalf("expected default output '-', got %q", f.Output)
-	}
-	if f.Check {
-		t.Fatalf("expected check=false by default")
-	}
+	return f
 }
 
-func TestParseFlagsCheckAndOutput(t *testing.T) {
-	f, err := ParseFlags([]string{"--check", "-o", "JUBE.yaml", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestParseFlagsCompileModeCases(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       []string
+		wantInput  string
+		wantOutput string
+		wantCheck  bool
+	}{
+		{
+			name:       "defaults",
+			args:       []string{"input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantCheck:  false,
+		},
+		{
+			name:       "check_and_output",
+			args:       []string{"--check", "-o", "JUBE.yaml", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "JUBE.yaml",
+			wantCheck:  true,
+		},
+		{
+			name:       "short_check_and_output",
+			args:       []string{"-c", "-o", "JUBE.yaml", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "JUBE.yaml",
+			wantCheck:  true,
+		},
+		{
+			name:       "output_after_input",
+			args:       []string{"input.jbs", "-o", "JUBE.yaml"},
+			wantInput:  "input.jbs",
+			wantOutput: "JUBE.yaml",
+			wantCheck:  false,
+		},
 	}
-	if !f.Check {
-		t.Fatalf("expected check mode")
-	}
-	if f.Output != "JUBE.yaml" {
-		t.Fatalf("unexpected output %q", f.Output)
-	}
-}
 
-func TestParseFlagsShortCheckAndOutput(t *testing.T) {
-	f, err := ParseFlags([]string{"-c", "-o", "JUBE.yaml", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Check {
-		t.Fatalf("expected check mode")
-	}
-	if f.Output != "JUBE.yaml" {
-		t.Fatalf("unexpected output %q", f.Output)
-	}
-}
-
-func TestParseFlagsOutputAfterInput(t *testing.T) {
-	f, err := ParseFlags([]string{"input.jbs", "-o", "JUBE.yaml"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if f.Output != "JUBE.yaml" {
-		t.Fatalf("expected output from trailing -o, got %q", f.Output)
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParseFlags(t, tc.args)
+			if f.Input != tc.wantInput {
+				t.Fatalf("unexpected input: got=%q want=%q", f.Input, tc.wantInput)
+			}
+			if f.Output != tc.wantOutput {
+				t.Fatalf("unexpected output: got=%q want=%q", f.Output, tc.wantOutput)
+			}
+			if f.Check != tc.wantCheck {
+				t.Fatalf("unexpected check flag: got=%v want=%v", f.Check, tc.wantCheck)
+			}
+		})
 	}
 }
 
 func TestParseFlagsNoArgMode(t *testing.T) {
-	f, err := ParseFlags(nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	f := mustParseFlags(t, nil)
 	if !f.Help || f.HelpGlobals {
 		t.Fatalf("expected no-arg mode to select general help")
 	}
 }
 
-func TestParseFlagsHelpGlobals(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "globals"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestParseFlagsHelpTopics(t *testing.T) {
+	cases := []struct {
+		topic string
+		check func(Flags) bool
+	}{
+		{topic: "globals", check: func(f Flags) bool { return f.HelpGlobals }},
+		{topic: "do", check: func(f Flags) bool { return f.HelpDo }},
+		{topic: "analyse", check: func(f Flags) bool { return f.HelpAnalyse }},
+		{topic: "let", check: func(f Flags) bool { return f.HelpLet }},
+		{topic: "submit", check: func(f Flags) bool { return f.HelpSubmit }},
+		{topic: "use", check: func(f Flags) bool { return f.HelpUse }},
+		{topic: "param", check: func(f Flags) bool { return f.HelpParam }},
 	}
-	if !f.Help || !f.HelpGlobals {
-		t.Fatalf("expected help globals mode")
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.topic, func(t *testing.T) {
+			f := mustParseFlags(t, []string{"help", tc.topic})
+			if !f.Help || !tc.check(f) {
+				t.Fatalf("expected help mode for topic %q", tc.topic)
+			}
+		})
 	}
 }
 
-func TestParseFlagsHelpDo(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "do"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestParseFlagsEmbedModes(t *testing.T) {
+	cases := []struct {
+		name          string
+		args          []string
+		wantEmbed     bool
+		wantEmbedName string
+	}{
+		{
+			name:          "embed_list",
+			args:          []string{"embed"},
+			wantEmbed:     true,
+			wantEmbedName: "",
+		},
+		{
+			name:          "embed_name",
+			args:          []string{"embed", "jsc"},
+			wantEmbed:     true,
+			wantEmbedName: "jsc",
+		},
 	}
-	if !f.Help || !f.HelpDo {
-		t.Fatalf("expected help do mode")
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParseFlags(t, tc.args)
+			if f.Embed != tc.wantEmbed || f.EmbedName != tc.wantEmbedName {
+				t.Fatalf("unexpected embed flags: got=%#v", f)
+			}
+		})
 	}
 }
 
-func TestParseFlagsHelpAnalyse(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "analyse"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Help || !f.HelpAnalyse {
-		t.Fatalf("expected help analyse mode")
-	}
-}
-
-func TestParseFlagsHelpLet(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "let"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Help || !f.HelpLet {
-		t.Fatalf("expected help let mode")
-	}
-}
-
-func TestParseFlagsHelpSubmit(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "submit"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Help || !f.HelpSubmit {
-		t.Fatalf("expected help submit mode")
-	}
-}
-
-func TestParseFlagsHelpUse(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "use"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Help || !f.HelpUse {
-		t.Fatalf("expected help use mode")
-	}
-}
-
-func TestParseFlagsEmbedList(t *testing.T) {
-	f, err := ParseFlags([]string{"embed"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Embed || f.EmbedName != "" {
-		t.Fatalf("expected embed list mode, got %#v", f)
-	}
-}
-
-func TestParseFlagsEmbedName(t *testing.T) {
-	f, err := ParseFlags([]string{"embed", "jsc"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Embed || f.EmbedName != "jsc" {
-		t.Fatalf("expected embed file mode for jsc, got %#v", f)
-	}
-}
-
-func TestParseFlagsHelpParam(t *testing.T) {
-	f, err := ParseFlags([]string{"help", "param"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.Help || !f.HelpParam {
-		t.Fatalf("expected help param mode")
-	}
-}
-
-func TestParseFlagsHelpUnknownSubcommand(t *testing.T) {
-	if _, err := ParseFlags([]string{"help", "badtopic"}); err == nil {
-		t.Fatalf("expected usage error for unknown help subcommand")
-	}
-}
-
-func TestParseFlagsFmt(t *testing.T) {
-	f, err := ParseFlags([]string{"fmt", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestParseFlagsFmtMode(t *testing.T) {
+	f := mustParseFlags(t, []string{"fmt", "input.jbs"})
 	if !f.Fmt {
 		t.Fatalf("expected fmt mode")
 	}
@@ -173,94 +140,90 @@ func TestParseFlagsFmt(t *testing.T) {
 	}
 }
 
-func TestParseFlagsFmtMissingFile(t *testing.T) {
-	if _, err := ParseFlags([]string{"fmt"}); err == nil {
-		t.Fatalf("expected usage error for missing fmt path")
+func TestParseFlagsPrintParamModes(t *testing.T) {
+	cases := []struct {
+		name          string
+		args          []string
+		wantType      string
+		wantOutput    string
+		wantInput     string
+		wantPrintMode bool
+	}{
+		{
+			name:          "defaults",
+			args:          []string{"printparam", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantPrintMode: true,
+		},
+		{
+			name:          "explicit_pretty",
+			args:          []string{"printparam", "--type", "pretty", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantPrintMode: true,
+		},
+		{
+			name:          "csv",
+			args:          []string{"printparam", "-t=csv", "input.jbs"},
+			wantType:      "csv",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantPrintMode: true,
+		},
+		{
+			name:          "custom_output",
+			args:          []string{"printparam", "--output", "out.txt", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "out.txt",
+			wantInput:     "input.jbs",
+			wantPrintMode: true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			f := mustParseFlags(t, tc.args)
+			if f.PrintParam != tc.wantPrintMode {
+				t.Fatalf("unexpected printparam mode: got=%v want=%v", f.PrintParam, tc.wantPrintMode)
+			}
+			if f.PrintType != tc.wantType {
+				t.Fatalf("unexpected print type: got=%q want=%q", f.PrintType, tc.wantType)
+			}
+			if f.Output != tc.wantOutput {
+				t.Fatalf("unexpected output: got=%q want=%q", f.Output, tc.wantOutput)
+			}
+			if f.Input != tc.wantInput {
+				t.Fatalf("unexpected input: got=%q want=%q", f.Input, tc.wantInput)
+			}
+		})
 	}
 }
 
-func TestParseFlagsFmtRejectsOptions(t *testing.T) {
-	if _, err := ParseFlags([]string{"fmt", "-o", "x.jbs"}); err == nil {
-		t.Fatalf("expected usage error for option in fmt mode")
+func TestParseFlagsErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "help_unknown_topic", args: []string{"help", "badtopic"}},
+		{name: "fmt_missing_file", args: []string{"fmt"}},
+		{name: "fmt_rejects_option", args: []string{"fmt", "-o", "x.jbs"}},
+		{name: "fmt_rejects_check", args: []string{"fmt", "-c"}},
+		{name: "printparam_rejects_check", args: []string{"printparam", "--check", "input.jbs"}},
+		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
+		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
+		{name: "too_many_args", args: []string{"a.jbs", "b.jbs"}},
 	}
-}
 
-func TestParseFlagsFmtRejectsCheckFlag(t *testing.T) {
-	if _, err := ParseFlags([]string{"fmt", "-c"}); err == nil {
-		t.Fatalf("expected usage error for check flag in fmt mode")
-	}
-}
-
-func TestParseFlagsPrintParamDefaults(t *testing.T) {
-	f, err := ParseFlags([]string{"printparam", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !f.PrintParam {
-		t.Fatalf("expected printparam mode")
-	}
-	if f.PrintType != "pretty" {
-		t.Fatalf("expected default print type pretty, got %q", f.PrintType)
-	}
-	if f.Output != "-" {
-		t.Fatalf("expected default output '-', got %q", f.Output)
-	}
-	if f.Input != "input.jbs" {
-		t.Fatalf("unexpected input: %s", f.Input)
-	}
-}
-
-func TestParseFlagsPrintParamPretty(t *testing.T) {
-	f, err := ParseFlags([]string{"printparam", "--type", "pretty", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if f.PrintType != "pretty" {
-		t.Fatalf("expected print type pretty, got %q", f.PrintType)
-	}
-}
-
-func TestParseFlagsPrintParamCSV(t *testing.T) {
-	f, err := ParseFlags([]string{"printparam", "-t=csv", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if f.PrintType != "csv" {
-		t.Fatalf("expected print type csv, got %q", f.PrintType)
-	}
-}
-
-func TestParseFlagsPrintParamOutput(t *testing.T) {
-	f, err := ParseFlags([]string{"printparam", "--output", "out.txt", "input.jbs"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if f.Output != "out.txt" {
-		t.Fatalf("expected output out.txt, got %q", f.Output)
-	}
-}
-
-func TestParseFlagsPrintParamRejectsCheck(t *testing.T) {
-	if _, err := ParseFlags([]string{"printparam", "--check", "input.jbs"}); err == nil {
-		t.Fatalf("expected usage error for check flag in printparam mode")
-	}
-}
-
-func TestParseFlagsPrintParamRejectsUnknownType(t *testing.T) {
-	if _, err := ParseFlags([]string{"printparam", "-t", "json", "input.jbs"}); err == nil {
-		t.Fatalf("expected usage error for unknown printparam type")
-	}
-}
-
-func TestParseFlagsPrintParamMissingInput(t *testing.T) {
-	if _, err := ParseFlags([]string{"printparam", "-t", "pretty"}); err == nil {
-		t.Fatalf("expected usage error for missing printparam input")
-	}
-}
-
-func TestParseFlagsTooManyArgs(t *testing.T) {
-	_, err := ParseFlags([]string{"a.jbs", "b.jbs"})
-	if err == nil {
-		t.Fatalf("expected usage error")
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseFlags(tc.args); err == nil {
+				t.Fatalf("expected usage error for args=%v", tc.args)
+			}
+		})
 	}
 }

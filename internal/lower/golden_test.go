@@ -12,48 +12,29 @@ import (
 	"jbs/internal/sema"
 )
 
-func TestGoldenBasic(t *testing.T) {
-	assertGolden(t, "basic")
-}
+func TestGolden(t *testing.T) {
+	cases := []struct {
+		name string
+	}{
+		{name: "basic"},
+		{name: "results_basic"},
+		{name: "after_inherit_zip_preserve"},
+		{name: "after_inherit_product_expand"},
+		{name: "after_inherit_transitive_chain"},
+		{name: "let_step_imports"},
+		{name: "use_embed_defaults"},
+		{name: "use_import_step_chain"},
+		{name: "use_submit_defaults_override"},
+		{name: "submit_param_collision_escape"},
+		{name: "step_options"},
+	}
 
-func TestGoldenResultsBasic(t *testing.T) {
-	assertGolden(t, "results_basic")
-}
-
-func TestGoldenAfterInheritZipPreserve(t *testing.T) {
-	assertGolden(t, "after_inherit_zip_preserve")
-}
-
-func TestGoldenAfterInheritProductExpand(t *testing.T) {
-	assertGolden(t, "after_inherit_product_expand")
-}
-
-func TestGoldenAfterInheritTransitiveChain(t *testing.T) {
-	assertGolden(t, "after_inherit_transitive_chain")
-}
-
-func TestGoldenLetStepImports(t *testing.T) {
-	assertGolden(t, "let_step_imports")
-}
-
-func TestGoldenUseEmbedDefaults(t *testing.T) {
-	assertGolden(t, "use_embed_defaults")
-}
-
-func TestGoldenUseImportStepChain(t *testing.T) {
-	assertGolden(t, "use_import_step_chain")
-}
-
-func TestGoldenUseSubmitDefaultsOverride(t *testing.T) {
-	assertGolden(t, "use_submit_defaults_override")
-}
-
-func TestGoldenSubmitParamCollisionEscape(t *testing.T) {
-	assertGolden(t, "submit_param_collision_escape")
-}
-
-func TestGoldenStepOptions(t *testing.T) {
-	assertGolden(t, "step_options")
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			assertGolden(t, tc.name)
+		})
+	}
 }
 
 func assertGolden(t *testing.T, name string) {
