@@ -185,7 +185,7 @@ func (l *Lexer) lexString() {
 		}
 		buf = append(buf, r)
 	}
-	l.diags.AddError("E001", "unterminated string literal", diag.NewSpan(l.file, start, l.pos()), "close the string with matching quote")
+	l.diags.AddError(diag.CodeE001, "unterminated string literal", diag.NewSpan(l.file, start, l.pos()), "close the string with matching quote")
 	l.emit(TokenString, string(buf), string(buf), start, l.pos())
 }
 
@@ -236,7 +236,7 @@ func (l *Lexer) lexSymbol() {
 			tt = TokenNeq
 			text = "!="
 		} else {
-			l.diags.AddError("E002", "unexpected '!'; only '!=' is allowed", diag.NewSpan(l.file, start, l.pos()), "use '!=' for inequality")
+			l.diags.AddError(diag.CodeE002, "unexpected '!'; only '!=' is allowed", diag.NewSpan(l.file, start, l.pos()), "use '!=' for inequality")
 			return
 		}
 	case '<':
@@ -278,7 +278,7 @@ func (l *Lexer) lexSymbol() {
 	case '}':
 		tt = TokenRBrace
 	default:
-		l.diags.AddError("E003", fmt.Sprintf("unexpected character '%c'", r), diag.NewSpan(l.file, start, l.pos()), "remove or escape the character")
+		l.diags.AddError(diag.CodeE003, fmt.Sprintf("unexpected character '%c'", r), diag.NewSpan(l.file, start, l.pos()), "remove or escape the character")
 		return
 	}
 	l.emit(tt, text, text, start, l.pos())

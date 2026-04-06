@@ -27,7 +27,7 @@ func (r Row) clone() Row {
 
 func EvalCombination(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, diags *diag.Diagnostics) []Row {
 	if expr == nil {
-		diags.AddError("E113", "missing combination expression", diag.Span{}, "add a final combination expression in param block")
+		diags.AddError(diag.CodeE113, "missing combination expression", diag.Span{}, "add a final combination expression in param block")
 		return nil
 	}
 	checkRepeatedIdentifiers(expr, diags)
@@ -41,8 +41,7 @@ func checkRepeatedIdentifiers(expr ast.CombExpr, diags *diag.Diagnostics) {
 			return
 		}
 		if prev, ok := first[id.Name]; ok {
-			diags.AddError(
-				"E036",
+			diags.AddError(diag.CodeE036,
 				fmt.Sprintf("repeated identifier '%s' is not allowed in combination expression", id.Name),
 				id.Span,
 				"use each identifier at most once in a combination expression",
@@ -69,7 +68,7 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 	case ast.CombIdent:
 		vals, ok := series[e.Name]
 		if !ok {
-			diags.AddError("E111", fmt.Sprintf("unknown combination identifier '%s'", e.Name), e.Span, "define the variable before final expression")
+			diags.AddError(diag.CodeE111, fmt.Sprintf("unknown combination identifier '%s'", e.Name), e.Span, "define the variable before final expression")
 			return nil
 		}
 		rows := make([]Row, 0, len(vals))
@@ -90,10 +89,10 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 		if e.Op == "*" {
 			return productRows(left, right, e, diags)
 		}
-		diags.AddError("E112", fmt.Sprintf("unsupported combination operator '%s'", e.Op), e.OpSpan, "use '+' or '*' only")
+		diags.AddError(diag.CodeE112, fmt.Sprintf("unsupported combination operator '%s'", e.Op), e.OpSpan, "use '+' or '*' only")
 		return nil
 	default:
-		diags.AddError("E113", "unsupported combination node", expr.GetSpan(), "check final expression syntax")
+		diags.AddError(diag.CodeE113, "unsupported combination node", expr.GetSpan(), "check final expression syntax")
 		return nil
 	}
 }
@@ -116,8 +115,7 @@ func zipRows(left, right []Row, op ast.CombBinary, diags *diag.Diagnostics) []Ro
 		}
 		shouldWarn := hi%lo != 0
 		if shouldWarn {
-			diags.AddWarning(
-				"W101",
+			diags.AddWarning(diag.CodeW101,
 				fmt.Sprintf("length mismatch in '+': left=%d right=%d; cyclic broadcast to length %d", m, n, k),
 				op.OpSpan,
 				"align lengths to avoid cyclic broadcast",
@@ -157,8 +155,7 @@ func mergeRows(a, b Row, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
 	for name, cell := range b.Values {
 		if existing, ok := out.Values[name]; ok {
 			if !Equal(existing.Value, cell.Value) {
-				diags.AddError(
-					"E042",
+				diags.AddError(diag.CodeE042,
 					fmt.Sprintf("conflicting values for '%s' during row merge", name),
 					at,
 					"avoid conflicting assignments in combined expressions",

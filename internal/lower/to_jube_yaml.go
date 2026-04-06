@@ -287,7 +287,7 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 	}
 	if rowCount == 0 {
 		diags.AddError(
-			"E230",
+			diag.CodeE230,
 			fmt.Sprintf("parameterset '%s' evaluates to zero rows", ps.Name),
 			ps.Block.Span,
 			"ensure final expression yields at least one row",
@@ -367,7 +367,7 @@ func lowerIndexedPayloadParameters(
 			case "shell":
 				if !allEqualValues(selectedValues) {
 					diags.AddError(
-						"E216",
+						diag.CodeE231,
 						fmt.Sprintf("%s(...) parameter '%s' cannot vary across indexed rows", mode, name),
 						origin(name),
 						"use a single expression value for mode-declared parameters",
@@ -416,7 +416,7 @@ func lowerContextualPayloadParameters(
 			case "shell":
 				if !allEqualValues(fullValues) {
 					diags.AddError(
-						"E216",
+						diag.CodeE231,
 						fmt.Sprintf("%s(...) parameter '%s' cannot vary across indexed rows", mode, name),
 						origin(name),
 						"use a single expression value for mode-declared parameters",
@@ -1080,7 +1080,7 @@ func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []
 			if prev, exists := out[source]; exists && prev != rowsVar {
 				if _, reported := conflicts[source]; !reported {
 					ctx.diags.AddError(
-						"E232",
+						diag.CodeE232,
 						fmt.Sprintf("conflicting inherited row context for source '%s' in step '%s'", source, stepName),
 						ctx.stepSpan(stepName),
 						"ensure dependencies constrain the same source consistently",

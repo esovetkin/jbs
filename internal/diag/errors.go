@@ -34,12 +34,18 @@ func (d *Diagnostics) Add(di Diagnostic) {
 	d.Items = append(d.Items, di)
 }
 
-func (d *Diagnostics) AddError(code, message string, span Span, hint string, related ...RelatedSpan) {
-	d.Add(Diagnostic{Severity: SeverityError, Code: code, Message: message, Span: span, Hint: hint, Related: related})
+func (d *Diagnostics) AddError(code Code, message string, span Span, hint string, related ...RelatedSpan) {
+	if _, ok := Catalog[code]; !ok {
+		panic("unknown diagnostic code: " + string(code))
+	}
+	d.Add(Diagnostic{Severity: SeverityError, Code: string(code), Message: message, Span: span, Hint: hint, Related: related})
 }
 
-func (d *Diagnostics) AddWarning(code, message string, span Span, hint string, related ...RelatedSpan) {
-	d.Add(Diagnostic{Severity: SeverityWarning, Code: code, Message: message, Span: span, Hint: hint, Related: related})
+func (d *Diagnostics) AddWarning(code Code, message string, span Span, hint string, related ...RelatedSpan) {
+	if _, ok := Catalog[code]; !ok {
+		panic("unknown diagnostic code: " + string(code))
+	}
+	d.Add(Diagnostic{Severity: SeverityWarning, Code: string(code), Message: message, Span: span, Hint: hint, Related: related})
 }
 
 func (d Diagnostics) HasErrors() bool {

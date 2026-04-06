@@ -1825,13 +1825,13 @@ param q with same {
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	found := false
 	for _, d := range diags.Items {
-		if d.Code == "E022" {
+		if d.Code == "E218" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected E022 for ambiguous with source, got: %s", diags.String())
+		t.Fatalf("expected E218 for ambiguous with source, got: %s", diags.String())
 	}
 }
 

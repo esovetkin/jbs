@@ -192,7 +192,7 @@ func (r *resolver) resolvePathModule(path string, importerBaseDir string, at dia
 	p := strings.TrimSpace(path)
 	if !strings.HasSuffix(p, ".jbs") {
 		r.diags.AddError(
-			"E535",
+			diag.CodeE535,
 			fmt.Sprintf("quoted use path '%s' must end with .jbs", path),
 			at,
 			"use syntax: use \"path/to/file.jbs\" as alias or use name from \"path/to/file.jbs\"",
@@ -237,7 +237,7 @@ func (r *resolver) expandModule(ref moduleRef) *expandedModule {
 	}
 	if r.expanding[ref.ID] {
 		r.diags.AddError(
-			"E530",
+			diag.CodeE530,
 			fmt.Sprintf("module import cycle detected involving '%s'", ref.Label),
 			diag.NewSpan(ref.Label, diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 1)),
 			"break the module cycle by removing one of the recursive imports",
@@ -278,7 +278,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 		ref, err := r.resolveUseSource(mod, stmt.Source)
 		if err != nil {
 			r.diags.AddError(
-				"E531",
+				diag.CodeE531,
 				fmt.Sprintf("failed to resolve module '%s': %v", stmt.Source.Value, err),
 				stmt.Span,
 				"check module name/path and file availability",
@@ -292,7 +292,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 		if prev, ok := mod.Aliases[alias]; ok {
 			if prev.ID != ref.ID {
 				r.diags.AddError(
-					"E536",
+					diag.CodeE536,
 					fmt.Sprintf("import alias collision for '%s'", alias),
 					stmt.Span,
 					"use a unique alias name",
@@ -302,7 +302,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 		}
 		if sym, ok := mod.Symbols[alias]; ok {
 			r.diags.AddError(
-				"E534",
+				diag.CodeE534,
 				fmt.Sprintf("import name collision: alias '%s' conflicts with symbol '%s'", alias, sym.Name),
 				stmt.Span,
 				"rename alias or conflicting symbol",
@@ -317,7 +317,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 	sourceRef, err := r.resolveUseSource(mod, stmt.Source)
 	if err != nil {
 		r.diags.AddError(
-			"E531",
+			diag.CodeE531,
 			fmt.Sprintf("failed to resolve import source '%s': %v", stmt.Source.Value, err),
 			stmt.Span,
 			"check module name/path and file availability",
@@ -338,7 +338,7 @@ func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
 	if ok {
 		if _, aliasExists := mod.Aliases[name]; aliasExists {
 			r.diags.AddError(
-				"E534",
+				diag.CodeE534,
 				fmt.Sprintf("import name collision: local symbol '%s' conflicts with import alias", name),
 				stmt.GetSpan(),
 				"rename symbol or alias",
@@ -346,7 +346,7 @@ func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
 		} else if prev, exists := mod.Symbols[name]; exists {
 			if prev.Imported {
 				r.diags.AddError(
-					"E534",
+					diag.CodeE534,
 					fmt.Sprintf("import name collision: local symbol '%s' conflicts with imported symbol", name),
 					stmt.GetSpan(),
 					"rename local symbol or adjust imports",
@@ -411,7 +411,7 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 	alias, name, ok := strings.Cut(ref, ".")
 	if !ok || alias == "" || name == "" || strings.Contains(name, ".") {
 		r.diags.AddError(
-			"E537",
+			diag.CodeE537,
 			fmt.Sprintf("invalid qualified with reference '%s'", ref),
 			at,
 			"use syntax alias.symbol in with clauses",
@@ -421,7 +421,7 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 	sourceRef, ok := mod.Aliases[alias]
 	if !ok {
 		r.diags.AddError(
-			"E537",
+			diag.CodeE537,
 			fmt.Sprintf("unknown with alias '%s' in qualified reference '%s'", alias, ref),
 			at,
 			"declare alias first with `use <module>` or `use \"path\" as <alias>`",
@@ -440,7 +440,7 @@ func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, 
 	sym, ok := source.Symbols[name]
 	if !ok {
 		r.diags.AddError(
-			"E532",
+			diag.CodeE532,
 			fmt.Sprintf("unknown symbol '%s' in module '%s'", name, source.Ref.Label),
 			at,
 			"import a symbol that exists in the source module",
@@ -449,7 +449,7 @@ func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, 
 	}
 	if !sym.Importable {
 		r.diags.AddError(
-			"E533",
+			diag.CodeE533,
 			fmt.Sprintf("symbol '%s' in module '%s' is not importable", name, source.Ref.Label),
 			at,
 			"only let/param/do/submit/global symbols are importable",
@@ -484,7 +484,7 @@ func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, 
 func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedModule, sym symbolDecl, at diag.Span) bool {
 	if _, aliasExists := target.Aliases[sym.Name]; aliasExists {
 		r.diags.AddError(
-			"E534",
+			diag.CodeE534,
 			fmt.Sprintf("import name collision: symbol '%s' conflicts with alias", sym.Name),
 			at,
 			"rename alias or imported symbol",
@@ -497,7 +497,7 @@ func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedMod
 			return false
 		}
 		r.diags.AddError(
-			"E534",
+			diag.CodeE534,
 			fmt.Sprintf("import name collision: '%s' from '%s' conflicts with existing declaration", sym.Name, source.Ref.Label),
 			at,
 			"rename symbols or adjust imports",

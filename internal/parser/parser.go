@@ -45,8 +45,7 @@ func (p *Parser) parseProgram() ast.Program {
 		}
 		word, ok := p.peekWord()
 		if !ok {
-			p.diags.AddError(
-				"E010",
+			p.diags.AddError(diag.CodeE010,
 				"expected block keyword (param/do/submit/let/analyse/use)",
 				diag.NewSpan(p.file, start, start),
 				"start a block with param, do, submit, let, analyse, or use",
@@ -76,8 +75,7 @@ func (p *Parser) parseProgram() ast.Program {
 			stmts = append(stmts, p.parseUseStmt(start))
 		default:
 			end := p.consumeWord()
-			p.diags.AddError(
-				"E011",
+			p.diags.AddError(diag.CodeE011,
 				fmt.Sprintf("unknown block keyword '%s'", word),
 				diag.NewSpan(p.file, start, end),
 				"valid keywords are param, do, submit, let, analyse, use",
@@ -127,8 +125,7 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 	tp.skipStmtSeparators()
 	if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
 		tok := tp.peek()
-		p.diags.AddError(
-			"E012",
+		p.diags.AddError(diag.CodeE012,
 			"expected top-level global assignment",
 			tok.Span,
 			"use syntax: name = expression",
@@ -153,8 +150,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 
 	zero := diag.NewSpan(p.file, start, start)
 	if tp.peek().Type == lexer.TokenEOF {
-		p.diags.AddError(
-			"E430",
+		p.diags.AddError(diag.CodeE430,
 			"malformed use statement; expected module name, path, or selective import",
 			zero,
 			"use syntax: use <module> | use \"path.jbs\" as alias | use x,y from <module_or_path>",
@@ -174,8 +170,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 		if tp.peek().Type == lexer.TokenEOF {
 			return true
 		}
-		p.diags.AddError(
-			"E430",
+		p.diags.AddError(diag.CodeE430,
 			"unexpected trailing tokens in use statement",
 			tp.peek().Span,
 			"use one use statement per line",
@@ -198,8 +193,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 				Span:  tok.Span,
 			}, true
 		default:
-			p.diags.AddError(
-				"E430",
+			p.diags.AddError(diag.CodeE430,
 				"expected module name or quoted path in use statement",
 				tok.Span,
 				"use an identifier or quoted .jbs path",
@@ -212,8 +206,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 		pathTok := tp.next()
 		asTok := tp.peek()
 		if asTok.Type != lexer.TokenAs {
-			p.diags.AddError(
-				"E430",
+			p.diags.AddError(diag.CodeE430,
 				"quoted path import requires alias",
 				asTok.Span,
 				"use syntax: use \"path.jbs\" as alias",
@@ -226,8 +219,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 		tp.next()
 		aliasTok := tp.peek()
 		if aliasTok.Type != lexer.TokenIdent {
-			p.diags.AddError(
-				"E430",
+			p.diags.AddError(diag.CodeE430,
 				"expected alias identifier after 'as'",
 				aliasTok.Span,
 				"use syntax: use \"path.jbs\" as alias",
@@ -252,8 +244,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 	}
 
 	if first.Type != lexer.TokenIdent {
-		p.diags.AddError(
-			"E430",
+		p.diags.AddError(diag.CodeE430,
 			"malformed use statement; expected identifier list or quoted path",
 			first.Span,
 			"use syntax: use <module> | use \"path.jbs\" as alias | use x,y from <module_or_path>",
@@ -266,8 +257,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 	for {
 		nameTok := tp.peek()
 		if nameTok.Type != lexer.TokenIdent {
-			p.diags.AddError(
-				"E430",
+			p.diags.AddError(diag.CodeE430,
 				"expected identifier in use statement",
 				nameTok.Span,
 				"use syntax: use x,y from module",
@@ -305,8 +295,7 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 	}
 
 	if len(names) != 1 {
-		p.diags.AddError(
-			"E430",
+		p.diags.AddError(diag.CodeE430,
 			"namespace import accepts exactly one module name",
 			span,
 			"use syntax: use <module> or use x,y from <module_or_path>",
@@ -400,13 +389,12 @@ func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 }
 
 func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
-	name, nameSpan := p.parseRequiredIdent("E020", "expected param block name")
+	name, nameSpan := p.parseRequiredIdent(diag.CodeE082, "expected param block name")
 	withItems := p.parseOptionalWithClause()
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
-		p.diags.AddError(
-			"E021",
+		p.diags.AddError(diag.CodeE083,
 			"expected '{' to start param block body",
 			diag.NewSpan(p.file, pos, pos),
 			"add '{' after param header",
@@ -439,14 +427,13 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 }
 
 func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
-	name, nameSpan := p.parseRequiredIdent("E030", "expected do block name")
+	name, nameSpan := p.parseRequiredIdent(diag.CodeE030, "expected do block name")
 	after, withItems, opts := p.parseOptionalDoHeaderClauses()
 	p.skipTrivia()
 
 	if p.peek() != '{' {
 		pos := p.pos()
-		p.diags.AddError(
-			"E031",
+		p.diags.AddError(diag.CodeE031,
 			"expected '{' to start do block body",
 			diag.NewSpan(p.file, pos, pos),
 			"add '{' before do script body",
@@ -486,14 +473,13 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 }
 
 func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
-	name, nameSpan := p.parseRequiredIdent("E040", "expected submit block name")
+	name, nameSpan := p.parseRequiredIdent(diag.CodeE040, "expected submit block name")
 	after, useNames, withItems, opts := p.parseOptionalSubmitHeaderClauses()
 	p.skipTrivia()
 
 	if p.peek() != '{' {
 		pos := p.pos()
-		p.diags.AddError(
-			"E041",
+		p.diags.AddError(diag.CodeE041,
 			"expected '{' to start submit block body",
 			diag.NewSpan(p.file, pos, pos),
 			"add '{' after submit header",
@@ -538,12 +524,11 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 }
 
 func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
-	name, nameSpan := p.parseRequiredIdent("E080", "expected let block name")
+	name, nameSpan := p.parseRequiredIdent(diag.CodeE080, "expected let block name")
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
-		p.diags.AddError(
-			"E081",
+		p.diags.AddError(diag.CodeE081,
 			"expected '{' to start let block body",
 			diag.NewSpan(p.file, pos, pos),
 			"add '{' after let header",
@@ -570,12 +555,11 @@ func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
 }
 
 func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
-	stepName, stepSpan := p.parseRequiredIdent("E416", "expected analyse target step name")
+	stepName, stepSpan := p.parseRequiredIdent(diag.CodeE416, "expected analyse target step name")
 	after, withItems := p.parseOptionalAfterAndWith()
 	if len(after) > 0 {
 		span := diag.NewSpan(p.file, blockStart, p.pos())
-		p.diags.AddError(
-			"E416",
+		p.diags.AddError(diag.CodeE416,
 			"analyse block does not support an after-clause",
 			span,
 			"use syntax: analyse <step_name> [with ...] { ... }",
@@ -584,8 +568,7 @@ func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
-		p.diags.AddError(
-			"E416",
+		p.diags.AddError(diag.CodeE416,
 			"expected '{' to start analyse block body",
 			diag.NewSpan(p.file, pos, pos),
 			"add '{' after analyse header",
@@ -728,8 +711,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 
 	p.skipTriviaInline()
 	if p.peek() != '=' {
-		p.diags.AddError(
-			"E035",
+		p.diags.AddError(diag.CodeE035,
 			fmt.Sprintf("expected '=' after %s header option '%s'", kind, word),
 			keySpan,
 			"use syntax: "+word+"=<integer>",
@@ -740,8 +722,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 
 	valueText, valueSpan, valueOK := p.readStepHeaderOptionValue()
 	if !valueOK {
-		p.diags.AddError(
-			"E034",
+		p.diags.AddError(diag.CodeE034,
 			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
 			keySpan,
 			"use syntax: "+word+"=<integer>",
@@ -750,8 +731,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	}
 
 	if word != "max_async" && word != "iterations" {
-		p.diags.AddError(
-			"E032",
+		p.diags.AddError(diag.CodeE032,
 			fmt.Sprintf("unknown %s header option '%s'", kind, word),
 			keySpan,
 			"allowed options are max_async and iterations",
@@ -761,8 +741,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 
 	parsed, err := strconv.Atoi(valueText)
 	if err != nil {
-		p.diags.AddError(
-			"E034",
+		p.diags.AddError(diag.CodeE034,
 			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
 			valueSpan,
 			"use syntax: "+word+"=<integer>",
@@ -773,8 +752,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	switch word {
 	case "max_async":
 		if opts.MaxAsync != nil {
-			p.diags.AddError(
-				"E033",
+			p.diags.AddError(diag.CodeE033,
 				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
 				keySpan,
 				"set this option at most once per block",
@@ -785,8 +763,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 		opts.MaxAsync = &v
 	case "iterations":
 		if opts.Iterations != nil {
-			p.diags.AddError(
-				"E033",
+			p.diags.AddError(diag.CodeE033,
 				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
 				keySpan,
 				"set this option at most once per block",
@@ -883,7 +860,7 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 		word, ok := p.peekWord()
 		if ok && word == "from" {
 			p.consumeWord()
-			srcName, fromSpan := p.parseQualifiedName("E024", "expected source parameterset name after 'from'")
+			srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after 'from'")
 			src = srcName
 			srcSpan = fromSpan
 			currentFrom = srcName
@@ -915,7 +892,7 @@ type withName struct {
 func (p *Parser) parseWithNames() ([]withName, bool) {
 	p.skipTriviaInline()
 	if p.peek() != '(' {
-		name, span := p.parseQualifiedName("E023", "expected identifier in with clause")
+		name, span := p.parseQualifiedName(diag.CodeE023, "expected identifier in with clause")
 		if name == "" {
 			return nil, false
 		}
@@ -931,16 +908,16 @@ func (p *Parser) parseWithNames() ([]withName, bool) {
 		if p.peek() == ')' {
 			if len(names) == 0 {
 				span := diag.NewSpan(p.file, tupleStart, p.pos())
-				p.diags.AddError("E023", "empty tuple in with clause", span, "add at least one identifier inside parentheses")
+				p.diags.AddError(diag.CodeE023, "empty tuple in with clause", span, "add at least one identifier inside parentheses")
 			} else {
 				span := diag.NewSpan(p.file, tupleStart, p.pos())
-				p.diags.AddError("E023", "trailing comma in with-clause tuple", span, "remove trailing comma or add another identifier")
+				p.diags.AddError(diag.CodeE023, "trailing comma in with-clause tuple", span, "remove trailing comma or add another identifier")
 			}
 			p.advance()
 			return names, len(names) > 0
 		}
 
-		name, span := p.parseQualifiedName("E023", "expected identifier in with clause")
+		name, span := p.parseQualifiedName(diag.CodeE023, "expected identifier in with clause")
 		if name == "" {
 			return names, len(names) > 0
 		}
@@ -955,13 +932,13 @@ func (p *Parser) parseWithNames() ([]withName, bool) {
 			return names, true
 		default:
 			span := diag.NewSpan(p.file, tupleStart, p.pos())
-			p.diags.AddError("E023", "unterminated tuple in with clause; missing ')'", span, "close tuple imports with ')'")
+			p.diags.AddError(diag.CodeE023, "unterminated tuple in with clause; missing ')'", span, "close tuple imports with ')'")
 			return names, len(names) > 0
 		}
 	}
 }
 
-func (p *Parser) parseQualifiedName(code, message string) (string, diag.Span) {
+func (p *Parser) parseQualifiedName(code diag.Code, message string) (string, diag.Span) {
 	name, span := p.parseRequiredIdent(code, message)
 	if name == "" {
 		return "", span
@@ -987,7 +964,7 @@ func (p *Parser) parseQualifiedName(code, message string) (string, diag.Span) {
 func (p *Parser) parseNameList() []string {
 	out := make([]string, 0)
 	for {
-		name, _ := p.parseRequiredIdent("E022", "expected identifier in dependency list")
+		name, _ := p.parseRequiredIdent(diag.CodeE028, "expected identifier in dependency list")
 		if name != "" {
 			out = append(out, name)
 		}
@@ -1000,7 +977,7 @@ func (p *Parser) parseNameList() []string {
 	return out
 }
 
-func (p *Parser) parseRequiredIdent(code, message string) (string, diag.Span) {
+func (p *Parser) parseRequiredIdent(code diag.Code, message string) (string, diag.Span) {
 	p.skipTriviaInline()
 	start := p.pos()
 	word, ok := p.peekWord()
@@ -1025,7 +1002,7 @@ func (p *Parser) readBalancedBlock() (content string, innerStart diag.Position, 
 		return content, innerStart, blockEnd, true
 	}
 	span := diag.NewSpan(p.file, innerStart, p.pos())
-	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
+	p.diags.AddError(diag.CodeE025, "unterminated block; missing closing '}'", span, "close the block with '}'")
 	return "", innerStart, p.pos(), false
 }
 
@@ -1156,8 +1133,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 		tp.skipStmtSeparators()
 		if tp.peek().Type != lexer.TokenEOF {
 			tok := tp.peek()
-			diags.AddError(
-				"E026",
+			diags.AddError(diag.CodeE026,
 				"unexpected tokens after final combination expression",
 				tok.Span,
 				"final expression must be the last statement in param block",
@@ -1167,8 +1143,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 	}
 
 	if final == nil {
-		diags.AddError(
-			"E027",
+		diags.AddError(diag.CodeE027,
 			"param block missing final combination expression",
 			diag.NewSpan(file, start, start),
 			"add a final expression like '(a+b)*c'",
@@ -1189,8 +1164,7 @@ func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostic
 		}
 		if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
 			tok := tp.peek()
-			diags.AddError(
-				"E418",
+			diags.AddError(diag.CodeE418,
 				"malformed let statement; expected 'name = expression'",
 				tok.Span,
 				"use syntax: variable = expression",
@@ -1219,8 +1193,7 @@ func parseAnalyseBody(file, body string, start diag.Position, diags *diag.Diagno
 			columns = parseAnalyseTuple(tp, file, diags)
 			tp.skipStmtSeparators()
 			if tp.peek().Type != lexer.TokenEOF {
-				diags.AddError(
-					"E417",
+				diags.AddError(diag.CodeE417,
 					"unexpected tokens after analyse result tuple",
 					tp.peek().Span,
 					"result tuple must be the last statement in analyse block",
@@ -1235,8 +1208,7 @@ func parseAnalyseBody(file, body string, start diag.Position, diags *diag.Diagno
 	}
 
 	if columns == nil {
-		diags.AddError(
-			"E417",
+		diags.AddError(diag.CodeE417,
 			"analyse block missing final result tuple",
 			diag.NewSpan(file, start, start),
 			"add a final tuple like (a, x, p0)",
@@ -1248,8 +1220,7 @@ func parseAnalyseBody(file, body string, start diag.Position, diags *diag.Diagno
 func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostics) ast.AnalyseAssign {
 	stmtStart := tp.peek()
 	if stmtStart.Type != lexer.TokenIdent {
-		diags.AddError(
-			"E416",
+		diags.AddError(diag.CodeE416,
 			"malformed analyse statement; expected 'name = expression' or 'name = expression in \"file\"'",
 			stmtStart.Span,
 			"use syntax: name = expression [in \"filename\"]",
@@ -1260,8 +1231,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	nameTok := tp.next()
 
 	if tp.peek().Type != lexer.TokenEqual {
-		diags.AddError(
-			"E416",
+		diags.AddError(diag.CodeE416,
 			"malformed analyse statement; expected '=' after variable name",
 			nameTok.Span,
 			"use syntax: name = expression [in \"filename\"]",
@@ -1283,8 +1253,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 		tp.next()
 		fileTok := tp.peek()
 		if fileTok.Type != lexer.TokenString {
-			diags.AddError(
-				"E416",
+			diags.AddError(diag.CodeE416,
 				"malformed analyse extraction; expected quoted file name after 'in'",
 				fileTok.Span,
 				"use syntax: alias = expression in \"filename\"",
@@ -1298,8 +1267,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	}
 
 	if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline && tp.peek().Type != lexer.TokenSemicolon {
-		diags.AddError(
-			"E416",
+		diags.AddError(diag.CodeE416,
 			"unexpected trailing tokens in analyse statement",
 			tp.peek().Span,
 			"separate statements with newline or ';'",
@@ -1328,8 +1296,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		tp.skipNewlines()
 		tok := tp.peek()
 		if tok.Type == lexer.TokenEOF {
-			diags.AddError(
-				"E417",
+			diags.AddError(diag.CodeE417,
 				"unterminated analyse result tuple",
 				open.Span,
 				"close the tuple with ')'",
@@ -1341,8 +1308,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 			return columns
 		}
 		if tok.Type != lexer.TokenIdent {
-			diags.AddError(
-				"E417",
+			diags.AddError(diag.CodeE417,
 				"expected column identifier in analyse result tuple",
 				tok.Span,
 				"use syntax: (name, other as \"Title\")",
@@ -1356,7 +1322,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		span := nameTok.Span
 		if tp.peek().Type == lexer.TokenDot {
 			tp.next()
-			memberTok := tp.expect(lexer.TokenIdent, "E417", "expected identifier after '.' in analyse result tuple")
+			memberTok := tp.expect(lexer.TokenIdent, diag.CodeE417, "expected identifier after '.' in analyse result tuple")
 			name = name + "." + memberTok.Value
 			span = diag.Merge(span, memberTok.Span)
 		}
@@ -1365,8 +1331,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 			tp.next()
 			titleTok := tp.peek()
 			if titleTok.Type != lexer.TokenString {
-				diags.AddError(
-					"E417",
+				diags.AddError(diag.CodeE417,
 					"expected quoted title after 'as' in analyse result tuple",
 					titleTok.Span,
 					"use syntax: name as \"Title\"",
@@ -1400,8 +1365,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 			return columns
 		}
 
-		diags.AddError(
-			"E417",
+		diags.AddError(diag.CodeE417,
 			"expected ',' or ')' in analyse result tuple",
 			tp.peek().Span,
 			"separate tuple items with commas",
@@ -1444,8 +1408,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		stmtStart := p.pos()
 		name, nameSpan, ok := p.parseIdent()
 		if !ok {
-			p.diags.AddError(
-				"E076",
+			p.diags.AddError(diag.CodeE077,
 				"malformed submit statement; expected 'name = value'",
 				diag.NewSpan(p.file, stmtStart, stmtStart),
 				"use syntax: key = expression or preprocess/postprocess = { ... }",
@@ -1456,8 +1419,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 
 		p.skipInlineTrivia()
 		if p.peek() != '=' {
-			p.diags.AddError(
-				"E076",
+			p.diags.AddError(diag.CodeE077,
 				"malformed submit statement; expected '=' after key",
 				nameSpan,
 				"use syntax: key = expression or preprocess/postprocess = { ... }",
@@ -1482,8 +1444,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 			}
 			fields = append(fields, field)
 			if p.hasUnexpectedTrailingTextAfterRawBlock() {
-				p.diags.AddError(
-					"E076",
+				p.diags.AddError(diag.CodeE077,
 					"unexpected trailing text after submit raw block",
 					field.Span,
 					"separate statements with newline or ';'",
@@ -1514,8 +1475,7 @@ func parseSubmitExpr(file, expr string, start diag.Position, diags *diag.Diagnos
 	tp := &tokenParser{tokens: tokens, diags: diags}
 	tp.skipNewlines()
 	if tp.peek().Type == lexer.TokenEOF {
-		diags.AddError(
-			"E076",
+		diags.AddError(diag.CodeE077,
 			"malformed submit statement; expected expression after '='",
 			diag.NewSpan(file, start, start),
 			"use syntax: key = expression",
@@ -1526,8 +1486,7 @@ func parseSubmitExpr(file, expr string, start diag.Position, diags *diag.Diagnos
 	tp.skipNewlines()
 	if tp.peek().Type != lexer.TokenEOF {
 		tok := tp.peek()
-		diags.AddError(
-			"E076",
+		diags.AddError(diag.CodeE077,
 			"unexpected trailing tokens in submit expression",
 			tok.Span,
 			"use one expression per submit assignment",
@@ -1636,7 +1595,7 @@ func (p *submitFieldParser) readBalancedBlock() (content string, innerStart diag
 		return content, innerStart, blockEnd, true
 	}
 	span := diag.NewSpan(p.file, innerStart, p.pos())
-	p.diags.AddError("E025", "unterminated block; missing closing '}'", span, "close the block with '}'")
+	p.diags.AddError(diag.CodeE025, "unterminated block; missing closing '}'", span, "close the block with '}'")
 	return "", innerStart, p.pos(), false
 }
 
@@ -1814,8 +1773,8 @@ func (p *submitFieldParser) hasUnexpectedTrailingTextAfterRawBlock() bool {
 }
 
 func (p *tokenParser) parseAssignment() ast.Assignment {
-	name := p.expect(lexer.TokenIdent, "E050", "expected assignment identifier")
-	p.expect(lexer.TokenEqual, "E051", "expected '=' in assignment")
+	name := p.expect(lexer.TokenIdent, diag.CodeE050, "expected assignment identifier")
+	p.expect(lexer.TokenEqual, diag.CodeE051, "expected '=' in assignment")
 	expr := p.parseExpr()
 	span := name.Span
 	if expr != nil {
@@ -1823,8 +1782,7 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 	}
 	if p.peek().Type != lexer.TokenEOF && p.peek().Type != lexer.TokenNewline && p.peek().Type != lexer.TokenSemicolon {
 		tok := p.peek()
-		p.diags.AddError(
-			"E061",
+		p.diags.AddError(diag.CodeE061,
 			"unexpected trailing tokens after assignment expression",
 			tok.Span,
 			"remove unsupported trailing syntax after the expression",
@@ -1847,7 +1805,7 @@ func (p *tokenParser) parseConditional() ast.Expr {
 	if p.peek().Type == lexer.TokenIf {
 		ifTok := p.next()
 		cond := p.parseOr()
-		p.expect(lexer.TokenElse, "E052", "expected 'else' in conditional expression")
+		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
 		elseExpr := p.parseConditional()
 		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
 		span = diag.Merge(span, ifTok.Span)
@@ -1973,9 +1931,9 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		}
 		if (tok.Value == "shell" || tok.Value == "python") && p.peekN(1).Type == lexer.TokenLParen {
 			modeTok := p.next()
-			p.expect(lexer.TokenLParen, "E062", "expected '(' after mode expression")
+			p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after mode expression")
 			arg := p.parseExpr()
-			close := p.expect(lexer.TokenRParen, "E063", "expected ')' to close mode expression")
+			close := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close mode expression")
 			return ast.ModeExpr{
 				Mode: modeTok.Value,
 				Expr: arg,
@@ -1985,7 +1943,7 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		nameTok := p.next()
 		if p.peek().Type == lexer.TokenDot {
 			p.next()
-			memberTok := p.expect(lexer.TokenIdent, "E064", "expected identifier after '.'")
+			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
 			return ast.QualifiedIdentExpr{
 				Namespace: nameTok.Value,
 				Name:      memberTok.Value,
@@ -2001,7 +1959,7 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		if !strings.Contains(tok.Value, ".") {
 			intValue, err := strconv.ParseInt(tok.Value, 10, 64)
 			if err != nil {
-				p.diags.AddError("E065", "invalid integer literal", tok.Span, "use a valid 64-bit signed integer literal")
+				p.diags.AddError(diag.CodeE065, "invalid integer literal", tok.Span, "use a valid 64-bit signed integer literal")
 				intValue = 0
 			}
 			return ast.NumberExpr{
@@ -2013,7 +1971,7 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		}
 		floatValue, err := strconv.ParseFloat(tok.Value, 64)
 		if err != nil {
-			p.diags.AddError("E066", "invalid floating-point literal", tok.Span, "use a valid floating-point literal")
+			p.diags.AddError(diag.CodeE066, "invalid floating-point literal", tok.Span, "use a valid floating-point literal")
 		}
 		return ast.NumberExpr{
 			Raw:        tok.Value,
@@ -2041,14 +1999,14 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 				items = append(items, p.parseExpr())
 				p.skipNewlines()
 			}
-			close := p.expect(lexer.TokenRParen, "E053", "expected ')' to close tuple")
+			close := p.expect(lexer.TokenRParen, diag.CodeE053, "expected ')' to close tuple")
 			return ast.TupleExpr{
 				Items: items,
 				Span:  diag.Merge(open.Span, close.Span),
 			}
 		}
 		p.skipNewlines()
-		p.expect(lexer.TokenRParen, "E054", "expected ')' to close expression")
+		p.expect(lexer.TokenRParen, diag.CodeE054, "expected ')' to close expression")
 		return first
 	case lexer.TokenLBracket:
 		open := p.next()
@@ -2069,14 +2027,13 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 			}
 		}
 		p.skipNewlines()
-		close := p.expect(lexer.TokenRBracket, "E055", "expected ']' to close list")
+		close := p.expect(lexer.TokenRBracket, diag.CodeE055, "expected ']' to close list")
 		return ast.ListExpr{
 			Items: items,
 			Span:  diag.Merge(open.Span, close.Span),
 		}
 	default:
-		p.diags.AddError(
-			"E058",
+		p.diags.AddError(diag.CodeE058,
 			fmt.Sprintf("unexpected token '%s' in expression", tok.Text),
 			tok.Span,
 			"use a valid expression term",
@@ -2128,7 +2085,7 @@ func (p *tokenParser) parseCombPrimary() ast.CombExpr {
 		nameTok := p.next()
 		if p.peek().Type == lexer.TokenDot {
 			p.next()
-			memberTok := p.expect(lexer.TokenIdent, "E064", "expected identifier after '.'")
+			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
 			return ast.CombIdent{
 				Name: nameTok.Value + "." + memberTok.Value,
 				Span: diag.Merge(nameTok.Span, memberTok.Span),
@@ -2139,11 +2096,10 @@ func (p *tokenParser) parseCombPrimary() ast.CombExpr {
 	if tok.Type == lexer.TokenLParen {
 		p.next()
 		expr := p.parseCombExpr()
-		p.expect(lexer.TokenRParen, "E059", "expected ')' in combination expression")
+		p.expect(lexer.TokenRParen, diag.CodeE059, "expected ')' in combination expression")
 		return expr
 	}
-	p.diags.AddError(
-		"E060",
+	p.diags.AddError(diag.CodeE060,
 		fmt.Sprintf("unexpected token '%s' in combination expression", tok.Text),
 		tok.Span,
 		"combination expression allows identifiers, +, *, and parentheses",
@@ -2190,7 +2146,7 @@ func (p *tokenParser) consumeUntilNewline() {
 	p.skipNewlines()
 }
 
-func (p *tokenParser) expect(tt lexer.TokenType, code, message string) lexer.Token {
+func (p *tokenParser) expect(tt lexer.TokenType, code diag.Code, message string) lexer.Token {
 	tok := p.peek()
 	if tok.Type != tt {
 		p.diags.AddError(code, message, tok.Span, "check token ordering and delimiters")

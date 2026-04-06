@@ -40,7 +40,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		case ast.LetBlock:
 			if prev, exists := letSpans[n.Name]; exists {
 				diags.AddError(
-					"E400",
+					diag.CodeE400,
 					fmt.Sprintf("duplicate let block name '%s'", n.Name),
 					n.Span,
 					"use a unique let block name",
@@ -57,7 +57,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 		case ast.ParamBlock:
 			if prev, exists := paramSpans[n.Name]; exists {
 				diags.AddError(
-					"E210",
+					diag.CodeE210,
 					fmt.Sprintf("duplicate param block name '%s'", n.Name),
 					n.Span,
 					"use a unique param block name",
@@ -150,7 +150,7 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map
 	for _, asn := range block.Assignments {
 		if prev, exists := seen[asn.Name]; exists {
 			diags.AddError(
-				"E401",
+				diag.CodeE401,
 				fmt.Sprintf("duplicate variable '%s' in let block '%s'", asn.Name, block.Name),
 				asn.Span,
 				"use unique variable names within a let block",
@@ -174,7 +174,7 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map
 		}
 		if v.Kind == eval.KindList {
 			diags.AddError(
-				"E403",
+				diag.CodeE403,
 				fmt.Sprintf("let variable '%s' must be scalar", asn.Name),
 				asn.Span,
 				"use string/int/float/bool or shell()/python() scalar values",
@@ -331,7 +331,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	}
 	if stepKind == "" {
 		diags.AddError(
-			"E410",
+			diag.CodeE410,
 			fmt.Sprintf("unknown analyse target step '%s'", block.StepName),
 			block.Span,
 			"analyse must reference an existing do/submit block name",
@@ -387,7 +387,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	for _, assign := range block.Assignments {
 		if prev, exists := seenAssignments[assign.Name]; exists {
 			diags.AddError(
-				"E414",
+				diag.CodeE414,
 				fmt.Sprintf("duplicate analyse variable '%s'", assign.Name),
 				assign.Span,
 				"use unique variable names in analyse assignments",
@@ -400,7 +400,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		if assign.File == "" {
 			if existing, ok := spec.StepVars[assign.Name]; ok {
 				diags.AddWarning(
-					"W320",
+					diag.CodeW320,
 					fmt.Sprintf("analyse helper variable '%s' shadows step-visible variable", assign.Name),
 					assign.Span,
 					"use a distinct helper variable name to avoid ambiguity",
@@ -411,7 +411,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			value := eval.EvalExpr(assign.Expr, env, diags)
 			if hasNestedList(value) {
 				diags.AddError(
-					"E305",
+					diag.CodeE305,
 					fmt.Sprintf("nested tuple/list value is not allowed for analyse helper '%s'", assign.Name),
 					assign.Span,
 					"use flat tuple/list values only",
@@ -423,7 +423,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 
 		if existing, ok := spec.StepVars[assign.Name]; ok {
 			diags.AddError(
-				"E413",
+				diag.CodeE413,
 				fmt.Sprintf("analyse extraction variable '%s' collides with step-visible variable", assign.Name),
 				assign.Span,
 				"use a distinct extraction variable name in analyse",
@@ -435,11 +435,11 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		before := len(diags.Items)
 		value := eval.EvalExpr(assign.Expr, env, diags)
 		if value.Kind != eval.KindString {
-			if hasErrorCodeSince(diags, before, "E100") {
+			if hasErrorCodeSince(diags, before, diag.CodeE100) {
 				continue
 			}
 			diags.AddError(
-				"E412",
+				diag.CodeE412,
 				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", assign.Name),
 				assign.Span,
 				"use a string expression such as an imported let variable or a quoted regex pattern",
@@ -449,7 +449,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		regex, inferredType, ok := normalizePatternRegex(value.S)
 		if !ok {
 			diags.AddError(
-				"E402",
+				diag.CodeE402,
 				fmt.Sprintf("invalid placeholder in analyse extraction expression for '%s'", assign.Name),
 				assign.Span,
 				"supported placeholders are %d, %f, %w and %% for a literal percent",
@@ -507,7 +507,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			continue
 		}
 		diags.AddError(
-			"E415",
+			diag.CodeE415,
 			fmt.Sprintf("unknown symbol '%s' in analyse result tuple", col.Name),
 			col.Span,
 			"use a step-visible variable or an analyse extraction alias",
@@ -543,7 +543,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		}
 		if src.Kind != SourceKindLet {
 			diags.AddError(
-				"E420",
+				diag.CodeE420,
 				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
 				span,
 				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
@@ -560,7 +560,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		}
 		if v.Kind != eval.KindString {
 			diags.AddError(
-				"E422",
+				diag.CodeE422,
 				fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", sourceVar, src.Name),
 				span,
 				"use string-valued let variables for analyse imports",
@@ -582,7 +582,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 			}
 			reported[key] = struct{}{}
 			diags.AddError(
-				"E214",
+				diag.CodeE214,
 				fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", visible, prev.Source, src.Name),
 				span,
 				"import each analyse variable from only one let namespace",
@@ -602,7 +602,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 			src, ambiguous := resolveSource(item.Name)
 			if ambiguous {
 				diags.AddError(
-					"E022",
+					diag.CodeE218,
 					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 					item.Span,
 					"disambiguate by renaming the param or let namespace",
@@ -611,7 +611,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 			}
 			if src == nil {
 				diags.AddError(
-					"E020",
+					diag.CodeE020,
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
 					"import from an existing let namespace",
@@ -631,7 +631,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		src, ambiguous := resolveSource(item.From)
 		if ambiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -640,7 +640,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		}
 		if src == nil {
 			diags.AddError(
-				"E020",
+				diag.CodeE020,
 				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
 				item.Span,
 				"import from an existing let namespace",
@@ -649,7 +649,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		}
 		if src.Kind != SourceKindLet {
 			diags.AddError(
-				"E420",
+				diag.CodeE420,
 				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
 				item.Span,
 				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
@@ -663,7 +663,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		fallback, fallbackAmbiguous := resolveSource(item.Name)
 		if fallbackAmbiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -673,7 +673,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		if fallback != nil {
 			if fallback.Kind != SourceKindLet {
 				diags.AddError(
-					"E420",
+					diag.CodeE420,
 					fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", fallback.Name),
 					item.Span,
 					"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
@@ -686,7 +686,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 			continue
 		}
 		diags.AddError(
-			"E021",
+			diag.CodeE021,
 			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
 			item.Span,
 			"import a variable that exists in the selected let namespace",
@@ -696,7 +696,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 	return out
 }
 
-func hasErrorCodeSince(diags *diag.Diagnostics, start int, code string) bool {
+func hasErrorCodeSince(diags *diag.Diagnostics, start int, code diag.Code) bool {
 	if diags == nil {
 		return false
 	}
@@ -711,7 +711,7 @@ func hasErrorCodeSince(diags *diag.Diagnostics, start int, code string) bool {
 		if item.Severity != diag.SeverityError {
 			continue
 		}
-		if item.Code == code {
+		if item.Code == string(code) {
 			return true
 		}
 	}
@@ -821,7 +821,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		}
 		if _, ok := known[assign.Name]; !ok {
 			diags.AddError(
-				"E300",
+				diag.CodeE300,
 				fmt.Sprintf("unknown global variable '%s'", assign.Name),
 				assign.Span,
 				"use `jbs help globals` to list supported globals",
@@ -831,7 +831,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		warnModeExprInCollections(assign.Expr, diags)
 		if prev, exists := spans[assign.Name]; exists {
 			diags.AddWarning(
-				"W300",
+				diag.CodeW300,
 				fmt.Sprintf("global variable '%s' reassigned; last value wins", assign.Name),
 				assign.Span,
 				"remove duplicate assignments to avoid ambiguity",
@@ -841,7 +841,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		if assign.Name == "jbs_name" || assign.Name == "jbs_outpath" {
 			if _, isMode := assign.Expr.(ast.ModeExpr); isMode {
 				diags.AddError(
-					"E303",
+					diag.CodeE303,
 					fmt.Sprintf("%s must be a simple string, not shell()/python()", assign.Name),
 					assign.Span,
 					"assign a plain string literal",
@@ -849,9 +849,9 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 				continue
 			}
 			if _, ok := assign.Expr.(ast.StringExpr); !ok {
-				code := "E301"
+				code := diag.CodeE301
 				if assign.Name == "jbs_outpath" {
-					code = "E302"
+					code = diag.CodeE302
 				}
 				diags.AddError(
 					code,
@@ -863,9 +863,9 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			}
 			v := eval.EvalExpr(assign.Expr, values, diags)
 			if v.Kind != eval.KindString {
-				code := "E301"
+				code := diag.CodeE301
 				if assign.Name == "jbs_outpath" {
-					code = "E302"
+					code = diag.CodeE302
 				}
 				diags.AddError(
 					code,
@@ -895,7 +895,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		}
 		if !isScalarGlobalValue(v) {
 			diags.AddError(
-				"E304",
+				diag.CodeE304,
 				fmt.Sprintf("global variable '%s' must be scalar; tuples/lists are not allowed", assign.Name),
 				assign.Span,
 				"use string/int/float/bool or shell()/python() scalar values",
@@ -980,7 +980,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		src := sources[useName]
 		if src == nil {
 			diags.AddError(
-				"E078",
+				diag.CodeE078,
 				fmt.Sprintf("unknown submit use namespace '%s'", useName),
 				block.Span,
 				"use an existing let namespace in submit header use clause",
@@ -989,7 +989,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		if src.Kind != SourceKindLet {
 			diags.AddError(
-				"E071",
+				diag.CodeE071,
 				fmt.Sprintf("submit use source '%s' must be a let namespace", useName),
 				block.Span,
 				"use a let namespace in submit header use clause",
@@ -1003,7 +1003,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 					origin = src.Span
 				}
 				diags.AddWarning(
-					"W070",
+					diag.CodeW070,
 					fmt.Sprintf("submit default '%s' from let '%s' is ignored (not a submit key)", varName, useName),
 					origin,
 					"keep only valid submit keys in submit defaults",
@@ -1016,7 +1016,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 					origin = src.Span
 				}
 				diags.AddWarning(
-					"W071",
+					diag.CodeW071,
 					fmt.Sprintf("submit default '%s' from let '%s' is ignored (raw-block key)", varName, useName),
 					origin,
 					"set raw-block submit keys directly in submit body",
@@ -1034,7 +1034,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			}
 			if prev, exists := seenFromUse[varName]; exists && prev.useName != useName {
 				diags.AddWarning(
-					"W072",
+					diag.CodeW072,
 					fmt.Sprintf("submit default '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
 					span,
 					"merge defaults explicitly or keep one namespace per submit key",
@@ -1058,7 +1058,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 	for _, field := range block.Fields {
 		if _, ok := allowedSubmitKeys[field.Name]; !ok {
 			diags.AddError(
-				"E072",
+				diag.CodeE072,
 				fmt.Sprintf("unknown submit key '%s'", field.Name),
 				field.Span,
 				"use one of the allowed submit keys",
@@ -1067,7 +1067,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		if prev, exists := seen[field.Name]; exists {
 			diags.AddError(
-				"E075",
+				diag.CodeE075,
 				fmt.Sprintf("duplicate submit key '%s'", field.Name),
 				field.Span,
 				"set each submit key at most once",
@@ -1080,7 +1080,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		if field.IsRaw {
 			if !isRawSubmitKey(field.Name) {
 				diags.AddError(
-					"E074",
+					diag.CodeE074,
 					fmt.Sprintf("submit key '%s' does not accept raw blocks", field.Name),
 					field.Span,
 					"use an expression value for this key",
@@ -1098,7 +1098,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 
 		if isRawSubmitKey(field.Name) {
 			diags.AddError(
-				"E073",
+				diag.CodeE073,
 				fmt.Sprintf("submit key '%s' must use a raw block", field.Name),
 				field.Span,
 				fmt.Sprintf("use syntax: %s = { ... }", field.Name),
@@ -1107,7 +1107,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		if field.Expr == nil {
 			diags.AddError(
-				"E076",
+				diag.CodeE076,
 				fmt.Sprintf("submit key '%s' is missing a value expression", field.Name),
 				field.Span,
 				"use syntax: key = expression",
@@ -1127,7 +1127,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		if hasNestedList(value) {
 			diags.AddError(
-				"E305",
+				diag.CodeE305,
 				fmt.Sprintf("nested tuple/list value is not allowed for submit key '%s'", field.Name),
 				field.Span,
 				"use flat tuple/list values only",
@@ -1159,7 +1159,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 	accountEmptyOrMissing, accountSpan := submitKeyMissingOrEmpty(resolved, "account", block.Span)
 	if accountEmptyOrMissing {
 		diags.AddWarning(
-			"W073",
+			diag.CodeW073,
 			"submit key 'account' is missing or empty",
 			accountSpan,
 			"set a non-empty account",
@@ -1168,7 +1168,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 	queueEmptyOrMissing, queueSpan := submitKeyMissingOrEmpty(resolved, "queue", block.Span)
 	if queueEmptyOrMissing {
 		diags.AddWarning(
-			"W073",
+			diag.CodeW073,
 			"submit key 'queue' is missing or empty",
 			queueSpan,
 			"set a non-empty queue",
@@ -1197,7 +1197,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				})
 			}
 			diags.AddWarning(
-				"W074",
+				diag.CodeW074,
 				"submit keys 'executable' and 'args_exec' are both missing or empty",
 				primary,
 				"set at least one of executable or args_exec to a non-empty value",
@@ -1322,7 +1322,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			srcParam, srcLet, ambiguous := resolveSource(item.Name)
 			if ambiguous {
 				diags.AddError(
-					"E022",
+					diag.CodeE218,
 					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 					item.Span,
 					"disambiguate by renaming the param or let namespace",
@@ -1337,7 +1337,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			}
 			if srcParam == nil {
 				diags.AddError(
-					"E020",
+					diag.CodeE020,
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
 					"define/import the parameterset or let namespace before using it",
@@ -1353,7 +1353,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		srcParam, srcLet, ambiguous := resolveSource(item.From)
 		if ambiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -1362,7 +1362,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 		if srcParam == nil && srcLet == nil {
 			diags.AddError(
-				"E020",
+				diag.CodeE020,
 				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
 				item.Span,
 				"define/import the parameterset or let namespace before using it",
@@ -1388,7 +1388,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		// interpret it as importing the whole parameterset p2.
 		if fallbackParam, fallbackLet, fallbackAmbiguous := resolveSource(item.Name); fallbackAmbiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -1407,7 +1407,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 
 		diags.AddError(
-			"E021",
+			diag.CodeE021,
 			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
 			item.Span,
 			"import a variable that exists in the selected source",
@@ -1430,7 +1430,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 		if hasNestedList(value) {
 			diags.AddError(
-				"E305",
+				diag.CodeE305,
 				fmt.Sprintf("nested tuple/list value is not allowed for param variable '%s'", asn.Name),
 				asn.Span,
 				"use flat tuple/list values only",
@@ -1514,7 +1514,7 @@ func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
 		case ast.ModeExpr:
 			if inCollection {
 				diags.AddWarning(
-					"W301",
+					diag.CodeW301,
 					fmt.Sprintf("%s(...) used inside tuple/list expression", n.Mode),
 					n.Span,
 					"use shell()/python() as a standalone assignment value, then reference the variable",
@@ -1575,7 +1575,7 @@ func coerceModeValue(mode string, value eval.Value, at diag.Span, diags *diag.Di
 		for i, it := range value.L {
 			if it.Kind != eval.KindString {
 				diags.AddError(
-					"E215",
+					diag.CodeE215,
 					fmt.Sprintf("%s(...) requires string values", mode),
 					at,
 					"pass a string expression to mode declarations",
@@ -1586,7 +1586,7 @@ func coerceModeValue(mode string, value eval.Value, at diag.Span, diags *diag.Di
 		return eval.List(items)
 	default:
 		diags.AddError(
-			"E215",
+			diag.CodeE215,
 			fmt.Sprintf("%s(...) requires string values", mode),
 			at,
 			"pass a string expression to mode declarations",
@@ -1639,7 +1639,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		validateStepHeaderOptions("do", b.Name, b.MaxAsync, b.Iterations, b.Span, diags)
 		if prev, exists := nameToSpan[b.Name]; exists {
 			diags.AddError(
-				"E211",
+				diag.CodeE211,
 				fmt.Sprintf("duplicate step name '%s'", b.Name),
 				b.Span,
 				"use unique names for do/submit blocks",
@@ -1654,7 +1654,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		validateStepHeaderOptions("submit", b.Name, b.MaxAsync, b.Iterations, b.Span, diags)
 		if prev, exists := nameToSpan[b.Name]; exists {
 			diags.AddError(
-				"E211",
+				diag.CodeE211,
 				fmt.Sprintf("duplicate step name '%s'", b.Name),
 				b.Span,
 				"use unique names for do/submit blocks",
@@ -1670,7 +1670,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		for _, dep := range deps {
 			if _, ok := nameToSpan[dep]; !ok {
 				diags.AddError(
-					"E212",
+					diag.CodeE212,
 					fmt.Sprintf("unknown dependency '%s' for step '%s'", dep, step),
 					nameToSpan[step],
 					"depend only on existing do/submit block names",
@@ -1696,7 +1696,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 			if state[dep] == 1 {
 				cycle := append(stack, dep)
 				diags.AddError(
-					"E213",
+					diag.CodeE213,
 					fmt.Sprintf("dependency cycle detected: %s", strings.Join(cycle, " -> ")),
 					nameToSpan[node],
 					"remove cyclic step dependencies",
@@ -1718,7 +1718,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 func validateStepHeaderOptions(kind, stepName string, maxAsync *int, iterations *int, at diag.Span, diags *diag.Diagnostics) {
 	if maxAsync != nil && *maxAsync < 0 {
 		diags.AddError(
-			"E216",
+			diag.CodeE216,
 			fmt.Sprintf("%s step '%s' has invalid max_async=%d (expected >= 0)", kind, stepName, *maxAsync),
 			at,
 			"set max_async to an integer value >= 0",
@@ -1726,7 +1726,7 @@ func validateStepHeaderOptions(kind, stepName string, maxAsync *int, iterations 
 	}
 	if iterations != nil && *iterations < 1 {
 		diags.AddError(
-			"E217",
+			diag.CodeE217,
 			fmt.Sprintf("%s step '%s' has invalid iterations=%d (expected >= 1)", kind, stepName, *iterations),
 			at,
 			"set iterations to an integer value >= 1",
@@ -1792,7 +1792,7 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 			}
 			reported[key] = struct{}{}
 			diags.AddError(
-				"E214",
+				diag.CodeE214,
 				fmt.Sprintf(
 					"conflicting variable '%s' for step '%s' from parametersets '%s' and '%s'",
 					name,
@@ -2115,7 +2115,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			})
 		}
 		diags.AddWarning(
-			"W311",
+			diag.CodeW311,
 			fmt.Sprintf("variable '%s' is referenced in step '%s' but not imported via with-clause", ref.Name, stepName),
 			ref.Span,
 			"add `with <source>` or `with <variable> from <source>`",
@@ -2220,7 +2220,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				hint = fmt.Sprintf("remove it from the let block or reference it with %s via with-imports", varName)
 			}
 			diags.AddWarning(
-				"W310",
+				diag.CodeW310,
 				message,
 				origin,
 				hint,
@@ -2627,7 +2627,7 @@ func validateWithItems(
 			}
 			reported[key] = struct{}{}
 			diags.AddError(
-				"E214",
+				diag.CodeE214,
 				fmt.Sprintf("conflicting variable '%s' imported from sources '%s' and '%s'", name, prev.source, source),
 				span,
 				"import each variable name from only one source",
@@ -2652,7 +2652,7 @@ func validateWithItems(
 			src, ambiguous := resolveSource(item.Name)
 			if ambiguous {
 				diags.AddError(
-					"E022",
+					diag.CodeE218,
 					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 					item.Span,
 					"disambiguate by renaming the param or let namespace",
@@ -2661,7 +2661,7 @@ func validateWithItems(
 			}
 			if src == nil {
 				diags.AddError(
-					"E020",
+					diag.CodeE020,
 					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
 					item.Span,
 					"import an existing parameterset or let namespace",
@@ -2677,7 +2677,7 @@ func validateWithItems(
 		src, ambiguous := resolveSource(item.From)
 		if ambiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -2686,7 +2686,7 @@ func validateWithItems(
 		}
 		if src == nil {
 			diags.AddError(
-				"E020",
+				diag.CodeE020,
 				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
 				item.Span,
 				"import from an existing parameterset or let namespace",
@@ -2701,7 +2701,7 @@ func validateWithItems(
 		fallback, fallbackAmbiguous := resolveSource(item.Name)
 		if fallbackAmbiguous {
 			diags.AddError(
-				"E022",
+				diag.CodeE218,
 				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
 				item.Span,
 				"disambiguate by renaming the param or let namespace",
@@ -2715,7 +2715,7 @@ func validateWithItems(
 			continue
 		}
 		diags.AddError(
-			"E021",
+			diag.CodeE021,
 			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
 			item.Span,
 			"import a variable that exists in the selected source",

@@ -48,6 +48,8 @@ analyse ex_step {
 
 In addition to compiling JUBE configuration files, JBS reports useful errors and warnings, such as unused variables, missing imports, variable-name collisions, and circular dependencies.
 
+See [docs/diagnostics.md](docs/diagnostics.md) for diagnostic code ownership and remapped collision codes.
+
 ## Build and Test
 
 ```bash

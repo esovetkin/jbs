@@ -400,7 +400,7 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 		if existing, ok := out.Values[name]; ok {
 			if !eval.Equal(existing, value) {
 				diags.AddError(
-					"E500",
+					diag.CodeE500,
 					fmt.Sprintf("conflicting inherited value for '%s'", name),
 					at,
 					"ensure dependencies inherit compatible parameter values",
@@ -415,7 +415,7 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 		if existing, ok := out.SourceRows[source]; ok {
 			if !slices.Equal(existing, rows) {
 				diags.AddError(
-					"E501",
+					diag.CodeE501,
 					fmt.Sprintf("conflicting inherited row context for source '%s'", source),
 					at,
 					"ensure dependencies constrain the same source consistently",
@@ -435,7 +435,7 @@ func mergeWithChoice(state wpState, source string, choice sourceChoice, at diag.
 		if existing, ok := out.Values[name]; ok {
 			if !eval.Equal(existing, value) {
 				diags.AddError(
-					"E502",
+					diag.CodeE502,
 					fmt.Sprintf("conflicting value for '%s' while expanding source '%s'", name, source),
 					at,
 					"check with-clause imports and inherited variables for conflicts",

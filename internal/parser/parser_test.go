@@ -260,13 +260,13 @@ submit run {
 	}
 	found := false
 	for _, item := range diags.Items {
-		if item.Code == "E076" {
+		if item.Code == "E077" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected E076, got diagnostics: %s", diags.String())
+		t.Fatalf("expected E077, got diagnostics: %s", diags.String())
 	}
 }
 

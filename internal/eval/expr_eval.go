@@ -16,14 +16,14 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 		if v, ok := env[e.Name]; ok {
 			return v
 		}
-		diags.AddError("E100", fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
+		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
 		return Null()
 	case ast.QualifiedIdentExpr:
 		key := e.Namespace + "." + e.Name
 		if v, ok := env[key]; ok {
 			return v
 		}
-		diags.AddError("E100", fmt.Sprintf("unknown variable '%s'", key), e.Span, "import or define the variable before use")
+		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", key), e.Span, "import or define the variable before use")
 		return Null()
 	case ast.StringExpr:
 		return String(e.Value)
@@ -60,7 +60,7 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 	case ast.ConditionalExpr:
 		c := EvalExpr(e.Cond, env, diags)
 		if c.Kind != KindBool {
-			diags.AddError("E102", "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
+			diags.AddError(diag.CodeE102, "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
 			return EvalExpr(e.Then, env, diags)
 		}
 		if c.B {
@@ -70,7 +70,7 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 	case ast.ModeExpr:
 		return EvalExpr(e.Expr, env, diags)
 	default:
-		diags.AddError("E199", "unsupported expression node", expr.GetSpan(), "check expression syntax")
+		diags.AddError(diag.CodeE199, "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()
 	}
 }
@@ -84,7 +84,7 @@ func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics) Value 
 		return List(out)
 	}
 	if !isNumeric(v) {
-		diags.AddError("E103", fmt.Sprintf("unary '%s' requires numeric value", op), at, "use int/float values")
+		diags.AddError(diag.CodeE103, fmt.Sprintf("unary '%s' requires numeric value", op), at, "use int/float values")
 		return Null()
 	}
 	if op == "+" {
@@ -99,7 +99,7 @@ func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics) Value 
 func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if op == "and" || op == "or" {
 		if l.Kind != KindBool || r.Kind != KindBool {
-			diags.AddError("E104", fmt.Sprintf("'%s' requires boolean operands", op), at, "use boolean values with and/or")
+			diags.AddError(diag.CodeE104, fmt.Sprintf("'%s' requires boolean operands", op), at, "use boolean values with and/or")
 			return Null()
 		}
 		if op == "and" {
@@ -113,13 +113,13 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Va
 	}
 	if l.Kind == KindString || r.Kind == KindString {
 		if op != "+" {
-			diags.AddError("E105", fmt.Sprintf("operator '%s' is not supported for strings", op), at, "use '+' for string concatenation")
+			diags.AddError(diag.CodeE105, fmt.Sprintf("operator '%s' is not supported for strings", op), at, "use '+' for string concatenation")
 			return Null()
 		}
 		return String(l.String() + r.String())
 	}
 	if !isNumeric(l) || !isNumeric(r) {
-		diags.AddError("E106", fmt.Sprintf("operator '%s' requires numeric or string operands", op), at, "check operand types")
+		diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' requires numeric or string operands", op), at, "check operand types")
 		return Null()
 	}
 
@@ -143,22 +143,22 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Va
 		return Int(l.I * r.I)
 	case "/":
 		if rf == 0 {
-			diags.AddError("E107", "division by zero", at, "guard denominator")
+			diags.AddError(diag.CodeE107, "division by zero", at, "guard denominator")
 			return Null()
 		}
 		return Float(lf / rf)
 	case "%":
 		if r.Kind == KindFloat || l.Kind == KindFloat {
-			diags.AddError("E108", "modulo requires integer operands", at, "use int values with '%' operator")
+			diags.AddError(diag.CodeE108, "modulo requires integer operands", at, "use int values with '%' operator")
 			return Null()
 		}
 		if r.I == 0 {
-			diags.AddError("E107", "modulo by zero", at, "guard denominator")
+			diags.AddError(diag.CodeE107, "modulo by zero", at, "guard denominator")
 			return Null()
 		}
 		return Int(l.I % r.I)
 	default:
-		diags.AddError("E109", fmt.Sprintf("unknown operator '%s'", op), at, "use supported operators")
+		diags.AddError(diag.CodeE109, fmt.Sprintf("unknown operator '%s'", op), at, "use supported operators")
 		return Null()
 	}
 }
@@ -214,6 +214,6 @@ func evalCompare(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) V
 			return Bool(lf >= rf)
 		}
 	}
-	diags.AddError("E110", fmt.Sprintf("unsupported comparison '%s' for operand types", op), at, "compare compatible types")
+	diags.AddError(diag.CodeE110, fmt.Sprintf("unsupported comparison '%s' for operand types", op), at, "compare compatible types")
 	return Bool(false)
 }
