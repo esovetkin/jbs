@@ -52,6 +52,10 @@ func TestGoldenSubmitParamCollisionEscape(t *testing.T) {
 	assertGolden(t, "submit_param_collision_escape")
 }
 
+func TestGoldenStepOptions(t *testing.T) {
+	assertGolden(t, "step_options")
+}
+
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))

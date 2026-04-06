@@ -912,6 +912,124 @@ submit run
 	}
 }
 
+func TestParseDoHeaderStepOptions(t *testing.T) {
+	src := `
+do run
+  with p
+  max_async=5 iterations=2
+{
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("do_header_options.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block, got %T", prog.Stmts[0])
+	}
+	if db.MaxAsync == nil || *db.MaxAsync != 5 {
+		t.Fatalf("expected max_async=5, got %#v", db.MaxAsync)
+	}
+	if db.Iterations == nil || *db.Iterations != 2 {
+		t.Fatalf("expected iterations=2, got %#v", db.Iterations)
+	}
+}
+
+func TestParseSubmitHeaderStepOptionsInterleaved(t *testing.T) {
+	src := `
+submit run
+  iterations=3
+  use defaults
+  with p
+  max_async=0
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_header_options.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block, got %T", prog.Stmts[0])
+	}
+	if sb.MaxAsync == nil || *sb.MaxAsync != 0 {
+		t.Fatalf("expected max_async=0, got %#v", sb.MaxAsync)
+	}
+	if sb.Iterations == nil || *sb.Iterations != 3 {
+		t.Fatalf("expected iterations=3, got %#v", sb.Iterations)
+	}
+	if len(sb.UseNames) != 1 || sb.UseNames[0] != "defaults" {
+		t.Fatalf("unexpected use names: %#v", sb.UseNames)
+	}
+	if len(sb.WithItems) != 1 || sb.WithItems[0].Name != "p" {
+		t.Fatalf("unexpected with items: %#v", sb.WithItems)
+	}
+}
+
+func TestParseStepHeaderUnknownOptionReportsE032(t *testing.T) {
+	src := `
+do run iterattions=1 {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_header_unknown.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E032") {
+		t.Fatalf("expected E032 for unknown header option, got: %s", diags.String())
+	}
+}
+
+func TestParseStepHeaderDuplicateOptionReportsE033(t *testing.T) {
+	src := `
+submit run max_async=1 max_async=2 {
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_header_duplicate.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E033") {
+		t.Fatalf("expected E033 for duplicate header option, got: %s", diags.String())
+	}
+}
+
+func TestParseStepHeaderNonIntegerOptionReportsE034(t *testing.T) {
+	src := `
+do run iterations=abc {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_header_nonint.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E034") {
+		t.Fatalf("expected E034 for non-integer header option, got: %s", diags.String())
+	}
+}
+
+func TestParseStepHeaderMissingEqualsReportsE035(t *testing.T) {
+	src := `
+do run max_async 1 {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_header_missing_eq.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E035") {
+		t.Fatalf("expected E035 for missing '=' in header option, got: %s", diags.String())
+	}
+}
+
 func TestParseParamCommentQuoteDoesNotBreakBlock(t *testing.T) {
 	src := `
 param p {

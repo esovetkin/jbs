@@ -21,10 +21,15 @@ qualified_name := IDENT ("." IDENT)*
 with_item     := qualified_name ("from" qualified_name)?
               | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
 
-do_block      := "do" IDENT after_clause? with_clause? raw_block
-submit_block  := "submit" IDENT after_clause? with_clause? "{" submit_stmt* "}"
+do_block      := "do" IDENT do_header_clause* raw_block
+submit_block  := "submit" IDENT submit_header_clause* "{" submit_stmt* "}"
+
+do_header_clause := after_clause | with_clause | step_opt_clause
+submit_header_clause := after_clause | use_clause | with_clause | step_opt_clause
 
 after_clause  := "after" IDENT ("," IDENT)*
+use_clause    := "use" IDENT ("," IDENT)*
+step_opt_clause := "max_async" "=" INT | "iterations" "=" INT
 raw_block     := "{" RAW_TEXT "}"
 
 submit_stmt   := submit_key "=" submit_value
@@ -63,6 +68,34 @@ param p {
         x = 1 + \
             2 + 3
         x
+}
+```
+
+## Step Options (`max_async`, `iterations`)
+
+`do` and `submit` headers support optional step options:
+
+- `max_async=<int>` with `int >= 0`
+- `iterations=<int>` with `int >= 1`
+
+These clauses can appear on one line or across multiple lines and can be interleaved with `after`, `with`, and submit-header `use`.
+
+Example:
+
+```jbs
+do prep
+        with p
+        max_async=0 iterations=2
+{
+        echo prep
+}
+
+submit run
+        after prep
+        with p
+        max_async=3 iterations=4
+{
+        args_exec = "-lc hostname"
 }
 ```
 

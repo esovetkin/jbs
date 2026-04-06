@@ -218,6 +218,40 @@ args_exec="-lc hostname"
 	}
 }
 
+func TestFormatStepHeaderOptionsCanonical(t *testing.T) {
+	src := `do run
+iterations=2
+with p
+max_async=5
+{
+echo hi
+}
+submit bench
+max_async=0
+with p
+iterations=3
+use defaults
+after run
+{
+args_exec="-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("step_options_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !strings.Contains(got, "do run\n        with p\n        max_async=5 iterations=2\n{") {
+		t.Fatalf("expected canonical do option line, got:\n%s", got)
+	}
+	if !strings.Contains(got, "submit bench\n        after run\n        use defaults\n        with p\n        max_async=0 iterations=3\n{") {
+		t.Fatalf("expected canonical submit option line, got:\n%s", got)
+	}
+}
+
 func TestFormatParamInlineBodyIndentation(t *testing.T) {
 	src := `param p{a=(1,2)
         b=(3,4)

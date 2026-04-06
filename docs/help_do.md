@@ -16,8 +16,26 @@ Related JUBE docs:
 do <name>
         [after <step0>, <step1>, ...]
         [with <paramset>, <var> from <paramset2>, ...]
+        [max_async=<int>]
+        [iterations=<int>]
 {
         # shell commands
+}
+```
+
+`max_async` and `iterations` are optional JUBE step arguments:
+
+- `max_async` must be an integer `>= 0`
+- `iterations` must be an integer `>= 1`
+
+Example:
+
+```jbs
+do run_case
+        with cases
+        max_async=4 iterations=2
+{
+        echo "running ${case}"
 }
 ```
 

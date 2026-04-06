@@ -111,11 +111,13 @@ type PatternMeta struct {
 }
 
 type Step struct {
-	Name   string        `yaml:"name"`
-	Depend string        `yaml:"depend,omitempty"`
-	Use    []interface{} `yaml:"use,omitempty"`
-	Do     []interface{} `yaml:"do,omitempty"`
-	Meta   StepMeta      `yaml:"-"`
+	Name       string        `yaml:"name"`
+	Depend     string        `yaml:"depend,omitempty"`
+	MaxAsync   *int          `yaml:"max_async,omitempty"`
+	Iterations *int          `yaml:"iterations,omitempty"`
+	Use        []interface{} `yaml:"use,omitempty"`
+	Do         []interface{} `yaml:"do,omitempty"`
+	Meta       StepMeta      `yaml:"-"`
 }
 
 type StepKind string
@@ -772,7 +774,9 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 		sort.Strings(inheritVars)
 	}
 	step := Step{
-		Name: block.Name,
+		Name:       block.Name,
+		MaxAsync:   block.MaxAsync,
+		Iterations: block.Iterations,
 		Meta: StepMeta{
 			Kind:          StepKindDo,
 			Source:        block.Name,
@@ -869,7 +873,9 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 		sort.Strings(inheritVars)
 	}
 	step := Step{
-		Name: block.Name,
+		Name:       block.Name,
+		MaxAsync:   block.MaxAsync,
+		Iterations: block.Iterations,
 		Meta: StepMeta{
 			Kind:          StepKindSubmit,
 			Source:        block.Name,

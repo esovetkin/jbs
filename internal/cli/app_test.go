@@ -76,6 +76,60 @@ func TestRunCompileBackslashContinuationFixture(t *testing.T) {
 	}
 }
 
+func TestRunCompileStepOptionsFixture(t *testing.T) {
+	in := filepath.Join("..", "..", "tests", "step_options.jbs")
+	expectedPath := filepath.Join("..", "..", "tests", "step_options.yaml")
+	expected, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read expected fixture: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if out.String() != string(expected) {
+		t.Fatalf("step options fixture mismatch\n--- got ---\n%s\n--- expected ---\n%s", out.String(), string(expected))
+	}
+}
+
+func TestRunCheckStepOptionsValidAndInvalid(t *testing.T) {
+	valid := filepath.Join("..", "..", "tests", "step_options.jbs")
+	{
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		code := Run([]string{"-c", valid}, &out, &errBuf)
+		if code != 0 {
+			t.Fatalf("expected -c valid to exit 0, got %d stderr=%s", code, errBuf.String())
+		}
+	}
+
+	dir := t.TempDir()
+	invalid := filepath.Join(dir, "invalid_step_options.jbs")
+	src := `
+do run max_async=-1 iterations=0 {
+  echo hi
+}
+`
+	if err := os.WriteFile(invalid, []byte(src), 0o644); err != nil {
+		t.Fatalf("write invalid fixture: %v", err)
+	}
+	{
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		code := Run([]string{"-c", invalid}, &out, &errBuf)
+		if code != 1 {
+			t.Fatalf("expected -c invalid to exit 1, got %d stderr=%s", code, errBuf.String())
+		}
+		text := errBuf.String()
+		if !strings.Contains(text, "E216") || !strings.Contains(text, "E217") {
+			t.Fatalf("expected E216/E217 in diagnostics, got: %s", text)
+		}
+	}
+}
+
 func TestRunNoArgsShowsHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer

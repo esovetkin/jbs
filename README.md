@@ -99,13 +99,13 @@ Defines a parameter set by declaring variables and ending with a combination exp
 
 See `jbs help param` or [docs/help_param.md](docs/help_param.md).
 
-### `do <name> [with ...] [after ...] { ... }`
+### `do <name> [with ...] [after ...] [max_async=<int>] [iterations=<int>] { ... }`
 
 `do` uses parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)) and executes shell commands in its block. `after` defines [step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies). Circular dependencies are not allowed.
 
 See `jbs help do` or [docs/help_do.md](docs/help_do.md).
 
-### `submit <name> [with ...] [after ...] [use ...] { key = value ... }`
+### `submit <name> [with ...] [after ...] [use ...] [max_async=<int>] [iterations=<int>] { key = value ... }`
 
 The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently supports only Slurm jobs templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
 
@@ -157,12 +157,6 @@ See [docs/language.md](docs/language.md) for grammar and semantics.
 - Tags affect parameter sets.
 
   I need to design clean syntax for this in JBS.
-
-- Additional arguments for `do`/`submit`/`analyse`, [e.g.](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-step_tag).
-
-  For example, `max_async` seems to be a useful argument.
-
-  On my to-do list: implement something like `do ... <key>=<value> {...}`.
 
 - [Multiple benchmarks](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#multiple-benchmarks).
 

@@ -1,0 +1,21 @@
+param p {
+  a = (1,2)
+  a
+}
+
+do prep
+  with p
+  max_async=0 iterations=2
+{
+  echo ${a}
+}
+
+submit run
+  after prep
+  with p
+  max_async=3 iterations=4
+{
+  queue = "batch"
+  account = "proj"
+  args_exec = "-lc hostname"
+}

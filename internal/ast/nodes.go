@@ -70,10 +70,10 @@ func (g GlobalAssign) stmtNode()          {}
 func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 
 type LetBlock struct {
-	Name     string
+	Name        string
 	Assignments []Assignment
-	BodyRaw  string
-	Span     diag.Span
+	BodyRaw     string
+	Span        diag.Span
 }
 
 func (l LetBlock) stmtNode()          {}
@@ -121,25 +121,29 @@ func (p ParamBlock) stmtNode()          {}
 func (p ParamBlock) GetSpan() diag.Span { return p.Span }
 
 type DoBlock struct {
-	Name      string
-	After     []string
-	WithItems []WithItem
-	Body      string
-	BodyStart diag.Position
-	Span      diag.Span
+	Name       string
+	After      []string
+	WithItems  []WithItem
+	MaxAsync   *int
+	Iterations *int
+	Body       string
+	BodyStart  diag.Position
+	Span       diag.Span
 }
 
 func (d DoBlock) stmtNode()          {}
 func (d DoBlock) GetSpan() diag.Span { return d.Span }
 
 type SubmitBlock struct {
-	Name      string
-	After     []string
-	UseNames  []string
-	WithItems []WithItem
-	Fields    []SubmitField
-	BodyRaw   string
-	Span      diag.Span
+	Name       string
+	After      []string
+	UseNames   []string
+	WithItems  []WithItem
+	MaxAsync   *int
+	Iterations *int
+	Fields     []SubmitField
+	BodyRaw    string
+	Span       diag.Span
 }
 
 func (s SubmitBlock) stmtNode()          {}

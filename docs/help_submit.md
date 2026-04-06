@@ -17,6 +17,8 @@ submit <name>
         [after <step0>, <step1>, ...]
         [use <let_namespace0>, <let_namespace1>, ...]
         [with <paramset>, <var> from <paramset2>, ...]
+        [max_async=<int>]
+        [iterations=<int>]
 {
         # expression keys
         account = "myacct"
@@ -46,6 +48,22 @@ submit <name>
         postprocess = {
                 echo "after run"
         }
+}
+```
+
+`max_async` and `iterations` are optional JUBE step arguments:
+
+- `max_async` must be an integer `>= 0`
+- `iterations` must be an integer `>= 1`
+
+Example:
+
+```jbs
+submit run
+        with p
+        max_async=3 iterations=2
+{
+        args_exec = "-lc hostname"
 }
 ```
 

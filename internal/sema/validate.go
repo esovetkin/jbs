@@ -1646,6 +1646,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 	edges := make(map[string][]string)
 
 	for _, b := range res.DoBlocks {
+		validateStepHeaderOptions("do", b.Name, b.MaxAsync, b.Iterations, b.Span, diags)
 		if prev, exists := nameToSpan[b.Name]; exists {
 			diags.AddError(
 				"E211",
@@ -1660,6 +1661,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		edges[b.Name] = append([]string(nil), b.After...)
 	}
 	for _, b := range res.Submits {
+		validateStepHeaderOptions("submit", b.Name, b.MaxAsync, b.Iterations, b.Span, diags)
 		if prev, exists := nameToSpan[b.Name]; exists {
 			diags.AddError(
 				"E211",
@@ -1725,6 +1727,25 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		if state[name] == 0 {
 			visit(name)
 		}
+	}
+}
+
+func validateStepHeaderOptions(kind, stepName string, maxAsync *int, iterations *int, at diag.Span, diags *diag.Diagnostics) {
+	if maxAsync != nil && *maxAsync < 0 {
+		diags.AddError(
+			"E216",
+			fmt.Sprintf("%s step '%s' has invalid max_async=%d (expected >= 0)", kind, stepName, *maxAsync),
+			at,
+			"set max_async to an integer value >= 0",
+		)
+	}
+	if iterations != nil && *iterations < 1 {
+		diags.AddError(
+			"E217",
+			fmt.Sprintf("%s step '%s' has invalid iterations=%d (expected >= 1)", kind, stepName, *iterations),
+			at,
+			"set iterations to an integer value >= 1",
+		)
 	}
 }
 

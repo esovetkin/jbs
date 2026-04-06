@@ -440,7 +440,7 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 
 func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 	name, nameSpan := p.parseRequiredIdent("E030", "expected do block name")
-	after, withItems := p.parseOptionalAfterAndWith()
+	after, withItems, opts := p.parseOptionalDoHeaderClauses()
 	p.skipTrivia()
 
 	if p.peek() != '{' {
@@ -452,36 +452,42 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			"add '{' before do script body",
 		)
 		return ast.DoBlock{
-			Name:      name,
-			After:     after,
-			WithItems: withItems,
-			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:       name,
+			After:      after,
+			WithItems:  withItems,
+			MaxAsync:   opts.MaxAsync,
+			Iterations: opts.Iterations,
+			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.DoBlock{
-			Name:      name,
-			After:     after,
-			WithItems: withItems,
-			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:       name,
+			After:      after,
+			WithItems:  withItems,
+			MaxAsync:   opts.MaxAsync,
+			Iterations: opts.Iterations,
+			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	return ast.DoBlock{
-		Name:      name,
-		After:     after,
-		WithItems: withItems,
-		Body:      body,
-		BodyStart: innerStart,
-		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
+		Name:       name,
+		After:      after,
+		WithItems:  withItems,
+		MaxAsync:   opts.MaxAsync,
+		Iterations: opts.Iterations,
+		Body:       body,
+		BodyStart:  innerStart,
+		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
 
 func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 	name, nameSpan := p.parseRequiredIdent("E040", "expected submit block name")
-	after, useNames, withItems := p.parseOptionalAfterUseAndWith()
+	after, useNames, withItems, opts := p.parseOptionalSubmitHeaderClauses()
 	p.skipTrivia()
 
 	if p.peek() != '{' {
@@ -493,35 +499,41 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 			"add '{' after submit header",
 		)
 		return ast.SubmitBlock{
-			Name:      name,
-			After:     after,
-			UseNames:  useNames,
-			WithItems: withItems,
-			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:       name,
+			After:      after,
+			UseNames:   useNames,
+			WithItems:  withItems,
+			MaxAsync:   opts.MaxAsync,
+			Iterations: opts.Iterations,
+			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.SubmitBlock{
-			Name:      name,
-			After:     after,
-			UseNames:  useNames,
-			WithItems: withItems,
-			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:       name,
+			After:      after,
+			UseNames:   useNames,
+			WithItems:  withItems,
+			MaxAsync:   opts.MaxAsync,
+			Iterations: opts.Iterations,
+			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	fields := parseSubmitFields(p.file, body, innerStart, p.diags)
 
 	return ast.SubmitBlock{
-		Name:      name,
-		After:     after,
-		UseNames:  useNames,
-		WithItems: withItems,
-		Fields:    fields,
-		BodyRaw:   body,
-		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
+		Name:       name,
+		After:      after,
+		UseNames:   useNames,
+		WithItems:  withItems,
+		MaxAsync:   opts.MaxAsync,
+		Iterations: opts.Iterations,
+		Fields:     fields,
+		BodyRaw:    body,
+		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
 
@@ -637,10 +649,43 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 	return after, withItems
 }
 
-func (p *Parser) parseOptionalAfterUseAndWith() ([]string, []string, []ast.WithItem) {
+type stepHeaderOptions struct {
+	MaxAsync   *int
+	Iterations *int
+}
+
+func (p *Parser) parseOptionalDoHeaderClauses() ([]string, []ast.WithItem, stepHeaderOptions) {
+	after := make([]string, 0)
+	withItems := make([]ast.WithItem, 0)
+	opts := stepHeaderOptions{}
+	for {
+		p.skipTriviaInline()
+		word, ok := p.peekWord()
+		if !ok {
+			break
+		}
+		switch word {
+		case "after":
+			p.consumeWord()
+			after = append(after, p.parseNameList()...)
+		case "with":
+			p.consumeWord()
+			withItems = append(withItems, p.parseWithItems()...)
+		default:
+			if p.parseStepHeaderOption("do", &opts) {
+				continue
+			}
+			return after, withItems, opts
+		}
+	}
+	return after, withItems, opts
+}
+
+func (p *Parser) parseOptionalSubmitHeaderClauses() ([]string, []string, []ast.WithItem, stepHeaderOptions) {
 	after := make([]string, 0)
 	useNames := make([]string, 0)
 	withItems := make([]ast.WithItem, 0)
+	opts := stepHeaderOptions{}
 	for {
 		p.skipTriviaInline()
 		word, ok := p.peekWord()
@@ -658,10 +703,169 @@ func (p *Parser) parseOptionalAfterUseAndWith() ([]string, []string, []ast.WithI
 			p.consumeWord()
 			useNames = append(useNames, p.parseNameList()...)
 		default:
-			return after, useNames, withItems
+			if p.parseStepHeaderOption("submit", &opts) {
+				continue
+			}
+			return after, useNames, withItems, opts
 		}
 	}
-	return after, useNames, withItems
+	return after, useNames, withItems, opts
+}
+
+func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) bool {
+	p.skipTriviaInline()
+	word, ok := p.peekWord()
+	if !ok {
+		return false
+	}
+	if !p.looksLikeStepHeaderAssignment() && word != "max_async" && word != "iterations" {
+		return false
+	}
+
+	keyStart := p.pos()
+	keyEnd := p.consumeWord()
+	keySpan := diag.NewSpan(p.file, keyStart, keyEnd)
+
+	p.skipTriviaInline()
+	if p.peek() != '=' {
+		p.diags.AddError(
+			"E035",
+			fmt.Sprintf("expected '=' after %s header option '%s'", kind, word),
+			keySpan,
+			"use syntax: "+word+"=<integer>",
+		)
+		return true
+	}
+	p.advance()
+
+	valueText, valueSpan, valueOK := p.readStepHeaderOptionValue()
+	if !valueOK {
+		p.diags.AddError(
+			"E034",
+			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
+			keySpan,
+			"use syntax: "+word+"=<integer>",
+		)
+		return true
+	}
+
+	if word != "max_async" && word != "iterations" {
+		p.diags.AddError(
+			"E032",
+			fmt.Sprintf("unknown %s header option '%s'", kind, word),
+			keySpan,
+			"allowed options are max_async and iterations",
+		)
+		return true
+	}
+
+	parsed, err := strconv.Atoi(valueText)
+	if err != nil {
+		p.diags.AddError(
+			"E034",
+			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
+			valueSpan,
+			"use syntax: "+word+"=<integer>",
+		)
+		return true
+	}
+
+	switch word {
+	case "max_async":
+		if opts.MaxAsync != nil {
+			p.diags.AddError(
+				"E033",
+				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
+				keySpan,
+				"set this option at most once per block",
+			)
+			return true
+		}
+		v := parsed
+		opts.MaxAsync = &v
+	case "iterations":
+		if opts.Iterations != nil {
+			p.diags.AddError(
+				"E033",
+				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
+				keySpan,
+				"set this option at most once per block",
+			)
+			return true
+		}
+		v := parsed
+		opts.Iterations = &v
+	}
+	return true
+}
+
+func (p *Parser) looksLikeStepHeaderAssignment() bool {
+	i := p.off
+	if i >= len(p.src) {
+		return false
+	}
+	r := p.src[i]
+	if !(unicode.IsLetter(r) || r == '_') {
+		return false
+	}
+	for i < len(p.src) {
+		r = p.src[i]
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			i++
+			continue
+		}
+		break
+	}
+	for i < len(p.src) {
+		r = p.src[i]
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			i++
+			continue
+		}
+		if r == '#' {
+			for i < len(p.src) && p.src[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		return r == '='
+	}
+	return false
+}
+
+func (p *Parser) readStepHeaderOptionValue() (string, diag.Span, bool) {
+	p.skipTriviaInline()
+	start := p.pos()
+	if p.eof() {
+		return "", diag.NewSpan(p.file, start, start), false
+	}
+	startOff := p.off
+	if p.peek() == '+' || p.peek() == '-' {
+		p.advance()
+	}
+	digits := 0
+	for !p.eof() && unicode.IsDigit(p.peek()) {
+		p.advance()
+		digits++
+	}
+	end := p.pos()
+	if digits == 0 {
+		return "", diag.NewSpan(p.file, start, end), false
+	}
+	if !p.eof() {
+		r := p.peek()
+		if !(unicode.IsSpace(r) || r == ',' || r == ';' || r == '{' || r == '}') {
+			for !p.eof() {
+				r = p.peek()
+				if unicode.IsSpace(r) || r == ',' || r == ';' || r == '{' || r == '}' {
+					break
+				}
+				p.advance()
+			}
+			return string(p.src[startOff:p.off]), diag.NewSpan(p.file, start, p.pos()), false
+		}
+	}
+	return string(p.src[startOff:p.off]), diag.NewSpan(p.file, start, end), true
 }
 
 func (p *Parser) parseWithItems() []ast.WithItem {

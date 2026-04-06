@@ -19,6 +19,67 @@ func compileDoc(t *testing.T, src string) (lower.Document, *diag.Diagnostics) {
 	return doc, diags
 }
 
+func TestLowerStepHeaderOptions(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+
+do prep
+  with p
+  max_async=0 iterations=2
+{
+  echo prep
+}
+
+submit run
+  after prep
+  with p
+  max_async=3
+{
+  args_exec = "-lc hostname"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 2 {
+		t.Fatalf("expected two steps, got %d", len(doc.Step))
+	}
+	if doc.Step[0].MaxAsync == nil || *doc.Step[0].MaxAsync != 0 {
+		t.Fatalf("expected prep max_async=0, got %#v", doc.Step[0].MaxAsync)
+	}
+	if doc.Step[0].Iterations == nil || *doc.Step[0].Iterations != 2 {
+		t.Fatalf("expected prep iterations=2, got %#v", doc.Step[0].Iterations)
+	}
+	if doc.Step[1].MaxAsync == nil || *doc.Step[1].MaxAsync != 3 {
+		t.Fatalf("expected run max_async=3, got %#v", doc.Step[1].MaxAsync)
+	}
+	if doc.Step[1].Iterations != nil {
+		t.Fatalf("expected run iterations to be omitted, got %#v", doc.Step[1].Iterations)
+	}
+}
+
+func TestLowerStepHeaderOptionsOmittedByDefault(t *testing.T) {
+	src := `
+do run {
+  echo hi
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one step")
+	}
+	if doc.Step[0].MaxAsync != nil || doc.Step[0].Iterations != nil {
+		t.Fatalf("expected max_async/iterations omitted by default, got %#v", doc.Step[0])
+	}
+}
+
 func TestPureOuterProductLowering(t *testing.T) {
 	src := `
 param p {
