@@ -287,6 +287,94 @@ do work
 	}
 }
 
+func TestParamWithImportConflictAcrossSources(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+param p2 {
+  x = ("a","b")
+  x
+}
+param p3 with p1, p2 {
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E214") {
+		t.Fatalf("expected E214 for conflicting param imports, got: %s", diags.String())
+	}
+}
+
+func TestParamWithImportConflictMixedClauses(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+param p2 {
+  x = ("a","b")
+  x
+}
+param p3 with p1, x from p2 {
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E214") {
+		t.Fatalf("expected E214 for mixed conflicting param imports, got: %s", diags.String())
+	}
+}
+
+func TestParamWithDuplicateSameSourceNoConflict(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+param p3 with p1, x from p1 {
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if hasDiagCode(diags, "E214") {
+		t.Fatalf("did not expect E214 for same-source duplicate import, got: %s", diags.String())
+	}
+}
+
+func TestParamImportConflictKeepsFirstSourceForEvaluation(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+param p2 {
+  x = ("a","b")
+  x
+}
+param p3 with p1, p2 {
+  y = x * 2
+  y
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E214") {
+		t.Fatalf("expected E214 for conflicting param imports, got: %s", diags.String())
+	}
+	if hasDiagCode(diags, "E105") {
+		t.Fatalf("unexpected E105 indicates order-dependent overwrite in param imports: %s", diags.String())
+	}
+}
+
 func TestAfterInheritancePrunesExplicitDelta(t *testing.T) {
 	src := `
 param pm0 {

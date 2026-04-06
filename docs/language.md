@@ -296,6 +296,12 @@ In `do`/`submit`:
 - When a dependent step imports additional variables from the same source, JBS refines that inherited source-row context instead of creating an independent Cartesian dimension.
 - This source-row context propagation is transitive across `after` chains (for example, `step0 -> step1 -> step2`).
 
+In `param`:
+
+- `with` can import from `param` and `let` sources.
+- If the same visible variable name is imported from different sources in one `param` block, compilation fails with `E214`.
+- Importing the same variable name repeatedly from the same source is allowed.
+
 In `analyse`:
 
 - `with` imports are allowed only from `let` namespaces.
@@ -507,6 +513,7 @@ Key codes:
 - `E020`: unknown imported source in `with`.
 - `E021`: unknown imported variable.
 - `E022`: ambiguous `with` source (name matches both `param` and `let`).
+- `E214`: conflicting variable imported from multiple sources in `with`.
 - `E036`: repeated identifier in combination expression.
 - `E042`: conflicting key values during row merge.
 - `E072`: unknown submit key.

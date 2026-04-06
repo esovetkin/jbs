@@ -147,6 +147,8 @@ param derived3 with (x, y) from base
 }
 ```
 
+If the same visible variable name is imported from different sources in one `param` block, compilation fails with `E214`.
+
 Import from a module alias namespace:
 
 ```jbs

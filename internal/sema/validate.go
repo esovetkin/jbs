@@ -1289,6 +1289,55 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		sort.Strings(names)
 		return names
 	}
+	type importedOwner struct {
+		Source string
+	}
+	importedOwners := make(map[string]importedOwner)
+	canImport := func(visible, source string) bool {
+		if prev, exists := importedOwners[visible]; exists {
+			return prev.Source == source
+		}
+		importedOwners[visible] = importedOwner{Source: source}
+		return true
+	}
+	importParamVar := func(visible, sourceVar string, src *Paramset) {
+		if src == nil {
+			return
+		}
+		vals, ok := src.Vars[sourceVar]
+		if !ok {
+			return
+		}
+		if !canImport(visible, src.Name) {
+			return
+		}
+		env[visible] = seriesAsValue(vals)
+		if origin, ok := src.Origins[sourceVar]; ok {
+			origins[visible] = origin
+		}
+		if mode, ok := src.Modes[sourceVar]; ok {
+			modes[visible] = mode
+		}
+	}
+	importLetVar := func(visible, sourceVar string, src *LetNamespace) {
+		if src == nil {
+			return
+		}
+		v, ok := src.Vars[sourceVar]
+		if !ok {
+			return
+		}
+		if !canImport(visible, src.Name) {
+			return
+		}
+		env[visible] = v
+		if origin, ok := src.Origins[sourceVar]; ok {
+			origins[visible] = origin
+		}
+		if mode, ok := src.Modes[sourceVar]; ok {
+			modes[visible] = mode
+		}
+	}
 
 	for _, item := range block.WithItems {
 		if item.From == "" {
@@ -1304,13 +1353,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			}
 			if srcLet != nil {
 				for _, name := range letVarNames(srcLet) {
-					env[name] = srcLet.Vars[name]
-					if origin, ok := srcLet.Origins[name]; ok {
-						origins[name] = origin
-					}
-					if mode, ok := srcLet.Modes[name]; ok {
-						modes[name] = mode
-					}
+					importLetVar(name, name, srcLet)
 				}
 				continue
 			}
@@ -1324,13 +1367,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 				continue
 			}
 			for _, name := range srcParam.Order {
-				env[name] = seriesAsValue(srcParam.Vars[name])
-				if origin, ok := srcParam.Origins[name]; ok {
-					origins[name] = origin
-				}
-				if mode, ok := srcParam.Modes[name]; ok {
-					modes[name] = mode
-				}
+				importParamVar(name, name, srcParam)
 			}
 			continue
 		}
@@ -1355,27 +1392,14 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			continue
 		}
 		if srcParam != nil {
-			vals, ok := srcParam.Vars[item.Name]
-			if ok {
-				env[item.Name] = seriesAsValue(vals)
-				if origin, ok := srcParam.Origins[item.Name]; ok {
-					origins[item.Name] = origin
-				}
-				if mode, ok := srcParam.Modes[item.Name]; ok {
-					modes[item.Name] = mode
-				}
+			if _, ok := srcParam.Vars[item.Name]; ok {
+				importParamVar(item.Name, item.Name, srcParam)
 				continue
 			}
 		}
 		if srcLet != nil {
-			if v, ok := srcLet.Vars[item.Name]; ok {
-				env[item.Name] = v
-				if origin, ok := srcLet.Origins[item.Name]; ok {
-					origins[item.Name] = origin
-				}
-				if mode, ok := srcLet.Modes[item.Name]; ok {
-					modes[item.Name] = mode
-				}
+			if _, ok := srcLet.Vars[item.Name]; ok {
+				importLetVar(item.Name, item.Name, srcLet)
 				continue
 			}
 		}
@@ -1394,24 +1418,12 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			continue
 		} else if fallbackParam != nil {
 			for _, name := range fallbackParam.Order {
-				env[name] = seriesAsValue(fallbackParam.Vars[name])
-				if origin, exists := fallbackParam.Origins[name]; exists {
-					origins[name] = origin
-				}
-				if mode, exists := fallbackParam.Modes[name]; exists {
-					modes[name] = mode
-				}
+				importParamVar(name, name, fallbackParam)
 			}
 			continue
 		} else if fallbackLet != nil {
 			for _, name := range letVarNames(fallbackLet) {
-				env[name] = fallbackLet.Vars[name]
-				if origin, exists := fallbackLet.Origins[name]; exists {
-					origins[name] = origin
-				}
-				if mode, exists := fallbackLet.Modes[name]; exists {
-					modes[name] = mode
-				}
+				importLetVar(name, name, fallbackLet)
 			}
 			continue
 		}
@@ -1750,6 +1762,9 @@ func validateStepHeaderOptions(kind, stepName string, maxAsync *int, iterations 
 }
 
 func validateUseClauses(res *Result, diags *diag.Diagnostics) {
+	for _, ps := range res.Paramsets {
+		validateWithItems(ps.Block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
+	}
 	for _, block := range res.DoBlocks {
 		validateWithItems(block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
 	}
