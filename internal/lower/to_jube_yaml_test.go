@@ -140,6 +140,49 @@ param p {
 	}
 }
 
+func TestLowerPreservesLargeIntegerLiteral(t *testing.T) {
+	src := `
+param p {
+  x = 9007199254740993
+  x
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.ParameterSet) != 1 {
+		t.Fatalf("expected one parameterset, got %d", len(doc.ParameterSet))
+	}
+	ps := doc.ParameterSet[0]
+	var valueText string
+	found := false
+	for _, p := range ps.Parameter {
+		if p.Name != "x" {
+			continue
+		}
+		found = true
+		switch v := p.Value.(type) {
+		case lower.SingleQuoted:
+			valueText = string(v)
+		case string:
+			valueText = v
+		default:
+			t.Fatalf("unexpected parameter value type for x: %T", p.Value)
+		}
+		break
+	}
+	if !found {
+		t.Fatalf("expected parameter 'x' in lowered parameterset")
+	}
+	if !strings.Contains(valueText, "9007199254740993") {
+		t.Fatalf("expected exact integer literal in lowered value, got %q", valueText)
+	}
+	if strings.Contains(valueText, "9007199254740992") {
+		t.Fatalf("unexpected rounded integer literal in lowered value: %q", valueText)
+	}
+}
+
 func TestSubsetSingleVarUsesIndexMask(t *testing.T) {
 	src := `
 param param {

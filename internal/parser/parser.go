@@ -1998,12 +1998,28 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
 	case lexer.TokenNumber:
 		p.next()
-		value, _ := strconv.ParseFloat(tok.Value, 64)
+		if !strings.Contains(tok.Value, ".") {
+			intValue, err := strconv.ParseInt(tok.Value, 10, 64)
+			if err != nil {
+				p.diags.AddError("E065", "invalid integer literal", tok.Span, "use a valid 64-bit signed integer literal")
+				intValue = 0
+			}
+			return ast.NumberExpr{
+				Raw:      tok.Value,
+				Int:      true,
+				IntValue: intValue,
+				Span:     tok.Span,
+			}
+		}
+		floatValue, err := strconv.ParseFloat(tok.Value, 64)
+		if err != nil {
+			p.diags.AddError("E066", "invalid floating-point literal", tok.Span, "use a valid floating-point literal")
+		}
 		return ast.NumberExpr{
-			Raw:   tok.Value,
-			Value: value,
-			Int:   !strings.Contains(tok.Value, "."),
-			Span:  tok.Span,
+			Raw:        tok.Value,
+			Int:        false,
+			FloatValue: floatValue,
+			Span:       tok.Span,
 		}
 	case lexer.TokenLParen:
 		open := p.next()

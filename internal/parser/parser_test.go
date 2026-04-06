@@ -1462,6 +1462,99 @@ let p {
 	}
 }
 
+func TestParseIntegerLiteralBoundariesExact(t *testing.T) {
+	cases := []struct {
+		name      string
+		literal   string
+		want      int64
+		wantError bool
+	}{
+		{name: "2^53-1", literal: "9007199254740991", want: 9007199254740991},
+		{name: "2^53", literal: "9007199254740992", want: 9007199254740992},
+		{name: "2^53+1", literal: "9007199254740993", want: 9007199254740993},
+		{name: "int64_overflow", literal: "9223372036854775808", want: 0, wantError: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `
+param p {
+  x = ` + tc.literal + `
+  x
+}
+`
+			diags := &diag.Diagnostics{}
+			prog := Parse("int_boundary.jbs", src, diags)
+
+			if tc.wantError {
+				if !diags.HasErrors() {
+					t.Fatalf("expected parse error for %s", tc.literal)
+				}
+				if !hasDiagCode(diags.Items, "E065") {
+					t.Fatalf("expected E065 for %s, got: %s", tc.literal, diags.String())
+				}
+			} else if diags.HasErrors() {
+				t.Fatalf("unexpected parse errors for %s: %s", tc.literal, diags.String())
+			}
+
+			if len(prog.Stmts) != 1 {
+				t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+			}
+			pb, ok := prog.Stmts[0].(ast.ParamBlock)
+			if !ok {
+				t.Fatalf("expected param block")
+			}
+			if len(pb.Assignments) != 1 {
+				t.Fatalf("expected one assignment, got %d", len(pb.Assignments))
+			}
+			num, ok := pb.Assignments[0].Expr.(ast.NumberExpr)
+			if !ok {
+				t.Fatalf("expected number expression, got %T", pb.Assignments[0].Expr)
+			}
+			if !num.Int {
+				t.Fatalf("expected integer literal flag for %s", tc.literal)
+			}
+			if num.IntValue != tc.want {
+				t.Fatalf("unexpected int literal value for %s: got=%d want=%d", tc.literal, num.IntValue, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseFloatLiteralUsesFloatPayload(t *testing.T) {
+	src := `
+param p {
+  x = 1.25
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("float_literal.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(pb.Assignments) != 1 {
+		t.Fatalf("expected one assignment")
+	}
+	num, ok := pb.Assignments[0].Expr.(ast.NumberExpr)
+	if !ok {
+		t.Fatalf("expected number expression, got %T", pb.Assignments[0].Expr)
+	}
+	if num.Int {
+		t.Fatalf("expected float literal flag")
+	}
+	if num.FloatValue != 1.25 {
+		t.Fatalf("unexpected float literal value: got=%v want=1.25", num.FloatValue)
+	}
+}
+
 func hasDiagCode(items []diag.Diagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {

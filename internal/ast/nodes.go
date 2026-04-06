@@ -191,10 +191,11 @@ func (e StringExpr) exprNode()          {}
 func (e StringExpr) GetSpan() diag.Span { return e.Span }
 
 type NumberExpr struct {
-	Raw   string
-	Value float64
-	Int   bool
-	Span  diag.Span
+	Raw        string
+	Int        bool
+	IntValue   int64
+	FloatValue float64
+	Span       diag.Span
 }
 
 func (e NumberExpr) exprNode()          {}

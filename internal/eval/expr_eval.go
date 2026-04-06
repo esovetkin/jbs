@@ -29,9 +29,9 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 		return String(e.Value)
 	case ast.NumberExpr:
 		if e.Int {
-			return Int(int64(e.Value))
+			return Int(e.IntValue)
 		}
-		return Float(e.Value)
+		return Float(e.FloatValue)
 	case ast.BoolExpr:
 		return Bool(e.Value)
 	case ast.ListExpr:
