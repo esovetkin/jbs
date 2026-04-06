@@ -1,5 +1,28 @@
 # JBS Language
 
+## Compiler Layout (Contributor Note)
+
+The compiler is split by feature boundary to keep changes local and safer:
+
+- `internal/parser/`
+  - `parser.go`: parser entry point and top-level dispatch
+  - `parser_blocks.go`, `parser_clauses.go`, `parser_with_items.go`: block/header parsing
+  - `parser_bodies_param_let_analyse.go`, `parser_submit_fields.go`: block body parsing
+  - `parser_expr.go`, `parser_comb_expr.go`: expression and combination parsing
+  - `parser_scan.go`, `parser_toplevel.go`: scanner/trivia and top-level statement helpers
+- `internal/sema/`
+  - `analyze.go`: semantic orchestration
+  - `compile_*.go`: `let`, `param`, `submit`, `analyse` compilation
+  - `steps_*.go`, `step_visibility.go`: step validation and import planning
+  - `refs_validate.go`: shell/expression reference scanning and usage warnings
+  - `globals_resolve.go`, `imports_sources.go`: globals and source import materialization
+- `internal/lower/`
+  - `types.go`: JUBE YAML document model types
+  - `to_jube_yaml.go`: lowering orchestration
+  - `lower_*.go`: focused lowering stages (params, steps, subsets, analyse/result, names, shell rewrite, raw block normalization)
+
+The intent is behavior-neutral modularity: parser, sema, and lowering logic stay in their original packages, but each file now maps to one feature area.
+
 ## Grammar
 
 ```ebnf
