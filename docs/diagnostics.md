@@ -19,20 +19,6 @@ All compiler stages emit diagnostics through `diag.Code` constants, and all code
 - `printparam`: printparam expansion diagnostics
 - `imports`: module/use import diagnostics
 
-## Collision Remap
-
-The following collisions were split into unique codes:
-
-| Previous code | Old meaning | New code |
-|---|---|---|
-| `E022` | parser dependency-list parse error | `E028` |
-| `E022` | sema ambiguous `with` source (param vs let) | `E218` |
-| `E216` | sema invalid `max_async` | `E216` (unchanged) |
-| `E216` | lower mode value variance across indexed rows | `E231` |
-| `E020` | parser param name parse error | `E082` |
-| `E021` | parser param body `{` parse error | `E083` |
-| `E076` | parser malformed submit statement parse error | `E077` |
-
 ## Source of Truth
 
 For the full per-code registry (severity, owner, summary), use:

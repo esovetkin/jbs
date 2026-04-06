@@ -84,6 +84,7 @@ Inspect embedded shared scripts:
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+  defaults: -t pretty, -o -
 
 Format jbs in place:
   jbs fmt script.jbs
