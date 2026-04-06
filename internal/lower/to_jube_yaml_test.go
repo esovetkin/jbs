@@ -1426,7 +1426,7 @@ do run with l {
 	}
 }
 
-func TestQualifiedLetReferenceIsRejected(t *testing.T) {
+func TestQualifiedLikeShellReferenceDoesNotRaiseE100(t *testing.T) {
 	src := `
 let l {
   systemname = shell("hostname")
@@ -1435,18 +1435,16 @@ do run {
   echo ${l.systemname}
 }
 `
-	_, diags := compileDoc(t, src)
-	if !diags.HasErrors() {
-		t.Fatalf("expected errors for qualified let reference")
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("did not expect hard errors for shell-like qualified token, got: %s", diags.String())
 	}
-	found := false
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one generated step, got %#v", doc.Step)
+	}
 	for _, d := range diags.Items {
 		if d.Code == "E100" {
-			found = true
-			break
+			t.Fatalf("did not expect E100 for shell text scanning, got: %s", diags.String())
 		}
-	}
-	if !found {
-		t.Fatalf("expected E100 for qualified let reference, got: %s", diags.String())
 	}
 }

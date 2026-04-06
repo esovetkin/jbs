@@ -537,6 +537,256 @@ do run {
 	}
 }
 
+func TestShellSuffixRefStopsAtDotAndDoesNotRaiseE100(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo $x.txt
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasDiagCode(diags, "E100") {
+		t.Fatalf("did not expect E100 for $x.txt, got: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; $x.txt should count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellBracedDefaultExpansionCountsAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo ${x:-1}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; ${x:-1} should count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellCommentReferenceIgnoredForUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  # ${x}
+  echo done
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; comment refs must not count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellSingleQuotedReferenceIgnoredForUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo '${x}'
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; single-quoted refs must not count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellDoubleQuotedReferenceCountsAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo "${x}"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; double-quoted refs should count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellCommentBoundaryHashInsideWordDoesNotStartComment(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo foo#bar${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; foo#bar${x} should still count x usage, got: %s", diags.String())
+	}
+}
+
+func TestShellEscapedDollarIgnoredForUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo \$x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; escaped dollars must not count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellEscapedDollarInsideDoubleQuotesIgnoredForUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo "\$x"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; escaped dollars in double quotes must not count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellBracedVariantsCountAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo ${x:=1}
+  echo ${x:+ok}
+  echo ${x:?err}
+  echo ${x:1}
+  echo ${x:1:2}
+  echo ${x%a}
+  echo ${!x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; braced variants should count as usage, got: %s", diags.String())
+	}
+}
+
+func TestShellMalformedBracedExpansionDoesNotRaiseHardError(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo ${}
+  echo ${!}
+  echo ${1}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasDiagCode(diags, "E100") {
+		t.Fatalf("did not expect E100 for malformed braced expansion in shell text, got: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; malformed refs must not count as usage, got: %s", diags.String())
+	}
+}
+
+func TestSubmitRawBlocksUseSameShellScanningRules(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+submit run with p {
+  preprocess = {
+    # ${x}
+    echo '${x}'
+    echo ${x:-1}
+  }
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; ${x:-1} in raw submit block should count as usage, got: %s", diags.String())
+	}
+}
+
 func TestSubmitAnyExpressionFieldCountsAsUsage(t *testing.T) {
 	src := `
 param p {
@@ -558,6 +808,27 @@ submit run with p {
 	}
 	if got := diagCount(diags, "W311"); got != 0 {
 		t.Fatalf("did not expect W311 for imported queue_name, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitExpressionHashAndPatternVariantsCountAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = ("abc")
+  x
+}
+submit run with p {
+  args_exec = "${x##a} ${#x} ${!x}"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; submit expression hash/pattern refs should count usage, got: %s", diags.String())
 	}
 }
 
@@ -1536,7 +1807,7 @@ do s0 with (x,y) from l {
 	}
 }
 
-func TestQualifiedLetReferenceInStepErrors(t *testing.T) {
+func TestQualifiedLikeShellReferenceInStepDoesNotRaiseE100(t *testing.T) {
 	src := `
 let l {
   systemname = shell("hostname")
@@ -1548,15 +1819,14 @@ do s0 {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
-	has100 := false
-	for _, d := range diags.Items {
-		if d.Code == "E100" {
-			has100 = true
-			break
-		}
+	if diags.HasErrors() {
+		t.Fatalf("did not expect hard errors for shell-like qualified token, got: %s", diags.String())
 	}
-	if !has100 {
-		t.Fatalf("expected E100 for qualified let reference, got: %s", diags.String())
+	if hasDiagCode(diags, "E100") {
+		t.Fatalf("did not expect E100 from shell text scanning, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "l", "systemname") {
+		t.Fatalf("expected W310 for let.l.systemname because ${l.systemname} must not count as qualified usage, got: %s", diags.String())
 	}
 }
 
