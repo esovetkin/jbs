@@ -63,7 +63,8 @@ analyse write
 ```jbs
 let l
 {
-        systemname = shell("hostname")
+        # ensure there are no new lines, otherwise JUBE cannot handle it
+        systemname = shell("hostname | tr -d '\n'")
         queue = "batch"
 }
 

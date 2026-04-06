@@ -170,10 +170,6 @@ See [docs/language.md](docs/language.md) for grammar and semantics.
 
   I have never used these, so I need examples to understand the functionality and decide the best way to include them in JBS.
 
-- [JUBE's include path](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-include_tag).
-
-  I have never used this, so I need examples to understand the functionality and decide the best way to include it in JBS.
-
 - non-slurm `submit`s could be implemented through an argument
 
 Useful link to the [general JUBE structure](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-general_structure_yaml).

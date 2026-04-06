@@ -13,6 +13,7 @@ Reference:
 1. Targets one existing `do` or `submit` step.
 2. Declares extraction assignments from files produced by that step.
 3. Defines output columns in a final tuple expression.
+4. The output file is `result/result_<step_name>.dat`.
 
 ## Syntax
 

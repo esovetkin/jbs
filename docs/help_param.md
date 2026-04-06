@@ -180,7 +180,7 @@ param derived5 with x from lib.base
 param envinfo
 {
         queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
-        host = shell("hostname | tr -d '\\n'")
+        host = shell("hostname | tr -d '\n'")
 
         queue + host
 }
