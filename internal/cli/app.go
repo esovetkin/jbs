@@ -65,7 +65,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "failed to load input %q: %v\n", flags.Input, err)
 		return 1
 	}
-	doc := lower.ToJUBEYAML(bundle.Result, lower.Options{InputPath: flags.Input}, diags)
+	doc := lower.ToJUBEYAML(bundle.Result, diags)
 
 	if len(diags.Items) > 0 {
 		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))

@@ -76,7 +76,7 @@ func assertGolden(t *testing.T, name string) {
 		t.Fatalf("load+expand: %v", err)
 	}
 	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
-	doc := lower.ToJUBEYAML(res, lower.Options{InputPath: inputPath}, diags)
+	doc := lower.ToJUBEYAML(res, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}

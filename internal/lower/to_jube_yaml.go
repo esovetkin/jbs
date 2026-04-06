@@ -190,12 +190,6 @@ type ResultColumn struct {
 	Expr  string `yaml:"_"`
 }
 
-type Options struct {
-	BenchmarkName string
-	Outpath       string
-	InputPath     string
-}
-
 type subsetKey struct {
 	Step          string
 	Source        string
@@ -219,7 +213,7 @@ type lowerContext struct {
 	analyserNames          map[string]string
 }
 
-func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Document {
+func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 	ctx := &lowerContext{
 		res:                    res,
 		diags:                  diags,
