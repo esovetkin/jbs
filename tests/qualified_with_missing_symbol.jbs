@@ -1,4 +1,4 @@
-use "./tests/qualified_with_lib.jbs" as test_lib
+use "./qualified_with_lib.jbs" as test_lib
 use missing from test_lib
 
 do s0

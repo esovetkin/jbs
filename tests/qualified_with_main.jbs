@@ -1,4 +1,4 @@
-use "./tests/qualified_with_lib.jbs" as test_lib
+use "./qualified_with_lib.jbs" as test_lib
 use p from test_lib
 use l from test_lib
 

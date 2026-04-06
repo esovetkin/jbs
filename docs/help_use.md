@@ -22,7 +22,7 @@ use <name> from "<path>.jbs"
 - `use <module>`:
   - first resolves embedded `shared/<module>.jbs`
   - if missing, resolves local `./<module>.jbs` from the directory where `jbs` is called
-- `use "<path>.jbs" ...` always resolves a local filesystem path
+- `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory (or absolute if given)
 - quoted paths must end with `.jbs`
 
 ## Importable symbols

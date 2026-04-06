@@ -13,6 +13,9 @@ import (
 func writeTestFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", name, err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
@@ -105,10 +108,107 @@ use submit_defaults from "./jsc.jbs"
 	}
 }
 
+func TestQuotedPathUsesEntryModuleDirectoryWhenCwdDiffers(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "project")
+	foreignCwd := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	if err := os.MkdirAll(foreignCwd, 0o755); err != nil {
+		t.Fatalf("mkdir foreign cwd: %v", err)
+	}
+
+	lib := writeTestFile(t, projectDir, "lib/mod.jbs", `
+let submit_defaults {
+  queue = "batch"
+}
+`)
+	entry := writeTestFile(t, projectDir, "main.jbs", `
+use submit_defaults from "./lib/mod.jbs"
+`)
+
+	res, diags := load(t, entry, foreignCwd)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	found := false
+	for _, stmt := range res.Program.Stmts {
+		block, ok := stmt.(ast.LetBlock)
+		if !ok || block.Name != "submit_defaults" {
+			continue
+		}
+		if block.Span.File != filepath.Clean(lib) {
+			t.Fatalf("expected submit_defaults from %s, got %s", lib, block.Span.File)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected imported submit_defaults in expanded program")
+	}
+}
+
+func TestNestedQuotedPathUsesImporterModuleDirectory(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "project")
+	foreignCwd := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	if err := os.MkdirAll(foreignCwd, 0o755); err != nil {
+		t.Fatalf("mkdir foreign cwd: %v", err)
+	}
+
+	aPath := writeTestFile(t, projectDir, "sub/a.jbs", `
+use y from "./b.jbs"
+let top {
+  value = "ok"
+}
+`)
+	writeTestFile(t, projectDir, "sub/b.jbs", `
+let y {
+  value = 1
+}
+`)
+	entry := writeTestFile(t, projectDir, "main.jbs", `
+use top from "./sub/a.jbs"
+`)
+
+	res, diags := load(t, entry, foreignCwd)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	found := false
+	for _, stmt := range res.Program.Stmts {
+		block, ok := stmt.(ast.LetBlock)
+		if !ok || block.Name != "top" {
+			continue
+		}
+		if block.Span.File != filepath.Clean(aPath) {
+			t.Fatalf("expected top from %s, got %s", aPath, block.Span.File)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected imported top in expanded program")
+	}
+}
+
 func TestUnknownModuleProducesError(t *testing.T) {
 	dir := t.TempDir()
 	entry := writeTestFile(t, dir, "entry.jbs", `
 use submit_defaults from missing_module
+`)
+	_, diags := load(t, entry, dir)
+	if !hasDiagCode(diags, "E531") {
+		t.Fatalf("expected E531, got: %s", diags.String())
+	}
+}
+
+func TestMissingQuotedModuleProducesError(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeTestFile(t, dir, "entry.jbs", `
+use x from "./missing.jbs"
 `)
 	_, diags := load(t, entry, dir)
 	if !hasDiagCode(diags, "E531") {

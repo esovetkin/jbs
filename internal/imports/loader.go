@@ -48,10 +48,14 @@ type rawModule struct {
 	Ref     moduleRef
 	Source  string
 	Program ast.Program
+	// BaseDir anchors quoted-path imports from this module.
+	BaseDir string
 }
 
 type expandedModule struct {
-	Ref     moduleRef
+	Ref moduleRef
+	// BaseDir is preserved during expansion for importer-relative path resolution.
+	BaseDir string
 	Stmts   []ast.Stmt
 	Symbols map[string]symbolDecl
 	Aliases map[string]moduleRef
@@ -128,7 +132,12 @@ func (r *resolver) loadFileModule(absPath string) (moduleRef, error) {
 	src := string(data)
 	prog := parser.Parse(label, src, r.diags)
 	ref := moduleRef{ID: id, Label: label}
-	r.raw[id] = &rawModule{Ref: ref, Source: src, Program: prog}
+	r.raw[id] = &rawModule{
+		Ref:     ref,
+		Source:  src,
+		Program: prog,
+		BaseDir: filepath.Dir(absPath),
+	}
 	r.sources[label] = src
 	return ref, nil
 }
@@ -146,7 +155,12 @@ func (r *resolver) loadEmbeddedModule(name string) (moduleRef, error) {
 	}
 	prog := parser.Parse(label, src, r.diags)
 	ref := moduleRef{ID: id, Label: label}
-	r.raw[id] = &rawModule{Ref: ref, Source: src, Program: prog}
+	r.raw[id] = &rawModule{
+		Ref:     ref,
+		Source:  src,
+		Program: prog,
+		BaseDir: r.cwd,
+	}
 	r.sources[label] = src
 	return ref, nil
 }
@@ -174,7 +188,7 @@ func (r *resolver) resolveBareModule(name string) (moduleRef, error) {
 	return r.loadFileModule(local)
 }
 
-func (r *resolver) resolvePathModule(path string, at diag.Span) (moduleRef, error) {
+func (r *resolver) resolvePathModule(path string, importerBaseDir string, at diag.Span) (moduleRef, error) {
 	p := strings.TrimSpace(path)
 	if !strings.HasSuffix(p, ".jbs") {
 		r.diags.AddError(
@@ -187,7 +201,11 @@ func (r *resolver) resolvePathModule(path string, at diag.Span) (moduleRef, erro
 	}
 	abs := p
 	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(r.cwd, abs)
+		base := importerBaseDir
+		if strings.TrimSpace(base) == "" {
+			base = r.cwd
+		}
+		abs = filepath.Join(base, abs)
 	}
 	abs = filepath.Clean(abs)
 	return r.loadFileModule(abs)
@@ -196,7 +214,11 @@ func (r *resolver) resolvePathModule(path string, at diag.Span) (moduleRef, erro
 func (r *resolver) resolveUseSource(current *expandedModule, src ast.UseSource) (moduleRef, error) {
 	switch src.Kind {
 	case ast.UseSourcePath:
-		return r.resolvePathModule(src.Value, src.Span)
+		baseDir := r.cwd
+		if current != nil && strings.TrimSpace(current.BaseDir) != "" {
+			baseDir = current.BaseDir
+		}
+		return r.resolvePathModule(src.Value, baseDir, src.Span)
 	case ast.UseSourceBare:
 		if current != nil {
 			if ref, ok := current.Aliases[src.Value]; ok {
@@ -231,6 +253,7 @@ func (r *resolver) expandModule(ref moduleRef) *expandedModule {
 
 	mod := &expandedModule{
 		Ref:     ref,
+		BaseDir: raw.BaseDir,
 		Stmts:   make([]ast.Stmt, 0, len(raw.Program.Stmts)),
 		Symbols: make(map[string]symbolDecl),
 		Aliases: make(map[string]moduleRef),

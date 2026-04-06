@@ -486,6 +486,105 @@ param p {
 	}
 }
 
+func TestRunCheckAbsoluteInputUsesEntryDirectoryForQuotedImports(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "project")
+	otherDir := filepath.Join(root, "other")
+	if err := os.MkdirAll(filepath.Join(projectDir, "lib"), 0o755); err != nil {
+		t.Fatalf("mkdir lib dir: %v", err)
+	}
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatalf("mkdir other dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "lib", "mod.jbs"), []byte(`
+param p {
+  x = (1,2)
+  x
+}
+`), 0o644); err != nil {
+		t.Fatalf("write imported file: %v", err)
+	}
+	entry := filepath.Join(projectDir, "main.jbs")
+	if err := os.WriteFile(entry, []byte(`
+use p from "./lib/mod.jbs"
+do s with p {
+  echo ${x}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write entry: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(otherDir); err != nil {
+		t.Fatalf("chdir foreign cwd: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", entry}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "E531") {
+		t.Fatalf("did not expect E531, got: %s", errBuf.String())
+	}
+}
+
+func TestRunFmtAbsoluteInputUsesEntryDirectoryForQuotedImports(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "project")
+	otherDir := filepath.Join(root, "other")
+	if err := os.MkdirAll(filepath.Join(projectDir, "lib"), 0o755); err != nil {
+		t.Fatalf("mkdir lib dir: %v", err)
+	}
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatalf("mkdir other dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "lib", "mod.jbs"), []byte(`
+param p {
+  x = (1,2)
+  x
+}
+`), 0o644); err != nil {
+		t.Fatalf("write imported file: %v", err)
+	}
+	entry := filepath.Join(projectDir, "main.jbs")
+	if err := os.WriteFile(entry, []byte(`
+use p from "./lib/mod.jbs"
+
+do s
+        with p
+{
+        echo ${x}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write entry: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(otherDir); err != nil {
+		t.Fatalf("chdir foreign cwd: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"fmt", entry}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
+	}
+	if strings.Contains(errBuf.String(), "E531") {
+		t.Fatalf("did not expect E531, got: %s", errBuf.String())
+	}
+}
+
 func TestRunRepeatedSubmitUseClauseAllowedAndWarnsOnCollision(t *testing.T) {
 	src := `
 let defaults {
