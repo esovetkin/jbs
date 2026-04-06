@@ -119,6 +119,22 @@ do work with missing from p {
 	}
 }
 
+func TestSubmitKeyHelpers(t *testing.T) {
+	if !sema.IsSubmitKey("nodes") {
+		t.Fatalf("expected nodes to be recognized as submit key")
+	}
+	if sema.IsSubmitKey("not_a_submit_key") {
+		t.Fatalf("did not expect arbitrary key to be recognized")
+	}
+	keys := sema.SubmitKeys()
+	if len(keys) == 0 {
+		t.Fatalf("expected non-empty submit key list")
+	}
+	if keys[0] > keys[len(keys)-1] {
+		t.Fatalf("expected sorted submit keys, got %#v", keys)
+	}
+}
+
 func TestDependencyCycleError(t *testing.T) {
 	src := `
 param p {

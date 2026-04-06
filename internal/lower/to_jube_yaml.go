@@ -18,6 +18,7 @@ import (
 // ReservedSeparator keeps grouped source-row IDs opaque in synthetic _jr__
 // helpers until inherited row-context expansion is explicitly requested.
 const ReservedSeparator = "####"
+const escapedAliasPrefix = "_ja__"
 
 type Literal string
 
@@ -242,8 +243,9 @@ func ToJUBEYAML(res *sema.Result, opts Options, diags *diag.Diagnostics) Documen
 		case ast.DoBlock:
 			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerDo(node))
 		case ast.SubmitBlock:
-			submitSetName := ctx.addSubmitParameterSet(node)
-			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerSubmit(node, submitSetName))
+			aliases := ctx.stepAliasMap(node.Name, true)
+			submitSetName := ctx.addSubmitParameterSet(node, aliases)
+			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerSubmit(node, submitSetName, aliases))
 		}
 	}
 
@@ -781,22 +783,32 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	aliases := ctx.stepAliasMap(block.Name, false)
+	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems, aliases)
 	step.Use = resolution.Use
 	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
 
 	body := normalizeRawLiteral(block.Body)
+	body = rewriteShellRefs(body, aliases)
 	step.Do = []interface{}{Literal(body)}
 	return step
 }
 
-func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
+func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases map[string]string) string {
 	name := ctx.uniqueName(fmt.Sprintf("%s__submit_params", block.Name))
 	params := make([]Parameter, 0)
+	explicitNonRaw := make(map[string]struct{}, len(block.Fields))
+	for _, field := range block.Fields {
+		if field.IsRaw {
+			continue
+		}
+		explicitNonRaw[field.Name] = struct{}{}
+	}
 	if spec := ctx.res.SubmitByName[block.Name]; spec != nil {
 		for _, field := range spec.Values {
 			if field.IsRaw {
 				raw := normalizeRawLiteral(field.Raw)
+				raw = rewriteShellRefs(raw, aliases)
 				params = append(params, Parameter{
 					Name:  field.Name,
 					Mode:  "text",
@@ -809,19 +821,23 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 			if t := submitParameterType(field.Name); t != "" {
 				param.Type = t
 			}
+			value := field.Value
+			if _, ok := explicitNonRaw[field.Name]; ok {
+				value = rewriteShellRefsInEvalValue(value, aliases)
+			}
 			if field.Mode != "" {
 				param.Mode = field.Mode
 				if field.Mode == "python" {
-					param.Value = SingleQuoted(asString(field.Value))
+					param.Value = SingleQuoted(asString(value))
 				} else {
-					param.Value = asString(field.Value)
+					param.Value = asString(value)
 				}
 			} else {
-				switch field.Value.Kind {
+				switch value.Kind {
 				case eval.KindList, eval.KindNull:
-					param.Value = pythonLiteral(field.Value)
+					param.Value = pythonLiteral(value)
 				default:
-					param.Value = templateValue(field.Value)
+					param.Value = templateValue(value)
 				}
 			}
 			params = append(params, param)
@@ -841,7 +857,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock) string {
 	return name
 }
 
-func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) Step {
+func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, aliases map[string]string) Step {
 	inherits := make([]string, 0)
 	inheritVars := make([]string, 0)
 	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
@@ -864,7 +880,7 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string) St
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems)
+	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems, aliases)
 	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
 	use := append([]interface{}{}, resolution.Use...)
 	use = append(use,
@@ -902,18 +918,19 @@ type stepUseResolution struct {
 type subsetVarSpec struct {
 	Visible   string
 	SourceVar string
+	Emitted   string
 }
 
-func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem) stepUseResolution {
+func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem, aliases map[string]string) stepUseResolution {
 	inheritedSteps := make([]string, 0)
 	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
 		inheritedSteps = append(inheritedSteps, plan.InheritedSteps...)
-		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta)
+		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta, aliases)
 	}
-	return ctx.resolveStepUsesLegacy(stepName, inheritedSteps, fallback)
+	return ctx.resolveStepUsesLegacy(stepName, inheritedSteps, fallback, aliases)
 }
 
-func (ctx *lowerContext) resolveStepUsesLegacy(stepName string, inheritedSteps []string, items []ast.WithItem) stepUseResolution {
+func (ctx *lowerContext) resolveStepUsesLegacy(stepName string, inheritedSteps []string, items []ast.WithItem, aliases map[string]string) stepUseResolution {
 	planned := make([]sema.PlannedImport, 0, len(items))
 	for _, item := range items {
 		if item.From == "" {
@@ -933,10 +950,10 @@ func (ctx *lowerContext) resolveStepUsesLegacy(stepName string, inheritedSteps [
 			Span:      item.Span,
 		})
 	}
-	return ctx.resolveStepUses(stepName, inheritedSteps, planned)
+	return ctx.resolveStepUses(stepName, inheritedSteps, planned, aliases)
 }
 
-func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.PlannedImport) stepUseResolution {
+func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.PlannedImport, aliases map[string]string) stepUseResolution {
 	uses := make([]interface{}, 0)
 	grouped := make(map[string][]subsetVarSpec)
 	groupOrder := make([]string, 0)
@@ -947,7 +964,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	for _, item := range items {
 		if item.Full {
 			if src := sources[item.Source]; src != nil {
-				if item.Kind == sema.SourceKindParam && sourceRows[item.Source] == "" {
+				if item.Kind == sema.SourceKindParam && sourceRows[item.Source] == "" && !sourceNeedsAlias(src, aliases) {
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
 						uses = append(uses, item.Source)
@@ -962,9 +979,14 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 					if containsSubsetVisible(grouped[item.Source], name) {
 						continue
 					}
+					emitted := name
+					if alias, ok := aliases[name]; ok && alias != "" {
+						emitted = alias
+					}
 					grouped[item.Source] = append(grouped[item.Source], subsetVarSpec{
 						Visible:   name,
 						SourceVar: name,
+						Emitted:   emitted,
 					})
 				}
 			}
@@ -979,9 +1001,14 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 			if sourceVar == "" {
 				sourceVar = item.Visible
 			}
+			emitted := item.Visible
+			if alias, ok := aliases[item.Visible]; ok && alias != "" {
+				emitted = alias
+			}
 			grouped[item.Source] = append(grouped[item.Source], subsetVarSpec{
 				Visible:   item.Visible,
 				SourceVar: sourceVar,
+				Emitted:   emitted,
 			})
 		}
 	}
@@ -1010,6 +1037,38 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 		Use:        uses,
 		SourceRows: sourceRows,
 	}
+}
+
+func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[string]string {
+	if !forSubmit {
+		return map[string]string{}
+	}
+	plan := ctx.res.StepImportByName[stepName]
+	if plan == nil {
+		return map[string]string{}
+	}
+	out := make(map[string]string)
+	for name, origin := range plan.Effective {
+		if origin.Kind != sema.SourceKindParam && origin.Kind != sema.SourceKindLet {
+			continue
+		}
+		if sema.IsSubmitKey(name) {
+			out[name] = escapedAliasPrefix + name
+		}
+	}
+	return out
+}
+
+func sourceNeedsAlias(src *sema.ImportSource, aliases map[string]string) bool {
+	if src == nil || len(aliases) == 0 {
+		return false
+	}
+	for _, name := range sourceVarNames(src) {
+		if _, ok := aliases[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[string]string {
@@ -1072,7 +1131,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, inheritedRowsVar string) (string, string) {
 	varKeys := make([]string, 0, len(vars))
 	for _, v := range vars {
-		varKeys = append(varKeys, v.Visible+"="+v.SourceVar)
+		varKeys = append(varKeys, v.Visible+"="+v.SourceVar+"=>"+subsetEmittedName(v))
 	}
 	k := subsetKey{
 		Step:          stepName,
@@ -1097,8 +1156,10 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 	}
 
 	visibleNames := make([]string, 0, len(vars))
+	emittedByVisible := make(map[string]string, len(vars))
 	for _, v := range vars {
 		visibleNames = append(visibleNames, v.Visible)
+		emittedByVisible[v.Visible] = subsetEmittedName(v)
 	}
 
 	baseName := shortSubsetBaseName(stepName, source, visibleNames)
@@ -1150,13 +1211,14 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			Separator: ReservedSeparator,
 			Value:     SingleQuoted(pythonStringMapLookupExpr(repIndices, rowGroupStrings, idxName)),
 		})
-		params = append(params, lowerIndexedPayloadParameters(visibleNames, valuesByName, modeByName, repIndices, idxRef, func(varName string) diag.Span {
+		payload := lowerIndexedPayloadParameters(visibleNames, valuesByName, modeByName, repIndices, idxRef, func(varName string) diag.Span {
 			sourceVar := sourceVarByVisible[varName]
 			if span, ok := src.Origins[sourceVar]; ok {
 				return span
 			}
 			return src.Span
-		}, ctx.diags)...)
+		}, ctx.diags)
+		params = append(params, applyEmittedNames(payload, emittedByVisible)...)
 	} else {
 		params = append(params, Parameter{
 			Name: idxName,
@@ -1171,13 +1233,14 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			Mode:  "text",
 			Value: "${" + idxName + "}",
 		})
-		params = append(params, lowerContextualPayloadParameters(visibleNames, valuesByName, modeByName, idxRef, func(varName string) diag.Span {
+		payload := lowerContextualPayloadParameters(visibleNames, valuesByName, modeByName, idxRef, func(varName string) diag.Span {
 			sourceVar := sourceVarByVisible[varName]
 			if span, ok := src.Origins[sourceVar]; ok {
 				return span
 			}
 			return src.Span
-		}, ctx.diags)...)
+		}, ctx.diags)
+		params = append(params, applyEmittedNames(payload, emittedByVisible)...)
 	}
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
@@ -1197,7 +1260,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec) (string, string) {
 	varKeys := make([]string, 0, len(vars))
 	for _, v := range vars {
-		varKeys = append(varKeys, v.Visible+"="+v.SourceVar)
+		varKeys = append(varKeys, v.Visible+"="+v.SourceVar+"=>"+subsetEmittedName(v))
 	}
 	k := subsetKey{
 		Step:          stepName,
@@ -1232,7 +1295,7 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		if len(vals) > 0 {
 			value = vals[0]
 		}
-		param := Parameter{Name: variable.Visible}
+		param := Parameter{Name: subsetEmittedName(variable)}
 		if mode, ok := src.Modes[sourceVar]; ok && mode != "" {
 			param.Mode = mode
 			switch mode {
@@ -1474,6 +1537,132 @@ func containsSubsetVisible(items []subsetVarSpec, name string) bool {
 		}
 	}
 	return false
+}
+
+func subsetEmittedName(v subsetVarSpec) string {
+	if v.Emitted != "" {
+		return v.Emitted
+	}
+	return v.Visible
+}
+
+func applyEmittedNames(params []Parameter, emittedByVisible map[string]string) []Parameter {
+	if len(params) == 0 || len(emittedByVisible) == 0 {
+		return params
+	}
+	out := make([]Parameter, len(params))
+	copy(out, params)
+	for i := range out {
+		if alias, ok := emittedByVisible[out[i].Name]; ok && alias != "" {
+			out[i].Name = alias
+		}
+	}
+	return out
+}
+
+func rewriteShellRefsInEvalValue(v eval.Value, aliases map[string]string) eval.Value {
+	if len(aliases) == 0 {
+		return v
+	}
+	switch v.Kind {
+	case eval.KindString:
+		return eval.String(rewriteShellRefs(v.S, aliases))
+	case eval.KindList:
+		items := make([]eval.Value, len(v.L))
+		for i := range v.L {
+			items[i] = rewriteShellRefsInEvalValue(v.L[i], aliases)
+		}
+		return eval.List(items)
+	default:
+		return v
+	}
+}
+
+func rewriteShellRefs(text string, aliases map[string]string) string {
+	if text == "" || len(aliases) == 0 {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	for i := 0; i < len(text); {
+		ch := text[i]
+		if ch == '\\' && i+1 < len(text) && text[i+1] == '$' {
+			out.WriteByte('\\')
+			out.WriteByte('$')
+			i += 2
+			continue
+		}
+		if ch != '$' {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		if i+1 >= len(text) {
+			out.WriteByte('$')
+			i++
+			continue
+		}
+		next := text[i+1]
+		if next == '{' {
+			if alias, consumed, ok := rewriteBracedShellRef(text[i:], aliases); ok {
+				out.WriteString(alias)
+				i += consumed
+				continue
+			}
+			out.WriteByte('$')
+			i++
+			continue
+		}
+		if isShellVarStart(next) {
+			j := i + 2
+			for j < len(text) && isShellVarChar(text[j]) {
+				j++
+			}
+			name := text[i+1 : j]
+			if alias, ok := aliases[name]; ok && alias != "" {
+				out.WriteByte('$')
+				out.WriteString(alias)
+			} else {
+				out.WriteByte('$')
+				out.WriteString(name)
+			}
+			i = j
+			continue
+		}
+		out.WriteByte('$')
+		i++
+	}
+	return out.String()
+}
+
+func rewriteBracedShellRef(fragment string, aliases map[string]string) (string, int, bool) {
+	if len(fragment) < 4 || fragment[0] != '$' || fragment[1] != '{' {
+		return "", 0, false
+	}
+	if !isShellVarStart(fragment[2]) {
+		return "", 0, false
+	}
+	j := 3
+	for j < len(fragment) && isShellVarChar(fragment[j]) {
+		j++
+	}
+	if j >= len(fragment) || fragment[j] != '}' {
+		return "", 0, false
+	}
+	name := fragment[2:j]
+	alias := name
+	if mapped, ok := aliases[name]; ok && mapped != "" {
+		alias = mapped
+	}
+	return "${" + alias + "}", j + 1, true
+}
+
+func isShellVarStart(ch byte) bool {
+	return ch == '_' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+}
+
+func isShellVarChar(ch byte) bool {
+	return isShellVarStart(ch) || (ch >= '0' && ch <= '9')
 }
 
 func sourceVarNames(src *sema.ImportSource) []string {

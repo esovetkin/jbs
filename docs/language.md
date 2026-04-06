@@ -330,6 +330,11 @@ parameterset:
 
 - emits a synthetic submit parameter set with `init_with: "platform.xml:systemParameter"`.
 - emits submit keys explicitly set in the block.
+- if an imported `param`/`let` variable name collides with a submit key (for example `nodes`), the imported variable is renamed to `_ja__<name>` in generated YAML.
+- submit keys keep their original names.
+- for collided names, jbs rewrites `$name`/`${name}` references in:
+  - submit raw blocks (`preprocess`, `postprocess`)
+  - string-valued explicit submit expressions (for example `nodes = "${nodes}"`)
 - auto-injects `tasks` when missing:
   - if `nodes` is set/resolved, `tasks` is set to the same value.
   - otherwise `tasks` is set to `$nodes`.

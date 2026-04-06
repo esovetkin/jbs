@@ -773,6 +773,218 @@ submit run with p {
 	}
 }
 
+func TestSubmitCollisionEscapesImportedVariablesAndRewritesRefs(t *testing.T) {
+	src := `
+param p {
+  nodes = (1,2)
+  a = ("x","y")
+  a + nodes
+}
+
+submit run with p {
+  nodes = "${nodes}"
+  preprocess = {
+    echo ${nodes} ${a}
+    echo $nodes $a
+    echo \$nodes $$ $? $1 ${1} ${nodes:-x}
+  }
+  args_exec = "-lc 'echo ${nodes} ${a}'"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one submit step, got %d", len(doc.Step))
+	}
+	use := doc.Step[0].Use
+	hasDirectP := false
+	hasSubset := false
+	for _, u := range use {
+		s, ok := u.(string)
+		if !ok {
+			continue
+		}
+		if s == "p" {
+			hasDirectP = true
+		}
+		if strings.HasPrefix(s, "_js__run__p__") {
+			hasSubset = true
+		}
+	}
+	if hasDirectP {
+		t.Fatalf("did not expect direct use of p under submit-key collision: %#v", use)
+	}
+	if !hasSubset {
+		t.Fatalf("expected subset use under submit-key collision: %#v", use)
+	}
+
+	var subset *lower.ParameterSet
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		if strings.HasPrefix(ps.Name, "_js__run__p__") {
+			subset = ps
+		}
+		if strings.HasSuffix(ps.Name, "__submit_params") {
+			submitSet = ps
+		}
+	}
+	if subset == nil || submitSet == nil {
+		t.Fatalf("expected both subset and submit parametersets, got %#v", doc.ParameterSet)
+	}
+	foundAliasedNodes := false
+	foundPlainNodes := false
+	for _, p := range subset.Parameter {
+		if p.Name == "_ja__nodes" {
+			foundAliasedNodes = true
+		}
+		if p.Name == "nodes" {
+			foundPlainNodes = true
+		}
+	}
+	if !foundAliasedNodes {
+		t.Fatalf("expected aliased subset variable _ja__nodes, got %#v", subset.Parameter)
+	}
+	if foundPlainNodes {
+		t.Fatalf("did not expect plain nodes in collision subset: %#v", subset.Parameter)
+	}
+
+	foundSubmitNodes := false
+	foundPreprocess := false
+	foundArgsExec := false
+	for _, p := range submitSet.Parameter {
+		if p.Name == "nodes" {
+			foundSubmitNodes = true
+			if got, ok := p.Value.(string); !ok || got != "${_ja__nodes}" {
+				t.Fatalf("expected submit nodes to reference aliased import, got %#v", p.Value)
+			}
+		}
+		if p.Name == "preprocess" {
+			foundPreprocess = true
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
+			}
+			text := string(body)
+			if !strings.Contains(text, "echo ${_ja__nodes} ${a}") {
+				t.Fatalf("expected braced rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, "echo $_ja__nodes $a") {
+				t.Fatalf("expected simple rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, `echo \$nodes $$ $? $1 ${1} ${nodes:-x}`) {
+				t.Fatalf("expected special shell vars preserved, got %q", text)
+			}
+		}
+		if p.Name == "args_exec" {
+			foundArgsExec = true
+			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__nodes} ${a}'" {
+				t.Fatalf("expected args_exec rewrite, got %#v", p.Value)
+			}
+		}
+	}
+	if !foundSubmitNodes || !foundPreprocess || !foundArgsExec {
+		t.Fatalf("missing expected submit parameters: %#v", submitSet.Parameter)
+	}
+}
+
+func TestSubmitNoCollisionKeepsDirectFullUse(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+}
+
+submit run with p {
+  args_exec = "$a"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.Step) != 1 {
+		t.Fatalf("expected one step")
+	}
+	hasDirect := false
+	hasSubset := false
+	for _, u := range doc.Step[0].Use {
+		s, ok := u.(string)
+		if !ok {
+			continue
+		}
+		if s == "p" {
+			hasDirect = true
+		}
+		if strings.HasPrefix(s, "_js__run__p__") {
+			hasSubset = true
+		}
+	}
+	if !hasDirect {
+		t.Fatalf("expected direct full parameterset use without collision: %#v", doc.Step[0].Use)
+	}
+	if hasSubset {
+		t.Fatalf("did not expect synthetic subset without collision: %#v", doc.Step[0].Use)
+	}
+}
+
+func TestSubmitLetCollisionEscapesImportedVariables(t *testing.T) {
+	src := `
+let l {
+  queue = "batch"
+  host = shell("hostname | tr -d '\n'")
+}
+
+submit run with l {
+  queue = "${queue}"
+  preprocess = {
+    echo ${queue} ${host}
+  }
+  args_exec = "-lc 'echo ${queue} ${host}'"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var subset *lower.ParameterSet
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		if strings.HasPrefix(ps.Name, "_js__run__l__") {
+			subset = ps
+		}
+		if strings.HasSuffix(ps.Name, "__submit_params") {
+			submitSet = ps
+		}
+	}
+	if subset == nil || submitSet == nil {
+		t.Fatalf("expected subset and submit paramsets, got %#v", doc.ParameterSet)
+	}
+	hasAliasedQueue := false
+	hasPlainQueue := false
+	for _, p := range subset.Parameter {
+		if p.Name == "_ja__queue" {
+			hasAliasedQueue = true
+		}
+		if p.Name == "queue" {
+			hasPlainQueue = true
+		}
+	}
+	if !hasAliasedQueue || hasPlainQueue {
+		t.Fatalf("unexpected queue naming in let subset: %#v", subset.Parameter)
+	}
+	for _, p := range submitSet.Parameter {
+		if p.Name == "queue" {
+			if got, ok := p.Value.(string); !ok || got != "${_ja__queue}" {
+				t.Fatalf("expected queue rewrite to aliased variable, got %#v", p.Value)
+			}
+		}
+	}
+}
+
 func TestLoweringPopulatesRoleMetadata(t *testing.T) {
 	src := `
 param p {

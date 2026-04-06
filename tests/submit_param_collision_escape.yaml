@@ -1,0 +1,87 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'p'
+  - name: p
+    parameter:
+      - name: _ji_p
+        type: int
+        mode: text
+        _: 0,1,2,3
+      - name: b
+        mode: python
+        _: '["x","x","y","y"][$_ji_p]'
+      - name: a
+        mode: python
+        _: '[1,2,1,2][$_ji_p]'
+      - name: nodes
+        mode: python
+        _: '[1,2,1,2][$_ji_p]'
+
+  # Parameters for submit block 'run'
+  - name: run__submit_params
+    init_with: platform.xml:systemParameter
+    parameter:
+      - name: account
+        _: atmlaml
+      - name: queue
+        _: batch
+      - name: nodes
+        type: int
+        _: ${_ja__nodes}
+      - name: preprocess
+        mode: text
+        _: |
+          echo ${a} ${b} ${_ja__nodes}
+          echo $_ja__nodes
+      - name: args_exec
+        _: -lc 'echo ${_ja__nodes} ${a} ${b}'
+      - name: tasks
+        type: int
+        _: ${nodes}
+
+  # Synthetic subset parameterset for step 'run' derived from 'p' for variable-only imports
+  - name: _js__run__p__b_a_nodes
+    parameter:
+      - name: _ji__run__p__b_a_nodes
+        type: int
+        mode: text
+        _: 0,1,2,3
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
+      - name: _jr__run__p__b_a_nodes
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1","2":"2","3":"3"}["${_ji__run__p__b_a_nodes}"]'
+      - name: b
+        mode: python
+        _: '["x","x","y","y"][$_ji__run__p__b_a_nodes]'
+      - name: a
+        mode: python
+        _: '[1,2,1,2][$_ji__run__p__b_a_nodes]'
+      - name: _ja__nodes
+        mode: python
+        _: '[1,2,1,2][$_ji__run__p__b_a_nodes]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from submit block 'run'
+  - name: run
+    use:
+      - _js__run__p__b_a_nodes
+      - run__submit_params
+      - from: platform.xml
+        _: jobfiles
+      - from: platform.xml
+        _: executesub
+      - from: platform.xml
+        _: executeset
+    do:
+      - done_file: $done_file
+        error_file: $error_file
+        _: ${submit} --parsable ${submit_script} > run.jobid
+      - echo "true" > success

@@ -116,6 +116,20 @@ var allowedSubmitKeys = map[string]struct{}{
 	"postprocess":    {},
 }
 
+func IsSubmitKey(name string) bool {
+	_, ok := allowedSubmitKeys[name]
+	return ok
+}
+
+func SubmitKeys() []string {
+	out := make([]string, 0, len(allowedSubmitKeys))
+	for name := range allowedSubmitKeys {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *LetNamespace {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {

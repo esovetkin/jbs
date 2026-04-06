@@ -48,6 +48,10 @@ func TestGoldenUseSubmitDefaultsOverride(t *testing.T) {
 	assertGolden(t, "use_submit_defaults_override")
 }
 
+func TestGoldenSubmitParamCollisionEscape(t *testing.T) {
+	assertGolden(t, "submit_param_collision_escape")
+}
+
 func assertGolden(t *testing.T, name string) {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
