@@ -1,3 +1,5 @@
+# jbs help use
+
 The `use` statement imports reusable definitions from embedded or local `.jbs` scripts.
 
 ## Syntax
@@ -37,15 +39,15 @@ You can import:
 
 ## Step imports and dependency closure
 
-When you import a `do`/`submit` step symbol, jbs also imports its required dependencies:
+When you import a `do`/`submit` step symbol, JBS also imports its required dependencies:
 
 - transitive `after` steps
 - referenced `with` sources
 - referenced submit-header `use` let namespaces
 
-This ensures one final YAML file has everything needed.
+This ensures that the final YAML file contains everything required.
 
-## Submit defaults from let namespace
+## Submit defaults from a let namespace
 
 ```jbs
 use submit_defaults from jsc
@@ -61,9 +63,10 @@ submit run
 
 Rules:
 
-- submit header supports only one `use` clause
-- non-submit keys in defaults namespace are ignored with a warning
+- submit headers can contain one or more `use` clauses
+- non-submit keys in a defaults namespace are ignored with a warning
 - explicit submit fields override imported defaults
+- if multiple namespaces set the same submit key, JBS uses last-win precedence and emits warning `W072`
 
 ## `jbs embed`
 
@@ -73,7 +76,7 @@ jbs embed jsc
 ```
 
 - `jbs embed` prints all embedded shared files
-- `jbs embed <filename>` prints embedded file content
+- `jbs embed <filename>` prints an embedded file's content
 
 ## Errors and collisions
 

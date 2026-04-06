@@ -46,7 +46,7 @@ analyse ex_step {
 ...
 ```
 
-In addition to compiling JUBE configuration files, JBS reports useful errors and warnings, such as unused variables, missing imports, variable name collisions, and circular dependencies.
+In addition to compiling JUBE configuration files, JBS reports useful errors and warnings, such as unused variables, missing imports, variable-name collisions, and circular dependencies.
 
 ## Build and Test
 
@@ -95,7 +95,7 @@ See `jbs help let` or [docs/help_let.md](docs/help_let.md).
 
 ### `param <name> [with ...] { ... }`
 
-Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets or namespaces. The last expression in `param` block defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used in that expression can then be referenced in `do` and `submit` statements (with `$<variable`).
+Defines a parameter set by declaring variables and ending with a combination expression. `with` imports variables or full parameter sets from other parameter sets or namespaces. The last expression in a `param` block defines how parameters are combined (see [Combination Algebra](docs/language.md#combination-algebra)). Variables used in that expression can then be referenced in `do` and `submit` statements (with `$name` or `${name}`).
 
 See `jbs help param` or [docs/help_param.md](docs/help_param.md).
 
@@ -107,13 +107,13 @@ See `jbs help do` or [docs/help_do.md](docs/help_do.md).
 
 ### `submit <name> [with ...] [after ...] [use ...] [max_async=<int>] [iterations=<int>] { key = value ... }`
 
-The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently supports only Slurm jobs templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
+The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently supports only Slurm job templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
 
 See `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
 
 ### `analyse <step_name> [with ...] { ... }`
 
-`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. The pattern variables are defined in extraction expressions or imported via `with` (let-only, string-only).
+`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Pattern variables are defined in extraction expressions or imported via `with` (let-only, string-only).
 
 ```jbs
 analyse <step_name>
@@ -143,7 +143,6 @@ See `jbs help use` or [docs/help_use.md](docs/help_use.md).
 
 See [docs/language.md](docs/language.md) for grammar and semantics.
 
-
 ## Known Limitations
 
 - No XML generation.
@@ -156,7 +155,7 @@ See [docs/language.md](docs/language.md) for grammar and semantics.
 
 - Tags affect parameter sets.
 
-  I need to design clean syntax for this in JBS.
+  I still need to design a clean syntax for this in JBS.
 
 - [Multiple benchmarks](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#multiple-benchmarks).
 
@@ -164,6 +163,6 @@ See [docs/language.md](docs/language.md) for grammar and semantics.
 
   I have never used these, so I need examples to understand the functionality and decide the best way to include them in JBS.
 
-- non-slurm `submit`s could be implemented through an argument
+- Non-Slurm `submit` support could be implemented as an additional argument.
 
 Useful link to the [general JUBE structure](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-general_structure_yaml).

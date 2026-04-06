@@ -1,10 +1,10 @@
 # jbs help do
 
-The `do` block defines shell commands that are executed by a JUBE step.
+The `do` block defines shell commands executed by a JUBE step.
 
 At runtime, each workpackage executes the `do` body in its own JUBE work directory. In practice, this is the directory pointed to by `$jube_wp_abspath` (see the JUBE variables glossary: https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables).
 
-If you need to access files next to your `.jbs` (or generated JUBE) file, use `$jube_benchmark_home` to jump back to the benchmark definition location instead of working only inside the workpackage directory.
+If you need to access files next to your `.jbs` file (or the generated JUBE file), use `$jube_benchmark_home` to jump back to the benchmark definition location instead of working only inside the workpackage directory.
 
 Related JUBE docs:
 - JUBE variables glossary: https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables
@@ -39,7 +39,7 @@ do run_case
 }
 ```
 
-`with` also supports namespace-qualified module references when you import a module alias first:
+`with` also supports namespace-qualified module references after you import a module alias:
 
 ```jbs
 use test_lib
@@ -68,10 +68,10 @@ do s
 `after` is not only an execution dependency. The dependent step also inherits variables that were visible in the predecessor step.
 
 - If `step1` has `after step0`, variables imported in `step0` are visible in `step1`.
-- If `step1` also uses `with ... from <same_paramset>`, jbs imports only variables that are not already inherited.
-- If the same variable name would come from different parameter sets (inherited vs explicit `with`), jbs raises an error.
-- jbs also preserves source-row constraints from inherited imports:
-  - direct-sum pairing (`+`) is not broken in downstream steps
+- If `step1` also uses `with ... from <same_paramset>`, JBS imports only variables that are not already inherited.
+- If the same variable name would come from different parameter sets (inherited vs explicit `with`), JBS raises an error.
+- JBS preserves source-row constraints from inherited imports:
+  - direct-sum pairing (`+`) is preserved in downstream steps
   - outer-product expansions (`*`) remain valid where expected
 - row constraints propagate transitively across chains such as `step0 -> step1 -> step2`.
 
@@ -96,7 +96,7 @@ do step1
         after step0
         with (b, c) from pm0
 {
-        # a and b come from inheritance; c is added from explicit import
+        # a and b come from inheritance; c is added by explicit import
         echo "${a} ${b} ${c}"
 }
 ```
@@ -169,7 +169,7 @@ do build
 Why this is useful:
 - Keep immutable/shared input in `$jube_benchmark_home`.
 - Keep per-run artifacts in the workpackage (`$jube_wp_abspath`).
-- See other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
+- See other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables).
 
 ## Example 4: Import selected variables with `with ... from ...`
 
@@ -192,7 +192,7 @@ This imports only the listed variables from `matrix` into the step.
 
 ## Example 5: Useful JUBE variables inside `do`
 
-All of these are documented in the JUBE glossary linked above.
+All of the following are documented in the JUBE glossary linked above.
 
 ```jbs
 do inspect

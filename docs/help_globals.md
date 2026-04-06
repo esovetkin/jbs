@@ -3,10 +3,10 @@
 ```jbs
 # JBS global defaults
 
-# Top-level assignments are allowed only outside param/do/submit blocks.
-# Unknown globals cause compile errors.
+# Top-level assignments are allowed only outside `param`, `do`, and `submit` blocks.
+# Unknown globals are compile-time errors.
 # jbs_name and jbs_outpath must be plain string literals.
-# Statements can be separated by newline or ';'.
+# Statements can be separated by a newline or ';'.
 # Multiline expressions require explicit backslash-newline continuation.
 # Implicit operator-based newline continuation is not supported.
 

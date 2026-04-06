@@ -4,7 +4,7 @@ JBS is designed to make JUBE benchmark configurations shorter, easier to reason 
 
 ## 1) JBS is much more compact
 
-The table below compares all paired files in `tests/` using `wc -l -w -c` (lines, words, bytes), excluding empty lines and comment lines (`#...`) in both `.jbs` and `.yaml`.
+The table below compares all paired files in `tests/` using `wc -l -w -c` (lines, words, bytes), excluding empty lines and comment lines (`#...`) in both `.jbs` and `.yaml` files.
 
 | Base                             |                jbs |                yaml | char reduction |
 |----------------------------------|-------------------:|--------------------:|---------------:|
@@ -20,7 +20,7 @@ The table below compares all paired files in `tests/` using `wc -l -w -c` (lines
 | `semicolon`                      |        `14 67 337` |       `55 120 1080` |        `68.8%` |
 | **total**                        | **`156 460 2269`** | **`468 1006 9331`** |    **`75.7%`** |
 
-Across these tests, JBS uses about 67% fewer lines and 76% fewer bytes.
+Across these tests, JBS uses about 67% fewer lines and about 76% fewer bytes.
 
 ## 2) Results definition is local in JBS
 
@@ -31,7 +31,7 @@ In raw JUBE YAML, result extraction usually requires three connected sections:
 
 You must keep names aligned across distant sections.
 
-Example (raw JUBE YAML style): to extract **one** matched value, you must define `p`, `runtime`, `ana_run`, and `result_run`, and keep names aligned in the result table.
+Example (raw JUBE YAML style): to extract **one** matched value, you must define `p`, `runtime`, `ana_run`, and `result_run`, then keep all names aligned in the result table.
 
 ```yaml
 patternset:
@@ -74,7 +74,7 @@ This reduces cross-section name wiring and keeps extraction logic in one place.
 
 ## 3) Complex parameter logic and dependent slices are hard in YAML
 
-Simple Cartesian product is easy in YAML. The pain starts when you need mixed algebra (`+` and `*`), step dependencies, and different variable slices in each step.
+A simple Cartesian product is easy in YAML. The real difficulty starts when you need mixed algebra (`+` and `*`), step dependencies, and different variable slices in each step.
 
 Example JBS parameter logic:
 
@@ -139,7 +139,7 @@ Excerpt from generated YAML:
         _: '[True,False,True,False,True,False,True,False,True,False,True,False][$_ji__step1__pm__c_d]'
 ```
 
-Tricky, huh. Writing this wiring by hand in raw YAML is possible, but it is much harder to get right and maintain. In JBS, this is a single local formula, and you can run `jbs printparam` to make sure the values produced by the formula match your expectations.
+Writing this wiring by hand in raw YAML is possible, but it is much harder to get right and maintain. In JBS, this is a single local formula, and you can run `jbs printparam` to verify that the produced values match your expectations.
 
 ## 4) YAML syntax pitfalls are easy to miss
 
@@ -152,14 +152,14 @@ separator: '|'
 _: |
 ```
 
-This silently expanded in an unexpected way. In this case, it was my fault. The `separator` was not needed at all. However, the following also achieves the intended result:
+This can expand in an unexpected way. In this case, the mistake was mine. The `separator` was not needed at all. However, the following also achieves the intended result:
 
 ```yaml
 separator: |
 _: |
 ```
 
-The worst part is that there are no warnings for these small mistakes that can break your job runs.
+The worst part is that there are no warnings for these small mistakes, even though they can break your job runs.
 
 ![](logo_facepalm.png)
 

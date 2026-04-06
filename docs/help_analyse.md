@@ -2,7 +2,7 @@
 
 The `analyse` block maps parsed values and step-visible variables into a result table.
 
-In JUBE terms, jbs lowers `analyse` into JUBE `analyser` and `result` sections. The overall workflow matches the JUBE tutorial example for creating a result table.
+In JUBE terms, JBS lowers `analyse` into JUBE `analyser` and `result` sections. The overall workflow matches the JUBE tutorial example for creating a result table.
 
 Reference:
 - JUBE tutorial: creating a result table
@@ -13,7 +13,7 @@ Reference:
 1. Targets one existing `do` or `submit` step.
 2. Declares extraction assignments from files produced by that step.
 3. Defines output columns in a final tuple expression.
-4. The output file is `result/result_<step_name>.dat`.
+4. Writes output to `result/result_<step_name>.dat`.
 
 ## Syntax
 
@@ -36,11 +36,11 @@ Rules:
 - `<step_name>` must be a declared `do` or `submit` block.
 - `with` in `analyse` can import only from `let` namespaces.
 - Imported `let` variables in `analyse` must be strings.
-- Extraction expressions must evaluate to string.
+- Extraction expressions must evaluate to a string.
 - Left-hand extraction aliases become available in the final tuple.
 - The final tuple is required and defines result columns.
 - `as "..."` sets a custom column heading.
-- Statements can be separated by newline or `;`.
+- Statements can be separated by newlines or `;`.
 
 Compact one-line example:
 
@@ -80,7 +80,7 @@ analyse write_number
 }
 ```
 
-This corresponds to the same idea as the JUBE tutorial:
+This follows the same idea as the JUBE tutorial:
 - produce files in a step
 - parse files in an analyser
 - define visible output columns in the result
@@ -157,6 +157,6 @@ analyse write
 }
 ```
 
-- `number` column title is `number`
-- `p0` column title is `p0`
-- `p1 as "German"` column title is `German`
+- `number` uses the column title `number`
+- `p0` uses the column title `p0`
+- `p1 as "German"` uses the column title `German`

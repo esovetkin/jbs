@@ -3,7 +3,7 @@
 `submit` in JBS is a thin layer over JUBE's Slurm template flow:
 
 1. JBS writes a synthetic JUBE `parameterset` with `init_with: "platform.xml:systemParameter"`.
-2. JUBE applies `platform.xml:executesub` substitutions into `submit.job.in`.
+2. JUBE applies `platform.xml:executesub` substitutions to `submit.job.in`.
 3. The resulting `submit.job` is submitted with `sbatch`.
 
 If you only care about `#SBATCH` lines and the launch command, jump to:
@@ -33,7 +33,7 @@ submit <name>
         mail = "me@example.org"
         notification = "END,FAIL"
 
-        # raw-block
+        # raw block
         preprocess = {
                 echo "before run"
         }
@@ -44,7 +44,7 @@ submit <name>
         executable = "/bin/bash"
         args_exec = "-lc hostname"
 
-        # raw-block
+        # raw block
         postprocess = {
                 echo "after run"
         }
@@ -69,7 +69,7 @@ submit run
 
 `submit ... use ...` is restricted to `let` namespaces. Using a `param` source in submit-header `use` is an error.
 
-Multiple `use` clauses are allowed and are merged in order:
+Multiple `use` clauses are allowed and merged in order:
 
 ```jbs
 submit run
@@ -80,7 +80,7 @@ submit run
 }
 ```
 
-is equivalent to:
+This is equivalent to:
 
 ```jbs
 submit run
@@ -90,9 +90,9 @@ submit run
 }
 ```
 
-Defaults follow last-win precedence by key across `use` namespaces. If the same key is provided by multiple `use` namespaces, jbs emits warning `W072`.
+Defaults follow last-win precedence by key across `use` namespaces. If the same key is provided by multiple `use` namespaces, JBS emits warning `W072`.
 
-Inside `submit`, key assignments can be separated by newline or `;`:
+Inside `submit`, key assignments can be separated by a newline or `;`:
 
 ```jbs
 submit run { queue = "batch"; account = "myacct"; args_exec = "-lc hostname"; }
@@ -102,11 +102,11 @@ submit run { queue = "batch"; account = "myacct"; args_exec = "-lc hostname"; }
 
 `after` also carries variable visibility from predecessor steps.
 
-- If `submit run after prep`, then variables visible in `prep` are inherited by `run`.
-- If `run` also has `with ... from <same_paramset>`, jbs imports only variables not already inherited.
-- If an inherited variable name collides with a variable of the same name from a different parameter set in explicit `with`, jbs raises an error.
-- jbs preserves source-row constraints from inherited imports, so dependent submits do not introduce unintended Cartesian blow-ups.
-- this source-row inheritance is transitive across multi-step chains.
+- If `submit run` has `after prep`, variables visible in `prep` are inherited by `run`.
+- If `run` also has `with ... from <same_paramset>`, JBS imports only variables that are not already inherited.
+- If an inherited variable name collides with a variable of the same name from a different parameter set in explicit `with`, JBS raises an error.
+- JBS preserves source-row constraints from inherited imports, so dependent `submit` steps do not introduce unintended Cartesian blow-ups.
+- This source-row inheritance is transitive across multi-step chains.
 
 Example:
 
@@ -165,12 +165,12 @@ From `platform.xml:executesub`, the replacements are:
 - `queue` -> `#QUEUE#`
 - `gres` -> `#GRES#`
 - `account` -> `#ACCOUNT_CONFIG#` via:
-  - `account_slurm = "#SBATCH --account=$account" if account is non-empty, else empty`
+  - `account_slurm = "#SBATCH --account=$account"` if `account` is non-empty; otherwise empty
 
 Other useful placeholders:
 - `#BENCHNAME#` comes from JUBE internals:
   - `${jube_benchmark_name}_${jube_step_name}_${jube_wp_id}`
-- `$jube_benchmark_home`, `$jube_wp_abspath` and other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
+- `$jube_benchmark_home`, `$jube_wp_abspath`, and other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
 
 ## Lookup: launch line replacement
 
@@ -188,7 +188,7 @@ From `platform.xml:executesub`:
 - `executable` -> `#EXECUTABLE#`
 - `args_exec` -> `#ARGS_EXECUTABLE#`
 
-The final command is built by simple token replacement in that order.
+The final command is built by token replacement in that order.
 
 Example:
 
@@ -235,11 +235,11 @@ submit run
 }
 ```
 
-## Example: Practical GPU submit block
-
-XXX this is pretty much useless. Update it to reflect defaults usable on our systems
+## Example: practical GPU submit block
 
 ```jbs
+use submit_defaults from jsc
+
 param cases
 {
         nnodes = (1, 2)
@@ -248,24 +248,18 @@ param cases
 }
 
 submit train
+        use submit_defaults
         with cases
 {
         account = "atmlaml"
-        queue = "develbooster"
-        nodes = nnodes
-        tasks = nnodes
-        threadspertask = 48
-        gres = "gpu:4"
+        nodes = "${nnodes}"
         timelimit = "00:15:00"
-        outlogfile = "job.out"
-        outerrfile = "job.err"
 
         preprocess = {
                 export NCCL_SOCKET_IFNAME=ib0
                 export GLOO_SOCKET_IFNAME=ib0
         }
 
-        starter = "srun"
         executable = "/bin/bash"
         args_exec = "-lc 'python -u train.py --case ${case}'"
 }

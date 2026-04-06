@@ -56,14 +56,14 @@ analyse write
 }
 ```
 
-## Step Imports from `let`
+## Step imports from `let`
 
-`do`/`submit` support all `with` forms for let namespaces:
+`do` and `submit` support all `with` forms for let namespaces:
 
 ```jbs
 let l
 {
-        # ensure there are no new lines, otherwise JUBE cannot handle it
+        # ensure there are no newlines; otherwise JUBE cannot handle it
         systemname = shell("hostname | tr -d '\n'")
         queue = "batch"
 }
@@ -92,5 +92,5 @@ For step imports from `let`, jbs generates synthetic YAML `parameterset` entries
 ## Notes
 
 - In `param`, `with <let_name>` imports all let variables into local scope.
-- In `analyse`, `with` imports are allowed only from `let` namespaces and imported let variables must be strings.
-- `W310`/`W311` also apply to variables defined in `let` blocks.
+- In `analyse`, `with` imports are allowed only from `let` namespaces, and imported let variables must be strings.
+- `W310` and `W311` also apply to variables defined in `let` blocks.

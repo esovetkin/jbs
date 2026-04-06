@@ -4,8 +4,8 @@ The `param` block defines a parameter set.
 Inside a `param` block:
 
 1. You assign variables.
-2. The last line is a combination expression using + and *.
-3. Variables used in the final expression become available to `do`/`submit`.
+2. The last line is a combination expression using `+` and `*`.
+3. Variables used in the final expression become available to `do` and `submit`.
 
 ```jbs
 param <name> [with ...]
@@ -16,7 +16,7 @@ param <name> [with ...]
 }
 ```
 
-You can separate statements with newline or `;`:
+You can separate statements with a newline or `;`:
 
 ```jbs
 param quick
@@ -25,7 +25,7 @@ param quick
 }
 ```
 
-For multiline expressions, use explicit backslash-newline continuation (`\\\n`):
+For multiline expressions, use explicit backslash-newline continuation (`\n`):
 
 ```jbs
 param multiline
@@ -51,9 +51,9 @@ param cases
 ```
 
 - `+` is a direct sum (zip-like).
-- Result rows: (case="ddp", nnodes=1), (case="fsdp", nnodes=2).
+- Result rows: `(case="ddp", nnodes=1)`, `(case="fsdp", nnodes=2)`.
 
-## 2) * outer product
+## 2) `*` outer product
 
 ```jbs
 param grid
@@ -66,7 +66,7 @@ param grid
 ```
 
 - `*` is a Cartesian product.
-- Result rows: 2 × 3 = 6 combinations.
+- Result rows: `2 x 3 = 6` combinations.
 
 ## 3) Precedence and parentheses
 
@@ -93,9 +93,8 @@ param warn_example
 }
 ```
 
-- Lengths 2 and 3 do not match.
-- Cyclic broadcast happens to length 3:
-    - (1,"a"), (2,"b"), (1,"c")
+- Lengths `2` and `3` do not match.
+- Cyclic broadcasting is applied to length `3`: `(1, "a"), (2, "b"), (1, "c")`.
 - No warning is emitted when lengths are divisible:
 
 ```jbs
@@ -109,7 +108,7 @@ param no_warn_example
 }
 ```
 
-## 5) Importing from other param sets (with)
+## 5) Importing from other parameter sets (`with`)
 
 Import an entire parameter set:
 
@@ -172,7 +171,7 @@ param derived5 with x from lib.base
 }
 ```
 
-## 6) python() / shell() in param
+## 6) `python()` / `shell()` in `param`
 
 `python()` and `shell()` are allowed as standalone assignment values:
 
@@ -186,4 +185,4 @@ param envinfo
 }
 ```
 
-Use them as whole assignment values, not inside tuple/list elements.
+Use them as complete assignment values, not inside tuple/list elements.

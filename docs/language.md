@@ -48,9 +48,9 @@ analyse_col   := IDENT ("as" STRING)?
 
 ## Statement Separators
 
-In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by newline or `;`.
+In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by a newline or `;`.
 
-Multiline expressions require explicit backslash-newline continuation (`\\\n`).
+Multiline expressions require explicit backslash-newline continuation (`\n`).
 Implicit operator-based newline continuation is not supported.
 
 Example:
@@ -133,20 +133,20 @@ Unsupported syntax (diagnostics emitted):
 
 - function calls
 - dict literals
-- imports
+- import statements
 
 ## Combination Algebra
 
 - `A * B`: Cartesian product.
 - `A + B`: direct sum (zip).
-- operator precedence: `*` before `+`.
-- parentheses are supported.
+- Operator precedence: `*` before `+`.
+- Parentheses are supported.
 
 `+` broadcasting behavior:
 
-- if lengths match: normal zip.
-- else: cyclic broadcast to `max(len(left), len(right))`.
-- warning `W101` is emitted at the `+` operator span only when the shorter length does not divide the longer one.
+- If lengths match, a normal zip is used.
+- Otherwise, cyclic broadcasting is applied to `max(len(left), len(right))`.
+- Warning `W101` is emitted at the `+` operator span only when the shorter length does not divide the longer one.
 
 Repeated identifier use in a single combination expression is rejected (`E036`).
 
@@ -265,7 +265,7 @@ param cases with p {
 ```
 
 Tuple/list values are rejected in `let` (`E403`).
-Nested tuples/lists are rejected (`E305`) in `param`, submit expression fields, and analyse helper assignments.
+Nested tuples/lists are rejected (`E305`) in `param`, submit expression fields, and `analyse` helper assignments.
 
 ## Import Semantics (`with`)
 
@@ -289,26 +289,26 @@ In `do`/`submit`:
 - `with x from p2` generates a synthetic subset parameter set containing only selected variables.
 - `with (x, y) from p2` generates one subset parameter set for selected variables.
 - `after` implies parameter inheritance from dependency steps.
-- if `after` already provides a variable from the same source parameter set, explicit `with` re-import of that variable is ignored.
-- if explicit `with` targets a whole parameter set after inheritance, only non-inherited variables from that parameter set are imported.
-- if the same variable name is inherited/imported from different parameter sets, compilation fails.
-- inherited imports also carry source-row context from their source parameter set.
-- when a dependent step imports additional variables from the same source, jbs refines that inherited source-row context instead of creating an independent Cartesian dimension.
-- this source-row context propagation is transitive across `after` chains (for example, `step0 -> step1 -> step2`).
+- If `after` already provides a variable from the same source parameter set, explicit `with` re-import of that variable is ignored.
+- If explicit `with` targets a whole parameter set after inheritance, only non-inherited variables from that parameter set are imported.
+- If the same variable name is inherited/imported from different parameter sets, compilation fails.
+- Inherited imports also carry source-row context from their source parameter set.
+- When a dependent step imports additional variables from the same source, JBS refines that inherited source-row context instead of creating an independent Cartesian dimension.
+- This source-row context propagation is transitive across `after` chains (for example, `step0 -> step1 -> step2`).
 
 In `analyse`:
 
 - `with` imports are allowed only from `let` namespaces.
-- imported let variables in `analyse` must be strings (`E422`).
+- Imported let variables in `analyse` must be strings (`E422`).
 - `with` imports from `param` are rejected (`E420`).
 
 In submit headers:
 
 - `submit ... use <name>` is special and accepts only `let` namespaces.
-- multiple submit-header `use` clauses are allowed and merged in order.
-- later `use` namespaces override earlier ones for the same submit key (last-win).
-- collisions across different `use` namespaces for the same submit key emit warning `W072`.
-- using a `param` source in submit-header `use` is rejected (`E071`).
+- Multiple submit-header `use` clauses are allowed and merged in order.
+- Later `use` namespaces override earlier ones for the same submit key (last-win).
+- Collisions across different `use` namespaces for the same submit key emit warning `W072`.
+- Using a `param` source in submit-header `use` is rejected (`E071`).
 
 Example:
 
@@ -455,8 +455,8 @@ Inline extraction expressions in `analyse` create synthetic pattern groups of th
 
 Rules:
 
-- globals can be assigned only at the top level.
-- unknown globals are compile errors (`E300`).
+- Globals can be assigned only at the top level.
+- Unknown globals are compile errors (`E300`).
 - `jbs_name` and `jbs_outpath` must be plain string literals.
 
 Examples:
@@ -483,20 +483,20 @@ Run `jbs help globals` to print defaults and mappings.
 
 Rules:
 
-- one blank line between top-level statements.
-- global assignments are emitted as `name = value`.
-- block header on the first line (`param|do|submit|let|analyse <name>`).
+- One blank line between top-level statements.
+- Global assignments are emitted as `name = value`.
+- The block header is on the first line (`param|do|submit|let|analyse <name>`).
 - `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces.
-- opening brace `{` is on its own line.
-- block body indentation is normalized to 8 spaces.
-- closing brace `}` is at column 1.
-- output always ends with a trailing newline.
+- The opening brace `{` is on its own line.
+- Block body indentation is normalized to 8 spaces.
+- The closing brace `}` is at column 1.
+- Output always ends with a trailing newline.
 
 Submit formatting constraints:
 
-- expression fields stay `key = expr`.
-- raw fields stay `key = { ... }`.
-- formatter does not change submit key semantics.
+- Expression fields stay `key = expr`.
+- Raw fields stay `key = { ... }`.
+- The formatter does not change submit key semantics.
 
 ## Diagnostics
 
