@@ -1,6 +1,9 @@
 package planutil
 
-import "sort"
+import (
+	"maps"
+	"slices"
+)
 
 func TopoStepOrder(deps map[string][]string, preferred []string) []string {
 	state := make(map[string]int, len(deps))
@@ -31,12 +34,7 @@ func TopoStepOrder(deps map[string][]string, preferred []string) []string {
 	for _, name := range preferred {
 		visit(name)
 	}
-	extra := make([]string, 0, len(deps))
-	for name := range deps {
-		extra = append(extra, name)
-	}
-	sort.Strings(extra)
-	for _, name := range extra {
+	for _, name := range slices.Sorted(maps.Keys(deps)) {
 		visit(name)
 	}
 	return order

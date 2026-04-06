@@ -2,7 +2,8 @@ package printparam
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -112,13 +113,12 @@ func filterColumnsByUsage(candidates []string, used map[string]struct{}) []strin
 		out = append(out, candidate)
 	}
 	extra := make([]string, 0)
-	for key := range used {
+	for _, key := range slices.Sorted(maps.Keys(used)) {
 		if _, ok := seen[key]; ok {
 			continue
 		}
 		extra = append(extra, key)
 	}
-	sort.Strings(extra)
 	out = append(out, extra...)
 	return out
 }
@@ -144,12 +144,7 @@ func pruneHeaderOnlyColumns(cols []string, rows []Row) []string {
 func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {
 	out := make([]string, 0)
 	seen := make(map[string]struct{})
-	names := make([]string, 0, len(sources))
-	for name := range sources {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, sourceName := range names {
+	for _, sourceName := range slices.Sorted(maps.Keys(sources)) {
 		src := sources[sourceName]
 		if src == nil {
 			continue
@@ -251,7 +246,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*s
 			g.Full = true
 			if src := sources[source]; src != nil {
 				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-					if containsSourceVisible(g.Vars, name) {
+					if slices.ContainsFunc(g.Vars, func(v sourceVar) bool { return v.Visible == name }) {
 						continue
 					}
 					g.Vars = append(g.Vars, sourceVar{Visible: name, SourceVar: name})
@@ -267,7 +262,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*s
 		if sourceVarName == "" {
 			sourceVarName = visible
 		}
-		if !containsSourceVisible(g.Vars, visible) {
+		if !slices.ContainsFunc(g.Vars, func(v sourceVar) bool { return v.Visible == visible }) {
 			g.Vars = append(g.Vars, sourceVar{Visible: visible, SourceVar: sourceVarName})
 		}
 	}
@@ -392,7 +387,7 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Imp
 			vals[name] = value
 		}
 		choices = append(choices, sourceChoice{
-			Rows:   copyIntSlice(grp.Rows),
+			Rows:   slices.Clone(grp.Rows),
 			Values: vals,
 		})
 	}
@@ -418,7 +413,7 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 	}
 	for source, rows := range b.SourceRows {
 		if existing, ok := out.SourceRows[source]; ok {
-			if !equalIntSlices(existing, rows) {
+			if !slices.Equal(existing, rows) {
 				diags.AddError(
 					"E501",
 					fmt.Sprintf("conflicting inherited row context for source '%s'", source),
@@ -429,7 +424,7 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 			}
 			continue
 		}
-		out.SourceRows[source] = copyIntSlice(rows)
+		out.SourceRows[source] = slices.Clone(rows)
 	}
 	return out, true
 }
@@ -451,7 +446,7 @@ func mergeWithChoice(state wpState, source string, choice sourceChoice, at diag.
 		}
 		out.Values[name] = value
 	}
-	out.SourceRows[source] = copyIntSlice(choice.Rows)
+	out.SourceRows[source] = slices.Clone(choice.Rows)
 	return out, true
 }
 
@@ -468,7 +463,7 @@ func cloneState(state wpState) wpState {
 		out.Values[name] = value
 	}
 	for source, rows := range state.SourceRows {
-		out.SourceRows[source] = copyIntSlice(rows)
+		out.SourceRows[source] = slices.Clone(rows)
 	}
 	return out
 }
@@ -521,24 +516,6 @@ func valueKey(v eval.Value) string {
 	}
 }
 
-func copyIntSlice(values []int) []int {
-	out := make([]int, len(values))
-	copy(out, values)
-	return out
-}
-
-func equalIntSlices(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func uniqueStrings(items []string) []string {
 	out := make([]string, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
@@ -550,22 +527,4 @@ func uniqueStrings(items []string) []string {
 		out = append(out, item)
 	}
 	return out
-}
-
-func containsString(items []string, value string) bool {
-	for _, item := range items {
-		if item == value {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSourceVisible(items []sourceVar, visible string) bool {
-	for _, item := range items {
-		if item.Visible == visible {
-			return true
-		}
-	}
-	return false
 }

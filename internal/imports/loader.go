@@ -408,8 +408,8 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 	if ref == "" || !strings.Contains(ref, ".") {
 		return ref
 	}
-	parts := strings.Split(ref, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	alias, name, ok := strings.Cut(ref, ".")
+	if !ok || alias == "" || name == "" || strings.Contains(name, ".") {
 		r.diags.AddError(
 			"E537",
 			fmt.Sprintf("invalid qualified with reference '%s'", ref),
@@ -418,8 +418,6 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 		)
 		return ref
 	}
-	alias := parts[0]
-	name := parts[1]
 	sourceRef, ok := mod.Aliases[alias]
 	if !ok {
 		r.diags.AddError(

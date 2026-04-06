@@ -2,7 +2,8 @@ package lower
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -667,7 +668,7 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 		for _, assign := range spec.Assignments {
 			groupName := assign.Group
 			ctx.ensurePatternSet(groupName, spec.Block.StepName)
-			if !contains(usedGroups, groupName) {
+			if !slices.Contains(usedGroups, groupName) {
 				usedGroups = append(usedGroups, groupName)
 			}
 
@@ -696,7 +697,7 @@ func (ctx *lowerContext) lowerAnalyseAndResult() {
 			},
 			Meta: AnalyserMeta{Source: spec.Block.StepName},
 		})
-		if !contains(result.Use, analyserName) {
+		if !slices.Contains(result.Use, analyserName) {
 			result.Use = append(result.Use, analyserName)
 		}
 
@@ -762,11 +763,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	inheritVars := make([]string, 0)
 	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
 		inherits = append(inherits, plan.InheritedSteps...)
-		inheritVars = make([]string, 0, len(plan.Inherited))
-		for name := range plan.Inherited {
-			inheritVars = append(inheritVars, name)
-		}
-		sort.Strings(inheritVars)
+		inheritVars = slices.Sorted(maps.Keys(plan.Inherited))
 	}
 	step := Step{
 		Name:       block.Name,
@@ -861,11 +858,7 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 	inheritVars := make([]string, 0)
 	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
 		inherits = append(inherits, plan.InheritedSteps...)
-		inheritVars = make([]string, 0, len(plan.Inherited))
-		for name := range plan.Inherited {
-			inheritVars = append(inheritVars, name)
-		}
-		sort.Strings(inheritVars)
+		inheritVars = slices.Sorted(maps.Keys(plan.Inherited))
 	}
 	step := Step{
 		Name:       block.Name,
@@ -977,7 +970,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 					groupOrder = append(groupOrder, item.Source)
 				}
 				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-					if containsSubsetVisible(grouped[item.Source], name) {
+					if slices.ContainsFunc(grouped[item.Source], func(v subsetVarSpec) bool { return v.Visible == name }) {
 						continue
 					}
 					emitted := name
@@ -997,7 +990,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 			grouped[item.Source] = make([]subsetVarSpec, 0)
 			groupOrder = append(groupOrder, item.Source)
 		}
-		if !containsSubsetVisible(grouped[item.Source], item.Visible) {
+		if !slices.ContainsFunc(grouped[item.Source], func(v subsetVarSpec) bool { return v.Visible == item.Visible }) {
 			sourceVar := item.SourceVar
 			if sourceVar == "" {
 				sourceVar = item.Visible
@@ -1122,11 +1115,7 @@ func (ctx *lowerContext) stepSpan(stepName string) diag.Span {
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
-	out := make(map[string]string, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(src)
 }
 
 func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, inheritedRowsVar string) (string, string) {
@@ -1458,24 +1447,6 @@ func sanitize(name string) string {
 		}
 	}
 	return b.String()
-}
-
-func contains(items []string, item string) bool {
-	for _, x := range items {
-		if x == item {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSubsetVisible(items []subsetVarSpec, name string) bool {
-	for _, item := range items {
-		if item.Visible == name {
-			return true
-		}
-	}
-	return false
 }
 
 func subsetEmittedName(v subsetVarSpec) string {

@@ -1,26 +1,17 @@
 package planutil
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	"jbs/internal/eval"
 )
 
 func SourceVarNames(order []string, vars map[string][]eval.Value) []string {
 	if len(order) > 0 {
-		out := make([]string, len(order))
-		copy(out, order)
-		return out
+		return slices.Clone(order)
 	}
-	if len(vars) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(vars))
-	for name := range vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(vars))
 }
 
 func SourceRowCount(order []string, vars map[string][]eval.Value) int {

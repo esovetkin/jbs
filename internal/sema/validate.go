@@ -2,7 +2,8 @@ package sema
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -123,12 +124,7 @@ func IsSubmitKey(name string) bool {
 }
 
 func SubmitKeys() []string {
-	out := make([]string, 0, len(allowedSubmitKeys))
-	for name := range allowedSubmitKeys {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(allowedSubmitKeys))
 }
 
 func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *LetNamespace {
@@ -223,11 +219,7 @@ func importSourceFromParam(ps *Paramset) *ImportSource {
 
 func importSourceFromLet(ns *LetNamespace) *ImportSource {
 	vars := make(map[string][]eval.Value, len(ns.Vars))
-	order := make([]string, 0, len(ns.Vars))
-	for name := range ns.Vars {
-		order = append(order, name)
-	}
-	sort.Strings(order)
+	order := slices.Sorted(maps.Keys(ns.Vars))
 	for _, name := range order {
 		vars[name] = valueAsSeries(ns.Vars[name])
 	}
@@ -244,9 +236,7 @@ func importSourceFromLet(ns *LetNamespace) *ImportSource {
 
 func valueAsSeries(v eval.Value) []eval.Value {
 	if v.Kind == eval.KindList {
-		out := make([]eval.Value, len(v.L))
-		copy(out, v.L)
-		return out
+		return slices.Clone(v.L)
 	}
 	return []eval.Value{v}
 }
@@ -262,19 +252,11 @@ func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
 }
 
 func cloneSpanMap(src map[string]diag.Span) map[string]diag.Span {
-	out := make(map[string]diag.Span, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(src)
 }
 
 func cloneModeMap(src map[string]string) map[string]string {
-	out := make(map[string]string, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(src)
 }
 
 func normalizePatternRegex(input string) (string, string, bool) {
@@ -1283,12 +1265,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		return ps, ls, false
 	}
 	letVarNames := func(ns *LetNamespace) []string {
-		names := make([]string, 0, len(ns.Vars))
-		for name := range ns.Vars {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		return names
+		return slices.Sorted(maps.Keys(ns.Vars))
 	}
 	type importedOwner struct {
 		Source string
@@ -1731,12 +1708,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		state[node] = 2
 	}
 
-	names := make([]string, 0, len(edges))
-	for name := range edges {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(edges)) {
 		if state[name] == 0 {
 			visit(name)
 		}
@@ -2077,12 +2049,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 	candidatesByVar := make(map[string][]sourceCandidate)
 	used := make(map[string]map[string]bool)
 
-	sourceNames := make([]string, 0, len(res.ImportSourceByName))
-	for name := range res.ImportSourceByName {
-		sourceNames = append(sourceNames, name)
-	}
-	sort.Strings(sourceNames)
-	for _, sourceName := range sourceNames {
+	for _, sourceName := range slices.Sorted(maps.Keys(res.ImportSourceByName)) {
 		src := res.ImportSourceByName[sourceName]
 		if src == nil {
 			continue
@@ -2263,17 +2230,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 }
 
 func exposedVarNames(ps *Paramset) []string {
-	if len(ps.Order) > 0 {
-		names := make([]string, len(ps.Order))
-		copy(names, ps.Order)
-		return names
-	}
-	names := make([]string, 0, len(ps.Vars))
-	for name := range ps.Vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return planutil.SourceVarNames(ps.Order, ps.Vars)
 }
 
 func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource) map[string][]importedVar {
@@ -2638,15 +2595,6 @@ func sanitizeStepName(input string) string {
 		return "x"
 	}
 	return out
-}
-
-func containsString(items []string, value string) bool {
-	for _, item := range items {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }
 
 func validateWithItems(
