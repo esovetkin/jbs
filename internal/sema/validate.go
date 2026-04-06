@@ -9,6 +9,7 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 )
 
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
@@ -639,7 +640,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 				addImported("", src, "", item.Span)
 				continue
 			}
-			for _, name := range sourceVarNames(src) {
+			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 				addImported(name, src, name, item.Span)
 			}
 			continue
@@ -697,7 +698,7 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 				)
 				continue
 			}
-			for _, name := range sourceVarNames(fallback) {
+			for _, name := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
 				addImported(name, fallback, name, item.Span)
 			}
 			continue
@@ -1013,7 +1014,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			)
 			continue
 		}
-		for _, varName := range sourceVarNames(src) {
+		for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
 			if _, ok := allowedSubmitKeys[varName]; !ok {
 				origin := src.Origins[varName]
 				if origin.IsZero() {
@@ -1798,7 +1799,7 @@ type stepConflictReporter func(name string, left VarOrigin, right VarOrigin, at 
 func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 	defs, order := collectStepDefinitions(res)
 	plans := make(map[string]*StepImportPlan, len(defs))
-	for _, stepName := range topoStepOrder(defs, order) {
+	for _, stepName := range planutil.TopoStepOrder(stepDefinitionDeps(defs), order) {
 		def, ok := defs[stepName]
 		if !ok {
 			continue
@@ -1980,42 +1981,12 @@ func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {
 	return defs, order
 }
 
-func topoStepOrder(defs map[string]stepDefinition, preferred []string) []string {
-	state := make(map[string]int, len(defs))
-	order := make([]string, 0, len(defs))
-	var visit func(string)
-	visit = func(name string) {
-		if state[name] == 2 {
-			return
-		}
-		if state[name] == 1 {
-			return
-		}
-		def, ok := defs[name]
-		if !ok {
-			return
-		}
-		state[name] = 1
-		for _, dep := range def.After {
-			if _, exists := defs[dep]; exists {
-				visit(dep)
-			}
-		}
-		state[name] = 2
-		order = append(order, name)
+func stepDefinitionDeps(defs map[string]stepDefinition) map[string][]string {
+	out := make(map[string][]string, len(defs))
+	for name, def := range defs {
+		out[name] = append([]string(nil), def.After...)
 	}
-	for _, name := range preferred {
-		visit(name)
-	}
-	extra := make([]string, 0, len(defs))
-	for name := range defs {
-		extra = append(extra, name)
-	}
-	sort.Strings(extra)
-	for _, name := range extra {
-		visit(name)
-	}
-	return order
+	return out
 }
 
 func expandWithItem(
@@ -2116,7 +2087,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		if src == nil {
 			continue
 		}
-		varNames := sourceVarNames(src)
+		varNames := planutil.SourceVarNames(src.Order, src.Vars)
 		if len(varNames) == 0 {
 			continue
 		}
@@ -2225,7 +2196,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			if src == nil || src.Kind != SourceKindLet {
 				continue
 			}
-			for _, name := range sourceVarNames(src) {
+			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 				if _, ok := allowedSubmitKeys[name]; !ok {
 					continue
 				}
@@ -2329,7 +2300,7 @@ func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource)
 			if src == nil {
 				continue
 			}
-			for _, name := range sourceVarNames(src) {
+			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 				add(name, name, src.Name, src.Kind, item.Span)
 			}
 			continue
@@ -2344,7 +2315,7 @@ func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource)
 			continue
 		}
 		if fallback := sources[item.Name]; fallback != nil {
-			for _, name := range sourceVarNames(fallback) {
+			for _, name := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
 				add(name, name, fallback.Name, fallback.Kind, item.Span)
 			}
 		}
@@ -2364,23 +2335,6 @@ func resolveImportedVarsFromPlan(plan *StepImportPlan) map[string][]importedVar 
 		})
 	}
 	return out
-}
-
-func sourceVarNames(src *ImportSource) []string {
-	if src == nil {
-		return nil
-	}
-	if len(src.Order) > 0 {
-		names := make([]string, len(src.Order))
-		copy(names, src.Order)
-		return names
-	}
-	names := make([]string, 0, len(src.Vars))
-	for name := range src.Vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 type shellScanState uint8
@@ -2765,7 +2719,7 @@ func validateWithItems(
 					"import an existing parameterset or let namespace",
 				)
 			} else {
-				for _, varName := range sourceVarNames(src) {
+				for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
 					addImported(varName, src.Name, item.Span)
 				}
 			}
@@ -2807,7 +2761,7 @@ func validateWithItems(
 			continue
 		}
 		if fallback != nil {
-			for _, varName := range sourceVarNames(fallback) {
+			for _, varName := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
 				addImported(varName, fallback.Name, item.Span)
 			}
 			continue

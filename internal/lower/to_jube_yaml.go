@@ -12,6 +12,7 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 	"jbs/internal/sema"
 )
 
@@ -975,7 +976,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 					grouped[item.Source] = make([]subsetVarSpec, 0)
 					groupOrder = append(groupOrder, item.Source)
 				}
-				for _, name := range sourceVarNames(src) {
+				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 					if containsSubsetVisible(grouped[item.Source], name) {
 						continue
 					}
@@ -1063,7 +1064,7 @@ func sourceNeedsAlias(src *sema.ImportSource, aliases map[string]string) bool {
 	if src == nil || len(aliases) == 0 {
 		return false
 	}
-	for _, name := range sourceVarNames(src) {
+	for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 		if _, ok := aliases[name]; ok {
 			return true
 		}
@@ -1186,7 +1187,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 
 	params := make([]Parameter, 0, len(vars)+2)
 	if inheritedRowsVar == "" {
-		groups := buildRowGroups(visibleNames, valuesByName, rowCount)
+		groups := planutil.BuildRowGroups(visibleNames, valuesByName, rowCount, pythonLiteral)
 		repIndices := make([]int, 0, len(groups))
 		rowGroupStrings := make([]string, 0, len(groups))
 		for _, group := range groups {
@@ -1325,11 +1326,6 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 	return name, ""
 }
 
-type rowGroup struct {
-	Rep  int
-	Rows []int
-}
-
 func sourceRowCount(ps *sema.Paramset) int {
 	if ps == nil {
 		return 0
@@ -1350,71 +1346,14 @@ func sourceRowCountFromSource(src *sema.ImportSource) int {
 	if src == nil {
 		return 0
 	}
-	rowCount := 0
-	for _, name := range sourceVarNames(src) {
-		if n := len(src.Vars[name]); n > rowCount {
-			rowCount = n
-		}
-	}
-	return rowCount
+	return planutil.SourceRowCount(src.Order, src.Vars)
 }
 
 func sourceValuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
-	values := make([]eval.Value, 0, rowCount)
-	base := src.Vars[name]
-	if len(base) == 0 {
-		for range rowCount {
-			values = append(values, eval.Null())
-		}
-		return values
-	}
-	for i := range rowCount {
-		values = append(values, base[i%len(base)])
-	}
-	return values
-}
-
-func buildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int) []rowGroup {
-	if rowCount <= 0 {
+	if src == nil {
 		return nil
 	}
-	if len(vars) == 0 {
-		return []rowGroup{{Rep: 0, Rows: sequentialIndices(rowCount)}}
-	}
-	indexByKey := make(map[string]int)
-	groups := make([]rowGroup, 0, rowCount)
-	for row := 0; row < rowCount; row++ {
-		key := tupleKeyAt(vars, valuesByName, row)
-		if idx, exists := indexByKey[key]; exists {
-			groups[idx].Rows = append(groups[idx].Rows, row)
-			continue
-		}
-		indexByKey[key] = len(groups)
-		groups = append(groups, rowGroup{
-			Rep:  row,
-			Rows: []int{row},
-		})
-	}
-	return groups
-}
-
-func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {
-	var b strings.Builder
-	for _, name := range vars {
-		values := valuesByName[name]
-		value := eval.Null()
-		if row >= 0 && row < len(values) {
-			value = values[row]
-		}
-		lit := pythonLiteral(value)
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len(lit)))
-		b.WriteByte(':')
-		b.WriteString(lit)
-		b.WriteByte('|')
-	}
-	return b.String()
+	return planutil.ExpandValues(src.Vars[name], rowCount)
 }
 
 func (ctx *lowerContext) uniqueName(base string) string {
@@ -1663,23 +1602,6 @@ func isShellVarStart(ch byte) bool {
 
 func isShellVarChar(ch byte) bool {
 	return isShellVarStart(ch) || (ch >= '0' && ch <= '9')
-}
-
-func sourceVarNames(src *sema.ImportSource) []string {
-	if src == nil {
-		return nil
-	}
-	if len(src.Order) > 0 {
-		out := make([]string, len(src.Order))
-		copy(out, src.Order)
-		return out
-	}
-	names := make([]string, 0, len(src.Vars))
-	for name := range src.Vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func indexVariableName(context string) string {

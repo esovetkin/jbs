@@ -9,6 +9,7 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 	"jbs/internal/sema"
 )
 
@@ -42,11 +43,6 @@ type sourceChoice struct {
 	Values map[string]eval.Value
 }
 
-type rowGroup struct {
-	Rep  int
-	Rows []int
-}
-
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	candidateColumns := collectQualifiedColumns(res.ImportSourceByName)
 	steps := collectStepsInProgramOrder(res.Program)
@@ -58,7 +54,7 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	}
 
 	statesByStep := make(map[string][]wpState, len(steps))
-	for _, stepName := range topoStepOrder(defs, preferred) {
+	for _, stepName := range planutil.TopoStepOrder(stepDeps(defs), preferred) {
 		step := defs[stepName]
 		plan := res.StepImportByName[stepName]
 		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
@@ -158,7 +154,7 @@ func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {
 		if src == nil {
 			continue
 		}
-		for _, name := range sourceVarNames(src) {
+		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 			key := src.Name + "." + name
 			if _, ok := seen[key]; ok {
 				continue
@@ -193,43 +189,12 @@ func collectStepsInProgramOrder(prog ast.Program) []stepDef {
 	return out
 }
 
-func topoStepOrder(defs map[string]stepDef, preferred []string) []string {
-	state := make(map[string]int, len(defs))
-	order := make([]string, 0, len(defs))
-	var visit func(string)
-	visit = func(name string) {
-		if state[name] == 2 {
-			return
-		}
-		if state[name] == 1 {
-			return
-		}
-		def, ok := defs[name]
-		if !ok {
-			return
-		}
-		state[name] = 1
-		for _, dep := range def.After {
-			if _, ok := defs[dep]; ok {
-				visit(dep)
-			}
-		}
-		state[name] = 2
-		order = append(order, name)
+func stepDeps(defs map[string]stepDef) map[string][]string {
+	out := make(map[string][]string, len(defs))
+	for name, def := range defs {
+		out[name] = append([]string(nil), def.After...)
 	}
-
-	for _, name := range preferred {
-		visit(name)
-	}
-	extra := make([]string, 0, len(defs))
-	for name := range defs {
-		extra = append(extra, name)
-	}
-	sort.Strings(extra)
-	for _, name := range extra {
-		visit(name)
-	}
-	return order
+	return out
 }
 
 func inheritParentStates(after []string, byStep map[string][]wpState, at diag.Span, diags *diag.Diagnostics) []wpState {
@@ -285,7 +250,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*s
 		if item.Full {
 			g.Full = true
 			if src := sources[source]; src != nil {
-				for _, name := range sourceVarNames(src) {
+				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 					if containsSourceVisible(g.Vars, name) {
 						continue
 					}
@@ -354,7 +319,7 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Imp
 	vars := group.Vars
 	if group.Full {
 		if len(vars) == 0 {
-			for _, name := range sourceVarNames(src) {
+			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 				vars = append(vars, sourceVar{Visible: name, SourceVar: name})
 			}
 		}
@@ -414,7 +379,7 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Imp
 		return choices
 	}
 
-	groups := buildRowGroups(visibleNames, valuesByName, rowCount)
+	groups := planutil.BuildRowGroups(visibleNames, valuesByName, rowCount, valueKey)
 	choices := make([]sourceChoice, 0, len(groups))
 	for _, grp := range groups {
 		vals := make(map[string]eval.Value, len(visibleNames))
@@ -520,69 +485,14 @@ func sourceRowCount(src *sema.ImportSource) int {
 	if src == nil {
 		return 0
 	}
-	rowCount := 0
-	for _, name := range sourceVarNames(src) {
-		if n := len(src.Vars[name]); n > rowCount {
-			rowCount = n
-		}
-	}
-	return rowCount
+	return planutil.SourceRowCount(src.Order, src.Vars)
 }
 
 func valuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
-	values := make([]eval.Value, 0, rowCount)
-	base := src.Vars[name]
-	if len(base) == 0 {
-		for i := 0; i < rowCount; i++ {
-			values = append(values, eval.Null())
-		}
-		return values
-	}
-	values = values[:0]
-	for i := 0; i < rowCount; i++ {
-		values = append(values, base[i%len(base)])
-	}
-	return values
-}
-
-func buildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int) []rowGroup {
-	if rowCount <= 0 {
+	if src == nil {
 		return nil
 	}
-	if len(vars) == 0 {
-		return []rowGroup{{Rep: 0, Rows: sequentialIndices(rowCount)}}
-	}
-	indexByKey := make(map[string]int)
-	groups := make([]rowGroup, 0, rowCount)
-	for row := 0; row < rowCount; row++ {
-		key := tupleKeyAt(vars, valuesByName, row)
-		if idx, ok := indexByKey[key]; ok {
-			groups[idx].Rows = append(groups[idx].Rows, row)
-			continue
-		}
-		indexByKey[key] = len(groups)
-		groups = append(groups, rowGroup{Rep: row, Rows: []int{row}})
-	}
-	return groups
-}
-
-func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {
-	var b strings.Builder
-	for _, name := range vars {
-		values := valuesByName[name]
-		value := eval.Null()
-		if row >= 0 && row < len(values) {
-			value = values[row]
-		}
-		lit := valueKey(value)
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len(lit)))
-		b.WriteByte(':')
-		b.WriteString(lit)
-		b.WriteByte('|')
-	}
-	return b.String()
+	return planutil.ExpandValues(src.Vars[name], rowCount)
 }
 
 func valueKey(v eval.Value) string {
@@ -609,34 +519,6 @@ func valueKey(v eval.Value) string {
 	default:
 		return "other:" + v.String()
 	}
-}
-
-func sourceVarNames(src *sema.ImportSource) []string {
-	if src == nil {
-		return nil
-	}
-	if len(src.Order) > 0 {
-		out := make([]string, len(src.Order))
-		copy(out, src.Order)
-		return out
-	}
-	names := make([]string, 0, len(src.Vars))
-	for name := range src.Vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func sequentialIndices(n int) []int {
-	if n <= 0 {
-		return nil
-	}
-	out := make([]int, n)
-	for i := 0; i < n; i++ {
-		out[i] = i
-	}
-	return out
 }
 
 func copyIntSlice(values []int) []int {
