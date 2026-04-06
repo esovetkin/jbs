@@ -5,7 +5,15 @@
 ```ebnf
 program       := stmt (sep stmt)* sep? EOF
 sep           := (NEWLINE | ";")+
-stmt          := global_assign | let_block | param_block | do_block | submit_block | analyse_block
+stmt          := use_stmt | global_assign | let_block | param_block | do_block | submit_block | analyse_block
+
+use_stmt      := "use" (
+                   IDENT
+                 | STRING "as" IDENT
+                 | ident_list "from" use_source
+               )
+ident_list    := IDENT ("," IDENT)*
+use_source    := IDENT | STRING
 
 global_assign := IDENT "=" expr
 
