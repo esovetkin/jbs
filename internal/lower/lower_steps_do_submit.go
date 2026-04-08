@@ -32,7 +32,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 		step.Depend = strings.Join(block.After, ",")
 	}
 	aliases := ctx.stepAliasMap(block.Name, false)
-	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems, aliases)
+	resolution := ctx.resolveStepUsesForStep(block.Name, aliases)
 	step.Use = resolution.Use
 	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
 
@@ -126,7 +126,7 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 	if len(block.After) > 0 {
 		step.Depend = strings.Join(block.After, ",")
 	}
-	resolution := ctx.resolveStepUsesForStep(block.Name, block.WithItems, aliases)
+	resolution := ctx.resolveStepUsesForStep(block.Name, aliases)
 	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
 	use := append([]interface{}{}, resolution.Use...)
 	use = append(use,

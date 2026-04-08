@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 
-	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/planutil"
 	"jbs/internal/sema"
@@ -22,36 +21,13 @@ type subsetVarSpec struct {
 	Emitted   string
 }
 
-func (ctx *lowerContext) resolveStepUsesForStep(stepName string, fallback []ast.WithItem, aliases map[string]string) stepUseResolution {
+func (ctx *lowerContext) resolveStepUsesForStep(stepName string, aliases map[string]string) stepUseResolution {
 	inheritedSteps := make([]string, 0)
 	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
 		inheritedSteps = append(inheritedSteps, plan.InheritedSteps...)
 		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta, aliases)
 	}
-	return ctx.resolveStepUsesLegacy(stepName, inheritedSteps, fallback, aliases)
-}
-
-func (ctx *lowerContext) resolveStepUsesLegacy(stepName string, inheritedSteps []string, items []ast.WithItem, aliases map[string]string) stepUseResolution {
-	planned := make([]sema.PlannedImport, 0, len(items))
-	for _, item := range items {
-		if item.From == "" {
-			planned = append(planned, sema.PlannedImport{
-				Source: item.Name,
-				Kind:   sema.SourceKindParam,
-				Full:   true,
-				Span:   item.Span,
-			})
-			continue
-		}
-		planned = append(planned, sema.PlannedImport{
-			Source:    item.From,
-			Kind:      sema.SourceKindParam,
-			Visible:   item.Name,
-			SourceVar: item.Name,
-			Span:      item.Span,
-		})
-	}
-	return ctx.resolveStepUses(stepName, inheritedSteps, planned, aliases)
+	return ctx.resolveStepUses(stepName, inheritedSteps, nil, aliases)
 }
 
 func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.PlannedImport, aliases map[string]string) stepUseResolution {
