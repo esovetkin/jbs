@@ -191,8 +191,8 @@ Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
   defaults: -t pretty, -o -
 
-	Format jbs in place:
-	  jbs fmt [-s|--strict] script.jbs`
+Format jbs in place:
+  jbs fmt [-s|--strict] script.jbs`
 }
 
 func parseFmtArgs(args []string) (Flags, error) {
