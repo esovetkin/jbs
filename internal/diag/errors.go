@@ -48,7 +48,7 @@ func (d *Diagnostics) AddWarning(code Code, message string, span Span, hint stri
 	d.Add(Diagnostic{Severity: SeverityWarning, Code: string(code), Message: message, Span: span, Hint: hint, Related: related})
 }
 
-func (d Diagnostics) HasErrors() bool {
+func (d *Diagnostics) HasErrors() bool {
 	for _, item := range d.Items {
 		if item.Severity == SeverityError {
 			return true
@@ -57,7 +57,7 @@ func (d Diagnostics) HasErrors() bool {
 	return false
 }
 
-func (d Diagnostics) String() string {
+func (d *Diagnostics) String() string {
 	if len(d.Items) == 0 {
 		return ""
 	}
@@ -76,6 +76,6 @@ func (d Diagnostics) String() string {
 	return strings.Join(lines, "\n")
 }
 
-func (d Diagnostics) Error() string {
+func (d *Diagnostics) Error() string {
 	return d.String()
 }
