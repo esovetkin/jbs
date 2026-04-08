@@ -85,22 +85,55 @@ func rewriteBracedShellRef(fragment string, aliases map[string]string) (string, 
 	if len(fragment) < 4 || fragment[0] != '$' || fragment[1] != '{' {
 		return "", 0, false
 	}
-	if !isShellVarStart(fragment[2]) {
+	headStart, nameStart, nameEnd, ok := parseBracedShellRefHead(fragment)
+	if !ok {
 		return "", 0, false
 	}
-	j := 3
-	for j < len(fragment) && isShellVarChar(fragment[j]) {
-		j++
-	}
-	if j >= len(fragment) || fragment[j] != '}' {
+	closeIdx, ok := findMatchingBrace(fragment, nameEnd)
+	if !ok {
 		return "", 0, false
 	}
-	name := fragment[2:j]
+	name := fragment[nameStart:nameEnd]
 	alias := name
 	if mapped, ok := aliases[name]; ok && mapped != "" {
 		alias = mapped
 	}
-	return "${" + alias + "}", j + 1, true
+	rewritten := fragment[:headStart] + alias + fragment[nameEnd:closeIdx+1]
+	return rewritten, closeIdx + 1, true
+}
+
+func parseBracedShellRefHead(fragment string) (headStart int, nameStart int, nameEnd int, ok bool) {
+	i := 2
+	if i < len(fragment) && (fragment[i] == '#' || fragment[i] == '!') {
+		i++
+	}
+	if i >= len(fragment) || !isShellVarStart(fragment[i]) {
+		return 0, 0, 0, false
+	}
+	start := i
+	i++
+	for i < len(fragment) && isShellVarChar(fragment[i]) {
+		i++
+	}
+	return start, start, i, true
+}
+
+func findMatchingBrace(fragment string, start int) (int, bool) {
+	depth := 1
+	for i := start; i < len(fragment); i++ {
+		switch fragment[i] {
+		case '\\':
+			i++
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func isShellVarStart(ch byte) bool {

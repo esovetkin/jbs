@@ -267,6 +267,8 @@ func scanBalancedBlock(advance func() rune, eof func() bool) bool {
 	depth := 1
 	mode := blockScanCode
 	escaped := false
+	prev := '\n'
+	lineStart := true
 	for !eof() {
 		r := advance()
 		switch mode {
@@ -301,7 +303,9 @@ func scanBalancedBlock(advance func() rune, eof func() bool) bool {
 		default:
 			switch r {
 			case '#':
-				mode = blockScanLineComment
+				if lineStart || isBalancedBlockCommentBoundary(prev) {
+					mode = blockScanLineComment
+				}
 			case '\'':
 				mode = blockScanSingleQuote
 			case '"':
@@ -315,8 +319,22 @@ func scanBalancedBlock(advance func() rune, eof func() bool) bool {
 				}
 			}
 		}
+		lineStart = r == '\n'
+		prev = r
 	}
 	return false
+}
+
+func isBalancedBlockCommentBoundary(r rune) bool {
+	if unicode.IsSpace(r) {
+		return true
+	}
+	switch r {
+	case ';', '|', '&', '(', ')':
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *submitFieldParser) recoverLine() {

@@ -886,13 +886,20 @@ param p {
 }
 
 submit run with p {
-  nodes = "${nodes}"
+  nodes = "${nodes:-0}"
   preprocess = {
     echo ${nodes} ${a}
     echo $nodes $a
-    echo \$nodes $$ $? $1 ${1} ${nodes:-x}
+    echo ${nodes:-x} ${nodes:=x} ${nodes:+x}
+    echo ${nodes%.*} ${nodes%%.*} ${nodes#n} ${nodes##n}
+    echo ${nodes:1} ${nodes:1:2}
+    echo ${#nodes} ${!nodes}
+    echo \$nodes $$ $? $1 ${1} ${unknown:-x}
   }
-  args_exec = "-lc 'echo ${nodes} ${a}'"
+  postprocess = {
+    echo ${nodes:+done}
+  }
+  args_exec = "-lc 'echo ${nodes:1:2} ${nodes#n} ${#nodes} ${a}'"
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -957,11 +964,12 @@ submit run with p {
 
 	foundSubmitNodes := false
 	foundPreprocess := false
+	foundPostprocess := false
 	foundArgsExec := false
 	for _, p := range submitSet.Parameter {
 		if p.Name == "nodes" {
 			foundSubmitNodes = true
-			if got, ok := p.Value.(string); !ok || got != "${_ja__nodes}" {
+			if got, ok := p.Value.(string); !ok || got != "${_ja__nodes:-0}" {
 				t.Fatalf("expected submit nodes to reference aliased import, got %#v", p.Value)
 			}
 		}
@@ -978,18 +986,47 @@ submit run with p {
 			if !strings.Contains(text, "echo $_ja__nodes $a") {
 				t.Fatalf("expected simple rewrite in preprocess, got %q", text)
 			}
-			if !strings.Contains(text, `echo \$nodes $$ $? $1 ${1} ${nodes:-x}`) {
+			if !strings.Contains(text, `echo ${_ja__nodes:-x} ${_ja__nodes:=x} ${_ja__nodes:+x}`) {
+				t.Fatalf("expected default/assign/alternate braced rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, `echo ${_ja__nodes%.*} ${_ja__nodes%%.*} ${_ja__nodes#n} ${_ja__nodes##n}`) {
+				t.Fatalf("expected prefix/suffix braced rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, `echo ${_ja__nodes:1} ${_ja__nodes:1:2}`) {
+				t.Fatalf("expected slice braced rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, `echo ${#_ja__nodes} ${!_ja__nodes}`) {
+				t.Fatalf("expected length/indirect braced rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, `echo \$nodes $$ $? $1 ${1} ${unknown:-x}`) {
 				t.Fatalf("expected special shell vars preserved, got %q", text)
+			}
+			if strings.Contains(text, "${nodes") {
+				t.Fatalf("did not expect direct braced ${nodes...} after rewrite, got %q", text)
 			}
 		}
 		if p.Name == "args_exec" {
 			foundArgsExec = true
-			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__nodes} ${a}'" {
+			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__nodes:1:2} ${_ja__nodes#n} ${#_ja__nodes} ${a}'" {
 				t.Fatalf("expected args_exec rewrite, got %#v", p.Value)
 			}
 		}
+		if p.Name == "postprocess" {
+			foundPostprocess = true
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected postprocess literal payload, got %T", p.Value)
+			}
+			text := string(body)
+			if !strings.Contains(text, "echo ${_ja__nodes:+done}") {
+				t.Fatalf("expected postprocess operator rewrite, got %q", text)
+			}
+			if strings.Contains(text, "${nodes") {
+				t.Fatalf("did not expect direct braced ${nodes...} in postprocess after rewrite, got %q", text)
+			}
+		}
 	}
-	if !foundSubmitNodes || !foundPreprocess || !foundArgsExec {
+	if !foundSubmitNodes || !foundPreprocess || !foundPostprocess || !foundArgsExec {
 		t.Fatalf("missing expected submit parameters: %#v", submitSet.Parameter)
 	}
 }
@@ -1042,11 +1079,12 @@ let l {
 }
 
 submit run with l {
-  queue = "${queue}"
+  queue = "${queue:-batch}"
   preprocess = {
     echo ${queue} ${host}
+    echo ${queue%dev} ${queue#b}
   }
-  args_exec = "-lc 'echo ${queue} ${host}'"
+  args_exec = "-lc 'echo ${queue:1:2} ${queue#b} ${#queue} ${host}'"
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -1082,8 +1120,29 @@ submit run with l {
 	}
 	for _, p := range submitSet.Parameter {
 		if p.Name == "queue" {
-			if got, ok := p.Value.(string); !ok || got != "${_ja__queue}" {
+			if got, ok := p.Value.(string); !ok || got != "${_ja__queue:-batch}" {
 				t.Fatalf("expected queue rewrite to aliased variable, got %#v", p.Value)
+			}
+		}
+		if p.Name == "preprocess" {
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
+			}
+			text := string(body)
+			if !strings.Contains(text, "echo ${_ja__queue} ${host}") {
+				t.Fatalf("expected braced queue rewrite in preprocess, got %q", text)
+			}
+			if !strings.Contains(text, "echo ${_ja__queue%dev} ${_ja__queue#b}") {
+				t.Fatalf("expected queue operator rewrite in preprocess, got %q", text)
+			}
+			if strings.Contains(text, "${queue") {
+				t.Fatalf("did not expect direct braced ${queue...} after rewrite, got %q", text)
+			}
+		}
+		if p.Name == "args_exec" {
+			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__queue:1:2} ${_ja__queue#b} ${#_ja__queue} ${host}'" {
+				t.Fatalf("expected args_exec queue operator rewrite, got %#v", p.Value)
 			}
 		}
 	}
