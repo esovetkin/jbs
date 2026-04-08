@@ -576,7 +576,7 @@ do s
 
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
-	code := Run([]string{"fmt", entry}, &out, &errBuf)
+	code := Run([]string{"fmt", "--strict", entry}, &out, &errBuf)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
 	}
@@ -881,7 +881,9 @@ func TestRunFmtAndCheckParityForQualifiedWithCases(t *testing.T) {
 		name         string
 		lib          string
 		main         string
-		wantCode     int
+		wantCheck    int
+		wantFmt      int
+		wantStrict   int
 		wantDiagPart string
 	}{
 		{
@@ -905,11 +907,13 @@ do s0 with test_lib.p {
     echo ${x}
 }
 
-do s1 with test_lib.l {
-    echo ${x}
-}
-`,
-			wantCode: 0,
+	do s1 with test_lib.l {
+	    echo ${x}
+	}
+	`,
+			wantCheck:  0,
+			wantFmt:    0,
+			wantStrict: 0,
 		},
 		{
 			name: "unknown_alias",
@@ -922,10 +926,12 @@ param p
 `,
 			main: `
 do s0 with unknown_alias.p {
-    echo ${x}
+	    echo ${x}
 }
 `,
-			wantCode:     1,
+			wantCheck:    1,
+			wantFmt:      0,
+			wantStrict:   1,
 			wantDiagPart: "E537",
 		},
 	}
@@ -951,26 +957,31 @@ do s0 with unknown_alias.p {
 				t.Fatalf("chdir temp dir: %v", err)
 			}
 
-			commands := [][]string{
-				{"-c", "test.jbs"},
-				{"fmt", "test.jbs"},
+			commands := []struct {
+				args []string
+				want int
+			}{
+				{args: []string{"-c", "test.jbs"}, want: tc.wantCheck},
+				{args: []string{"fmt", "test.jbs"}, want: tc.wantFmt},
+				{args: []string{"fmt", "--strict", "test.jbs"}, want: tc.wantStrict},
+				{args: []string{"fmt", "-s", "test.jbs"}, want: tc.wantStrict},
 			}
-			for _, args := range commands {
+			for _, cmd := range commands {
 				var out bytes.Buffer
 				var errBuf bytes.Buffer
-				code := Run(args, &out, &errBuf)
-				if code != tc.wantCode {
-					t.Fatalf("args=%v expected exit %d, got %d stderr=%s", args, tc.wantCode, code, errBuf.String())
+				code := Run(cmd.args, &out, &errBuf)
+				if code != cmd.want {
+					t.Fatalf("args=%v expected exit %d, got %d stderr=%s", cmd.args, cmd.want, code, errBuf.String())
 				}
-				if tc.wantDiagPart != "" && !strings.Contains(errBuf.String(), tc.wantDiagPart) {
-					t.Fatalf("args=%v expected diagnostics to contain %q, got: %s", args, tc.wantDiagPart, errBuf.String())
+				if tc.wantDiagPart != "" && cmd.want != 0 && !strings.Contains(errBuf.String(), tc.wantDiagPart) {
+					t.Fatalf("args=%v expected diagnostics to contain %q, got: %s", cmd.args, tc.wantDiagPart, errBuf.String())
 				}
 			}
 		})
 	}
 }
 
-func TestRunFmtShowsImportedFileDiagnostics(t *testing.T) {
+func TestRunFmtSyntaxOnlyIgnoresImportedFileDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	lib := `
 param p
@@ -1008,11 +1019,62 @@ do s0 with p {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
 	code := Run([]string{"fmt", "test.jbs"}, &out, &errBuf)
-	if code != 1 {
-		t.Fatalf("expected exit code 1, got %d", code)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d stderr=%s", code, errBuf.String())
 	}
-	if !strings.Contains(errBuf.String(), "test_lib.jbs") {
-		t.Fatalf("expected diagnostics to reference imported file, got: %s", errBuf.String())
+	if strings.Contains(errBuf.String(), "test_lib.jbs") {
+		t.Fatalf("did not expect imported-file diagnostics in syntax-only fmt, got: %s", errBuf.String())
+	}
+}
+
+func TestRunFmtStrictShowsImportedFileDiagnostics(t *testing.T) {
+	dir := t.TempDir()
+	lib := `
+param p
+{
+        x = @
+        x
+}
+`
+	main := `
+use test_lib
+use p from test_lib
+
+do s0 with p {
+    echo ${x}
+}
+`
+	libPath := filepath.Join(dir, "test_lib.jbs")
+	mainPath := filepath.Join(dir, "test.jbs")
+	if err := os.WriteFile(libPath, []byte(lib), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	if err := os.WriteFile(mainPath, []byte(main), 0o644); err != nil {
+		t.Fatalf("write main: %v", err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"fmt", "--strict", "test.jbs"},
+		{"fmt", "-s", "test.jbs"},
+	} {
+		var out bytes.Buffer
+		var errBuf bytes.Buffer
+		code := Run(args, &out, &errBuf)
+		if code != 1 {
+			t.Fatalf("args=%v expected exit code 1, got %d", args, code)
+		}
+		if !strings.Contains(errBuf.String(), "test_lib.jbs") {
+			t.Fatalf("args=%v expected diagnostics to reference imported file, got: %s", args, errBuf.String())
+		}
 	}
 }
 
@@ -1128,7 +1190,7 @@ func TestRunFmtMissingPathUsageError(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("expected exit 2 for usage error, got %d", code)
 	}
-	if !strings.Contains(errBuf.String(), "usage: jbs fmt <file.jbs>") {
+	if !strings.Contains(errBuf.String(), "usage: jbs fmt [-s|--strict] <file.jbs>") {
 		t.Fatalf("expected fmt usage error, got: %s", errBuf.String())
 	}
 }

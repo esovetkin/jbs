@@ -87,7 +87,7 @@ Inspect step parameter expansion:
   defaults: -t pretty, -o -
 
 Format jbs in place:
-  jbs fmt script.jbs
+  jbs fmt [-s|--strict] script.jbs
 ```
 
 ### `let <namespace> { name = "regex-with-%d/%f/%w" ... }`

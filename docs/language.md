@@ -516,7 +516,9 @@ Run `jbs help globals` to print defaults and mappings.
 
 ## Formatter (`jbs fmt`)
 
-`jbs fmt <file.jbs>` rewrites a script in place using canonical layout.
+`jbs fmt [-s|--strict] <file.jbs>` rewrites a script in place using canonical layout.
+
+Default `fmt` is syntax-only. Use `-s`/`--strict` to require import expansion and semantic validation before formatting.
 
 Rules:
 

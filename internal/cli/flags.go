@@ -10,6 +10,7 @@ type Flags struct {
 	Output      string
 	Check       bool
 	Fmt         bool
+	FmtStrict   bool
 	Embed       bool
 	EmbedName   string
 	PrintParam  bool
@@ -92,16 +93,7 @@ func ParseFlags(args []string) (Flags, error) {
 		return Flags{}, UsageError{Message: "usage: jbs embed [filename]"}
 	}
 	if args[0] == "fmt" {
-		if len(args) != 2 {
-			return Flags{}, UsageError{Message: "usage: jbs fmt <file.jbs>"}
-		}
-		if strings.HasPrefix(args[1], "-") {
-			return Flags{}, UsageError{Message: "usage: jbs fmt <file.jbs>"}
-		}
-		cfg.Fmt = true
-		cfg.Input = args[1]
-		cfg.Output = ""
-		return cfg, nil
+		return parseFmtArgs(args[1:])
 	}
 	if args[0] == "printparam" {
 		cfg.PrintParam = true
@@ -199,6 +191,33 @@ Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
   defaults: -t pretty, -o -
 
-Format jbs in place:
-  jbs fmt script.jbs`
+	Format jbs in place:
+	  jbs fmt [-s|--strict] script.jbs`
+}
+
+func parseFmtArgs(args []string) (Flags, error) {
+	cfg := Flags{
+		Fmt:    true,
+		Output: "",
+	}
+	for _, arg := range args {
+		switch {
+		case arg == "-s" || arg == "--strict":
+			if cfg.FmtStrict {
+				return Flags{}, UsageError{Message: "usage: jbs fmt [-s|--strict] <file.jbs>"}
+			}
+			cfg.FmtStrict = true
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: "usage: jbs fmt [-s|--strict] <file.jbs>"}
+		default:
+			if cfg.Input != "" {
+				return Flags{}, UsageError{Message: "usage: jbs fmt [-s|--strict] <file.jbs>"}
+			}
+			cfg.Input = arg
+		}
+	}
+	if cfg.Input == "" {
+		return Flags{}, UsageError{Message: "usage: jbs fmt [-s|--strict] <file.jbs>"}
+	}
+	return cfg, nil
 }

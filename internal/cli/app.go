@@ -45,7 +45,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.Fmt {
-		return runFmt(flags.Input, stdout, stderr)
+		return runFmt(flags.Input, flags.FmtStrict, stdout, stderr)
 	}
 	if flags.Embed {
 		return runEmbed(flags.EmbedName, stdout, stderr)
@@ -133,7 +133,7 @@ func runPrintParam(flags Flags, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runFmt(path string, stdout, stderr io.Writer) int {
+func runFmt(path string, strict bool, stdout, stderr io.Writer) int {
 	_ = stdout
 
 	src, err := os.ReadFile(path)
@@ -147,20 +147,21 @@ func runFmt(path string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	diags := &diag.Diagnostics{}
-	bundle, err := analyzeInput(path, diags)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
-		return 1
-	}
-	if len(diags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
-	}
-	if diags.HasErrors() {
-		return 1
+	if strict {
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeInput(path, diags)
+		if err != nil {
+			fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
+			return 1
+		}
+		if len(diags.Items) > 0 {
+			fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
+		}
+		if diags.HasErrors() {
+			return 1
+		}
 	}
 
-	// Validate through import expansion first, then format syntax locally.
 	formatDiags := &diag.Diagnostics{}
 	formatted, err := jbsformat.JBS(path, string(src), formatDiags)
 	if err != nil {
