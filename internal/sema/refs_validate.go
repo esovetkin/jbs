@@ -471,25 +471,6 @@ func isShellCommentBoundary(r rune) bool {
 	}
 }
 
-func parseVarPath(runes []rune, start int) (int, bool) {
-	j := start
-	if j >= len(runes) || !isIdentStart(runes[j]) {
-		return 0, false
-	}
-	for {
-		j++
-		for j < len(runes) && isIdentPart(runes[j]) {
-			j++
-		}
-		if j < len(runes) && runes[j] == '.' && j+1 < len(runes) && isIdentStart(runes[j+1]) {
-			j++
-			continue
-		}
-		break
-	}
-	return j, true
-}
-
 func sanitizeStepName(input string) string {
 	if input == "" {
 		return "x"

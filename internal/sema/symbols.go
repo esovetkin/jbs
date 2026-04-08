@@ -69,7 +69,6 @@ type PlannedImport struct {
 	Visible   string
 	SourceVar string
 	Full      bool
-	Implicit  bool
 	Span      diag.Span
 }
 

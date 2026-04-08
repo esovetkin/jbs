@@ -51,10 +51,6 @@ func normalizePatternRegex(input string) (string, string, bool) {
 	return out.String(), t, true
 }
 
-func patternLookupKey(group, name string) string {
-	return group + "." + name
-}
-
 func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagnostics) *AnalyseSpec {
 	spec := &AnalyseSpec{
 		Name:        block.StepName,

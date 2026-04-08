@@ -206,22 +206,6 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 	return name, ""
 }
 
-func sourceRowCount(ps *sema.Paramset) int {
-	if ps == nil {
-		return 0
-	}
-	if n := len(ps.Rows); n > 0 {
-		return n
-	}
-	rowCount := 0
-	for _, name := range ps.Order {
-		if n := len(ps.Vars[name]); n > rowCount {
-			rowCount = n
-		}
-	}
-	return rowCount
-}
-
 func sourceRowCountFromSource(src *sema.ImportSource) int {
 	if src == nil {
 		return 0

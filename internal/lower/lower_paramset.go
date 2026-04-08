@@ -253,28 +253,6 @@ func valuesFor(ps *sema.Paramset, name string, rowCount int) []eval.Value {
 	return values
 }
 
-func inferType(values []eval.Value) string {
-	allInt := true
-	allNumber := true
-	for _, v := range values {
-		switch v.Kind {
-		case eval.KindInt:
-		case eval.KindFloat:
-			allInt = false
-		default:
-			allInt = false
-			allNumber = false
-		}
-	}
-	if allInt {
-		return "int"
-	}
-	if allNumber {
-		return "float"
-	}
-	return ""
-}
-
 func allEqualValues(values []eval.Value) bool {
 	if len(values) <= 1 {
 		return true
