@@ -1,0 +1,37 @@
+param p
+{
+        a = "A" + \
+            "B"
+        b = 1 + \
+            2
+        a+b
+}
+
+do s
+{
+        echo one \
+            two
+}
+
+let l
+{
+        msg = "x" + \
+            "y"
+}
+
+analyse s
+{
+        x = "Number: %d" + \
+            "!"
+        (x)
+}
+
+submit run
+{
+        args_exec = "-lc " + \
+            "'hostname'"
+        preprocess = {
+                echo pre \
+                    work
+        }
+}

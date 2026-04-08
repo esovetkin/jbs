@@ -534,8 +534,16 @@ Rules:
 - `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces.
 - The opening brace `{` is on its own line.
 - Block body indentation is normalized to 8 spaces.
+- If a body line ends with a continuation backslash (`\`), the next non-empty line is indented by 4 additional spaces.
 - The closing brace `}` is at column 1.
 - Output always ends with a trailing newline.
+
+Continuation example:
+
+```jbs
+variable = "a" +\
+    "b"
+```
 
 Submit formatting constraints:
 

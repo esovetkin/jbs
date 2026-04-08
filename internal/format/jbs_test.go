@@ -437,3 +437,231 @@ param q
 		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+func TestFormatContinuationIndentInParamBody(t *testing.T) {
+	src := `param p{a = "x" + \
+"y"
+a
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("param_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+{
+        a = "x" + \
+            "y"
+        a
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationIndentInDoBody(t *testing.T) {
+	src := `do run{echo one \
+two
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("do_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do run
+{
+        echo one \
+            two
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationIndentInLetBody(t *testing.T) {
+	src := `let l{msg = "x" + \
+"y"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("let_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `let l
+{
+        msg = "x" + \
+            "y"
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationIndentInAnalyseBody(t *testing.T) {
+	src := `analyse write{x = "n" + \
+"m"
+(x)
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("analyse_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `analyse write
+{
+        x = "n" + \
+            "m"
+        (x)
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationIndentInSubmitBody(t *testing.T) {
+	src := `submit run{args_exec = "-lc " + \
+"'hostname'"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `submit run
+{
+        args_exec = "-lc " + \
+            "'hostname'"
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationIndentInSubmitRawBlock(t *testing.T) {
+	src := `submit run{preprocess = {
+echo pre \
+work
+}
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_raw_continuation.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `submit run
+{
+        preprocess = {
+                echo pre \
+                    work
+        }
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationBackslashInCommentNoIndent(t *testing.T) {
+	src := `do s{echo one # \
+echo two
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("comment_backslash.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do s
+{
+        echo one # \
+        echo two
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationBackslashInStringNoIndent(t *testing.T) {
+	src := `do s{echo "path\\"
+echo two
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("string_backslash.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do s
+{
+        echo "path\\"
+        echo two
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatContinuationResetsAfterBlankLine(t *testing.T) {
+	src := `do s{echo one \
+two
+
+echo three
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("continuation_blank_reset.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `do s
+{
+        echo one \
+            two
+
+        echo three
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}

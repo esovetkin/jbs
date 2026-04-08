@@ -1,14 +1,17 @@
 jbs_name = "backslash"
 jbs_outpath = "out"
 
-param p {
-  text = "hello_" + \
-         "world"
-  value = 1 + \
-          2
-  text + value
+param p
+{
+        text = "hello_" + \
+        "world"
+        value = 1 + \
+        2
+        text + value
 }
 
-do step with p {
-  echo ${text} ${value}
+do step
+        with p
+{
+        echo ${text} ${value}
 }

@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	clauseIndent = "        "
-	bodyIndent   = "        "
+	clauseIndent       = "        "
+	bodyIndent         = "        "
+	continuationIndent = "    "
 )
 
 // JBS normalizes source formatting from syntax only.
@@ -266,21 +267,28 @@ func renderGenericBody(lines []string, indent string) []string {
 	}
 	out := make([]string, 0, len(lines))
 	depth := 0
+	prevContinues := false
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
+			prevContinues = false
 			continue
 		}
 		trimmedLeft := line
 		if depth == 0 {
 			trimmedLeft = strings.TrimLeft(trimmedLeft, " \t")
 		}
-		out = append(out, indent+trimmedLeft)
+		prefix := indent
+		if prevContinues {
+			prefix += continuationIndent
+		}
+		out = append(out, prefix+trimmedLeft)
 		open, close := countGroupingDelimsOutsideQuotes(trimmedLeft)
 		depth += open - close
 		if depth < 0 {
 			depth = 0
 		}
+		prevContinues = endsWithLineContinuation(trimmedLeft)
 	}
 	return out
 }
@@ -338,9 +346,11 @@ func renderSubmitTopLevelBody(lines []string, indent string) []string {
 	}
 	out := make([]string, 0, len(lines))
 	depth := 0
+	prevContinues := false
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
+			prevContinues = false
 			continue
 		}
 		trimmedLeft := strings.TrimLeft(line, " \t")
@@ -351,14 +361,61 @@ func renderSubmitTopLevelBody(lines []string, indent string) []string {
 		if indentDepth == 0 {
 			trimmedLeft = canonicalizeTopLevelSubmitLine(trimmedLeft)
 		}
-		out = append(out, strings.Repeat(indent, 1+indentDepth)+trimmedLeft)
+		prefix := strings.Repeat(indent, 1+indentDepth)
+		if prevContinues {
+			prefix += continuationIndent
+		}
+		out = append(out, prefix+trimmedLeft)
 		open, close := countBracesOutsideQuotes(trimmedLeft)
 		depth += open - close
 		if depth < 0 {
 			depth = 0
 		}
+		prevContinues = endsWithLineContinuation(trimmedLeft)
 	}
 	return out
+}
+
+func endsWithLineContinuation(line string) bool {
+	if strings.TrimSpace(line) == "" {
+		return false
+	}
+	runes := []rune(line)
+	semanticEnd := len(runes)
+	var quote rune
+	escaped := false
+	for i, r := range runes {
+		if quote != 0 {
+			if quote == '"' {
+				if escaped {
+					escaped = false
+					continue
+				}
+				if r == '\\' {
+					escaped = true
+					continue
+				}
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == '#' {
+			semanticEnd = i
+			break
+		}
+	}
+	semantic := strings.TrimRight(string(runes[:semanticEnd]), " \t")
+	if semantic == "" {
+		return false
+	}
+	semanticRunes := []rune(semantic)
+	return semanticRunes[len(semanticRunes)-1] == '\\'
 }
 
 func canonicalizeTopLevelSubmitLine(line string) string {
