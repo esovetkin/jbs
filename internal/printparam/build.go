@@ -306,7 +306,7 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Imp
 	if src == nil {
 		return nil
 	}
-	rowCount := sourceRowCount(src)
+	rowCount := planutil.SourceRowCount(src.Order, src.Vars)
 	if rowCount == 0 {
 		rowCount = 1
 	}
@@ -327,7 +327,7 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Imp
 		if sourceVarName == "" {
 			sourceVarName = v.Visible
 		}
-		valuesByName[v.Visible] = valuesFor(src, sourceVarName, rowCount)
+		valuesByName[v.Visible] = planutil.ExpandValues(src.Vars[sourceVarName], rowCount)
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
@@ -474,20 +474,6 @@ func cloneStateSlice(states []wpState) []wpState {
 		out = append(out, cloneState(state))
 	}
 	return out
-}
-
-func sourceRowCount(src *sema.ImportSource) int {
-	if src == nil {
-		return 0
-	}
-	return planutil.SourceRowCount(src.Order, src.Vars)
-}
-
-func valuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
-	if src == nil {
-		return nil
-	}
-	return planutil.ExpandValues(src.Vars[name], rowCount)
 }
 
 func valueKey(v eval.Value) string {

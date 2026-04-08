@@ -7,6 +7,7 @@ import (
 
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 	"jbs/internal/sema"
 )
 
@@ -43,7 +44,7 @@ func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 		valuesByName[name] = valuesFor(ps, name, rowCount)
 	}
 
-	indices := sequentialIndices(rowCount)
+	indices := planutil.SequentialIndices(rowCount)
 	out.Parameter = lowerIndexedParameters(ps.Order, valuesByName, ps.Modes, indices, indexVariableName(ps.Name), func(name string) diag.Span {
 		return originFor(ps, name)
 	}, diags)
@@ -180,17 +181,6 @@ func lowerContextualPayloadParameters(
 		})
 	}
 	return params
-}
-
-func sequentialIndices(n int) []int {
-	if n <= 0 {
-		return nil
-	}
-	out := make([]int, n)
-	for i := range n {
-		out[i] = i
-	}
-	return out
 }
 
 func joinIntIndices(indices []int) string {

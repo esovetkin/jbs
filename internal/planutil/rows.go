@@ -19,7 +19,7 @@ func BuildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCoun
 		return nil
 	}
 	if len(vars) == 0 {
-		return []RowGroup{{Rep: 0, Rows: sequentialIndices(rowCount)}}
+		return []RowGroup{{Rep: 0, Rows: SequentialIndices(rowCount)}}
 	}
 	if keyFn == nil {
 		keyFn = func(v eval.Value) string {
@@ -59,7 +59,7 @@ func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int, ke
 	return b.String()
 }
 
-func sequentialIndices(n int) []int {
+func SequentialIndices(n int) []int {
 	if n <= 0 {
 		return nil
 	}

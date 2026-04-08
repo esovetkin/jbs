@@ -213,6 +213,11 @@ func renderWithClause(items []ast.WithItem) string {
 }
 
 func normalizeBody(raw string, indent string) []string {
+	lines := prepareBodyLines(raw)
+	return renderGenericBody(lines, indent)
+}
+
+func prepareBodyLines(raw string) []string {
 	raw = normalizeLineEndings(raw)
 	lines := strings.Split(raw, "\n")
 	start := 0
@@ -242,21 +247,26 @@ func normalizeBody(raw string, indent string) []string {
 		return nil
 	}
 
-	dedented := make([]string, 0, len(trimmed))
+	out := make([]string, 0, len(trimmed))
 	for _, line := range trimmed {
 		if strings.TrimSpace(line) == "" {
-			dedented = append(dedented, "")
+			out = append(out, "")
 			continue
 		}
 		value := dropIndent(line, minIndent)
 		value = strings.TrimRight(value, " \t")
-		dedented = append(dedented, value)
+		out = append(out, value)
 	}
-	dedented = rebaseInlineBodyIndent(dedented)
+	return rebaseInlineBodyIndent(out)
+}
 
-	out := make([]string, 0, len(dedented))
+func renderGenericBody(lines []string, indent string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(lines))
 	depth := 0
-	for _, line := range dedented {
+	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
 			continue
@@ -318,49 +328,17 @@ func rebaseInlineBodyIndent(lines []string) []string {
 }
 
 func normalizeSubmitBody(raw string, indent string) []string {
-	raw = normalizeLineEndings(raw)
-	lines := strings.Split(raw, "\n")
-	start := 0
-	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
-		start++
-	}
-	end := len(lines)
-	for end > start && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-	}
-	if start >= end {
+	lines := prepareBodyLines(raw)
+	return renderSubmitTopLevelBody(lines, indent)
+}
+
+func renderSubmitTopLevelBody(lines []string, indent string) []string {
+	if len(lines) == 0 {
 		return nil
 	}
-	trimmed := lines[start:end]
-	minIndent := -1
-	for _, line := range trimmed {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		n := leadingIndent(line)
-		if minIndent < 0 || n < minIndent {
-			minIndent = n
-		}
-	}
-	if minIndent < 0 {
-		return nil
-	}
-
-	dedented := make([]string, 0, len(trimmed))
-	for _, line := range trimmed {
-		if strings.TrimSpace(line) == "" {
-			dedented = append(dedented, "")
-			continue
-		}
-		value := dropIndent(line, minIndent)
-		value = strings.TrimRight(value, " \t")
-		dedented = append(dedented, value)
-	}
-	dedented = rebaseInlineBodyIndent(dedented)
-
-	out := make([]string, 0, len(dedented))
+	out := make([]string, 0, len(lines))
 	depth := 0
-	for _, line := range dedented {
+	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			out = append(out, "")
 			continue

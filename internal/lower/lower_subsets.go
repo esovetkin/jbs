@@ -6,7 +6,6 @@ import (
 	"jbs/internal/diag"
 	"jbs/internal/eval"
 	"jbs/internal/planutil"
-	"jbs/internal/sema"
 )
 
 func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, inheritedRowsVar string) (string, string) {
@@ -31,7 +30,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		return "", ""
 	}
 
-	rowCount := sourceRowCountFromSource(src)
+	rowCount := planutil.SourceRowCount(src.Order, src.Vars)
 	if rowCount == 0 {
 		rowCount = 1
 	}
@@ -59,7 +58,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			sourceVar = variable.Visible
 		}
 		sourceVarByVisible[variable.Visible] = sourceVar
-		valuesByName[variable.Visible] = sourceValuesFor(src, sourceVar, rowCount)
+		valuesByName[variable.Visible] = planutil.ExpandValues(src.Vars[sourceVar], rowCount)
 		if mode, ok := src.Modes[sourceVar]; ok {
 			modeByName[variable.Visible] = mode
 		}
@@ -171,7 +170,7 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		if sourceVar == "" {
 			sourceVar = variable.Visible
 		}
-		vals := sourceValuesFor(src, sourceVar, 1)
+		vals := planutil.ExpandValues(src.Vars[sourceVar], 1)
 		value := eval.Null()
 		if len(vals) > 0 {
 			value = vals[0]
@@ -204,18 +203,4 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 	ctx.names[name] = struct{}{}
 	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: ""}
 	return name, ""
-}
-
-func sourceRowCountFromSource(src *sema.ImportSource) int {
-	if src == nil {
-		return 0
-	}
-	return planutil.SourceRowCount(src.Order, src.Vars)
-}
-
-func sourceValuesFor(src *sema.ImportSource, name string, rowCount int) []eval.Value {
-	if src == nil {
-		return nil
-	}
-	return planutil.ExpandValues(src.Vars[name], rowCount)
 }
