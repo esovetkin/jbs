@@ -2,12 +2,22 @@ package eval
 
 import (
 	"fmt"
+	"math"
+	"math/bits"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 )
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
+	return evalExprWithCtx(expr, env, diags, &evalCtx{overflowWarned: make(map[string]struct{})})
+}
+
+type evalCtx struct {
+	overflowWarned map[string]struct{}
+}
+
+func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, ctx *evalCtx) Value {
 	if expr == nil {
 		return Null()
 	}
@@ -37,49 +47,49 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 	case ast.ListExpr:
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
-			items = append(items, EvalExpr(it, env, diags))
+			items = append(items, evalExprWithCtx(it, env, diags, ctx))
 		}
 		return List(items)
 	case ast.TupleExpr:
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
-			items = append(items, EvalExpr(it, env, diags))
+			items = append(items, evalExprWithCtx(it, env, diags, ctx))
 		}
 		return List(items)
 	case ast.UnaryExpr:
-		v := EvalExpr(e.Expr, env, diags)
-		return evalUnary(e.Op, v, e.Span, diags)
+		v := evalExprWithCtx(e.Expr, env, diags, ctx)
+		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
-		l := EvalExpr(e.Left, env, diags)
-		r := EvalExpr(e.Right, env, diags)
-		return evalBinary(e.Op, l, r, e.Span, diags)
+		l := evalExprWithCtx(e.Left, env, diags, ctx)
+		r := evalExprWithCtx(e.Right, env, diags, ctx)
+		return evalBinary(e.Op, l, r, e.Span, diags, ctx)
 	case ast.CompareExpr:
-		l := EvalExpr(e.Left, env, diags)
-		r := EvalExpr(e.Right, env, diags)
+		l := evalExprWithCtx(e.Left, env, diags, ctx)
+		r := evalExprWithCtx(e.Right, env, diags, ctx)
 		return evalCompare(e.Op, l, r, e.Span, diags)
 	case ast.ConditionalExpr:
-		c := EvalExpr(e.Cond, env, diags)
+		c := evalExprWithCtx(e.Cond, env, diags, ctx)
 		if c.Kind != KindBool {
 			diags.AddError(diag.CodeE102, "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
-			return EvalExpr(e.Then, env, diags)
+			return evalExprWithCtx(e.Then, env, diags, ctx)
 		}
 		if c.B {
-			return EvalExpr(e.Then, env, diags)
+			return evalExprWithCtx(e.Then, env, diags, ctx)
 		}
-		return EvalExpr(e.Else, env, diags)
+		return evalExprWithCtx(e.Else, env, diags, ctx)
 	case ast.ModeExpr:
-		return EvalExpr(e.Expr, env, diags)
+		return evalExprWithCtx(e.Expr, env, diags, ctx)
 	default:
 		diags.AddError(diag.CodeE199, "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()
 	}
 }
 
-func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics) Value {
+func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
 	if v.Kind == KindList {
 		out := make([]Value, len(v.L))
 		for i, it := range v.L {
-			out[i] = evalUnary(op, it, at, diags)
+			out[i] = evalUnary(op, it, at, diags, ctx)
 		}
 		return List(out)
 	}
@@ -93,10 +103,14 @@ func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics) Value 
 	if v.Kind == KindFloat {
 		return Float(-v.F)
 	}
-	return Int(-v.I)
+	result, overflow := negInt64Checked(v.I)
+	if overflow {
+		ctx.warnIntOverflow(diags, op, at, fmt.Sprintf("-%d wraps to %d", v.I, result))
+	}
+	return Int(result)
 }
 
-func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
+func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
 	if op == "and" || op == "or" {
 		if l.Kind != KindBool || r.Kind != KindBool {
 			diags.AddError(diag.CodeE104, fmt.Sprintf("'%s' requires boolean operands", op), at, "use boolean values with and/or")
@@ -109,7 +123,7 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Va
 	}
 
 	if l.Kind == KindList || r.Kind == KindList {
-		return evalVectorBinary(op, l, r, at, diags)
+		return evalVectorBinary(op, l, r, at, diags, ctx)
 	}
 	if l.Kind == KindString || r.Kind == KindString {
 		if op != "+" {
@@ -130,17 +144,29 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Va
 		if l.Kind == KindFloat || r.Kind == KindFloat {
 			return Float(lf + rf)
 		}
-		return Int(l.I + r.I)
+		result, overflow := addInt64Checked(l.I, r.I)
+		if overflow {
+			ctx.warnIntOverflow(diags, op, at, fmt.Sprintf("%d + %d wraps to %d", l.I, r.I, result))
+		}
+		return Int(result)
 	case "-":
 		if l.Kind == KindFloat || r.Kind == KindFloat {
 			return Float(lf - rf)
 		}
-		return Int(l.I - r.I)
+		result, overflow := subInt64Checked(l.I, r.I)
+		if overflow {
+			ctx.warnIntOverflow(diags, op, at, fmt.Sprintf("%d - %d wraps to %d", l.I, r.I, result))
+		}
+		return Int(result)
 	case "*":
 		if l.Kind == KindFloat || r.Kind == KindFloat {
 			return Float(lf * rf)
 		}
-		return Int(l.I * r.I)
+		result, overflow := mulInt64Checked(l.I, r.I)
+		if overflow {
+			ctx.warnIntOverflow(diags, op, at, fmt.Sprintf("%d * %d wraps to %d", l.I, r.I, result))
+		}
+		return Int(result)
 	case "/":
 		if rf == 0 {
 			diags.AddError(diag.CodeE107, "division by zero", at, "guard denominator")
@@ -163,7 +189,7 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Va
 	}
 }
 
-func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
+func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
 	ls := ToSeries(l)
 	rs := ToSeries(r)
 	if len(ls) == 0 || len(rs) == 0 {
@@ -175,9 +201,68 @@ func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnosti
 	}
 	out := make([]Value, 0, n)
 	for i := 0; i < n; i++ {
-		out = append(out, evalBinary(op, ls[i%len(ls)], rs[i%len(rs)], at, diags))
+		out = append(out, evalBinary(op, ls[i%len(ls)], rs[i%len(rs)], at, diags, ctx))
 	}
 	return List(out)
+}
+
+func addInt64Checked(a, b int64) (int64, bool) {
+	result := a + b
+	overflow := (a > 0 && b > 0 && result < 0) || (a < 0 && b < 0 && result >= 0)
+	return result, overflow
+}
+
+func subInt64Checked(a, b int64) (int64, bool) {
+	result := a - b
+	overflow := (a >= 0 && b < 0 && result < 0) || (a < 0 && b > 0 && result >= 0)
+	return result, overflow
+}
+
+func mulInt64Checked(a, b int64) (int64, bool) {
+	result := a * b
+	if a == 0 || b == 0 {
+		return result, false
+	}
+	absA := absInt64ToUint64(a)
+	absB := absInt64ToUint64(b)
+	hi, lo := bits.Mul64(absA, absB)
+	if hi != 0 {
+		return result, true
+	}
+	negative := (a < 0) != (b < 0)
+	if negative {
+		return result, lo > (uint64(1) << 63)
+	}
+	return result, lo > uint64(math.MaxInt64)
+}
+
+func negInt64Checked(v int64) (int64, bool) {
+	result := -v
+	return result, v == math.MinInt64
+}
+
+func absInt64ToUint64(v int64) uint64 {
+	if v >= 0 {
+		return uint64(v)
+	}
+	if v == math.MinInt64 {
+		return uint64(1) << 63
+	}
+	return uint64(-v)
+}
+
+func (c *evalCtx) warnIntOverflow(diags *diag.Diagnostics, op string, at diag.Span, detail string) {
+	key := fmt.Sprintf("%s|%s|%d|%d", op, at.File, at.Start.Offset, at.End.Offset)
+	if _, exists := c.overflowWarned[key]; exists {
+		return
+	}
+	c.overflowWarned[key] = struct{}{}
+	diags.AddWarning(
+		diag.CodeW102,
+		fmt.Sprintf("integer overflow in '%s': %s", op, detail),
+		at,
+		"use smaller values or switch to floating-point arithmetic",
+	)
 }
 
 func evalCompare(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {

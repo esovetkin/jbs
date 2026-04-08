@@ -124,6 +124,7 @@ const (
 	CodeW073 Code = "W073"
 	CodeW074 Code = "W074"
 	CodeW101 Code = "W101"
+	CodeW102 Code = "W102"
 	CodeW300 Code = "W300"
 	CodeW301 Code = "W301"
 	CodeW310 Code = "W310"
@@ -169,7 +170,7 @@ func initCatalog() map[Code]CodeMeta {
 	)
 
 	add("eval", SeverityWarning, "expression or combination evaluation warning",
-		CodeW101,
+		CodeW101, CodeW102,
 	)
 
 	add("sema", SeverityError, "semantic analysis diagnostic",
