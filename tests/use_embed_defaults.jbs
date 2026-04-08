@@ -3,5 +3,6 @@ use submit_defaults from jsc
 submit run
         use submit_defaults
 {
+        account = "project_name"
         args_exec = "-lc hostname"
 }

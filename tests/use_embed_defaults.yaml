@@ -21,7 +21,7 @@ parameterset:
         _: job.out
       - name: queue
         mode: python
-        _: '__import__(''os'').environ.get(''JUBE_QUEUE'', { ''juwelsbooster'': ''develbooster'',  ''jurecadc'': ''dc-hwai'',  ''jusuf'': ''batch''})'
+        _: '__import__(''os'').environ.get(''JUBE_QUEUE'', { ''juwelsbooster'': ''develbooster'',  ''jurecadc'': ''dc-hwai'',  ''jusuf'': ''batch''}[''$_jk__run_systemname''])'
       - name: starter
         _: srun
       - name: threadspertask
@@ -29,11 +29,16 @@ parameterset:
         _: "48"
       - name: timelimit
         _: "00:15:00"
+      - name: account
+        _: project_name
       - name: args_exec
         _: -lc hostname
       - name: tasks
         type: int
         _: "1"
+      - name: _jk__run_systemname
+        mode: shell
+        _: cat /etc/FZJ/systemname | tr -d '\n'
 
 # Steps executed by JUBE
 step:
