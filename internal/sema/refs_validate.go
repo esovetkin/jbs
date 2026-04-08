@@ -160,7 +160,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				refs = append(refs, collectShellLikeRefs(field.Raw, base, field.Span.File)...)
 				continue
 			}
-			refs = append(refs, collectExprStringRefs(field.Expr)...)
+			refs = append(refs, collectExprStringRefsWith(field.Expr, collectSubmitStringRefs)...)
 		}
 		processStep(block.Name, block.WithItems, refs)
 	}
@@ -340,8 +340,83 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 	return refs
 }
 
+// collectSubmitStringRefs scans submit expression string payloads to detect
+// unqualified variable references for W310/W311 usage accounting.
+//
+// Unlike collectShellLikeRefs, this intentionally does not apply shell quote
+// or comment suppression because submit expression values often embed nested
+// shell snippets inside JBS strings (e.g. args_exec = "-lc '...${x}...'").
+func collectSubmitStringRefs(text string, base diag.Position, file string) []varRef {
+	runes := []rune(text)
+	refs := make([]varRef, 0)
+	line := base.Line
+	col := base.Column
+	off := base.Offset
+	i := 0
+
+	advance := func() {
+		if i >= len(runes) {
+			return
+		}
+		r := runes[i]
+		i++
+		off++
+		if r == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	advanceN := func(target int) {
+		for i < target {
+			advance()
+		}
+	}
+	appendRef := func(name string, start diag.Position) {
+		end := diag.NewPos(off, line, col)
+		refs = append(refs, varRef{
+			Name: name,
+			Span: diag.NewSpan(file, start, end),
+		})
+	}
+
+	for i < len(runes) {
+		if runes[i] == '$' && !isEscapedDollar(runes, i) {
+			start := diag.NewPos(off, line, col)
+			if i+1 < len(runes) && runes[i+1] == '{' {
+				name, end, ok := parseBracedVarRef(runes, i+2)
+				if ok {
+					advanceN(end + 1)
+					appendRef(name, start)
+					continue
+				}
+				advance()
+				continue
+			}
+			if end, ok := parseBareVarName(runes, i+1); ok {
+				name := string(runes[i+1 : end])
+				advanceN(end)
+				appendRef(name, start)
+				continue
+			}
+		}
+		advance()
+	}
+	return refs
+}
+
 func collectExprStringRefs(expr ast.Expr) []varRef {
+	return collectExprStringRefsWith(expr, collectShellLikeRefs)
+}
+
+type stringRefCollector func(text string, base diag.Position, file string) []varRef
+
+func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varRef {
 	if expr == nil {
+		return nil
+	}
+	if collect == nil {
 		return nil
 	}
 	out := make([]varRef, 0)
@@ -355,7 +430,7 @@ func collectExprStringRefs(expr ast.Expr) []varRef {
 			base := n.Span.Start
 			base.Offset++
 			base.Column++
-			out = append(out, collectShellLikeRefs(n.Value, base, n.Span.File)...)
+			out = append(out, collect(n.Value, base, n.Span.File)...)
 		case ast.ListExpr:
 			for _, it := range n.Items {
 				walk(it)

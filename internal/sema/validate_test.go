@@ -1060,6 +1060,100 @@ submit run with p {
 	}
 }
 
+func TestSubmitArgsExecSingleQuotedPayloadCountsAsUsage(t *testing.T) {
+	src := `
+param jobs {
+  id = (1,2)
+  label = ("alpha","beta")
+  id + label
+}
+submit run0 with jobs {
+  account = "atmlaml"
+  queue = "batch"
+  executable = "/bin/bash"
+  args_exec = "-lc 'echo id=${id} > run.out; echo label=${label} >> run.out'"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 for jobs.id/jobs.label used in args_exec payload, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311 for jobs.id/jobs.label used in args_exec payload, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitExpressionSingleQuotedBracedVariantsCountAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = ("abc")
+  x
+}
+submit run with p {
+  args_exec = "-lc 'echo ${x:-1} ${x%a} ${#x} ${!x}'"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for p.x; submit expression single-quoted variants should count usage, got: %s", diags.String())
+	}
+}
+
+func TestSubmitExpressionEscapedDollarsDoNotCountAsUsage(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+submit run with p {
+  args_exec = "-lc 'echo \$x \${x:-1}'"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; escaped dollar forms in submit expression string must not count usage, got: %s", diags.String())
+	}
+}
+
+func TestSubmitExpressionMalformedBracedExpansionDoesNotRaiseHardError(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+submit run with p {
+  args_exec = "-lc 'echo ${} ${!} ${1}'"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasDiagCode(diags, "E100") {
+		t.Fatalf("did not expect E100 for malformed submit expression refs, got: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for p.x; malformed submit expression refs must not count as usage, got: %s", diags.String())
+	}
+}
+
 func TestSubmitRawBlocksCountAsUsage(t *testing.T) {
 	src := `
 param p {

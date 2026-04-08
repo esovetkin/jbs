@@ -38,3 +38,24 @@ func TestCollectShellLikeRefsHashAndPatternVariants(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectSubmitStringRefsCountsSingleQuotedPayloadVars(t *testing.T) {
+	text := "-lc 'echo id=${id}; echo label=${label}'"
+	refs := collectSubmitStringRefs(text, diag.NewPos(0, 1, 1), "in.jbs")
+	names := refNames(refs)
+	if len(names) != 2 {
+		t.Fatalf("expected two refs, got %#v", names)
+	}
+	if names[0] != "id" || names[1] != "label" {
+		t.Fatalf("unexpected refs: %#v", names)
+	}
+}
+
+func TestCollectSubmitStringRefsEscapedDollarIgnored(t *testing.T) {
+	text := "-lc 'echo \\$x \\${x:-1} ${x}'"
+	refs := collectSubmitStringRefs(text, diag.NewPos(0, 1, 1), "in.jbs")
+	names := refNames(refs)
+	if len(names) != 1 || names[0] != "x" {
+		t.Fatalf("expected only unescaped ${x} to be detected, got %#v", names)
+	}
+}
