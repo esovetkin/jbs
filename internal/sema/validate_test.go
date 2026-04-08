@@ -51,6 +51,19 @@ func hasW310ForLet(diags *diag.Diagnostics, namespace, variable string) bool {
 	return false
 }
 
+func hasW312For(diags *diag.Diagnostics, variable string) bool {
+	target := "param variable '" + variable + "'"
+	for _, d := range diags.Items {
+		if d.Code != "W312" {
+			continue
+		}
+		if strings.Contains(d.Message, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func w310HintFor(diags *diag.Diagnostics, param, variable string) string {
 	target := "exposed variable '" + variable + "' from param '" + param + "'"
 	for _, d := range diags.Items {
@@ -549,6 +562,133 @@ param p {
 		if d.Code == "W301" {
 			t.Fatalf("did not expect W301 for standalone mode assignments, got: %s", diags.String())
 		}
+	}
+}
+
+func TestWarnParamVariableNotContributingW312(t *testing.T) {
+	src := `
+param p {
+  a = (1,2,3)
+  x = "hello "
+  b = ("a","b","c")
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 1 {
+		t.Fatalf("expected one W312, got %d: %s", got, diags.String())
+	}
+	if !hasW312For(diags, "x") {
+		t.Fatalf("expected W312 for x, got: %s", diags.String())
+	}
+}
+
+func TestParamTransitiveContributionSuppressesW312(t *testing.T) {
+	src := `
+param p {
+  a = (1,2,3)
+  x = "hello "
+  y = x + "world"
+  b = ("a","b","c",y)
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 0 {
+		t.Fatalf("did not expect W312, got %d: %s", got, diags.String())
+	}
+}
+
+func TestWarnMultipleParamVariablesNotContributingW312(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  x = "x"
+  y = "y"
+  b = ("a","b")
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 2 {
+		t.Fatalf("expected two W312 warnings, got %d: %s", got, diags.String())
+	}
+	if !hasW312For(diags, "x") || !hasW312For(diags, "y") {
+		t.Fatalf("expected W312 for both x and y, got: %s", diags.String())
+	}
+}
+
+func TestImportedVariablesAreNotW312Targets(t *testing.T) {
+	src := `
+param base {
+  x = (1,2)
+  x
+}
+param derived with base {
+  y = x + 1
+  y
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 0 {
+		t.Fatalf("did not expect W312 for imported variables, got %d: %s", got, diags.String())
+	}
+}
+
+func TestDuplicateParamAssignmentEmitsSingleW312ForName(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  x = "old"
+  x = "new"
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 1 {
+		t.Fatalf("expected one W312 for duplicate-assigned x, got %d: %s", got, diags.String())
+	}
+	if !hasW312For(diags, "x") {
+		t.Fatalf("expected W312 for x, got: %s", diags.String())
+	}
+}
+
+func TestNoW312WhenParamFinalExpressionMissing(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if got := diagCount(diags, "W312"); got != 0 {
+		t.Fatalf("did not expect W312 when final expression is missing, got %d: %s", got, diags.String())
 	}
 }
 

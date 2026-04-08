@@ -14,6 +14,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	env := make(map[string]eval.Value, len(globals)+16)
 	origins := make(map[string]diag.Span, len(globals)+16)
 	modes := make(map[string]string, 16)
+	localAssigns := make(map[string]localAssignMeta, len(block.Assignments))
+	localAssignOrder := make([]string, 0, len(block.Assignments))
+	localAssignSeen := make(map[string]bool, len(block.Assignments))
 	for k, v := range globals {
 		env[k] = v
 	}
@@ -178,6 +181,14 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 
 	for _, asn := range block.Assignments {
 		warnModeExprInCollections(asn.Expr, diags)
+		localAssigns[asn.Name] = localAssignMeta{
+			Expr: asn.Expr,
+			Span: asn.Span,
+		}
+		if !localAssignSeen[asn.Name] {
+			localAssignSeen[asn.Name] = true
+			localAssignOrder = append(localAssignOrder, asn.Name)
+		}
 		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
 		expr := asn.Expr
 		if isModeExpr {
@@ -220,12 +231,14 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 	}
 
+	order := combIdentOrder(block.Final)
+	warnUnusedParamLocals(localAssigns, localAssignOrder, order, diags)
+
 	rows := eval.EvalCombination(block.Final, series, origins, diags)
 	if rows == nil {
 		rows = make([]eval.Row, 0)
 	}
 
-	order := combIdentOrder(block.Final)
 	vars := make(map[string][]eval.Value, len(order))
 	varOrigins := make(map[string]diag.Span, len(order))
 

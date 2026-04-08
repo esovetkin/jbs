@@ -577,6 +577,7 @@ Key codes:
 - `W300`: top-level global reassigned; last value wins.
 - `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
 - `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
+- `W312`: variable declared in a `param` block does not contribute to the final combination expression (directly or transitively).
 - `W320`: analyse helper variable shadows a step-visible variable.
 - `W072`: submit default key is defined in multiple submit-header `use` namespaces; later namespace wins.
 - `W073`: submit key `account` or `queue` is missing or resolves to an empty string.

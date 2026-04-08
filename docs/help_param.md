@@ -188,3 +188,29 @@ param envinfo
 ```
 
 Use them as complete assignment values, not inside tuple/list elements.
+
+## 7) Unused local assignments (`W312`)
+
+If a variable is declared inside `param` but does not contribute to the final combination expression, JBS emits `W312`.
+
+```jbs
+param p
+{
+        a = (1, 2)
+        x = "unused"
+        b = ("u", "v")
+        a + b
+}
+```
+
+The warning is not emitted when usage is transitive:
+
+```jbs
+param p
+{
+        x = "hello "
+        y = x + "world"
+        b = ("a", y)
+        b
+}
+```
