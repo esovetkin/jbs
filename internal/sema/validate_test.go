@@ -1917,6 +1917,64 @@ param p {
 	}
 }
 
+func TestLetImplicitCrossNamespaceLookupRejected(t *testing.T) {
+	src := `
+let a {
+  x = "A"
+}
+let b {
+  x = "B"
+}
+let c {
+  y = x
+}
+do s with c {
+  echo ${y}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E100") {
+		t.Fatalf("expected E100 for implicit cross-namespace let lookup, got: %s", diags.String())
+	}
+}
+
+func TestLetLocalSequentialLookupStillWorks(t *testing.T) {
+	src := `
+let c {
+  x = "B"
+  y = x
+}
+do s with c {
+  echo ${y}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if hasDiagCode(diags, "E100") {
+		t.Fatalf("did not expect E100 for local sequential let lookup, got: %s", diags.String())
+	}
+}
+
+func TestLetImplicitCrossNamespaceLookupDeterministic(t *testing.T) {
+	src := `
+let a { x = "A" }
+let b { x = "B" }
+let c { y = x }
+do s with c { echo ${y} }
+`
+	for i := 0; i < 50; i++ {
+		diags := &diag.Diagnostics{}
+		prog := parser.Parse("in.jbs", src, diags)
+		_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+		if got := diagCount(diags, "E100"); got == 0 {
+			t.Fatalf("iteration %d: expected E100 for implicit let lookup, got: %s", i, diags.String())
+		}
+	}
+}
+
 func TestAnalyseLocalHelperCollisionWarning(t *testing.T) {
 	src := `
 param p {

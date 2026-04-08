@@ -285,6 +285,12 @@ let p {
 
 Import variables with `with`.
 
+Visibility inside a `let` block is local and explicit:
+
+- expressions can read globals
+- expressions can read earlier assignments from the same `let` block
+- expressions do not implicitly read variables from other `let` namespaces
+
 `param` can import a full let namespace into local scope:
 
 ```jbs

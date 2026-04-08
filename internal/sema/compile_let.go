@@ -8,15 +8,10 @@ import (
 	"jbs/internal/eval"
 )
 
-func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *LetNamespace {
-	env := make(map[string]eval.Value, len(globals)+16)
+func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, diags *diag.Diagnostics) *LetNamespace {
+	env := make(map[string]eval.Value, len(globals)+len(block.Assignments)+8)
 	for k, v := range globals {
 		env[k] = v
-	}
-	for _, ns := range lets {
-		for name, value := range ns.Vars {
-			env[name] = value
-		}
 	}
 
 	out := &LetNamespace{

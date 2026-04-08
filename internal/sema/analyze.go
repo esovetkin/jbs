@@ -44,7 +44,7 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 				continue
 			}
 			letSpans[n.Name] = n.Span
-			compiled := compileLetBlock(n, resolvedGlobals.Values, res.LetByName, diags)
+			compiled := compileLetBlock(n, resolvedGlobals.Values, diags)
 			if compiled != nil {
 				res.LetNamespaces = append(res.LetNamespaces, compiled)
 				res.LetByName[compiled.Name] = compiled
