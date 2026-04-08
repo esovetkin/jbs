@@ -1071,6 +1071,83 @@ submit run with p {
 	}
 }
 
+func TestSubmitUseHelpersAreEmittedAndRewritten(t *testing.T) {
+	src := `
+let submit_defaults {
+  systemname = shell("hostname | tr -d '\n'")
+  queue = python("'${systemname:-batch}'")
+}
+
+submit run
+  use submit_defaults
+{
+  account = "project"
+  executable = "/bin/bash"
+  preprocess = {
+    echo $systemname ${systemname%foo}
+  }
+  args_exec = "-lc 'echo ${systemname:-na} ${#systemname} ${queue}'"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		if strings.HasSuffix(ps.Name, "__submit_params") {
+			submitSet = ps
+			break
+		}
+	}
+	if submitSet == nil {
+		t.Fatalf("expected submit parameter set, got %#v", doc.ParameterSet)
+	}
+	foundHelper := false
+	foundQueue := false
+	foundArgsExec := false
+	foundPreprocess := false
+	for _, p := range submitSet.Parameter {
+		if p.Name == "_jk__run_systemname" {
+			foundHelper = true
+			if p.Mode != "shell" {
+				t.Fatalf("expected shell mode for helper, got %#v", p)
+			}
+		}
+		if p.Name == "queue" {
+			foundQueue = true
+			got, ok := p.Value.(lower.SingleQuoted)
+			if !ok || string(got) != "'${_jk__run_systemname:-batch}'" {
+				t.Fatalf("expected queue helper rewrite, got %#v", p.Value)
+			}
+		}
+		if p.Name == "preprocess" {
+			foundPreprocess = true
+			body, ok := p.Value.(lower.Literal)
+			if !ok {
+				t.Fatalf("expected preprocess literal payload, got %T", p.Value)
+			}
+			text := string(body)
+			if !strings.Contains(text, "echo $_jk__run_systemname ${_jk__run_systemname%foo}") {
+				t.Fatalf("expected preprocess helper rewrite, got %q", text)
+			}
+		}
+		if p.Name == "args_exec" {
+			foundArgsExec = true
+			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_jk__run_systemname:-na} ${#_jk__run_systemname} ${queue}'" {
+				t.Fatalf("expected args_exec helper rewrite, got %#v", p.Value)
+			}
+		}
+		if p.Name == "systemname" {
+			t.Fatalf("did not expect unaliased helper name in submit parameters: %#v", submitSet.Parameter)
+		}
+	}
+	if !foundHelper || !foundQueue || !foundArgsExec || !foundPreprocess {
+		t.Fatalf("missing expected helper rewritten parameters: %#v", submitSet.Parameter)
+	}
+}
+
 func TestSubmitLetCollisionEscapesImportedVariables(t *testing.T) {
 	src := `
 let l {

@@ -90,7 +90,9 @@ submit run
 }
 ```
 
-Defaults follow last-win precedence by key across `use` namespaces. If the same key is provided by multiple `use` namespaces, JBS emits warning `W072`.
+Defaults follow last-win precedence by key across `use` namespaces. If the same key (or helper variable name) is provided by multiple `use` namespaces, JBS emits warning `W072`.
+
+Variables in submit-header `use` namespaces that are not submit keys are lowered as internal helper parameters (`_jk__<step>_<name>`). References to those variables inside submit values are rewritten to the helper aliases.
 
 Inside `submit`, key assignments can be separated by a newline or `;`:
 

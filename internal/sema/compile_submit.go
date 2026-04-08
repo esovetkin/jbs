@@ -2,6 +2,8 @@ package sema
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -30,9 +32,10 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 	}
 
 	spec := &SubmitSpec{
-		Name:   block.Name,
-		Values: make([]SubmitValue, 0, len(block.Fields)+len(block.UseNames)*4),
-		Span:   block.Span,
+		Name:    block.Name,
+		Values:  make([]SubmitValue, 0, len(block.Fields)+len(block.UseNames)*4),
+		Helpers: make([]SubmitHelper, 0, len(block.UseNames)*4),
+		Span:    block.Span,
 	}
 	resolved := make(map[string]SubmitValue, len(block.Fields)+len(block.UseNames)*4)
 	order := make([]string, 0, len(block.Fields)+len(block.UseNames)*4)
@@ -42,11 +45,37 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		resolved[v.Name] = v
 	}
+	resolvedHelpers := make(map[string]SubmitHelper, len(block.UseNames)*4)
+	helperOrder := make([]string, 0, len(block.UseNames)*4)
+	setHelper := func(h SubmitHelper) {
+		if _, exists := resolvedHelpers[h.Original]; !exists {
+			helperOrder = append(helperOrder, h.Original)
+		}
+		resolvedHelpers[h.Original] = h
+	}
 	type submitUseOrigin struct {
 		useName string
 		span    diag.Span
 	}
 	seenFromUse := make(map[string]submitUseOrigin, len(block.UseNames)*4)
+	seenHelperFromUse := make(map[string]submitUseOrigin, len(block.UseNames)*4)
+	helperAliasByOriginal := make(map[string]string, len(block.UseNames)*4)
+	usedHelperAliases := make(map[string]struct{}, len(block.UseNames)*4)
+	helperAlias := func(varName string) string {
+		if alias, ok := helperAliasByOriginal[varName]; ok {
+			return alias
+		}
+		base := submitHelperAlias(block.Name, varName)
+		alias := base
+		for i := 1; ; i++ {
+			if _, exists := usedHelperAliases[alias]; !exists {
+				usedHelperAliases[alias] = struct{}{}
+				helperAliasByOriginal[varName] = alias
+				return alias
+			}
+			alias = fmt.Sprintf("%s_%d", base, i)
+		}
+	}
 
 	for _, useName := range block.UseNames {
 		src := sources[useName]
@@ -70,16 +99,36 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 		for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
 			if _, ok := allowedSubmitKeys[varName]; !ok {
+				vals := src.Vars[varName]
+				value := eval.Null()
+				if len(vals) > 0 {
+					value = vals[0]
+				}
 				origin := src.Origins[varName]
 				if origin.IsZero() {
 					origin = src.Span
 				}
-				diags.AddWarning(
-					diag.CodeW070,
-					fmt.Sprintf("submit default '%s' from let '%s' is ignored (not a submit key)", varName, useName),
-					origin,
-					"keep only valid submit keys in submit defaults",
-				)
+				if prev, exists := seenHelperFromUse[varName]; exists && prev.useName != useName {
+					diags.AddWarning(
+						diag.CodeW072,
+						fmt.Sprintf("submit helper '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
+						origin,
+						"merge defaults explicitly or keep one namespace per helper variable",
+						diag.RelatedSpan{Message: "first definition", Span: prev.span},
+					)
+				}
+				seenHelperFromUse[varName] = submitUseOrigin{
+					useName: useName,
+					span:    origin,
+				}
+				setHelper(SubmitHelper{
+					Original: varName,
+					Aliased:  helperAlias(varName),
+					Mode:     src.Modes[varName],
+					Value:    value,
+					Span:     origin,
+					UseName:  useName,
+				})
 				continue
 			}
 			if isRawSubmitKey(varName) {
@@ -280,7 +329,32 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 	for _, name := range order {
 		spec.Values = append(spec.Values, resolved[name])
 	}
+	for _, name := range helperOrder {
+		spec.Helpers = append(spec.Helpers, resolvedHelpers[name])
+	}
 	return spec
+}
+
+func submitHelperAlias(stepName, varName string) string {
+	return "_jk__" + sanitizeSubmitHelperPart(stepName) + "_" + sanitizeSubmitHelperPart(varName)
+}
+
+func sanitizeSubmitHelperPart(s string) string {
+	if s == "" {
+		return "x"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "x"
+	}
+	return b.String()
 }
 
 func submitValueHasEmptyString(v SubmitValue) bool {

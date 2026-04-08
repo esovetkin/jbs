@@ -88,3 +88,10 @@ func TestResolveImportedVarsMixedFallback(t *testing.T) {
 		t.Fatalf("expected b imported from p2 fallback, got %#v", got["b"])
 	}
 }
+
+func TestSubmitHelperAliasSanitization(t *testing.T) {
+	got := submitHelperAlias("run-step.0", "system-name")
+	if got != "_jk__run_step_0_system_name" {
+		t.Fatalf("unexpected helper alias: got %q", got)
+	}
+}

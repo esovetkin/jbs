@@ -32,9 +32,10 @@ func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 		case ast.DoBlock:
 			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerDo(node))
 		case ast.SubmitBlock:
-			aliases := ctx.stepAliasMap(node.Name, true)
-			submitSetName := ctx.addSubmitParameterSet(node, aliases)
-			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerSubmit(node, submitSetName, aliases))
+			useAliases := ctx.stepAliasMap(node.Name, true)
+			valueAliases := ctx.submitValueAliasMap(node.Name)
+			submitSetName := ctx.addSubmitParameterSet(node, valueAliases)
+			ctx.doc.Step = append(ctx.doc.Step, ctx.lowerSubmit(node, submitSetName, useAliases))
 		}
 	}
 

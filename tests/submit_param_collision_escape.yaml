@@ -43,7 +43,7 @@ parameterset:
         _: -lc 'echo ${_ja__nodes} ${a} ${b}'
       - name: tasks
         type: int
-        _: ${nodes}
+        _: ${_ja__nodes}
 
   # Synthetic subset parameterset for step 'run' derived from 'p' for variable-only imports
   - name: _js__run__p__b_a_nodes

@@ -64,9 +64,10 @@ submit run
 Rules:
 
 - submit headers can contain one or more `use` clauses
-- non-submit keys in a defaults namespace are ignored with a warning
+- non-submit variables in a defaults namespace are retained as internal helper parameters (`_jk__<step>_<name>`) in the generated submit parameter set
+- submit values referencing those helper variables are rewritten to the helper alias form
 - explicit submit fields override imported defaults
-- if multiple namespaces set the same submit key, JBS uses last-win precedence and emits warning `W072`
+- if multiple namespaces set the same submit key or helper variable name, JBS uses last-win precedence and emits warning `W072`
 
 ## `jbs embed`
 

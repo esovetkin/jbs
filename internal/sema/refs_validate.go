@@ -9,6 +9,7 @@ import (
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 	"jbs/internal/planutil"
 )
 
@@ -100,10 +101,9 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		)
 	}
 
-	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
-		imports := resolveImportedVars(withItems, res.ImportSourceByName)
-		if plan := res.StepImportByName[stepName]; plan != nil {
-			imports = resolveImportedVarsFromPlan(plan)
+	processStepWithImports := func(stepName string, imports map[string][]importedVar, refs []varRef) {
+		if imports == nil {
+			imports = map[string][]importedVar{}
 		}
 		warned := make(map[string]struct{})
 		for _, ref := range refs {
@@ -124,6 +124,13 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			warned[key] = struct{}{}
 			warnMissing(stepName, ref, candidates)
 		}
+	}
+	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
+		imports := resolveImportedVars(withItems, res.ImportSourceByName)
+		if plan := res.StepImportByName[stepName]; plan != nil {
+			imports = resolveImportedVarsFromPlan(plan)
+		}
+		processStepWithImports(stepName, imports, refs)
 	}
 
 	for _, block := range res.DoBlocks {
@@ -150,6 +157,23 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				markUsedExact(useName, name)
 			}
 		}
+
+		imports := resolveImportedVars(block.WithItems, res.ImportSourceByName)
+		if plan := res.StepImportByName[block.Name]; plan != nil {
+			imports = resolveImportedVarsFromPlan(plan)
+		}
+		if spec := res.SubmitByName[block.Name]; spec != nil {
+			for _, helper := range spec.Helpers {
+				imports[helper.Original] = append(imports[helper.Original], importedVar{
+					Name:      helper.Original,
+					SourceVar: helper.Original,
+					Paramset:  helper.UseName,
+					Kind:      SourceKindLet,
+					Span:      helper.Span,
+				})
+			}
+		}
+
 		refs := make([]varRef, 0)
 		for _, field := range block.Fields {
 			if field.IsRaw {
@@ -162,7 +186,20 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			}
 			refs = append(refs, collectExprStringRefsWith(field.Expr, collectSubmitStringRefs)...)
 		}
-		processStep(block.Name, block.WithItems, refs)
+		if spec := res.SubmitByName[block.Name]; spec != nil {
+			for _, value := range spec.Values {
+				if value.IsRaw {
+					base := value.Span.Start
+					if base.Line == 0 {
+						base = block.Span.Start
+					}
+					refs = append(refs, collectShellLikeRefs(value.Raw, base, value.Span.File)...)
+					continue
+				}
+				refs = append(refs, collectEvalStringRefsWith(value.Value, value.Span, collectSubmitStringRefs)...)
+			}
+		}
+		processStepWithImports(block.Name, imports, refs)
 	}
 	for _, stmt := range res.Program.Stmts {
 		block, ok := stmt.(ast.AnalyseBlock)
@@ -456,6 +493,30 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 		}
 	}
 	walk(expr)
+	return out
+}
+
+func collectEvalStringRefsWith(value eval.Value, span diag.Span, collect stringRefCollector) []varRef {
+	if collect == nil {
+		return nil
+	}
+	out := make([]varRef, 0)
+	var walk func(eval.Value)
+	walk = func(v eval.Value) {
+		switch v.Kind {
+		case eval.KindString:
+			base := span.Start
+			if base.Line == 0 {
+				base = diag.NewPos(0, 1, 1)
+			}
+			out = append(out, collect(v.S, base, span.File)...)
+		case eval.KindList:
+			for _, item := range v.L {
+				walk(item)
+			}
+		}
+	}
+	walk(value)
 	return out
 }
 

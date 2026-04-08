@@ -136,6 +136,21 @@ func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[strin
 	return out
 }
 
+func (ctx *lowerContext) submitValueAliasMap(stepName string) map[string]string {
+	out := ctx.stepAliasMap(stepName, true)
+	spec := ctx.res.SubmitByName[stepName]
+	if spec == nil {
+		return out
+	}
+	for _, helper := range spec.Helpers {
+		if helper.Original == "" || helper.Aliased == "" {
+			continue
+		}
+		out[helper.Original] = helper.Aliased
+	}
+	return out
+}
+
 func sourceNeedsAlias(src *sema.ImportSource, aliases map[string]string) bool {
 	if src == nil || len(aliases) == 0 {
 		return false

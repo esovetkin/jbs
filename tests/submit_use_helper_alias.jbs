@@ -1,0 +1,9 @@
+use submit_defaults from jsc
+
+submit run0
+        use submit_defaults
+{
+        account = "atmlaml"
+        executable = "/bin/bash"
+        args_exec = "-lc 'echo ${systemname:-na} ${#systemname}'"
+}

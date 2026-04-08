@@ -351,6 +351,8 @@ In submit headers:
 - Multiple submit-header `use` clauses are allowed and merged in order.
 - Later `use` namespaces override earlier ones for the same submit key (last-win).
 - Collisions across different `use` namespaces for the same submit key emit warning `W072`.
+- Variables from submit-header `use` that are not submit keys are lowered as internal helper parameters named `_jk__<step>_<name>`.
+- References to helper variables in submit values are rewritten to the helper aliases.
 - Using a `param` source in submit-header `use` is rejected (`E071`).
 
 Example:
@@ -406,11 +408,13 @@ parameterset:
 
 - emits a synthetic submit parameter set with `init_with: "platform.xml:systemParameter"`.
 - emits submit keys explicitly set in the block.
+- emits non-submit variables from submit-header `use` as step-local helper parameters `_jk__<step>_<name>`.
 - if an imported `param`/`let` variable name collides with a submit key (for example `nodes`), the imported variable is renamed to `_ja__<name>` in generated YAML.
 - submit keys keep their original names.
 - for collided names, jbs rewrites `$name`/`${name}` references in:
   - submit raw blocks (`preprocess`, `postprocess`)
   - string-valued explicit submit expressions (for example `nodes = "${nodes}"`)
+- helper aliases are rewritten in all submit values (explicit fields, defaults imported via submit-header `use`, and raw blocks).
 - auto-injects `tasks` when missing:
   - if `nodes` is set/resolved, `tasks` is set to the same value.
   - otherwise `tasks` is set to `$nodes`.
@@ -593,7 +597,7 @@ Key codes:
 - `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
 - `W312`: variable declared in a `param` block does not contribute to the final combination expression (directly or transitively).
 - `W320`: analyse helper variable shadows a step-visible variable.
-- `W072`: submit default key is defined in multiple submit-header `use` namespaces; later namespace wins.
+- `W072`: submit default key/helper is defined in multiple submit-header `use` namespaces; later namespace wins.
 - `W073`: submit key `account` or `queue` is missing or resolves to an empty string.
 - `W074`: submit keys `executable` and `args_exec` are both missing or resolve to empty strings while `starter` is set to a non-empty value.
 
@@ -602,3 +606,4 @@ For `W310`/`W311`, reference scanning applies to:
 - `do` block body text.
 - submit raw blocks (`preprocess`, `postprocess`).
 - string literals in expression-valued submit keys.
+- values imported via submit-header `use` (including helper-dependent defaults).

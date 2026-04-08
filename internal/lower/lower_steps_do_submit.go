@@ -45,13 +45,6 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases map[string]string) string {
 	name := ctx.uniqueName(fmt.Sprintf("%s__submit_params", block.Name))
 	params := make([]Parameter, 0)
-	explicitNonRaw := make(map[string]struct{}, len(block.Fields))
-	for _, field := range block.Fields {
-		if field.IsRaw {
-			continue
-		}
-		explicitNonRaw[field.Name] = struct{}{}
-	}
 	if spec := ctx.res.SubmitByName[block.Name]; spec != nil {
 		for _, field := range spec.Values {
 			if field.IsRaw {
@@ -69,13 +62,33 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases ma
 			if t := submitParameterType(field.Name); t != "" {
 				param.Type = t
 			}
-			value := field.Value
-			if _, ok := explicitNonRaw[field.Name]; ok {
-				value = rewriteShellRefsInEvalValue(value, aliases)
-			}
+			value := rewriteShellRefsInEvalValue(field.Value, aliases)
 			if field.Mode != "" {
 				param.Mode = field.Mode
 				if field.Mode == "python" {
+					param.Value = SingleQuoted(asString(value))
+				} else {
+					param.Value = asString(value)
+				}
+			} else {
+				switch value.Kind {
+				case eval.KindList, eval.KindNull:
+					param.Value = pythonLiteral(value)
+				default:
+					param.Value = templateValue(value)
+				}
+			}
+			params = append(params, param)
+		}
+		for _, helper := range spec.Helpers {
+			if helper.Aliased == "" {
+				continue
+			}
+			param := Parameter{Name: helper.Aliased}
+			value := rewriteShellRefsInEvalValue(helper.Value, aliases)
+			if helper.Mode != "" {
+				param.Mode = helper.Mode
+				if helper.Mode == "python" {
 					param.Value = SingleQuoted(asString(value))
 				} else {
 					param.Value = asString(value)

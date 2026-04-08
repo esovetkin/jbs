@@ -89,10 +89,20 @@ type SubmitValue struct {
 	Span  diag.Span
 }
 
+type SubmitHelper struct {
+	Original string
+	Aliased  string
+	Mode     string
+	Value    eval.Value
+	Span     diag.Span
+	UseName  string
+}
+
 type SubmitSpec struct {
-	Name   string
-	Values []SubmitValue
-	Span   diag.Span
+	Name    string
+	Values  []SubmitValue
+	Helpers []SubmitHelper
+	Span    diag.Span
 }
 
 type LetNamespace struct {

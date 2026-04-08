@@ -2283,6 +2283,18 @@ func submitValueByName(spec *sema.SubmitSpec, name string) (sema.SubmitValue, bo
 	return sema.SubmitValue{}, false
 }
 
+func submitHelperByOriginal(spec *sema.SubmitSpec, name string) (sema.SubmitHelper, bool) {
+	if spec == nil {
+		return sema.SubmitHelper{}, false
+	}
+	for _, helper := range spec.Helpers {
+		if helper.Original == name {
+			return helper, true
+		}
+	}
+	return sema.SubmitHelper{}, false
+}
+
 func TestSubmitHeaderUseAppliesDefaultsAndExplicitOverride(t *testing.T) {
 	src := `
 let defaults {
@@ -2468,11 +2480,12 @@ submit run
 	}
 }
 
-func TestSubmitHeaderUseWarnsForIgnoredKeys(t *testing.T) {
+func TestSubmitHeaderUseKeepsNonSubmitHelperKeys(t *testing.T) {
 	src := `
 let defaults {
   queue = "batch"
   ignored_key = 1
+  queue_expr = python("'${ignored_key:-x}'")
   preprocess = "module load CUDA"
 }
 submit run
@@ -2491,14 +2504,24 @@ submit run
 	if spec == nil {
 		t.Fatalf("missing submit spec for run")
 	}
-	if got := diagCount(diags, "W070"); got != 1 {
-		t.Fatalf("expected one W070 for ignored non-submit key, got %d: %s", got, diags.String())
+	if got := diagCount(diags, "W070"); got != 0 {
+		t.Fatalf("did not expect W070 for non-submit helper from submit use, got %d: %s", got, diags.String())
 	}
 	if got := diagCount(diags, "W071"); got != 1 {
 		t.Fatalf("expected one W071 for ignored raw submit key, got %d: %s", got, diags.String())
 	}
-	if _, ok := submitValueByName(spec, "ignored_key"); ok {
-		t.Fatalf("did not expect ignored_key in submit values: %#v", spec.Values)
+	if helper, ok := submitHelperByOriginal(spec, "ignored_key"); !ok {
+		t.Fatalf("expected ignored_key helper in submit spec: %#v", spec.Helpers)
+	} else if helper.Aliased == "" {
+		t.Fatalf("expected non-empty alias for ignored_key helper: %#v", helper)
+	}
+	if helper, ok := submitHelperByOriginal(spec, "queue_expr"); !ok {
+		t.Fatalf("expected queue_expr helper in submit spec: %#v", spec.Helpers)
+	} else if helper.Mode != "python" {
+		t.Fatalf("expected python mode for queue_expr helper, got %#v", helper)
+	}
+	if _, ok := submitHelperByOriginal(spec, "preprocess"); ok {
+		t.Fatalf("did not expect preprocess helper imported from let: %#v", spec.Helpers)
 	}
 	if _, ok := submitValueByName(spec, "preprocess"); ok {
 		t.Fatalf("did not expect preprocess default imported from let: %#v", spec.Values)
@@ -2564,6 +2587,99 @@ submit run
 	}
 	if hasW310ForLet(diags, "defaults", "gres") {
 		t.Fatalf("did not expect W310 for defaults.gres when used by submit header use, got: %s", diags.String())
+	}
+}
+
+func TestSubmitHeaderUseHelperReferenceCountsAsUsageForW310(t *testing.T) {
+	src := `
+let defaults {
+  systemname = shell("hostname | tr -d '\n'")
+  queue = python("'${systemname:-batch}'")
+}
+submit run
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if hasW310ForLet(diags, "defaults", "systemname") {
+		t.Fatalf("did not expect W310 for defaults.systemname when used by submit default expression, got: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311 for helper reference in submit defaults, got %d: %s", got, diags.String())
+	}
+}
+
+func TestSubmitHeaderUseUnusedHelperStillWarnsW310(t *testing.T) {
+	src := `
+let defaults {
+  systemname = shell("hostname | tr -d '\n'")
+  queue = "batch"
+}
+submit run
+  use defaults
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "defaults", "systemname") {
+		t.Fatalf("expected W310 for truly unused helper defaults.systemname, got: %s", diags.String())
+	}
+}
+
+func TestSubmitHeaderUseHelperCollisionWarnsAndLastWins(t *testing.T) {
+	src := `
+let d0 {
+  systemname = "first"
+}
+let d1 {
+  systemname = "second"
+}
+submit run
+  use d0
+  use d1
+{
+  queue = "${systemname}"
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W072"); got != 1 {
+		t.Fatalf("expected one W072 for helper collision, got %d: %s", got, diags.String())
+	}
+	spec := res.SubmitByName["run"]
+	if spec == nil {
+		t.Fatalf("missing submit spec for run")
+	}
+	helper, ok := submitHelperByOriginal(spec, "systemname")
+	if !ok {
+		t.Fatalf("expected helper systemname in submit spec: %#v", spec.Helpers)
+	}
+	if helper.Value.Kind != eval.KindString || helper.Value.S != "second" {
+		t.Fatalf("expected helper last-win value from d1, got %#v", helper.Value)
+	}
+	if helper.UseName != "d1" {
+		t.Fatalf("expected helper source namespace d1, got %#v", helper)
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311 when helper is available in submit scope, got %d: %s", got, diags.String())
 	}
 }
 
