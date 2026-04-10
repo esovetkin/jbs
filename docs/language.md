@@ -592,47 +592,9 @@ Submit formatting constraints:
 
 All diagnostics include source location (`file:line:column`).
 
-Key codes:
+The full diagnostics catalog is generated from `internal/diag/codes.go`:
 
-- `E020`: unknown imported source in `with`.
-- `E021`: unknown imported variable.
-- `E022`: ambiguous `with` source (name matches both `param` and `let`).
-- `E214`: conflicting variable imported from multiple sources in `with`.
-- `E036`: repeated identifier in combination expression.
-- `E042`: conflicting key values during row merge.
-- `E072`: unknown submit key.
-- `E073`: `preprocess`/`postprocess` require raw-block values.
-- `E074`: non-raw submit keys cannot use raw-block values.
-- `E075`: duplicate submit key.
-- `E076`: malformed submit statement.
-- `E300`: unknown global variable.
-- `E301`: `jbs_name` must be a string literal.
-- `E302`: `jbs_outpath` must be a string literal.
-- `E303`: `jbs_name`/`jbs_outpath` cannot use `shell()`/`python()`.
-- `E304`: unsupported global value kind (must be scalar).
-- `E305`: nested tuple/list value is not allowed.
-- `E400`: duplicate `let` block name.
-- `E401`: duplicate variable name in a `let` block.
-- `E402`: invalid placeholder in analyse extraction expression.
-- `E403`: let variable must be scalar.
-- `E410`: unknown analyse target step.
-- `E412`: analyse extraction expression does not evaluate to string.
-- `E413`: analyse extraction alias collides with a step-visible variable.
-- `E414`: duplicate analyse variable name.
-- `E415`: unknown symbol in analyse result tuple.
-- `E416`: malformed analyse assignment syntax.
-- `E417`: analyse block missing or malformed final tuple.
-- `E420`: analyse with-clause imports from non-let source.
-- `E422`: analyse with-clause imported let variable is not string-valued.
-- `W101`: `+` length mismatch with non-divisible lengths; cyclic broadcast applied.
-- `W300`: top-level global reassigned; last value wins.
-- `W310`: exposed param variable is never referenced in any `do`/`submit` body via `$name` or `${name}`.
-- `W311`: step references `$name`/`${name}` for a known param variable, but the corresponding paramset is not imported via `with`.
-- `W312`: variable declared in a `param` block does not contribute to the final combination expression (directly or transitively).
-- `W320`: analyse helper variable shadows a step-visible variable.
-- `W072`: submit default key/helper is defined in multiple submit-header `use` namespaces; later namespace wins.
-- `W073`: submit key `account` or `queue` is missing or resolves to an empty string.
-- `W074`: submit keys `executable` and `args_exec` are both missing or resolve to empty strings while `starter` is set to a non-empty value.
+- [Diagnostics Catalog](diagnostics.md)
 
 For `W310`/`W311`, reference scanning applies to:
 

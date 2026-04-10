@@ -1,10 +1,16 @@
-.PHONY: build test clean
+.PHONY: build test docs docs-check clean
 
-build:
+build: docs
 	go build -o jbs ./cmd/jbs
 
-test:
+test: docs-check
 	go test ./...
+
+docs:
+	go run ./cmd/gendiagdocs
+
+docs-check:
+	go run ./cmd/gendiagdocs -check
 
 coverage:
 	go test ./... -coverprofile coverage.out
