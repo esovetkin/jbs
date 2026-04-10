@@ -7,6 +7,21 @@ Inside a `param` block:
 2. The last line is a combination expression using `+` and `*`.
 3. Variables used in the final expression become available to `do` and `submit`.
 
+Assignment operators supported in `param` assignment statements:
+
+- `=`
+- `+=`, `-=`, `*=`, `/=`, `%=`
+
+Rewrite rules:
+
+- `x += y` -> `x = x + y`
+- `x -= y` -> `x = x - y`
+- `x *= y` -> `x = x * y`
+- `x /= y` -> `x = x / y`
+- `x %= y` -> `x = x % y`
+
+The final `param` line is still a combination expression (`+`/`*` over variable names), not an assignment statement.
+
 ```jbs
 param <name> [with ...]
 {

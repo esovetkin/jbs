@@ -52,8 +52,20 @@ type WithItem struct {
 
 func (w WithItem) GetSpan() diag.Span { return w.Span }
 
+type AssignOp string
+
+const (
+	AssignEq      AssignOp = "="
+	AssignPlusEq  AssignOp = "+="
+	AssignMinusEq AssignOp = "-="
+	AssignStarEq  AssignOp = "*="
+	AssignSlashEq AssignOp = "/="
+	AssignPctEq   AssignOp = "%="
+)
+
 type Assignment struct {
 	Name string
+	Op   AssignOp
 	Expr Expr
 	Span diag.Span
 }
@@ -62,6 +74,7 @@ func (a Assignment) GetSpan() diag.Span { return a.Span }
 
 type GlobalAssign struct {
 	Name string
+	Op   AssignOp
 	Expr Expr
 	Span diag.Span
 }
@@ -93,6 +106,7 @@ func (a AnalyseBlock) GetSpan() diag.Span { return a.Span }
 
 type AnalyseAssign struct {
 	Name string
+	Op   AssignOp
 	Expr Expr
 	File string
 	Span diag.Span
@@ -151,6 +165,7 @@ func (s SubmitBlock) GetSpan() diag.Span { return s.Span }
 
 type SubmitField struct {
 	Name     string
+	Op       AssignOp
 	Expr     Expr
 	Raw      string
 	RawStart diag.Position

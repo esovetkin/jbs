@@ -28,7 +28,13 @@ func (p *Parser) isTopLevelAssignmentStart() bool {
 			i++
 			continue
 		}
-		return r == '='
+		if r == '=' {
+			return true
+		}
+		if (r == '+' || r == '-' || r == '*' || r == '/' || r == '%') && i+1 < len(p.src) && p.src[i+1] == '=' {
+			return true
+		}
+		return false
 	}
 	return false
 }
@@ -38,7 +44,7 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)
 	tp := &tokenParser{tokens: tokens, diags: p.diags}
 	tp.skipStmtSeparators()
-	if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
+	if tp.peek().Type != lexer.TokenIdent || !isAssignToken(tp.peekN(1).Type) {
 		tok := tp.peek()
 		p.diags.AddError(diag.CodeE012,
 			"expected top-level global assignment",

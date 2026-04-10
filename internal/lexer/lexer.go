@@ -256,15 +256,45 @@ func (l *Lexer) lexSymbol() {
 			tt = TokenGT
 		}
 	case '+':
-		tt = TokenPlus
+		if l.peek() == '=' {
+			l.advance()
+			tt = TokenPlusEqual
+			text = "+="
+		} else {
+			tt = TokenPlus
+		}
 	case '-':
-		tt = TokenMinus
+		if l.peek() == '=' {
+			l.advance()
+			tt = TokenMinusEqual
+			text = "-="
+		} else {
+			tt = TokenMinus
+		}
 	case '*':
-		tt = TokenStar
+		if l.peek() == '=' {
+			l.advance()
+			tt = TokenStarEqual
+			text = "*="
+		} else {
+			tt = TokenStar
+		}
 	case '/':
-		tt = TokenSlash
+		if l.peek() == '=' {
+			l.advance()
+			tt = TokenSlashEqual
+			text = "/="
+		} else {
+			tt = TokenSlash
+		}
 	case '%':
-		tt = TokenPercent
+		if l.peek() == '=' {
+			l.advance()
+			tt = TokenPercentEqual
+			text = "%="
+		} else {
+			tt = TokenPercent
+		}
 	case '(':
 		tt = TokenLParen
 	case ')':

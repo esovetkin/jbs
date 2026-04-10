@@ -104,7 +104,8 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	}
 
 	for _, asn := range block.Assignments {
-		warnModeExprInCollections(asn.Expr, diags)
+		effectiveExpr := assignmentExpr(asn.Name, asn.Op, asn.Expr, asn.Span)
+		warnModeExprInCollections(effectiveExpr, diags)
 		localAssigns[asn.Name] = localAssignMeta{
 			Expr: asn.Expr,
 			Span: asn.Span,
@@ -113,8 +114,8 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			localAssignSeen[asn.Name] = true
 			localAssignOrder = append(localAssignOrder, asn.Name)
 		}
-		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
-		expr := asn.Expr
+		mode, inner, isModeExpr := unwrapModeExpr(effectiveExpr)
+		expr := effectiveExpr
 		if isModeExpr {
 			expr = inner
 		}

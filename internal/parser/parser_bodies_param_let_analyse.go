@@ -17,7 +17,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 		if tp.peek().Type == lexer.TokenEOF {
 			break
 		}
-		if tp.peek().Type == lexer.TokenIdent && tp.peekN(1).Type == lexer.TokenEqual {
+		if tp.peek().Type == lexer.TokenIdent && isAssignToken(tp.peekN(1).Type) {
 			assignments = append(assignments, tp.parseAssignment())
 			continue
 		}
@@ -54,7 +54,7 @@ func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostic
 		if tp.peek().Type == lexer.TokenEOF {
 			break
 		}
-		if tp.peek().Type != lexer.TokenIdent || tp.peekN(1).Type != lexer.TokenEqual {
+		if tp.peek().Type != lexer.TokenIdent || !isAssignToken(tp.peekN(1).Type) {
 			tok := tp.peek()
 			diags.AddError(diag.CodeE418,
 				"malformed let statement; expected 'name = expression'",
@@ -122,16 +122,16 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	}
 	nameTok := tp.next()
 
-	if tp.peek().Type != lexer.TokenEqual {
+	op, _, ok := tp.parseAssignOp()
+	if !ok {
 		diags.AddError(diag.CodeE416,
-			"malformed analyse statement; expected '=' after variable name",
+			"malformed analyse statement; expected assignment operator after variable name",
 			nameTok.Span,
 			"use syntax: name = expression [in \"filename\"]",
 		)
 		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
 	}
-	tp.next()
 
 	expr := tp.parseExpr()
 	if expr == nil {
@@ -169,6 +169,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 
 	return ast.AnalyseAssign{
 		Name: nameTok.Value,
+		Op:   op,
 		Expr: expr,
 		File: fileName,
 		Span: span,

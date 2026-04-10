@@ -35,9 +35,10 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, diags *d
 			continue
 		}
 		seen[asn.Name] = asn.Span
-		warnModeExprInCollections(asn.Expr, diags)
-		mode, inner, isModeExpr := unwrapModeExpr(asn.Expr)
-		expr := asn.Expr
+		effectiveExpr := assignmentExpr(asn.Name, asn.Op, asn.Expr, asn.Span)
+		warnModeExprInCollections(effectiveExpr, diags)
+		mode, inner, isModeExpr := unwrapModeExpr(effectiveExpr)
+		expr := effectiveExpr
 		if isModeExpr {
 			expr = inner
 		}

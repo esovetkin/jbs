@@ -24,6 +24,7 @@ let <name>
 - Import variables with `with` and use unqualified names.
 - `let` expressions can use globals and earlier assignments in the same `let` block.
 - `let` expressions cannot implicitly read variables from other `let` namespaces.
+- Assignment operators: `=`, `+=`, `-=`, `*=`, `/=`, `%=`.
 
 ## Example
 

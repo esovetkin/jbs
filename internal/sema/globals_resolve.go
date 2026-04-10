@@ -34,7 +34,8 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			)
 			continue
 		}
-		warnModeExprInCollections(assign.Expr, diags)
+		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
+		warnModeExprInCollections(effectiveExpr, diags)
 		if prev, exists := spans[assign.Name]; exists {
 			diags.AddWarning(
 				diag.CodeW300,
@@ -87,8 +88,8 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			continue
 		}
 
-		mode, inner, isModeExpr := unwrapModeExpr(assign.Expr)
-		expr := assign.Expr
+		mode, inner, isModeExpr := unwrapModeExpr(effectiveExpr)
+		expr := effectiveExpr
 		if isModeExpr {
 			expr = inner
 		}

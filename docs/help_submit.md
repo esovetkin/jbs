@@ -134,6 +134,17 @@ Inside `submit`, key assignments can be separated by a newline or `;`:
 submit run { queue = "batch"; account = "myacct"; args_exec = "-lc hostname"; }
 ```
 
+Expression-valued submit keys support assignment operators:
+
+- `=`
+- `+=`, `-=`, `*=`, `/=`, `%=`
+
+Rewrite rules follow normal desugaring, for example:
+
+- `args_exec += " --flag"` -> `args_exec = args_exec + " --flag"`
+
+Raw submit keys (`preprocess`, `postprocess`) must use `= { ... }`.
+
 ## Variable inheritance with `after`
 
 `after` also carries variable visibility from predecessor steps.

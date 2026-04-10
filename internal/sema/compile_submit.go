@@ -224,10 +224,11 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			)
 			continue
 		}
-		warnModeExprInCollections(field.Expr, diags)
+		effectiveExpr := assignmentExpr(field.Name, field.Op, field.Expr, field.Span)
+		warnModeExprInCollections(effectiveExpr, diags)
 
-		mode, inner, isModeExpr := unwrapModeExpr(field.Expr)
-		expr := field.Expr
+		mode, inner, isModeExpr := unwrapModeExpr(effectiveExpr)
+		expr := effectiveExpr
 		if isModeExpr {
 			expr = inner
 		}

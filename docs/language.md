@@ -148,6 +148,25 @@ Supported assignment expressions:
   - `tuple(expr)`
   - `list(expr)`
 
+Supported assignment operators in assignment statements:
+
+- `=`
+- `+=`, `-=`, `*=`, `/=`, `%=`
+
+Compound assignment rewrite rules:
+
+- `x += y` -> `x = x + y`
+- `x -= y` -> `x = x - y`
+- `x *= y` -> `x = x * y`
+- `x /= y` -> `x = x / y`
+- `x %= y` -> `x = x % y`
+
+Context restrictions:
+
+- Compound assignment is valid only where assignment statements are valid.
+- Compound assignment is not supported for `param` final combination expressions.
+- Submit raw blocks (`preprocess`, `postprocess`) must use `= { ... }`.
+
 Mode declarations lower to JUBE parameter mode fields:
 
 ```yaml
@@ -623,7 +642,7 @@ Default `fmt` is syntax-only. Use `-s`/`--strict` to require import expansion an
 Rules:
 
 - One blank line between top-level statements.
-- Global assignments are emitted as `name = value`.
+- Global assignments are emitted as `name <op> value`, preserving the source operator.
 - The block header is on the first line (`param|do|submit|let|analyse <name>`).
 - `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces.
 - The opening brace `{` is on its own line.
@@ -641,7 +660,7 @@ variable = "a" +\
 
 Submit formatting constraints:
 
-- Expression fields stay `key = expr`.
+- Expression fields keep the source assignment operator (`=`, `+=`, `-=`, `*=`, `/=`, `%=`).
 - Raw fields stay `key = { ... }`.
 - The formatter does not change submit key semantics.
 

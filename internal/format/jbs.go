@@ -82,7 +82,11 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 	if exprText == "" {
 		exprText = "\"\""
 	}
-	return []string{g.Name + " = " + exprText}
+	op := string(g.Op)
+	if op == "" {
+		op = string(ast.AssignEq)
+	}
+	return []string{g.Name + " " + op + " " + exprText}
 }
 
 func formatParamBlock(p ast.ParamBlock) []string {
@@ -150,7 +154,11 @@ func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []string {
 		if exprText == "" {
 			exprText = "\"\""
 		}
-		lines = append(lines, bodyIndent+f.Name+" = "+exprText)
+		op := string(f.Op)
+		if op == "" {
+			op = string(ast.AssignEq)
+		}
+		lines = append(lines, bodyIndent+f.Name+" "+op+" "+exprText)
 	}
 	return lines
 }

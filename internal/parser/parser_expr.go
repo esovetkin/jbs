@@ -16,9 +16,54 @@ type tokenParser struct {
 	diags  *diag.Diagnostics
 }
 
+func isAssignToken(tt lexer.TokenType) bool {
+	return tt == lexer.TokenEqual ||
+		tt == lexer.TokenPlusEqual ||
+		tt == lexer.TokenMinusEqual ||
+		tt == lexer.TokenStarEqual ||
+		tt == lexer.TokenSlashEqual ||
+		tt == lexer.TokenPercentEqual
+}
+
+func tokenToAssignOp(tt lexer.TokenType) ast.AssignOp {
+	switch tt {
+	case lexer.TokenPlusEqual:
+		return ast.AssignPlusEq
+	case lexer.TokenMinusEqual:
+		return ast.AssignMinusEq
+	case lexer.TokenStarEqual:
+		return ast.AssignStarEq
+	case lexer.TokenSlashEqual:
+		return ast.AssignSlashEq
+	case lexer.TokenPercentEqual:
+		return ast.AssignPctEq
+	default:
+		return ast.AssignEq
+	}
+}
+
+func (p *tokenParser) parseAssignOp() (ast.AssignOp, diag.Span, bool) {
+	tok := p.peek()
+	if !isAssignToken(tok.Type) {
+		return ast.AssignEq, tok.Span, false
+	}
+	p.next()
+	return tokenToAssignOp(tok.Type), tok.Span, true
+}
+
 func (p *tokenParser) parseAssignment() ast.Assignment {
 	name := p.expect(lexer.TokenIdent, diag.CodeE050, "expected assignment identifier")
-	p.expect(lexer.TokenEqual, diag.CodeE051, "expected '=' in assignment")
+	op, _, ok := p.parseAssignOp()
+	if !ok {
+		tok := p.peek()
+		p.diags.AddError(diag.CodeE051, "expected assignment operator in assignment", tok.Span, "use one of: =, +=, -=, *=, /=, %=")
+		p.consumeUntilStmtEnd()
+		return ast.Assignment{
+			Name: name.Value,
+			Op:   ast.AssignEq,
+			Span: name.Span,
+		}
+	}
 	expr := p.parseExpr()
 	span := name.Span
 	if expr != nil {
@@ -35,6 +80,7 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 	p.consumeUntilStmtEnd()
 	return ast.Assignment{
 		Name: name.Value,
+		Op:   op,
 		Expr: expr,
 		Span: span,
 	}

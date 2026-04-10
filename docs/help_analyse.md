@@ -41,6 +41,7 @@ Rules:
 - The final tuple is required and defines result columns.
 - `as "..."` sets a custom column heading.
 - Statements can be separated by newlines or `;`.
+- Assignment operators in `analyse` statements: `=`, `+=`, `-=`, `*=`, `/=`, `%=`.
 
 Compact one-line example:
 

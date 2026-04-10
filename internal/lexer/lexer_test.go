@@ -165,3 +165,47 @@ func TestLexUseKeyword(t *testing.T) {
 		t.Fatalf("unexpected second token: %#v", tokens[1])
 	}
 }
+
+func TestLexCompoundAssignmentTokens(t *testing.T) {
+	src := "a += 1; b -= 2; c *= 3; d /= 4; e %= 5\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	expected := []TokenType{
+		TokenIdent, TokenPlusEqual, TokenNumber, TokenSemicolon,
+		TokenIdent, TokenMinusEqual, TokenNumber, TokenSemicolon,
+		TokenIdent, TokenStarEqual, TokenNumber, TokenSemicolon,
+		TokenIdent, TokenSlashEqual, TokenNumber, TokenSemicolon,
+		TokenIdent, TokenPercentEqual, TokenNumber, TokenNewline, TokenEOF,
+	}
+	got := make([]TokenType, len(tokens))
+	for i, tok := range tokens {
+		got[i] = tok.Type
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("unexpected token count: got=%d want=%d\ngot=%v", len(got), len(expected), got)
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Fatalf("token %d mismatch: got=%s want=%s", i, got[i], expected[i])
+		}
+	}
+}
+
+func TestLexCompoundAssignmentAdjacency(t *testing.T) {
+	src := "x+ =1\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	if len(tokens) < 4 {
+		t.Fatalf("unexpected token count: %d", len(tokens))
+	}
+	if tokens[0].Type != TokenIdent || tokens[1].Type != TokenPlus || tokens[2].Type != TokenEqual {
+		t.Fatalf("expected IDENT '+' '=' sequence, got: %#v %#v %#v", tokens[0], tokens[1], tokens[2])
+	}
+}

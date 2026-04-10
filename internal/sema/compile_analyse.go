@@ -131,6 +131,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	seenAssignments := make(map[string]diag.Span, len(block.Assignments))
 	assignmentVars := make(map[string]diag.Span, len(block.Assignments))
 	for _, assign := range block.Assignments {
+		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
 		if prev, exists := seenAssignments[assign.Name]; exists {
 			diags.AddError(
 				diag.CodeE414,
@@ -153,8 +154,8 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 					diag.RelatedSpan{Message: "step variable", Span: existing},
 				)
 			}
-			warnModeExprInCollections(assign.Expr, diags)
-			value := eval.EvalExpr(assign.Expr, env, diags)
+			warnModeExprInCollections(effectiveExpr, diags)
+			value := eval.EvalExpr(effectiveExpr, env, diags)
 			if hasNestedList(value) {
 				diags.AddError(
 					diag.CodeE305,
@@ -177,9 +178,9 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			)
 			continue
 		}
-		warnModeExprInCollections(assign.Expr, diags)
+		warnModeExprInCollections(effectiveExpr, diags)
 		before := len(diags.Items)
-		value := eval.EvalExpr(assign.Expr, env, diags)
+		value := eval.EvalExpr(effectiveExpr, env, diags)
 		if value.Kind != eval.KindString {
 			if hasErrorCodeSince(diags, before, diag.CodeE100) {
 				continue
@@ -205,7 +206,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 
 		groupName := ""
 		patternName := ""
-		if ident, ok := assign.Expr.(ast.IdentExpr); ok {
+		if ident, ok := effectiveExpr.(ast.IdentExpr); ok {
 			if imported, exists := analyseImports[ident.Name]; exists {
 				groupName = imported.Source
 				patternName = imported.SourceVar

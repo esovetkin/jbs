@@ -152,14 +152,14 @@ echo pre
 		t.Fatalf("unexpected statement type: %T", prog.Stmts[0])
 	}
 	fields := append([]ast.SubmitField{}, submit.Fields...)
-	fields = append(fields, ast.SubmitField{Name: "measurement"})
+	fields = append(fields, ast.SubmitField{Name: "measurement", Op: ast.AssignPlusEq})
 	got := renderSubmitFields(fields, []rune(src))
 	want := []string{
 		`        args_exec = "-lc hostname"`,
 		`        preprocess = {`,
 		`                echo pre`,
 		`        }`,
-		`        measurement = ""`,
+		`        measurement += ""`,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected line count: got=%d want=%d\nlines:\n%s", len(got), len(want), strings.Join(got, "\n"))
@@ -168,6 +168,52 @@ echo pre
 		if got[i] != want[i] {
 			t.Fatalf("line %d mismatch: got=%q want=%q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestFormatGlobalCompoundAssignment(t *testing.T) {
+	src := "jbs_comment += \"hello\"\n"
+	diags := &diag.Diagnostics{}
+	got, err := JBS("global_compound_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := "jbs_comment += \"hello\"\n"
+	if got != want {
+		t.Fatalf("unexpected format output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatGlobalCompoundAssignmentContinuationIndent(t *testing.T) {
+	src := "let l{\nx = \"a\" +\\\n\"b\"\n}\n"
+	diags := &diag.Diagnostics{}
+	got, err := JBS("global_compound_continuation_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !strings.Contains(got, "x = \"a\" +\\\n            \"b\"") {
+		t.Fatalf("expected continuation indentation in formatted body, got:\n%s", got)
+	}
+}
+
+func TestFormatCompoundAssignmentsWithSemicolons(t *testing.T) {
+	src := "let l{a=1;a+=2}\n"
+	diags := &diag.Diagnostics{}
+	got, err := JBS("compound_semicolon_fmt.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !strings.Contains(got, "a+=2") {
+		t.Fatalf("expected formatted output to preserve '+=' operator, got:\n%s", got)
 	}
 }
 

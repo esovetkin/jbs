@@ -39,7 +39,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		}
 
 		stmtStart := p.pos()
-		name, nameSpan, ok := p.parseIdent()
+		name, _, ok := p.parseIdent()
 		if !ok {
 			p.diags.AddError(diag.CodeE077,
 				"malformed submit statement; expected 'name = value'",
@@ -51,25 +51,35 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		}
 
 		p.skipInlineTrivia()
-		if p.peek() != '=' {
+		op, opSpan, ok := p.parseAssignOp()
+		if !ok {
 			p.diags.AddError(diag.CodeE077,
-				"malformed submit statement; expected '=' after key",
-				nameSpan,
+				"malformed submit statement; expected assignment operator after key",
+				opSpan,
 				"use syntax: key = expression or preprocess/postprocess = { ... }",
 			)
 			p.recoverLine()
 			continue
 		}
-		p.advance()
 		p.skipInlineTrivia()
 
 		if p.peek() == '{' {
+			if op != ast.AssignEq {
+				p.diags.AddError(diag.CodeE077,
+					"submit raw block requires '=' assignment operator",
+					opSpan,
+					"use syntax: preprocess = { ... } or postprocess = { ... }",
+				)
+				p.recoverLine()
+				continue
+			}
 			raw, rawStart, blockEnd, ok := p.readBalancedBlock()
 			if !ok {
 				break
 			}
 			field := ast.SubmitField{
 				Name:     name,
+				Op:       op,
 				Raw:      raw,
 				RawStart: rawStart,
 				IsRaw:    true,
@@ -96,6 +106,7 @@ func (p *submitFieldParser) parse() []ast.SubmitField {
 		}
 		fields = append(fields, ast.SubmitField{
 			Name: name,
+			Op:   op,
 			Expr: expr,
 			Span: fieldSpan,
 		})
@@ -213,6 +224,49 @@ func (p *submitFieldParser) parseIdent() (string, diag.Span, bool) {
 	}
 	end := p.pos()
 	return string(p.src[start.Offset-p.base : end.Offset-p.base]), diag.NewSpan(p.file, start, end), true
+}
+
+func (p *submitFieldParser) parseAssignOp() (ast.AssignOp, diag.Span, bool) {
+	start := p.pos()
+	if p.eof() {
+		return ast.AssignEq, diag.NewSpan(p.file, start, start), false
+	}
+	switch p.peek() {
+	case '=':
+		p.advance()
+		return ast.AssignEq, diag.NewSpan(p.file, start, p.pos()), true
+	case '+':
+		if p.peekN(1) == '=' {
+			p.advance()
+			p.advance()
+			return ast.AssignPlusEq, diag.NewSpan(p.file, start, p.pos()), true
+		}
+	case '-':
+		if p.peekN(1) == '=' {
+			p.advance()
+			p.advance()
+			return ast.AssignMinusEq, diag.NewSpan(p.file, start, p.pos()), true
+		}
+	case '*':
+		if p.peekN(1) == '=' {
+			p.advance()
+			p.advance()
+			return ast.AssignStarEq, diag.NewSpan(p.file, start, p.pos()), true
+		}
+	case '/':
+		if p.peekN(1) == '=' {
+			p.advance()
+			p.advance()
+			return ast.AssignSlashEq, diag.NewSpan(p.file, start, p.pos()), true
+		}
+	case '%':
+		if p.peekN(1) == '=' {
+			p.advance()
+			p.advance()
+			return ast.AssignPctEq, diag.NewSpan(p.file, start, p.pos()), true
+		}
+	}
+	return ast.AssignEq, diag.NewSpan(p.file, start, start), false
 }
 
 func (p *submitFieldParser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
