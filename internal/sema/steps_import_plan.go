@@ -28,8 +28,6 @@ type expandedVar struct {
 	SourceVar string
 }
 
-type stepConflictReporter func(name string, left VarOrigin, right VarOrigin, at diag.Span, relation string)
-
 func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 	defs, order := collectStepDefinitions(res)
 	plans := make(map[string]*StepImportPlan, len(defs))
