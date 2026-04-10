@@ -36,6 +36,7 @@ step:
   # Step generated from do block 'prep'
   - name: prep
     max_async: 0
+    procs: 1
     iterations: 2
     use:
       - p
@@ -48,6 +49,7 @@ step:
   - name: run
     depend: prep
     max_async: 3
+    procs: 5
     iterations: 4
     use:
       - run__submit_params

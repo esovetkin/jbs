@@ -292,7 +292,7 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 }
 
 func formatParamBlock(p ast.ParamBlock) []string {
-	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems, nil, nil)
+	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems, nil, nil, nil)
 	lines = append(lines, "{")
 	body := normalizeBody(p.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -301,7 +301,7 @@ func formatParamBlock(p ast.ParamBlock) []string {
 }
 
 func formatDoBlock(d ast.DoBlock) []string {
-	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Iterations)
+	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations)
 	lines = append(lines, "{")
 	body := normalizeBody(d.Body, bodyIndent)
 	lines = append(lines, body...)
@@ -310,7 +310,7 @@ func formatDoBlock(d ast.DoBlock) []string {
 }
 
 func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
-	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Iterations)
+	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations)
 	lines = append(lines, "{")
 	body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
 	if len(body) == 0 && len(s.Fields) > 0 {
@@ -322,7 +322,7 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 }
 
 func formatLetBlock(l ast.LetBlock) []string {
-	lines := renderBlockHeader("let", l.Name, nil, nil, nil, nil, nil)
+	lines := renderBlockHeader("let", l.Name, nil, nil, nil, nil, nil, nil)
 	lines = append(lines, "{")
 	body := normalizeBody(l.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -331,7 +331,7 @@ func formatLetBlock(l ast.LetBlock) []string {
 }
 
 func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems, nil, nil)
+	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems, nil, nil, nil)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -383,7 +383,7 @@ func formatUseStmt(u ast.UseStmt) []string {
 	return []string{"use " + strings.Join(u.Names, ", ") + " from " + target}
 }
 
-func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem, maxAsync *int, iterations *int) []string {
+func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int) []string {
 	lines := []string{kind + " " + name}
 	if len(after) > 0 {
 		lines = append(lines, clauseIndent+"after "+strings.Join(after, ", "))
@@ -394,16 +394,19 @@ func renderBlockHeader(kind, name string, after []string, useNames []string, wit
 	if len(with) > 0 {
 		lines = append(lines, clauseIndent+"with "+renderWithClause(with))
 	}
-	if optionLine := renderStepOptionClause(maxAsync, iterations); optionLine != "" {
+	if optionLine := renderStepOptionClause(maxAsync, procs, iterations); optionLine != "" {
 		lines = append(lines, clauseIndent+optionLine)
 	}
 	return lines
 }
 
-func renderStepOptionClause(maxAsync *int, iterations *int) string {
-	parts := make([]string, 0, 2)
+func renderStepOptionClause(maxAsync *int, procs *int, iterations *int) string {
+	parts := make([]string, 0, 3)
 	if maxAsync != nil {
 		parts = append(parts, "max_async="+strconv.Itoa(*maxAsync))
+	}
+	if procs != nil {
+		parts = append(parts, "procs="+strconv.Itoa(*procs))
 	}
 	if iterations != nil {
 		parts = append(parts, "iterations="+strconv.Itoa(*iterations))

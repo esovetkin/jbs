@@ -110,6 +110,7 @@ type Step struct {
 	Name       string        `yaml:"name"`
 	Depend     string        `yaml:"depend,omitempty"`
 	MaxAsync   *int          `yaml:"max_async,omitempty"`
+	Procs      *int          `yaml:"procs,omitempty"`
 	Iterations *int          `yaml:"iterations,omitempty"`
 	Use        []interface{} `yaml:"use,omitempty"`
 	Do         []interface{} `yaml:"do,omitempty"`

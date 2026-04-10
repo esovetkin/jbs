@@ -18,6 +18,7 @@ submit <name>
         [use <let_namespace0>, <let_namespace1>, ...]
         [with <paramset>, <var> from <paramset2>, ...]
         [max_async=<int>]
+        [procs=<int>]
         [iterations=<int>]
 {
         # expression keys
@@ -51,9 +52,10 @@ submit <name>
 }
 ```
 
-`max_async` and `iterations` are optional JUBE step arguments:
+`max_async`, `procs`, and `iterations` are optional JUBE step arguments:
 
 - `max_async` must be an integer `>= 0`
+- `procs` must be an integer `>= 0`
 - `iterations` must be an integer `>= 1`
 
 Example:
@@ -61,7 +63,7 @@ Example:
 ```jbs
 submit run
         with p
-        max_async=3 iterations=2
+        max_async=3 procs=2 iterations=2
 {
         args_exec = "-lc hostname"
 }

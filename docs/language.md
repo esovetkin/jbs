@@ -60,7 +60,7 @@ submit_header_clause := after_clause | use_clause | with_clause | step_opt_claus
 
 after_clause  := "after" IDENT ("," IDENT)*
 use_clause    := "use" IDENT ("," IDENT)*
-step_opt_clause := "max_async" "=" INT | "iterations" "=" INT
+step_opt_clause := "max_async" "=" INT | "procs" "=" INT | "iterations" "=" INT
 raw_block     := "{" RAW_TEXT "}"
 
 submit_stmt   := submit_key "=" submit_value
@@ -102,11 +102,12 @@ param p {
 }
 ```
 
-## Step Options (`max_async`, `iterations`)
+## Step Options (`max_async`, `procs`, `iterations`)
 
 `do` and `submit` headers support optional step options:
 
 - `max_async=<int>` with `int >= 0`
+- `procs=<int>` with `int >= 0`
 - `iterations=<int>` with `int >= 1`
 
 These clauses can appear on one line or across multiple lines and can be interleaved with `after`, `with`, and submit-header `use`.
@@ -116,7 +117,7 @@ Example:
 ```jbs
 do prep
         with p
-        max_async=0 iterations=2
+        max_async=0 procs=1 iterations=2
 {
         echo prep
 }
@@ -124,7 +125,7 @@ do prep
 submit run
         after prep
         with p
-        max_async=3 iterations=4
+        max_async=3 procs=2 iterations=4
 {
         args_exec = "-lc hostname"
 }

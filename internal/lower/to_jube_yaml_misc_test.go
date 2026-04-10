@@ -16,7 +16,7 @@ param p {
 
 do prep
   with p
-  max_async=0 iterations=2
+  max_async=0 procs=1 iterations=2
 {
   echo prep
 }
@@ -24,7 +24,7 @@ do prep
 submit run
   after prep
   with p
-  max_async=3
+  max_async=3 procs=5
 {
   args_exec = "-lc hostname"
 }
@@ -39,11 +39,17 @@ submit run
 	if doc.Step[0].MaxAsync == nil || *doc.Step[0].MaxAsync != 0 {
 		t.Fatalf("expected prep max_async=0, got %#v", doc.Step[0].MaxAsync)
 	}
+	if doc.Step[0].Procs == nil || *doc.Step[0].Procs != 1 {
+		t.Fatalf("expected prep procs=1, got %#v", doc.Step[0].Procs)
+	}
 	if doc.Step[0].Iterations == nil || *doc.Step[0].Iterations != 2 {
 		t.Fatalf("expected prep iterations=2, got %#v", doc.Step[0].Iterations)
 	}
 	if doc.Step[1].MaxAsync == nil || *doc.Step[1].MaxAsync != 3 {
 		t.Fatalf("expected run max_async=3, got %#v", doc.Step[1].MaxAsync)
+	}
+	if doc.Step[1].Procs == nil || *doc.Step[1].Procs != 5 {
+		t.Fatalf("expected run procs=5, got %#v", doc.Step[1].Procs)
 	}
 	if doc.Step[1].Iterations != nil {
 		t.Fatalf("expected run iterations to be omitted, got %#v", doc.Step[1].Iterations)
@@ -63,8 +69,8 @@ do run {
 	if len(doc.Step) != 1 {
 		t.Fatalf("expected one step")
 	}
-	if doc.Step[0].MaxAsync != nil || doc.Step[0].Iterations != nil {
-		t.Fatalf("expected max_async/iterations omitted by default, got %#v", doc.Step[0])
+	if doc.Step[0].MaxAsync != nil || doc.Step[0].Procs != nil || doc.Step[0].Iterations != nil {
+		t.Fatalf("expected max_async/procs/iterations omitted by default, got %#v", doc.Step[0])
 	}
 }
 

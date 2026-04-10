@@ -24,6 +24,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	step := Step{
 		Name:       block.Name,
 		MaxAsync:   block.MaxAsync,
+		Procs:      block.Procs,
 		Iterations: block.Iterations,
 		Meta: StepMeta{
 			Kind:          StepKindDo,
@@ -132,6 +133,7 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 	step := Step{
 		Name:       block.Name,
 		MaxAsync:   block.MaxAsync,
+		Procs:      block.Procs,
 		Iterations: block.Iterations,
 		Meta: StepMeta{
 			Kind:          StepKindSubmit,

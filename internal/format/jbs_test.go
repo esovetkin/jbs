@@ -513,12 +513,14 @@ func TestFormatStepHeaderOptionsCanonical(t *testing.T) {
 	src := `do run
 iterations=2
 with p
+procs=4
 max_async=5
 {
 echo hi
 }
 submit bench
 max_async=0
+procs=6
 with p
 iterations=3
 use defaults
@@ -535,10 +537,10 @@ args_exec="-lc hostname"
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	if !strings.Contains(got, "do run\n        with p\n        max_async=5 iterations=2\n{") {
+	if !strings.Contains(got, "do run\n        with p\n        max_async=5 procs=4 iterations=2\n{") {
 		t.Fatalf("expected canonical do option line, got:\n%s", got)
 	}
-	if !strings.Contains(got, "submit bench\n        after run\n        use defaults\n        with p\n        max_async=0 iterations=3\n{") {
+	if !strings.Contains(got, "submit bench\n        after run\n        use defaults\n        with p\n        max_async=0 procs=6 iterations=3\n{") {
 		t.Fatalf("expected canonical submit option line, got:\n%s", got)
 	}
 }

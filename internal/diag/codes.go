@@ -84,6 +84,7 @@ const (
 	CodeE216 Code = "E216"
 	CodeE217 Code = "E217"
 	CodeE218 Code = "E218"
+	CodeE219 Code = "E219"
 	CodeE230 Code = "E230"
 	CodeE231 Code = "E231"
 	CodeE232 Code = "E232"
@@ -177,7 +178,7 @@ func initCatalog() map[Code]CodeMeta {
 	add("sema", SeverityError, "semantic analysis diagnostic",
 		CodeE020, CodeE021,
 		CodeE071, CodeE072, CodeE073, CodeE074, CodeE075, CodeE076, CodeE078,
-		CodeE210, CodeE211, CodeE212, CodeE213, CodeE214, CodeE215, CodeE216, CodeE217, CodeE218,
+		CodeE210, CodeE211, CodeE212, CodeE213, CodeE214, CodeE215, CodeE216, CodeE217, CodeE218, CodeE219,
 		CodeE300, CodeE301, CodeE302, CodeE303, CodeE304, CodeE305,
 		CodeE400, CodeE401, CodeE402, CodeE403,
 		CodeE410, CodeE412, CodeE413, CodeE414, CodeE415,

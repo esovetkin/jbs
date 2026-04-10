@@ -140,6 +140,7 @@ type DoBlock struct {
 	After      []string
 	WithItems  []WithItem
 	MaxAsync   *int
+	Procs      *int
 	Iterations *int
 	Body       string
 	BodyStart  diag.Position
@@ -155,6 +156,7 @@ type SubmitBlock struct {
 	UseNames   []string
 	WithItems  []WithItem
 	MaxAsync   *int
+	Procs      *int
 	Iterations *int
 	Fields     []SubmitField
 	BodyRaw    string

@@ -109,7 +109,7 @@ func TestRunCheckStepOptionsValidAndInvalid(t *testing.T) {
 	dir := t.TempDir()
 	invalid := filepath.Join(dir, "invalid_step_options.jbs")
 	src := `
-do run max_async=-1 iterations=0 {
+do run max_async=-1 procs=-1 iterations=0 {
   echo hi
 }
 `
@@ -124,8 +124,8 @@ do run max_async=-1 iterations=0 {
 			t.Fatalf("expected -c invalid to exit 1, got %d stderr=%s", code, errBuf.String())
 		}
 		text := errBuf.String()
-		if !strings.Contains(text, "E216") || !strings.Contains(text, "E217") {
-			t.Fatalf("expected E216/E217 in diagnostics, got: %s", text)
+		if !strings.Contains(text, "E216") || !strings.Contains(text, "E217") || !strings.Contains(text, "E219") {
+			t.Fatalf("expected E216/E217/E219 in diagnostics, got: %s", text)
 		}
 	}
 }

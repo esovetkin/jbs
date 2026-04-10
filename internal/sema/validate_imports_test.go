@@ -95,11 +95,11 @@ do b after a {
 
 func TestStepHeaderOptionRangeValidation(t *testing.T) {
 	src := `
-do prep max_async=-1 iterations=0 {
+do prep max_async=-1 procs=-3 iterations=0 {
   echo prep
 }
 
-submit run max_async=-2 iterations=0 {
+submit run max_async=-2 procs=-4 iterations=0 {
   args_exec = "-lc hostname"
 }
 `
@@ -108,6 +108,9 @@ submit run max_async=-2 iterations=0 {
 	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
 	if !hasDiagCode(diags, "E216") {
 		t.Fatalf("expected E216 for invalid max_async, got: %s", diags.String())
+	}
+	if !hasDiagCode(diags, "E219") {
+		t.Fatalf("expected E219 for invalid procs, got: %s", diags.String())
 	}
 	if !hasDiagCode(diags, "E217") {
 		t.Fatalf("expected E217 for invalid iterations, got: %s", diags.String())

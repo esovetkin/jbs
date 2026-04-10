@@ -50,6 +50,7 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 
 type stepHeaderOptions struct {
 	MaxAsync   *int
+	Procs      *int
 	Iterations *int
 }
 
@@ -117,7 +118,7 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	if !ok {
 		return false
 	}
-	if !p.looksLikeStepHeaderAssignment() && word != "max_async" && word != "iterations" {
+	if !p.looksLikeStepHeaderAssignment() && word != "max_async" && word != "procs" && word != "iterations" {
 		return false
 	}
 
@@ -146,11 +147,11 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 		return true
 	}
 
-	if word != "max_async" && word != "iterations" {
+	if word != "max_async" && word != "procs" && word != "iterations" {
 		p.diags.AddError(diag.CodeE032,
 			fmt.Sprintf("unknown %s header option '%s'", kind, word),
 			keySpan,
-			"allowed options are max_async and iterations",
+			"allowed options are max_async, procs and iterations",
 		)
 		return true
 	}
@@ -177,6 +178,17 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 		}
 		v := parsed
 		opts.MaxAsync = &v
+	case "procs":
+		if opts.Procs != nil {
+			p.diags.AddError(diag.CodeE033,
+				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
+				keySpan,
+				"set this option at most once per block",
+			)
+			return true
+		}
+		v := parsed
+		opts.Procs = &v
 	case "iterations":
 		if opts.Iterations != nil {
 			p.diags.AddError(diag.CodeE033,

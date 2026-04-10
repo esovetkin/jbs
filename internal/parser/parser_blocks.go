@@ -66,6 +66,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			After:      after,
 			WithItems:  withItems,
 			MaxAsync:   opts.MaxAsync,
+			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -78,6 +79,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			After:      after,
 			WithItems:  withItems,
 			MaxAsync:   opts.MaxAsync,
+			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -88,6 +90,7 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 		After:      after,
 		WithItems:  withItems,
 		MaxAsync:   opts.MaxAsync,
+		Procs:      opts.Procs,
 		Iterations: opts.Iterations,
 		Body:       body,
 		BodyStart:  innerStart,
@@ -113,6 +116,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 			UseNames:   useNames,
 			WithItems:  withItems,
 			MaxAsync:   opts.MaxAsync,
+			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -126,6 +130,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 			UseNames:   useNames,
 			WithItems:  withItems,
 			MaxAsync:   opts.MaxAsync,
+			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
@@ -139,6 +144,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		UseNames:   useNames,
 		WithItems:  withItems,
 		MaxAsync:   opts.MaxAsync,
+		Procs:      opts.Procs,
 		Iterations: opts.Iterations,
 		Fields:     fields,
 		BodyRaw:    body,

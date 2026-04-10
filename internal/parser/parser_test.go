@@ -1004,7 +1004,7 @@ func TestParseDoHeaderStepOptions(t *testing.T) {
 	src := `
 do run
   with p
-  max_async=5 iterations=2
+  max_async=5 procs=4 iterations=2
 {
   echo hi
 }
@@ -1024,6 +1024,9 @@ do run
 	if db.MaxAsync == nil || *db.MaxAsync != 5 {
 		t.Fatalf("expected max_async=5, got %#v", db.MaxAsync)
 	}
+	if db.Procs == nil || *db.Procs != 4 {
+		t.Fatalf("expected procs=4, got %#v", db.Procs)
+	}
 	if db.Iterations == nil || *db.Iterations != 2 {
 		t.Fatalf("expected iterations=2, got %#v", db.Iterations)
 	}
@@ -1035,6 +1038,7 @@ submit run
   iterations=3
   use defaults
   with p
+  procs=2
   max_async=0
 {
   args_exec = "-lc hostname"
@@ -1054,6 +1058,9 @@ submit run
 	}
 	if sb.MaxAsync == nil || *sb.MaxAsync != 0 {
 		t.Fatalf("expected max_async=0, got %#v", sb.MaxAsync)
+	}
+	if sb.Procs == nil || *sb.Procs != 2 {
+		t.Fatalf("expected procs=2, got %#v", sb.Procs)
 	}
 	if sb.Iterations == nil || *sb.Iterations != 3 {
 		t.Fatalf("expected iterations=3, got %#v", sb.Iterations)
@@ -1077,11 +1084,14 @@ do run iterattions=1 {
 	if !hasDiagCode(diags.Items, "E032") {
 		t.Fatalf("expected E032 for unknown header option, got: %s", diags.String())
 	}
+	if !strings.Contains(diags.String(), "max_async, procs and iterations") {
+		t.Fatalf("expected unknown option hint to list procs, got: %s", diags.String())
+	}
 }
 
 func TestParseStepHeaderDuplicateOptionReportsE033(t *testing.T) {
 	src := `
-submit run max_async=1 max_async=2 {
+submit run procs=1 procs=2 {
   args_exec = "-lc hostname"
 }
 `
@@ -1089,6 +1099,19 @@ submit run max_async=1 max_async=2 {
 	_ = Parse("bad_header_duplicate.jbs", src, diags)
 	if !hasDiagCode(diags.Items, "E033") {
 		t.Fatalf("expected E033 for duplicate header option, got: %s", diags.String())
+	}
+}
+
+func TestParseStepHeaderNonIntegerProcsOptionReportsE034(t *testing.T) {
+	src := `
+do run procs=abc {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("bad_header_nonint_procs.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E034") {
+		t.Fatalf("expected E034 for non-integer procs header option, got: %s", diags.String())
 	}
 }
 
