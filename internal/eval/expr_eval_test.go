@@ -211,6 +211,65 @@ func TestEvalIntOverflowVectorWarnDedup(t *testing.T) {
 	}
 }
 
+func TestEvalCompareSupportedOps(t *testing.T) {
+	tests := []struct {
+		name string
+		op   string
+		l    Value
+		r    Value
+		want bool
+	}{
+		{name: "eq-int-float", op: "==", l: Int(2), r: Float(2.0), want: true},
+		{name: "ne-string", op: "!=", l: String("a"), r: String("b"), want: true},
+		{name: "lt-string", op: "<", l: String("alpha"), r: String("beta"), want: true},
+		{name: "le-string", op: "<=", l: String("beta"), r: String("beta"), want: true},
+		{name: "gt-float-int", op: ">", l: Float(2.5), r: Int(2), want: true},
+		{name: "ge-int-float", op: ">=", l: Int(3), r: Float(3.0), want: true},
+		{name: "lt-int-int-false", op: "<", l: Int(7), r: Int(5), want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := evalCompare(tc.op, tc.l, tc.r, spanAt(20, 1), diags)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+			if got.Kind != KindBool || got.B != tc.want {
+				t.Fatalf("unexpected compare result: %#v (want bool=%v)", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEvalCompareUnsupportedReportsE110(t *testing.T) {
+	tests := []struct {
+		name string
+		op   string
+		l    Value
+		r    Value
+	}{
+		{name: "type-mismatch-relational", op: "<", l: String("x"), r: Int(1)},
+		{name: "unknown-op-on-numeric", op: "===", l: Int(1), r: Int(1)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := evalCompare(tc.op, tc.l, tc.r, spanAt(21, 1), diags)
+			if got.Kind != KindBool || got.B {
+				t.Fatalf("unexpected compare fallback result: %#v", got)
+			}
+			if !diags.HasErrors() {
+				t.Fatalf("expected error diagnostics, got none")
+			}
+			if count := diagCount(diags, "E110"); count != 1 {
+				t.Fatalf("expected one E110, got %d: %s", count, diags.String())
+			}
+		})
+	}
+}
+
 func diagCount(diags *diag.Diagnostics, code string) int {
 	count := 0
 	for _, d := range diags.Items {

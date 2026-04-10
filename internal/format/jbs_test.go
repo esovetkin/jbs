@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"jbs/internal/ast"
 	"jbs/internal/diag"
+	"jbs/internal/parser"
 )
 
 func TestFormatGoldenFixtures(t *testing.T) {
@@ -125,6 +127,47 @@ func TestNormalizeLineEndings(t *testing.T) {
 	got := normalizeLineEndings(in)
 	if got != "a\nb\nc\n" {
 		t.Fatalf("unexpected normalized line endings: %q", got)
+	}
+}
+
+func TestRenderSubmitFields(t *testing.T) {
+	src := `submit run
+{
+args_exec = "-lc hostname"
+preprocess = {
+echo pre
+}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("render_submit_fields.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("unexpected stmt count: got=%d want=1", len(prog.Stmts))
+	}
+	submit, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("unexpected statement type: %T", prog.Stmts[0])
+	}
+	fields := append([]ast.SubmitField{}, submit.Fields...)
+	fields = append(fields, ast.SubmitField{Name: "measurement"})
+	got := renderSubmitFields(fields, []rune(src))
+	want := []string{
+		`        args_exec = "-lc hostname"`,
+		`        preprocess = {`,
+		`                echo pre`,
+		`        }`,
+		`        measurement = ""`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected line count: got=%d want=%d\nlines:\n%s", len(got), len(want), strings.Join(got, "\n"))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("line %d mismatch: got=%q want=%q", i, got[i], want[i])
+		}
 	}
 }
 
