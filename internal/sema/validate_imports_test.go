@@ -401,6 +401,38 @@ param q with same {
 	}
 }
 
+func TestStepImportPlanUsesSameMixedWithExpansionAsValidation(t *testing.T) {
+	src := `
+param p1 {
+  a = (1,2)
+  a
+}
+param p2 {
+  b = ("x","y")
+  b
+}
+do run with a from p1, p2 {
+  echo ${a} ${b}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected no errors, got: %s", diags.String())
+	}
+	plan := res.StepImportByName["run"]
+	if plan == nil {
+		t.Fatalf("expected import plan for step 'run'")
+	}
+	if _, ok := plan.Effective["a"]; !ok {
+		t.Fatalf("expected effective import for a, got %#v", plan.Effective)
+	}
+	if _, ok := plan.Effective["b"]; !ok {
+		t.Fatalf("expected effective import for b from mixed fallback import, got %#v", plan.Effective)
+	}
+}
+
 func TestStepWithLetNamespaceImport(t *testing.T) {
 	src := `
 let l {

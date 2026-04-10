@@ -7,7 +7,6 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
-	"jbs/internal/planutil"
 )
 
 func normalizePatternRegex(input string) (string, string, bool) {
@@ -272,172 +271,58 @@ type analyseLetImport struct {
 
 func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseLetImport {
 	out := make(map[string]analyseLetImport)
-	reported := make(map[string]struct{})
-	resolveSource := func(name string) (*ImportSource, bool) {
-		_, hasParam := res.ParamByName[name]
-		_, hasLet := res.LetByName[name]
-		if hasParam && hasLet {
-			return nil, true
-		}
-		return res.ImportSourceByName[name], false
+	resolver := WithResolver{
+		Params:  res.ParamByName,
+		Lets:    res.LetByName,
+		Sources: res.ImportSourceByName,
 	}
-	addImported := func(visible string, src *ImportSource, sourceVar string, span diag.Span) {
-		if src == nil {
-			return
-		}
-		if sourceVar == "" {
-			sourceVar = visible
-		}
-		if src.Kind != SourceKindLet {
-			diags.AddError(
-				diag.CodeE420,
-				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
-				span,
-				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
-			)
-			return
-		}
-		ns := res.LetByName[src.Name]
+	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
+		AllowParam:                false,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	emitWithIssues(diags, analyseWithDiagPolicy(), issues)
+
+	tracker := newImportConflictTracker()
+	for _, item := range expanded {
+		ns := res.LetByName[item.Source]
 		if ns == nil {
-			return
+			continue
 		}
-		v, ok := ns.Vars[sourceVar]
-		if !ok {
-			return
-		}
-		if v.Kind != eval.KindString {
-			diags.AddError(
-				diag.CodeE422,
-				fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", sourceVar, src.Name),
-				span,
-				"use string-valued let variables for analyse imports",
-			)
-			return
-		}
-		if prev, exists := out[visible]; exists {
-			if prev.Source == src.Name && prev.SourceVar == sourceVar {
-				return
+		for _, v := range item.Vars {
+			value, ok := ns.Vars[v.SourceVar]
+			if !ok {
+				continue
 			}
-			a := prev.Source
-			b := src.Name
-			if a > b {
-				a, b = b, a
-			}
-			key := visible + "|" + a + "|" + b
-			if _, seen := reported[key]; seen {
-				return
-			}
-			reported[key] = struct{}{}
-			diags.AddError(
-				diag.CodeE214,
-				fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", visible, prev.Source, src.Name),
-				span,
-				"import each analyse variable from only one let namespace",
-				diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
-			)
-			return
-		}
-		out[visible] = analyseLetImport{
-			Source:    src.Name,
-			SourceVar: sourceVar,
-			Span:      span,
-		}
-	}
-
-	for _, item := range items {
-		if item.From == "" {
-			src, ambiguous := resolveSource(item.Name)
-			if ambiguous {
+			if value.Kind != eval.KindString {
 				diags.AddError(
-					diag.CodeE218,
-					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
+					diag.CodeE422,
+					fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", v.SourceVar, item.Source),
 					item.Span,
-					"disambiguate by renaming the param or let namespace",
+					"use string-valued let variables for analyse imports",
 				)
 				continue
 			}
-			if src == nil {
-				diags.AddError(
-					diag.CodeE020,
-					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
-					item.Span,
-					"import from an existing let namespace",
-				)
+			prev, conflict, first := tracker.Add(v.Visible, item.Source, item.Span)
+			if conflict {
+				if first {
+					diags.AddError(
+						diag.CodeE214,
+						fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", v.Visible, prev.Source, item.Source),
+						item.Span,
+						"import each analyse variable from only one let namespace",
+						diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
+					)
+				}
 				continue
 			}
-			if src.Kind != SourceKindLet {
-				addImported("", src, "", item.Span)
-				continue
+			out[v.Visible] = analyseLetImport{
+				Source:    item.Source,
+				SourceVar: v.SourceVar,
+				Span:      item.Span,
 			}
-			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-				addImported(name, src, name, item.Span)
-			}
-			continue
 		}
-
-		src, ambiguous := resolveSource(item.From)
-		if ambiguous {
-			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
-				item.Span,
-				"disambiguate by renaming the param or let namespace",
-			)
-			continue
-		}
-		if src == nil {
-			diags.AddError(
-				diag.CodeE020,
-				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
-				item.Span,
-				"import from an existing let namespace",
-			)
-			continue
-		}
-		if src.Kind != SourceKindLet {
-			diags.AddError(
-				diag.CodeE420,
-				fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", src.Name),
-				item.Span,
-				"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
-			)
-			continue
-		}
-		if _, ok := src.Vars[item.Name]; ok {
-			addImported(item.Name, src, item.Name, item.Span)
-			continue
-		}
-		fallback, fallbackAmbiguous := resolveSource(item.Name)
-		if fallbackAmbiguous {
-			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
-				item.Span,
-				"disambiguate by renaming the param or let namespace",
-			)
-			continue
-		}
-		if fallback != nil {
-			if fallback.Kind != SourceKindLet {
-				diags.AddError(
-					diag.CodeE420,
-					fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", fallback.Name),
-					item.Span,
-					"use `with <let_namespace>` or `with <variable> from <let_namespace>`",
-				)
-				continue
-			}
-			for _, name := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
-				addImported(name, fallback, name, item.Span)
-			}
-			continue
-		}
-		diags.AddError(
-			diag.CodeE021,
-			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
-			item.Span,
-			"import a variable that exists in the selected let namespace",
-		)
 	}
 
 	return out

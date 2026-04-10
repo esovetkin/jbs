@@ -8,7 +8,6 @@ import (
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
-	"jbs/internal/planutil"
 )
 
 func validateSteps(res *Result, diags *diag.Diagnostics) {
@@ -133,121 +132,33 @@ func validateWithItems(
 	sources map[string]*ImportSource,
 	diags *diag.Diagnostics,
 ) {
-	type importOrigin struct {
-		source string
-		span   diag.Span
+	resolver := WithResolver{
+		Params:  params,
+		Lets:    lets,
+		Sources: sources,
 	}
-	seen := make(map[string]importOrigin)
-	reported := make(map[string]struct{})
+	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	emitWithIssues(diags, stepValidateWithDiagPolicy(), issues)
 
-	addImported := func(name string, source string, span diag.Span) {
-		if prev, ok := seen[name]; ok {
-			if prev.source == source {
-				return
-			}
-			left := prev.source
-			right := source
-			if left > right {
-				left, right = right, left
-			}
-			key := name + "|" + left + "|" + right
-			if _, exists := reported[key]; exists {
-				return
-			}
-			reported[key] = struct{}{}
-			diags.AddError(
-				diag.CodeE214,
-				fmt.Sprintf("conflicting variable '%s' imported from sources '%s' and '%s'", name, prev.source, source),
-				span,
-				"import each variable name from only one source",
-				diag.RelatedSpan{Message: "first conflicting import", Span: prev.span},
-			)
-			return
-		}
-		seen[name] = importOrigin{source: source, span: span}
-	}
-
-	resolveSource := func(name string) (*ImportSource, bool) {
-		_, hasParam := params[name]
-		_, hasLet := lets[name]
-		if hasParam && hasLet {
-			return nil, true
-		}
-		return sources[name], false
-	}
-
-	for _, item := range items {
-		if item.From == "" {
-			src, ambiguous := resolveSource(item.Name)
-			if ambiguous {
-				diags.AddError(
-					diag.CodeE218,
-					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
-					item.Span,
-					"disambiguate by renaming the param or let namespace",
-				)
+	tracker := newImportConflictTracker()
+	for _, item := range expanded {
+		for _, v := range item.Vars {
+			prev, conflict, first := tracker.Add(v.Visible, item.Source, item.Span)
+			if !conflict || !first {
 				continue
 			}
-			if src == nil {
-				diags.AddError(
-					diag.CodeE020,
-					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
-					item.Span,
-					"import an existing parameterset or let namespace",
-				)
-			} else {
-				for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
-					addImported(varName, src.Name, item.Span)
-				}
-			}
-			continue
-		}
-
-		src, ambiguous := resolveSource(item.From)
-		if ambiguous {
 			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
+				diag.CodeE214,
+				fmt.Sprintf("conflicting variable '%s' imported from sources '%s' and '%s'", v.Visible, prev.Source, item.Source),
 				item.Span,
-				"disambiguate by renaming the param or let namespace",
+				"import each variable name from only one source",
+				diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
 			)
-			continue
 		}
-		if src == nil {
-			diags.AddError(
-				diag.CodeE020,
-				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
-				item.Span,
-				"import from an existing parameterset or let namespace",
-			)
-			continue
-		}
-
-		if _, ok := src.Vars[item.Name]; ok {
-			addImported(item.Name, src.Name, item.Span)
-			continue
-		}
-		fallback, fallbackAmbiguous := resolveSource(item.Name)
-		if fallbackAmbiguous {
-			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
-				item.Span,
-				"disambiguate by renaming the param or let namespace",
-			)
-			continue
-		}
-		if fallback != nil {
-			for _, varName := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
-				addImported(varName, fallback.Name, item.Span)
-			}
-			continue
-		}
-		diags.AddError(
-			diag.CodeE021,
-			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
-			item.Span,
-			"import a variable that exists in the selected source",
-		)
 	}
 }

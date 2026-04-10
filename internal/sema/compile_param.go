@@ -2,8 +2,6 @@ package sema
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -21,17 +19,6 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		env[k] = v
 	}
 
-	resolveSource := func(name string) (*Paramset, *LetNamespace, bool) {
-		ps := known[name]
-		ls := lets[name]
-		if ps != nil && ls != nil {
-			return nil, nil, true
-		}
-		return ps, ls, false
-	}
-	letVarNames := func(ns *LetNamespace) []string {
-		return slices.Sorted(maps.Keys(ns.Vars))
-	}
 	type importedOwner struct {
 		Source string
 	}
@@ -82,101 +69,38 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 	}
 
-	for _, item := range block.WithItems {
-		if item.From == "" {
-			srcParam, srcLet, ambiguous := resolveSource(item.Name)
-			if ambiguous {
-				diags.AddError(
-					diag.CodeE218,
-					fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
-					item.Span,
-					"disambiguate by renaming the param or let namespace",
-				)
-				continue
+	importSources := make(map[string]*ImportSource, len(known)+len(lets))
+	for name, ps := range known {
+		importSources[name] = importSourceFromParam(ps)
+	}
+	for name, ls := range lets {
+		importSources[name] = importSourceFromLet(ls)
+	}
+	resolver := WithResolver{
+		Params:  known,
+		Lets:    lets,
+		Sources: importSources,
+	}
+	expanded, issues := resolver.ExpandWithItems(block.WithItems, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	emitWithIssues(diags, paramWithDiagPolicy(), issues)
+	for _, item := range expanded {
+		switch item.Kind {
+		case SourceKindParam:
+			src := known[item.Source]
+			for _, v := range item.Vars {
+				importParamVar(v.Visible, v.SourceVar, src)
 			}
-			if srcLet != nil {
-				for _, name := range letVarNames(srcLet) {
-					importLetVar(name, name, srcLet)
-				}
-				continue
-			}
-			if srcParam == nil {
-				diags.AddError(
-					diag.CodeE020,
-					fmt.Sprintf("unknown parameterset '%s' in with clause", item.Name),
-					item.Span,
-					"define/import the parameterset or let namespace before using it",
-				)
-				continue
-			}
-			for _, name := range srcParam.Order {
-				importParamVar(name, name, srcParam)
-			}
-			continue
-		}
-
-		srcParam, srcLet, ambiguous := resolveSource(item.From)
-		if ambiguous {
-			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.From),
-				item.Span,
-				"disambiguate by renaming the param or let namespace",
-			)
-			continue
-		}
-		if srcParam == nil && srcLet == nil {
-			diags.AddError(
-				diag.CodeE020,
-				fmt.Sprintf("unknown parameterset '%s' in with clause", item.From),
-				item.Span,
-				"define/import the parameterset or let namespace before using it",
-			)
-			continue
-		}
-		if srcParam != nil {
-			if _, ok := srcParam.Vars[item.Name]; ok {
-				importParamVar(item.Name, item.Name, srcParam)
-				continue
+		case SourceKindLet:
+			src := lets[item.Source]
+			for _, v := range item.Vars {
+				importLetVar(v.Visible, v.SourceVar, src)
 			}
 		}
-		if srcLet != nil {
-			if _, ok := srcLet.Vars[item.Name]; ok {
-				importLetVar(item.Name, item.Name, srcLet)
-				continue
-			}
-		}
-
-		// Mixed form support:
-		// with x from p1, p2
-		// If "p2" is not a variable in p1 but is an existing parameterset,
-		// interpret it as importing the whole parameterset p2.
-		if fallbackParam, fallbackLet, fallbackAmbiguous := resolveSource(item.Name); fallbackAmbiguous {
-			diags.AddError(
-				diag.CodeE218,
-				fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", item.Name),
-				item.Span,
-				"disambiguate by renaming the param or let namespace",
-			)
-			continue
-		} else if fallbackParam != nil {
-			for _, name := range fallbackParam.Order {
-				importParamVar(name, name, fallbackParam)
-			}
-			continue
-		} else if fallbackLet != nil {
-			for _, name := range letVarNames(fallbackLet) {
-				importLetVar(name, name, fallbackLet)
-			}
-			continue
-		}
-
-		diags.AddError(
-			diag.CodeE021,
-			fmt.Sprintf("unknown variable '%s' in source '%s'", item.Name, item.From),
-			item.Span,
-			"import a variable that exists in the selected source",
-		)
 	}
 
 	for _, asn := range block.Assignments {

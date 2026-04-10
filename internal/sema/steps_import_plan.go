@@ -15,19 +15,6 @@ type stepDefinition struct {
 	Span      diag.Span
 }
 
-type expandedWithImport struct {
-	Source string
-	Kind   SourceKind
-	Vars   []expandedVar
-	Full   bool
-	Span   diag.Span
-}
-
-type expandedVar struct {
-	Visible   string
-	SourceVar string
-}
-
 func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 	defs, order := collectStepDefinitions(res)
 	plans := make(map[string]*StepImportPlan, len(defs))
@@ -90,18 +77,26 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 
+		resolver := WithResolver{
+			Params:  res.ParamByName,
+			Lets:    res.LetByName,
+			Sources: res.ImportSourceByName,
+		}
+		expandedWith, _ := resolver.ExpandWithItems(def.WithItems, WithResolveOptions{
+			AllowParam:                true,
+			AllowLet:                  true,
+			EnableMixedSourceFallback: true,
+			DetectAmbiguousSource:     true,
+		})
+
 		explicitDelta := make([]PlannedImport, 0)
 		selected := make(map[string]VarOrigin)
-		for _, item := range def.WithItems {
-			expanded, ok := expandWithItem(item, res.ParamByName, res.LetByName, res.ImportSourceByName)
-			if !ok {
-				continue
-			}
-			kept := make([]expandedVar, 0, len(expanded.Vars))
+		for _, expanded := range expandedWith {
+			kept := make([]ExpandedWithVar, 0, len(expanded.Vars))
 			sourceObj := res.ImportSourceByName[expanded.Source]
 			for _, v := range expanded.Vars {
 				name := v.Visible
-				originSpan := item.Span
+				originSpan := expanded.Span
 				if sourceObj != nil {
 					sourceVar := v.SourceVar
 					if sourceVar == "" {
@@ -120,7 +115,7 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 				}
 				if prev, exists := inherited[name]; exists {
 					if prev.Paramset != current.Paramset {
-						reportConflict(name, prev, current, item.Span, "explicit_vs_inherited")
+						reportConflict(name, prev, current, expanded.Span, "explicit_vs_inherited")
 					}
 					continue
 				}
@@ -142,7 +137,7 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 					Source: expanded.Source,
 					Kind:   expanded.Kind,
 					Full:   true,
-					Span:   item.Span,
+					Span:   expanded.Span,
 				})
 				continue
 			}
@@ -152,7 +147,7 @@ func buildStepImportPlans(res *Result, diags *diag.Diagnostics) {
 					Kind:      expanded.Kind,
 					Visible:   keptVar.Visible,
 					SourceVar: keptVar.SourceVar,
-					Span:      item.Span,
+					Span:      expanded.Span,
 				})
 			}
 		}
@@ -219,70 +214,4 @@ func stepDefinitionDeps(defs map[string]stepDefinition) map[string][]string {
 		out[name] = append([]string(nil), def.After...)
 	}
 	return out
-}
-
-func expandWithItem(
-	item ast.WithItem,
-	params map[string]*Paramset,
-	lets map[string]*LetNamespace,
-	sources map[string]*ImportSource,
-) (expandedWithImport, bool) {
-	resolveSource := func(name string) (*ImportSource, bool) {
-		_, hasParam := params[name]
-		_, hasLet := lets[name]
-		if hasParam && hasLet {
-			return nil, true
-		}
-		src := sources[name]
-		if src == nil {
-			return nil, false
-		}
-		return src, false
-	}
-	if item.From == "" {
-		src, ambiguous := resolveSource(item.Name)
-		if ambiguous || src == nil {
-			return expandedWithImport{}, false
-		}
-		vars := make([]expandedVar, 0, len(src.Order))
-		for _, name := range src.Order {
-			vars = append(vars, expandedVar{Visible: name, SourceVar: name})
-		}
-		return expandedWithImport{
-			Source: src.Name,
-			Kind:   src.Kind,
-			Vars:   vars,
-			Full:   true,
-			Span:   item.Span,
-		}, true
-	}
-
-	src, ambiguous := resolveSource(item.From)
-	if ambiguous || src == nil {
-		return expandedWithImport{}, false
-	}
-	if _, ok := src.Vars[item.Name]; ok {
-		return expandedWithImport{
-			Source: src.Name,
-			Kind:   src.Kind,
-			Vars:   []expandedVar{{Visible: item.Name, SourceVar: item.Name}},
-			Full:   false,
-			Span:   item.Span,
-		}, true
-	}
-	fallback, fallbackAmbiguous := resolveSource(item.Name)
-	if fallbackAmbiguous || fallback == nil {
-		return expandedWithImport{}, false
-	}
-	vars := make([]expandedVar, 0, len(fallback.Order))
-	for _, name := range fallback.Order {
-		vars = append(vars, expandedVar{Visible: name, SourceVar: name})
-	}
-	return expandedWithImport{
-		Source: fallback.Name,
-		Kind:   fallback.Kind,
-		Vars:   vars,
-		Full:   true,
-		Span:   item.Span,
-	}, true
 }
