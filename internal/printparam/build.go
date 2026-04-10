@@ -497,6 +497,12 @@ func valueKey(v eval.Value) string {
 			parts = append(parts, valueKey(item))
 		}
 		return "list:[" + strings.Join(parts, ",") + "]"
+	case eval.KindTuple:
+		parts := make([]string, 0, len(v.L))
+		for _, item := range v.L {
+			parts = append(parts, valueKey(item))
+		}
+		return "tuple:(" + strings.Join(parts, ",") + ")"
 	default:
 		return "other:" + v.String()
 	}

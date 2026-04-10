@@ -15,6 +15,7 @@ const (
 	KindString Kind = "string"
 	KindBool   Kind = "bool"
 	KindList   Kind = "list"
+	KindTuple  Kind = "tuple"
 )
 
 type Value struct {
@@ -32,6 +33,11 @@ func Float(v float64) Value { return Value{Kind: KindFloat, F: v} }
 func String(v string) Value { return Value{Kind: KindString, S: v} }
 func Bool(v bool) Value     { return Value{Kind: KindBool, B: v} }
 func List(v []Value) Value  { return Value{Kind: KindList, L: v} }
+func Tuple(v []Value) Value { return Value{Kind: KindTuple, L: v} }
+
+func IsTuple(v Value) bool {
+	return v.Kind == KindTuple
+}
 
 func (v Value) IsScalar() bool {
 	return v.Kind == KindInt || v.Kind == KindFloat || v.Kind == KindString || v.Kind == KindBool
@@ -56,6 +62,12 @@ func (v Value) String() string {
 			parts = append(parts, x.String())
 		}
 		return "[" + strings.Join(parts, ",") + "]"
+	case KindTuple:
+		parts := make([]string, 0, len(v.L))
+		for _, x := range v.L {
+			parts = append(parts, x.String())
+		}
+		return "(" + strings.Join(parts, ",") + ")"
 	default:
 		return ""
 	}
@@ -84,7 +96,7 @@ func Equal(a, b Value) bool {
 		return a.S == b.S
 	case KindBool:
 		return a.B == b.B
-	case KindList:
+	case KindList, KindTuple:
 		if len(a.L) != len(b.L) {
 			return false
 		}
@@ -114,7 +126,7 @@ func toFloat(v Value) float64 {
 }
 
 func ToSeries(v Value) []Value {
-	if v.Kind == KindList {
+	if v.Kind == KindList || v.Kind == KindTuple {
 		out := make([]Value, len(v.L))
 		copy(out, v.L)
 		return out

@@ -118,7 +118,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		if isModeExpr {
 			expr = inner
 		}
-		value := eval.EvalExpr(expr, env, diags)
+		value := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
+			ParamAssignmentTupleArithmetic: true,
+		})
 		if isModeExpr {
 			value = coerceModeValue(mode, value, asn.Span, diags)
 			modes[asn.Name] = mode
@@ -228,6 +230,8 @@ func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
 			for _, item := range n.Items {
 				walk(item, true)
 			}
+		case ast.ConvertExpr:
+			walk(n.Expr, inCollection)
 		case ast.UnaryExpr:
 			walk(n.Expr, inCollection)
 		case ast.BinaryExpr:
@@ -269,7 +273,7 @@ func coerceModeValue(mode string, value eval.Value, at diag.Span, diags *diag.Di
 	switch value.Kind {
 	case eval.KindString:
 		return value
-	case eval.KindList:
+	case eval.KindList, eval.KindTuple:
 		items := make([]eval.Value, len(value.L))
 		for i, it := range value.L {
 			if it.Kind != eval.KindString {

@@ -129,11 +129,11 @@ func isScalarGlobalValue(v eval.Value) bool {
 }
 
 func hasNestedList(v eval.Value) bool {
-	if v.Kind != eval.KindList {
+	if v.Kind != eval.KindList && v.Kind != eval.KindTuple {
 		return false
 	}
 	for _, item := range v.L {
-		if item.Kind == eval.KindList {
+		if item.Kind == eval.KindList || item.Kind == eval.KindTuple {
 			return true
 		}
 		if hasNestedList(item) {

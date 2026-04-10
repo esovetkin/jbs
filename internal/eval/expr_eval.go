@@ -9,15 +9,23 @@ import (
 	"jbs/internal/diag"
 )
 
+type ExprOptions struct {
+	ParamAssignmentTupleArithmetic bool
+}
+
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
-	return evalExprWithCtx(expr, env, diags, &evalCtx{overflowWarned: make(map[string]struct{})})
+	return EvalExprWithOptions(expr, env, diags, ExprOptions{})
+}
+
+func EvalExprWithOptions(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions) Value {
+	return evalExprWithCtx(expr, env, diags, opts, &evalCtx{overflowWarned: make(map[string]struct{})})
 }
 
 type evalCtx struct {
 	overflowWarned map[string]struct{}
 }
 
-func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, ctx *evalCtx) Value {
+func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if expr == nil {
 		return Null()
 	}
@@ -47,46 +55,66 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.ListExpr:
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
-			items = append(items, evalExprWithCtx(it, env, diags, ctx))
+			items = append(items, evalExprWithCtx(it, env, diags, opts, ctx))
 		}
 		return List(items)
 	case ast.TupleExpr:
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
-			items = append(items, evalExprWithCtx(it, env, diags, ctx))
+			items = append(items, evalExprWithCtx(it, env, diags, opts, ctx))
 		}
-		return List(items)
+		return Tuple(items)
+	case ast.ConvertExpr:
+		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
+		return evalConvert(e.Target, value)
 	case ast.UnaryExpr:
-		v := evalExprWithCtx(e.Expr, env, diags, ctx)
+		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
-		l := evalExprWithCtx(e.Left, env, diags, ctx)
-		r := evalExprWithCtx(e.Right, env, diags, ctx)
-		return evalBinary(e.Op, l, r, e.Span, diags, ctx)
+		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
+		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
+		return evalBinary(e.Op, l, r, e.Span, diags, opts, ctx)
 	case ast.CompareExpr:
-		l := evalExprWithCtx(e.Left, env, diags, ctx)
-		r := evalExprWithCtx(e.Right, env, diags, ctx)
+		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
+		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
 		return evalCompare(e.Op, l, r, e.Span, diags)
 	case ast.ConditionalExpr:
-		c := evalExprWithCtx(e.Cond, env, diags, ctx)
+		c := evalExprWithCtx(e.Cond, env, diags, opts, ctx)
 		if c.Kind != KindBool {
 			diags.AddError(diag.CodeE102, "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
-			return evalExprWithCtx(e.Then, env, diags, ctx)
+			return evalExprWithCtx(e.Then, env, diags, opts, ctx)
 		}
 		if c.B {
-			return evalExprWithCtx(e.Then, env, diags, ctx)
+			return evalExprWithCtx(e.Then, env, diags, opts, ctx)
 		}
-		return evalExprWithCtx(e.Else, env, diags, ctx)
+		return evalExprWithCtx(e.Else, env, diags, opts, ctx)
 	case ast.ModeExpr:
-		return evalExprWithCtx(e.Expr, env, diags, ctx)
+		return evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 	default:
 		diags.AddError(diag.CodeE199, "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()
 	}
 }
 
+func evalConvert(target string, value Value) Value {
+	switch target {
+	case "tuple":
+		if isSequence(value) {
+			return Tuple(slicesCloneValues(value.L))
+		}
+		return Tuple([]Value{value})
+	case "list":
+		if isSequence(value) {
+			return List(slicesCloneValues(value.L))
+		}
+		return List([]Value{value})
+	default:
+		return value
+	}
+}
+
 func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
-	if v.Kind == KindList {
+	if isSequence(v) {
 		out := make([]Value, len(v.L))
 		for i, it := range v.L {
 			out[i] = evalUnary(op, it, at, diags, ctx)
@@ -110,7 +138,7 @@ func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *e
 	return Int(result)
 }
 
-func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
+func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if op == "and" || op == "or" {
 		if l.Kind != KindBool || r.Kind != KindBool {
 			diags.AddError(diag.CodeE104, fmt.Sprintf("'%s' requires boolean operands", op), at, "use boolean values with and/or")
@@ -122,8 +150,12 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ct
 		return Bool(l.B || r.B)
 	}
 
-	if l.Kind == KindList || r.Kind == KindList {
-		return evalVectorBinary(op, l, r, at, diags, ctx)
+	if opts.ParamAssignmentTupleArithmetic && (IsTuple(l) || IsTuple(r)) {
+		return evalParamTupleBinary(op, l, r, at, diags)
+	}
+
+	if isSequence(l) || isSequence(r) {
+		return evalVectorBinary(op, l, r, at, diags, opts, ctx)
 	}
 	if l.Kind == KindString || r.Kind == KindString {
 		if op != "+" {
@@ -189,7 +221,41 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ct
 	}
 }
 
-func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
+func evalParamTupleBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
+	switch op {
+	case "+":
+		if !IsTuple(l) || !IsTuple(r) {
+			diags.AddError(diag.CodeE106, "tuple '+' requires tuple operands on both sides", at, "use tuple + tuple")
+			return Null()
+		}
+		items := make([]Value, 0, len(l.L)+len(r.L))
+		items = append(items, l.L...)
+		items = append(items, r.L...)
+		return Tuple(items)
+	case "*":
+		if !IsTuple(l) || r.Kind != KindInt {
+			diags.AddError(diag.CodeE106, "tuple '*' requires tuple * integer", at, "use tuple * non-negative integer")
+			return Null()
+		}
+		if r.I < 0 {
+			diags.AddError(diag.CodeE106, "tuple repetition count must be non-negative", at, "use an integer value >= 0")
+			return Null()
+		}
+		if len(l.L) == 0 || r.I == 0 {
+			return Tuple(nil)
+		}
+		items := make([]Value, 0, len(l.L)*int(r.I))
+		for i := int64(0); i < r.I; i++ {
+			items = append(items, l.L...)
+		}
+		return Tuple(items)
+	default:
+		diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for tuple arithmetic", op), at, "use '+' for concatenation or '*' for repetition")
+		return Null()
+	}
+}
+
+func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	ls := ToSeries(l)
 	rs := ToSeries(r)
 	if len(ls) == 0 || len(rs) == 0 {
@@ -201,9 +267,22 @@ func evalVectorBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnosti
 	}
 	out := make([]Value, 0, n)
 	for i := 0; i < n; i++ {
-		out = append(out, evalBinary(op, ls[i%len(ls)], rs[i%len(rs)], at, diags, ctx))
+		out = append(out, evalBinary(op, ls[i%len(ls)], rs[i%len(rs)], at, diags, opts, ctx))
 	}
 	return List(out)
+}
+
+func isSequence(v Value) bool {
+	return v.Kind == KindList || v.Kind == KindTuple
+}
+
+func slicesCloneValues(v []Value) []Value {
+	if len(v) == 0 {
+		return nil
+	}
+	out := make([]Value, len(v))
+	copy(out, v)
+	return out
 }
 
 func addInt64Checked(a, b int64) (int64, bool) {

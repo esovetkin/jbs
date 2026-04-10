@@ -672,6 +672,94 @@ param p {
 	}
 }
 
+func TestParseParamConversionExpressions(t *testing.T) {
+	src := `
+param p {
+  a = tuple(1)
+  b = list((1,2))
+  c = tuple(list((3,4)))
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_convert.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block, got %T", prog.Stmts[0])
+	}
+	if len(pb.Assignments) != 3 {
+		t.Fatalf("expected 3 assignments, got %d", len(pb.Assignments))
+	}
+	c0, ok := pb.Assignments[0].Expr.(ast.ConvertExpr)
+	if !ok || c0.Target != "tuple" {
+		t.Fatalf("expected tuple conversion for first assignment, got %#v", pb.Assignments[0].Expr)
+	}
+	c1, ok := pb.Assignments[1].Expr.(ast.ConvertExpr)
+	if !ok || c1.Target != "list" {
+		t.Fatalf("expected list conversion for second assignment, got %#v", pb.Assignments[1].Expr)
+	}
+	c2, ok := pb.Assignments[2].Expr.(ast.ConvertExpr)
+	if !ok || c2.Target != "tuple" {
+		t.Fatalf("expected tuple conversion for third assignment, got %#v", pb.Assignments[2].Expr)
+	}
+	inner, ok := c2.Expr.(ast.ConvertExpr)
+	if !ok || inner.Target != "list" {
+		t.Fatalf("expected nested list conversion, got %#v", c2.Expr)
+	}
+}
+
+func TestParseTupleListAsPlainIdentifiersWhenNotCallSyntax(t *testing.T) {
+	src := `
+param p {
+  tuple = 1
+  list = 2
+  tuple + list
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_tuple_ident.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block, got %T", prog.Stmts[0])
+	}
+	if pb.Assignments[0].Name != "tuple" || pb.Assignments[1].Name != "list" {
+		t.Fatalf("unexpected assignment names: %#v", pb.Assignments)
+	}
+}
+
+func TestParseConversionMalformedExpressionReportsError(t *testing.T) {
+	src := `
+param p {
+  a = tuple(
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("param_convert_bad.jbs", src, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors for malformed conversion expression")
+	}
+	found := false
+	for _, item := range diags.Items {
+		if item.Code == "E063" || item.Code == "E053" || item.Code == "E054" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected conversion-closing parse error, got: %s", diags.String())
+	}
+}
+
 func TestParseAnalyseTupleOneLineEqualsMultiline(t *testing.T) {
 	oneLine := `
 analyse write {

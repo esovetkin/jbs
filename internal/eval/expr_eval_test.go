@@ -270,6 +270,219 @@ func TestEvalCompareUnsupportedReportsE110(t *testing.T) {
 	}
 }
 
+func TestEvalTupleConcatParamAssignmentMode(t *testing.T) {
+	expr := ast.BinaryExpr{
+		Left: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 1},
+				ast.NumberExpr{Int: true, IntValue: 2},
+				ast.NumberExpr{Int: true, IntValue: 3},
+			},
+		},
+		Op: "+",
+		Right: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 4},
+			},
+		},
+		Span: spanAt(30, 1),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
+		ParamAssignmentTupleArithmetic: true,
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindTuple {
+		t.Fatalf("expected tuple result, got %#v", got)
+	}
+	if len(got.L) != 4 || got.L[0].I != 1 || got.L[3].I != 4 {
+		t.Fatalf("unexpected tuple concat result: %#v", got)
+	}
+}
+
+func TestEvalTupleRepeatParamAssignmentMode(t *testing.T) {
+	expr := ast.BinaryExpr{
+		Left: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 1},
+				ast.NumberExpr{Int: true, IntValue: 2},
+				ast.NumberExpr{Int: true, IntValue: 3},
+			},
+		},
+		Op:    "*",
+		Right: ast.NumberExpr{Int: true, IntValue: 4},
+		Span:  spanAt(31, 1),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
+		ParamAssignmentTupleArithmetic: true,
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindTuple {
+		t.Fatalf("expected tuple result, got %#v", got)
+	}
+	if len(got.L) != 12 {
+		t.Fatalf("expected 12 repeated values, got %#v", got)
+	}
+	if got.L[0].I != 1 || got.L[3].I != 1 || got.L[11].I != 3 {
+		t.Fatalf("unexpected tuple repeat result: %#v", got)
+	}
+}
+
+func TestEvalTupleRepeatZeroCountParamAssignmentMode(t *testing.T) {
+	expr := ast.BinaryExpr{
+		Left: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 1},
+				ast.NumberExpr{Int: true, IntValue: 2},
+			},
+		},
+		Op:    "*",
+		Right: ast.NumberExpr{Int: true, IntValue: 0},
+		Span:  spanAt(31, 20),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
+		ParamAssignmentTupleArithmetic: true,
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindTuple || len(got.L) != 0 {
+		t.Fatalf("expected empty tuple for zero repetition, got %#v", got)
+	}
+}
+
+func TestEvalTupleArithmeticErrorsInParamMode(t *testing.T) {
+	tests := []struct {
+		name string
+		expr ast.Expr
+	}{
+		{
+			name: "tuple plus scalar",
+			expr: ast.BinaryExpr{
+				Left: ast.TupleExpr{
+					Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+						ast.NumberExpr{Int: true, IntValue: 3},
+					},
+				},
+				Op:    "+",
+				Right: ast.NumberExpr{Int: true, IntValue: 4},
+				Span:  spanAt(32, 1),
+			},
+		},
+		{
+			name: "tuple multiply float",
+			expr: ast.BinaryExpr{
+				Left: ast.TupleExpr{
+					Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+					},
+				},
+				Op:    "*",
+				Right: ast.NumberExpr{Raw: "1.5", FloatValue: 1.5},
+				Span:  spanAt(33, 1),
+			},
+		},
+		{
+			name: "tuple multiply negative",
+			expr: ast.BinaryExpr{
+				Left: ast.TupleExpr{
+					Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+					},
+				},
+				Op:    "*",
+				Right: ast.NumberExpr{Int: true, IntValue: -1},
+				Span:  spanAt(34, 1),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			_ = EvalExprWithOptions(tc.expr, map[string]Value{}, diags, ExprOptions{
+				ParamAssignmentTupleArithmetic: true,
+			})
+			if count := diagCount(diags, "E106"); count == 0 {
+				t.Fatalf("expected E106, got: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestEvalTupleDefaultModeStaysVectorized(t *testing.T) {
+	expr := ast.BinaryExpr{
+		Left: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 1},
+				ast.NumberExpr{Int: true, IntValue: 2},
+				ast.NumberExpr{Int: true, IntValue: 3},
+			},
+		},
+		Op:    "*",
+		Right: ast.NumberExpr{Int: true, IntValue: 4},
+		Span:  spanAt(35, 1),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExpr(expr, map[string]Value{}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindList || len(got.L) != 3 {
+		t.Fatalf("expected list vector result, got %#v", got)
+	}
+	if got.L[0].I != 4 || got.L[1].I != 8 || got.L[2].I != 12 {
+		t.Fatalf("unexpected vector multiply result: %#v", got)
+	}
+}
+
+func TestEvalTupleAndListConversions(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tupleFromList := EvalExpr(ast.ConvertExpr{
+		Target: "tuple",
+		Expr: ast.ListExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 1},
+				ast.NumberExpr{Int: true, IntValue: 2},
+			},
+		},
+	}, map[string]Value{}, diags)
+	if tupleFromList.Kind != KindTuple || len(tupleFromList.L) != 2 {
+		t.Fatalf("expected tuple from list conversion, got %#v", tupleFromList)
+	}
+
+	listFromTuple := EvalExpr(ast.ConvertExpr{
+		Target: "list",
+		Expr: ast.TupleExpr{
+			Items: []ast.Expr{
+				ast.NumberExpr{Int: true, IntValue: 3},
+				ast.NumberExpr{Int: true, IntValue: 4},
+			},
+		},
+	}, map[string]Value{}, diags)
+	if listFromTuple.Kind != KindList || len(listFromTuple.L) != 2 {
+		t.Fatalf("expected list from tuple conversion, got %#v", listFromTuple)
+	}
+
+	singletonTuple := EvalExpr(ast.ConvertExpr{
+		Target: "tuple",
+		Expr:   ast.NumberExpr{Int: true, IntValue: 9},
+	}, map[string]Value{}, diags)
+	if singletonTuple.Kind != KindTuple || len(singletonTuple.L) != 1 || singletonTuple.L[0].I != 9 {
+		t.Fatalf("expected singleton tuple conversion, got %#v", singletonTuple)
+	}
+}
+
 func diagCount(diags *diag.Diagnostics, code string) int {
 	count := 0
 	for _, d := range diags.Items {

@@ -48,7 +48,7 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, diags *d
 		} else {
 			delete(out.Modes, asn.Name)
 		}
-		if v.Kind == eval.KindList {
+		if v.Kind == eval.KindList || v.Kind == eval.KindTuple {
 			diags.AddError(
 				diag.CodeE403,
 				fmt.Sprintf("let variable '%s' must be scalar", asn.Name),

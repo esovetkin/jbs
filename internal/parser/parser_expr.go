@@ -184,6 +184,17 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 				Span: diag.Merge(modeTok.Span, close.Span),
 			}
 		}
+		if (tok.Value == "tuple" || tok.Value == "list") && p.peekN(1).Type == lexer.TokenLParen {
+			targetTok := p.next()
+			p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after conversion expression")
+			arg := p.parseExpr()
+			close := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close conversion expression")
+			return ast.ConvertExpr{
+				Target: targetTok.Value,
+				Expr:   arg,
+				Span:   diag.Merge(targetTok.Span, close.Span),
+			}
+		}
 		nameTok := p.next()
 		if p.peek().Type == lexer.TokenDot {
 			p.next()

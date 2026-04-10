@@ -323,6 +323,15 @@ func pythonLiteral(v eval.Value) string {
 			parts = append(parts, pythonLiteral(item))
 		}
 		return "[" + strings.Join(parts, ",") + "]"
+	case eval.KindTuple:
+		parts := make([]string, 0, len(v.L))
+		for _, item := range v.L {
+			parts = append(parts, pythonLiteral(item))
+		}
+		if len(parts) == 1 {
+			return "(" + parts[0] + ",)"
+		}
+		return "(" + strings.Join(parts, ",") + ")"
 	default:
 		return strconv.Quote(v.String())
 	}

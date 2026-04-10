@@ -231,6 +231,35 @@ do s with p, q {
 	}
 }
 
+func TestBuildTupleArithmeticAssignmentRows(t *testing.T) {
+	src := `
+param p {
+  x = tuple([1,2,3]) * 2
+  x
+}
+
+do s with p {
+  echo ${x}
+}
+`
+	res := compileForPrintParam(t, src)
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected build errors: %s", diags.String())
+	}
+	rows := stepRows(table, "s")
+	if len(rows) != 6 {
+		t.Fatalf("expected 6 rows, got %d", len(rows))
+	}
+	expected := []string{"1", "2", "3", "1", "2", "3"}
+	for i, row := range rows {
+		if row.Values["p.x"] != expected[i] {
+			t.Fatalf("unexpected row %d: %#v", i, row.Values)
+		}
+	}
+}
+
 func TestBuildLetSourceImport(t *testing.T) {
 	src := `
 let l {

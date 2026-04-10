@@ -472,6 +472,8 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 			for _, it := range n.Items {
 				walk(it)
 			}
+		case ast.ConvertExpr:
+			walk(n.Expr)
 		case ast.UnaryExpr:
 			walk(n.Expr)
 		case ast.BinaryExpr:
@@ -521,6 +523,8 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 			for _, it := range n.Items {
 				walk(it)
 			}
+		case ast.ConvertExpr:
+			walk(n.Expr)
 		case ast.UnaryExpr:
 			walk(n.Expr)
 		case ast.BinaryExpr:
@@ -555,7 +559,7 @@ func collectEvalStringRefsWith(value eval.Value, span diag.Span, collect stringR
 				base = diag.NewPos(0, 1, 1)
 			}
 			out = append(out, collect(v.S, base, span.File)...)
-		case eval.KindList:
+		case eval.KindList, eval.KindTuple:
 			for _, item := range v.L {
 				walk(item)
 			}

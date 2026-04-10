@@ -54,7 +54,7 @@ func importSourceFromLet(ns *LetNamespace) *ImportSource {
 }
 
 func valueAsSeries(v eval.Value) []eval.Value {
-	if v.Kind == eval.KindList {
+	if v.Kind == eval.KindList || v.Kind == eval.KindTuple {
 		return slices.Clone(v.L)
 	}
 	return []eval.Value{v}

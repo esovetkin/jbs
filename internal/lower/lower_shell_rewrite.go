@@ -13,10 +13,13 @@ func rewriteShellRefsInEvalValue(v eval.Value, aliases map[string]string) eval.V
 	switch v.Kind {
 	case eval.KindString:
 		return eval.String(rewriteShellRefs(v.S, aliases))
-	case eval.KindList:
+	case eval.KindList, eval.KindTuple:
 		items := make([]eval.Value, len(v.L))
 		for i := range v.L {
 			items[i] = rewriteShellRefsInEvalValue(v.L[i], aliases)
+		}
+		if v.Kind == eval.KindTuple {
+			return eval.Tuple(items)
 		}
 		return eval.List(items)
 	default:

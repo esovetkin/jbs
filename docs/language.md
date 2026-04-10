@@ -145,6 +145,8 @@ Supported assignment expressions:
 - mode declarations:
   - `shell("...")`
   - `python("...")`
+  - `tuple(expr)`
+  - `list(expr)`
 
 Mode declarations lower to JUBE parameter mode fields:
 
@@ -162,9 +164,64 @@ Mode declarations lower to JUBE parameter mode fields:
 
 Unsupported syntax (diagnostics emitted):
 
-- function calls
+- function calls (except `tuple(...)` and `list(...)`)
 - dict literals
 - import statements
+
+## Tuple and List Semantics in `param` Assignments
+
+Tuple and list are distinct expression types:
+
+- tuple literal: `(1, 2, 3)` -> tuple value
+- list literal: `[1, 2, 3]` -> list value
+
+In `param` assignment expressions:
+
+- tuple `+` tuple performs concatenation
+- tuple `*` integer performs repetition
+- tuple `+` non-tuple is an error
+
+Examples:
+
+```jbs
+param p_tuple_concat {
+        x = (1, 2, 3) + (4,)
+        # x => (1,2,3,4)
+        x
+}
+
+param p_tuple_repeat {
+        x = ("a",) * 3
+        # x => ("a","a","a")
+        x
+}
+```
+
+List arithmetic keeps vector semantics:
+
+```jbs
+param p_list_vector {
+        x = [1, 2, 3] * 4
+        # x => [4, 8, 12]
+        x
+}
+```
+
+Conversions:
+
+- `tuple(expr)` converts scalar/list/tuple to tuple
+- `list(expr)` converts scalar/list/tuple to list
+
+```jbs
+param p_convert {
+        a = tuple([1, 2, 3]) * 2   # tuple repeat
+        b = list((1, 2, 3)) * 2    # vector multiply
+        a + b
+}
+```
+
+This behavior applies to assignment expressions.
+The final line in a `param` block is still combination algebra (`+` zip, `*` outer product).
 
 ## Combination Algebra
 

@@ -72,7 +72,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases ma
 				}
 			} else {
 				switch value.Kind {
-				case eval.KindList, eval.KindNull:
+				case eval.KindList, eval.KindTuple, eval.KindNull:
 					param.Value = pythonLiteral(value)
 				default:
 					param.Value = templateValue(value)
@@ -95,7 +95,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases ma
 				}
 			} else {
 				switch value.Kind {
-				case eval.KindList, eval.KindNull:
+				case eval.KindList, eval.KindTuple, eval.KindNull:
 					param.Value = pythonLiteral(value)
 				default:
 					param.Value = templateValue(value)

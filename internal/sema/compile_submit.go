@@ -365,7 +365,7 @@ func evalValueHasEmptyString(v eval.Value) bool {
 	switch v.Kind {
 	case eval.KindString:
 		return v.S == ""
-	case eval.KindList:
+	case eval.KindList, eval.KindTuple:
 		if len(v.L) == 0 {
 			return true
 		}
