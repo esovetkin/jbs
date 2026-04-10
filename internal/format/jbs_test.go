@@ -79,6 +79,208 @@ a
 	}
 }
 
+func TestFormatPreservesTopLevelCommentsAroundBlocks(t *testing.T) {
+	src := `# another comment
+
+param testcases
+{
+    id = tuple([1,2,3] * 100)
+    label = ("a",) * 2 + ("b",)
+
+    id + label
+}
+
+# some comment
+do run
+   with testcases
+{
+   echo $id $label
+}
+
+# comment
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("comments_blocks.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `# another comment
+
+param testcases
+{
+        id = tuple([1,2,3] * 100)
+        label = ("a",) * 2 + ("b",)
+
+        id + label
+}
+
+# some comment
+do run
+        with testcases
+{
+        echo $id $label
+}
+
+# comment
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatPreservesInlineTopLevelTrailingComment(t *testing.T) {
+	src := `jbs_name="x"   # benchmark
+param p
+{
+    a = 1
+
+    a
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("inline_top_comment.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `jbs_name = "x"   # benchmark
+
+param p
+{
+        a = 1
+
+        a
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatPreservesTrailingEOFComment(t *testing.T) {
+	src := `param p
+{
+    a = 1
+
+    a
+}
+# eof comment`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("eof_comment.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+{
+        a = 1
+
+        a
+}
+# eof comment
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatCommentOnlyFile(t *testing.T) {
+	src := `# first
+
+# second
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("comment_only.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `# first
+
+# second
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatTopLevelCommentsWithSemicolonStatements(t *testing.T) {
+	src := `jbs_name="x"; # name
+jbs_outpath="y"
+param p
+{
+    a = 1
+
+    a
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("semicolon_comment.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `jbs_name = "x"
+# name
+jbs_outpath = "y"
+
+param p
+{
+        a = 1
+
+        a
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatCommentsIdempotent(t *testing.T) {
+	src := `# lead
+
+jbs_name="x" # inline
+
+# mid
+param p
+{
+    a = 1
+
+    a
+}
+# tail`
+	firstDiags := &diag.Diagnostics{}
+	first, err := JBS("comments_idempotent.jbs", src, firstDiags)
+	if err != nil {
+		t.Fatalf("first format failed: %v", err)
+	}
+	if firstDiags.HasErrors() {
+		t.Fatalf("unexpected first-pass errors: %s", firstDiags.String())
+	}
+	secondDiags := &diag.Diagnostics{}
+	second, err := JBS("comments_idempotent.jbs", first, secondDiags)
+	if err != nil {
+		t.Fatalf("second format failed: %v", err)
+	}
+	if secondDiags.HasErrors() {
+		t.Fatalf("unexpected second-pass errors: %s", secondDiags.String())
+	}
+	if first != second {
+		t.Fatalf("formatter is not idempotent for comments\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
 func TestFormatParseErrorReturnsNoOutput(t *testing.T) {
 	src := "param p {\n  a = @\n  a\n}\n"
 	diags := &diag.Diagnostics{}
