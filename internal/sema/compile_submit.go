@@ -98,16 +98,16 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 			continue
 		}
 		for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
+			vals := src.Vars[varName]
+			value := eval.Null()
+			if len(vals) > 0 {
+				value = vals[0]
+			}
+			origin := src.Origins[varName]
+			if origin.IsZero() {
+				origin = src.Span
+			}
 			if _, ok := allowedSubmitKeys[varName]; !ok {
-				vals := src.Vars[varName]
-				value := eval.Null()
-				if len(vals) > 0 {
-					value = vals[0]
-				}
-				origin := src.Origins[varName]
-				if origin.IsZero() {
-					origin = src.Span
-				}
 				if prev, exists := seenHelperFromUse[varName]; exists && prev.useName != useName {
 					diags.AddWarning(
 						diag.CodeW072,
@@ -121,6 +121,7 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 					useName: useName,
 					span:    origin,
 				}
+				env[varName] = value
 				setHelper(SubmitHelper{
 					Original: varName,
 					Aliased:  helperAlias(varName),
@@ -132,10 +133,6 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				continue
 			}
 			if isRawSubmitKey(varName) {
-				origin := src.Origins[varName]
-				if origin.IsZero() {
-					origin = src.Span
-				}
 				diags.AddWarning(
 					diag.CodeW071,
 					fmt.Sprintf("submit default '%s' from let '%s' is ignored (raw-block key)", varName, useName),
@@ -144,33 +141,25 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				)
 				continue
 			}
-			vals := src.Vars[varName]
-			value := eval.Null()
-			if len(vals) > 0 {
-				value = vals[0]
-			}
-			span := src.Origins[varName]
-			if span.IsZero() {
-				span = src.Span
-			}
 			if prev, exists := seenFromUse[varName]; exists && prev.useName != useName {
 				diags.AddWarning(
 					diag.CodeW072,
 					fmt.Sprintf("submit default '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
-					span,
+					origin,
 					"merge defaults explicitly or keep one namespace per submit key",
 					diag.RelatedSpan{Message: "first definition", Span: prev.span},
 				)
 			}
 			seenFromUse[varName] = submitUseOrigin{
 				useName: useName,
-				span:    span,
+				span:    origin,
 			}
+			env[varName] = value
 			setValue(SubmitValue{
 				Name:  varName,
 				Mode:  src.Modes[varName],
 				Value: value,
-				Span:  span,
+				Span:  origin,
 			})
 		}
 	}

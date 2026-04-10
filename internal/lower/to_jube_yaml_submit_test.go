@@ -493,6 +493,55 @@ submit run
 	}
 }
 
+func TestSubmitUseHelperIdentifierExpressionIsEvaluated(t *testing.T) {
+	src := `
+let defaults {
+  mynodes = 4
+}
+
+submit run
+  use defaults
+{
+  nodes = mynodes
+  args_exec = "-lc hostname"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		if strings.HasSuffix(ps.Name, "__submit_params") {
+			submitSet = ps
+			break
+		}
+	}
+	if submitSet == nil {
+		t.Fatalf("expected submit parameterset, got %#v", doc.ParameterSet)
+	}
+	foundHelper := false
+	foundNodes := false
+	for _, p := range submitSet.Parameter {
+		if p.Name == "_jk__run_mynodes" {
+			foundHelper = true
+			if got, ok := p.Value.(string); !ok || got != "4" {
+				t.Fatalf("expected helper value 4, got %#v", p.Value)
+			}
+		}
+		if p.Name == "nodes" {
+			foundNodes = true
+			if got, ok := p.Value.(string); !ok || got != "4" {
+				t.Fatalf("expected nodes value 4, got %#v", p.Value)
+			}
+		}
+	}
+	if !foundHelper || !foundNodes {
+		t.Fatalf("missing helper/nodes params in submit set: %#v", submitSet.Parameter)
+	}
+}
+
 func TestSubmitLetCollisionEscapesImportedVariables(t *testing.T) {
 	src := `
 let l {

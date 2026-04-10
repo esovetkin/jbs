@@ -184,6 +184,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				refs = append(refs, collectShellLikeRefs(field.Raw, base, field.Span.File)...)
 				continue
 			}
+			refs = append(refs, collectExprIdentRefs(field.Expr)...)
 			refs = append(refs, collectExprStringRefsWith(field.Expr, collectSubmitStringRefs)...)
 		}
 		if spec := res.SubmitByName[block.Name]; spec != nil {
@@ -445,6 +446,50 @@ func collectSubmitStringRefs(text string, base diag.Position, file string) []var
 
 func collectExprStringRefs(expr ast.Expr) []varRef {
 	return collectExprStringRefsWith(expr, collectShellLikeRefs)
+}
+
+func collectExprIdentRefs(expr ast.Expr) []varRef {
+	if expr == nil {
+		return nil
+	}
+	out := make([]varRef, 0)
+	var walk func(ast.Expr)
+	walk = func(node ast.Expr) {
+		if node == nil {
+			return
+		}
+		switch n := node.(type) {
+		case ast.IdentExpr:
+			out = append(out, varRef{
+				Name: n.Name,
+				Span: n.Span,
+			})
+		case ast.ListExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.TupleExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.UnaryExpr:
+			walk(n.Expr)
+		case ast.BinaryExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.CompareExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.ConditionalExpr:
+			walk(n.Then)
+			walk(n.Cond)
+			walk(n.Else)
+		case ast.ModeExpr:
+			walk(n.Expr)
+		}
+	}
+	walk(expr)
+	return out
 }
 
 type stringRefCollector func(text string, base diag.Position, file string) []varRef

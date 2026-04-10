@@ -218,6 +218,141 @@ submit run
 	}
 }
 
+func TestSubmitHeaderUseIdentifierExpressions(t *testing.T) {
+	cases := []struct {
+		name         string
+		src          string
+		wantE100     bool
+		wantW072     int
+		wantValueKey string
+		wantValue    int64
+		noW310       [][2]string
+	}{
+		{
+			name: "helper identifier resolves in submit expression",
+			src: `
+let defaults {
+  mynodes = 4
+}
+submit run
+  use defaults
+{
+  nodes = mynodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantValueKey: "nodes",
+			wantValue:    4,
+			noW310:       [][2]string{{"defaults", "mynodes"}},
+		},
+		{
+			name: "submit key default identifier resolves in submit expression",
+			src: `
+let defaults {
+  nodes = 6
+}
+submit run
+  use defaults
+{
+  tasks = nodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantValueKey: "tasks",
+			wantValue:    6,
+			noW310:       [][2]string{{"defaults", "nodes"}},
+		},
+		{
+			name: "helper last wins across use clauses",
+			src: `
+let d0 {
+  mynodes = 1
+}
+let d1 {
+  mynodes = 4
+}
+submit run
+  use d0
+  use d1
+{
+  nodes = mynodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantW072:     1,
+			wantValueKey: "nodes",
+			wantValue:    4,
+		},
+		{
+			name: "mixed with and use resolves with use precedence",
+			src: `
+let d0 {
+  mynodes = 1
+}
+let d1 {
+  mynodes = 4
+}
+submit run
+  with d0
+  use d1
+{
+  nodes = mynodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantValueKey: "nodes",
+			wantValue:    4,
+			noW310:       [][2]string{{"d0", "mynodes"}, {"d1", "mynodes"}},
+		},
+		{
+			name: "unresolved identifier still errors",
+			src: `
+submit run {
+  nodes = missing
+  args_exec = "-lc hostname"
+}
+`,
+			wantE100: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			prog := parser.Parse("in.jbs", tc.src, diags)
+			res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+			if tc.wantE100 {
+				if !hasDiagCode(diags, "E100") {
+					t.Fatalf("expected E100, got: %s", diags.String())
+				}
+				return
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+			if got := diagCount(diags, "W072"); got != tc.wantW072 {
+				t.Fatalf("unexpected W072 count: got=%d want=%d diags=%s", got, tc.wantW072, diags.String())
+			}
+			spec := res.SubmitByName["run"]
+			if spec == nil {
+				t.Fatalf("missing submit spec for run")
+			}
+			value, ok := submitValueByName(spec, tc.wantValueKey)
+			if !ok {
+				t.Fatalf("missing submit value %q: %#v", tc.wantValueKey, spec.Values)
+			}
+			if value.Value.Kind != eval.KindInt || value.Value.I != tc.wantValue {
+				t.Fatalf("unexpected submit value %q: got=%#v want=%d", tc.wantValueKey, value.Value, tc.wantValue)
+			}
+			for _, noWarn := range tc.noW310 {
+				if hasW310ForLet(diags, noWarn[0], noWarn[1]) {
+					t.Fatalf("did not expect W310 for %s.%s, got: %s", noWarn[0], noWarn[1], diags.String())
+				}
+			}
+		})
+	}
+}
+
 func TestSubmitAutoAddsTasksFromNodesWhenMissing(t *testing.T) {
 	src := `
 submit run {

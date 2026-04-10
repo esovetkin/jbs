@@ -355,6 +355,17 @@ In submit headers:
 - References to helper variables in submit values are rewritten to the helper aliases.
 - Using a `param` source in submit-header `use` is rejected (`E071`).
 
+Submit expression precedence for identifier lookup:
+
+1. globals
+2. effective `with` imports
+3. submit-header `use` variables in declaration order (last `use` wins)
+
+Short form: `globals < with-imports < submit-header use`.
+
+This precedence applies to expression-valued submit fields such as `nodes = mynodes`.
+Explicit submit field assignments are not available as identifiers to later submit fields in the same block.
+
 Example:
 
 ```jbs
@@ -376,6 +387,28 @@ submit run
 ```
 
 `queue` resolves to `devel` (from `gpu_defaults`) and emits `W072` because both namespaces define `queue`.
+
+Mixed `with` + `use` example:
+
+```jbs
+let d0 {
+  mynodes = 1
+}
+
+let d1 {
+  mynodes = 4
+}
+
+submit run
+  with d0
+  use d1
+{
+  nodes = mynodes
+  args_exec = "-lc hostname"
+}
+```
+
+`nodes` resolves to `4` from `d1` because submit-header `use` has higher precedence than `with` imports.
 
 ## Lowering to JUBE YAML
 

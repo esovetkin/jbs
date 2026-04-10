@@ -94,6 +94,40 @@ Defaults follow last-win precedence by key across `use` namespaces. If the same 
 
 Variables in submit-header `use` namespaces that are not submit keys are lowered as internal helper parameters (`_jk__<step>_<name>`). References to those variables inside submit values are rewritten to the helper aliases.
 
+## Submit Expression Precedence
+
+When JBS evaluates expression-valued submit fields (for example `nodes = mynodes`), identifier lookup follows this order:
+
+1. globals
+2. effective `with` imports
+3. submit-header `use` variables in declaration order (last `use` wins)
+
+Short form: `globals < with-imports < submit-header use`.
+
+`use` can override names imported via `with` for submit expression evaluation.
+
+```jbs
+let d0 {
+        mynodes = 1
+}
+
+let d1 {
+        mynodes = 4
+}
+
+submit run
+        with d0
+        use d1
+{
+        nodes = mynodes
+        args_exec = "-lc hostname"
+}
+```
+
+In this example, `nodes` resolves to `4` from `d1`.
+
+Explicit submit field assignments are not available as identifiers to later submit field expressions in the same block.
+
 Inside `submit`, key assignments can be separated by a newline or `;`:
 
 ```jbs
