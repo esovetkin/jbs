@@ -50,11 +50,7 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 		}
 	}
 	asn := tp.parseAssignment()
-	return ast.GlobalAssign{
-		Name: asn.Name,
-		Expr: asn.Expr,
-		Span: asn.Span,
-	}
+	return ast.GlobalAssign(asn)
 }
 
 func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
