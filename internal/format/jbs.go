@@ -480,12 +480,16 @@ func renderGenericBody(lines []string, indent string) []string {
 			prevContinues = false
 			continue
 		}
-		trimmedLeft := line
-		if depth == 0 {
-			trimmedLeft = strings.TrimLeft(trimmedLeft, " \t")
+		trimmedLeft := strings.TrimLeft(line, " \t")
+		effectiveDepth := depth
+		if startsWithGroupingCloser(trimmedLeft) && effectiveDepth > 0 {
+			effectiveDepth--
 		}
 		prefix := indent
 		if prevContinues {
+			prefix += continuationIndent
+		}
+		if effectiveDepth > 0 {
 			prefix += continuationIndent
 		}
 		out = append(out, prefix+trimmedLeft)
@@ -725,6 +729,19 @@ func countGroupingDelimsOutsideQuotes(line string) (openCount int, closeCount in
 		}
 	}
 	return openCount, closeCount
+}
+
+func startsWithGroupingCloser(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case ')', ']', '}':
+		return true
+	default:
+		return false
+	}
 }
 
 func leadingIndent(s string) int {

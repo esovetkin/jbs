@@ -755,6 +755,154 @@ a
 	}
 }
 
+func TestFormatTupleMultilineExtraIndent(t *testing.T) {
+	src := `param p{
+hydra_args = ("",
+"dataset=fineweb",
+"model=llama7b trainer=fsdp",
+)
+hydra_args
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("tuple_multiline_indent.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+{
+        hydra_args = ("",
+            "dataset=fineweb",
+            "model=llama7b trainer=fsdp",
+        )
+        hydra_args
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatListMultilineExtraIndent(t *testing.T) {
+	src := `let l{
+vals = [
+1,
+2,
+3,
+]
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("list_multiline_indent.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `let l
+{
+        vals = [
+            1,
+            2,
+            3,
+        ]
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatTupleClosingDelimiterAlignment(t *testing.T) {
+	src := `param p{
+x = (
+1,
+2,
+)
+x
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("tuple_closer_align.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if strings.Contains(got, "\n            )") {
+		t.Fatalf("closing delimiter is over-indented:\n%s", got)
+	}
+	if !strings.Contains(got, "\n        )") {
+		t.Fatalf("expected closing delimiter at assignment indent:\n%s", got)
+	}
+}
+
+func TestFormatBackslashAndTupleIndentCompose(t *testing.T) {
+	src := `param p{
+x = ("a" + \
+"b",
+"c",
+)
+x
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("tuple_continuation_compose.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+{
+        x = ("a" + \
+                "b",
+            "c",
+        )
+        x
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatIdempotentTupleIndent(t *testing.T) {
+	src := `param p{
+x = ("",
+"a",
+"b",
+)
+x
+}
+`
+	diags := &diag.Diagnostics{}
+	first, err := JBS("tuple_indent_idempotent.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("first format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected first-pass errors: %s", diags.String())
+	}
+	secondDiags := &diag.Diagnostics{}
+	second, err := JBS("tuple_indent_idempotent.jbs", first, secondDiags)
+	if err != nil {
+		t.Fatalf("second format failed: %v", err)
+	}
+	if secondDiags.HasErrors() {
+		t.Fatalf("unexpected second-pass errors: %s", secondDiags.String())
+	}
+	if first != second {
+		t.Fatalf("formatter is not idempotent for tuple indentation\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+}
+
 func TestFormatContinuationIndentInDoBody(t *testing.T) {
 	src := `do run{echo one \
 two
