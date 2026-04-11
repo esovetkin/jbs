@@ -1,3 +1,4 @@
+// handle top-level statement scanning/parsing helpers
 package parser
 
 import (

@@ -1,3 +1,7 @@
+// lower `do` and `submit` blocks to JUBE `step` entries
+//
+// handle step dependencies, resolve `submit`'s `use` parameter set,
+// rewrite shell references when needed, emit submit parameterset
 package lower
 
 import (

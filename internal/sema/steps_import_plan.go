@@ -1,3 +1,11 @@
+// build per-step import plans used by lowering and validation
+//
+// collect do/submit definitions, processes steps in
+// dependency-topological order, merges inherited imports from `after`
+// chains, expands explicit `with` imports, filters inherited
+// duplicates, detects cross-source name conflicts (E214), and stores
+// `StepImportPlan` data (`Inherited`, `ExplicitDelta`, `Effective`,
+// `InheritedSteps`).
 package sema
 
 import (

@@ -1,3 +1,4 @@
+// define compiler diagnostics model
 package diag
 
 import (

@@ -1,3 +1,8 @@
+// implement `use <file>` and `use <name> from <file>` jbs imports
+//
+// resolve embedded and local file modules, parse them, expand
+// selective imports, detect import cycles/collisions, and return a
+// single expanded program plus per-file source text for diagnostics
 package imports
 
 import (

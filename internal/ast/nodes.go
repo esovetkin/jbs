@@ -1,3 +1,4 @@
+// define abstract syntax tree for JBS
 package ast
 
 import "jbs/internal/diag"

@@ -1,3 +1,18 @@
+// implement combination algebra logic
+//
+// i.e. in
+// ```jbs
+// a = [1,2,3] * 2   # [2,4,6]
+// b = ("a","b") * 2 # ("a","b","a","b")
+// a */+ b
+// ```
+// implement only the last row logic
+//
+// + zip, * product
+//
+// where combinations are "rows" carrying variable values and their
+// names. This implements cyclic-broadcast logic, inspired by vector
+// arithmetic in R
 package eval
 
 import (

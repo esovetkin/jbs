@@ -1,3 +1,4 @@
+// define JBS keywords, literals, operators, statement separators
 package lexer
 
 import "jbs/internal/diag"

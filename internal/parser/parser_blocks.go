@@ -1,3 +1,9 @@
+// parse top-level block statements
+//
+// `param`, `let`, `do`, `submit`, `analyse` and capture their
+// structural boundaries/spans. Coordinate header parsing, balanced
+// raw-body extraction, block-specific body, parsers, and block-level
+// syntax diagnostics for malformed or unterminated blocks.
 package parser
 
 import (

@@ -1,3 +1,8 @@
+// compile `submit` blocks into `SubmitSpec`
+//
+// build evaluation scope, validate keys/raw-field rules/duplicates,
+// evaluate field expressions, apply `use` fields (include helper
+// aliases), auto-injects `tasks` (if missing use the same as `nodes`)
 package sema
 
 import (

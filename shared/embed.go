@@ -1,3 +1,7 @@
+// embed shared `jbs` scripts within compiled binary
+//
+// some of the `jbs` namespaces or even steps can be common across
+// different scripts. This allows it to be shared inside binary itself
 package shared
 
 import (

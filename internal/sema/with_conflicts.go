@@ -1,3 +1,4 @@
+// a helper for import-name conflict tracking
 package sema
 
 import "jbs/internal/diag"

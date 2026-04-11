@@ -1,3 +1,4 @@
+// parse assignments inside `submit { ... }` bodies
 package parser
 
 import (

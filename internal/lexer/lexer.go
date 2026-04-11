@@ -1,3 +1,7 @@
+// tokenize JBS source into lexical tokens with source spans
+//
+// i.e. recognise keywords, literals, operators, statement
+// separators. report any malformed lexical constructs
 package lexer
 
 import (

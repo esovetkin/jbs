@@ -1,3 +1,8 @@
+// build semantic import-source catalogs from compiled params/lets
+//
+// convert each `Paramset`/`LetNamespace` into a normalized
+// `ImportSource`, so later with-resolution/planning stages consume a
+// single uniform source representation.
 package sema
 
 import (

@@ -1,3 +1,4 @@
+// rewrite `name <op>= rhs` into `name = name <op> rhs`
 package sema
 
 import (

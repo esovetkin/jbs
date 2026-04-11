@@ -1,3 +1,7 @@
+// implement the `jbs fmt`
+//
+// parse source into AST and rewrite the code in a canonical layout.
+// Handle here bash blocks inside `do` and `submit`.
 package format
 
 import (

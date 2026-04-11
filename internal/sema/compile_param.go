@@ -1,3 +1,8 @@
+// compile `param` blocks into `Paramset`
+//
+// resolve `with` imports, build evaluation environment/origins/modes,
+// evaluate local assignments, evaluate final combination rows, derive
+// exposed variable series/order/origins
 package sema
 
 import (

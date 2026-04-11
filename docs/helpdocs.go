@@ -1,3 +1,7 @@
+// embed existing markdown pages within compiled binary
+//
+// we use the `embed` package, and `//go:embed help_*.md` makes go
+// embed all the matching markdown files
 package helpdocs
 
 import (

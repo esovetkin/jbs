@@ -1,3 +1,9 @@
+// normalizes raw block text before emission
+//
+// canonicalizes line endings, trims surrounding blank lines, computes
+// common indentation and strips it, trims trailing horizontal
+// whitespace per line, and provides `normalizeRawLiteral` to ensure
+// non-empty raw payloads end with `\n`.
 package lower
 
 import "strings"

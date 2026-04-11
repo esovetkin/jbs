@@ -1,3 +1,10 @@
+// row-grouping utilities for import/lowering planning
+//
+// group row indices by identical tuples of variable values
+// (`BuildRowGroups`), using a stable tuple-key encoding
+// (`tupleKeyAt`), provide sequential index generation
+// (`SequentialIndices`) used for row-representative/index helper
+// logic.
 package planutil
 
 import (

@@ -1,3 +1,9 @@
+// compute deterministic step processing order from dependency edges
+//
+// `TopoStepOrder` performs a DFS topological walk over `deps`,
+// prioritizes a caller-provided preferred order, visits remaining
+// nodes in sorted order, and returns an order where dependencies are
+// visited before dependents.
 package planutil
 
 import (

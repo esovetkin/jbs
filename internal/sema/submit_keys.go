@@ -1,3 +1,5 @@
+// mirror JUBE variables in
+// /usr/share/jube/platform/slurm/platform.xml
 package sema
 
 import (

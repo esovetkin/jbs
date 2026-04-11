@@ -1,3 +1,8 @@
+// lowers `param` to `parameterset` YAML entries
+//
+// rows/variables into indexed JUBE parameters, handles indexing logic
+// for direct sum with across dependencies logic, serializes values as
+// shell/python literals
 package lower
 
 import (

@@ -1,3 +1,12 @@
+// validate variable-reference usage across steps and emits warnings
+//
+// scan do/submit raw text and relevant string/expression payloads for
+// `$var`/ `${var}` and identifier refs, compares references with
+// effective imports, accounts usage per source variable, emits W311
+// for referenced-but-not-imported vars and W310 for
+// exposed-but-never-used vars, and includes shell-like
+// scanners/parsers (escape, quote/comment awareness, ...) plus small
+// naming helpers.
 package sema
 
 import (

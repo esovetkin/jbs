@@ -1,3 +1,7 @@
+// apply alias-emitted variable names for submit collisions/helpers
+//
+// carry forward source-row context across dependencies, and reports
+// inherited-row conflicts.
 package lower
 
 import (

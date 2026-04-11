@@ -1,3 +1,8 @@
+// parse `with`-clause item lists into `[]ast.WithItem`
+//
+// support full-source imports, `name from source`, `(x, y) from
+// source`, and qualified references, while preserving spans and
+// reporting detailed syntax errors for malformed import item shapes.
 package parser
 
 import (

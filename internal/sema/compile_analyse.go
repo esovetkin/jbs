@@ -1,3 +1,9 @@
+// compile `analyse` blocks into semantic `AnalyseSpec`
+//
+// validate target step existence/kind, resolve step-visible/imported
+// symbols, evaluate helper assignments, validate extraction
+// expressions/files/placeholders, build pattern templates/group
+// naming, check result-tuple columns
 package sema
 
 import (

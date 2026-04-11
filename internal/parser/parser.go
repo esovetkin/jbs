@@ -1,3 +1,8 @@
+// entry point for the parser and core parser state
+//
+// take lexer output/source, parse a full JBS file into an abstract
+// syntax tree `ast.Program`, dispatch top-level statements
+// (let/param/do/submit/analyse/...) and do syntax diagnostics
 package parser
 
 import (

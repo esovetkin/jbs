@@ -1,3 +1,11 @@
+// do end-to-end tests for jbs -> yaml generation
+//
+// each case loads a fixture `.jbs`, runs import expansion + semantic
+// analysis + lowering + YAML emission, and asserts byte-for-byte
+// equality with the expected `.yaml` fixture.
+//
+// not all `yaml` is a yaml file, duh. there are outputs produced by
+// `jbs fmt`, but I needed to define input and output somehow
 package lower_test
 
 import (

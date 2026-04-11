@@ -1,3 +1,7 @@
+// generate the yaml file
+//
+// most of the lines here are to generate comments inside the
+// generated YAML, hopefully making it easier to reason about
 package emit
 
 import (

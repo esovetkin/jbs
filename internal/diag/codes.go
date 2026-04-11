@@ -1,3 +1,4 @@
+// define a catalog of known errors and warnings
 package diag
 
 type Code string

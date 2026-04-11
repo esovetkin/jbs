@@ -1,3 +1,4 @@
+// low-level parser scanning/navigation utilities
 package parser
 
 import (

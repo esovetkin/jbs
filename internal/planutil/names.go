@@ -1,3 +1,10 @@
+// small planning helpers for source variable series
+//
+// define deterministic source variable ordering (`SourceVarNames`),
+// compute effective row count across imported variables deterministic
+// source variable ordering (`SourceVarNames`), and expand a
+// variable's base values to row-count length with cyclic
+// indexing/null fill (`ExpandValues`) for downstream import/lowering
 package planutil
 
 import (

@@ -1,3 +1,8 @@
+// define synthetic name generation used during lowering
+//
+// defines stable prefixes/contracts for generated parameter/pattern
+// helper names, sanitizes source identifiers for YAML-safe/internal
+// use, and provides short-name collision-safe builders
 package lower
 
 import (

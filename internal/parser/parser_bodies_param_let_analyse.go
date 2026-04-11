@@ -1,3 +1,8 @@
+// parse the internal statement bodies of param/let/analyse
+//
+// tokenize body text, parse assignments/clauses/final expressions
+// (including analyse extraction and result tuple parts), and emits
+// block-specific diagnostics for malformed body statements.
 package parser
 
 import (

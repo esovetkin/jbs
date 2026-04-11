@@ -1,3 +1,10 @@
+// implement normalized expansion of parsed `with` items
+//
+// resolve named/fallback sources across param/let catalogs under
+// configurable options (allowed kinds, ambiguity detection,
+// mixed-source fallback), expands full source imports into explicit
+// variable mappings, and returns both expanded imports and structured
+// resolve issues
 package sema
 
 import (

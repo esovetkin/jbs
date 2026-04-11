@@ -1,3 +1,7 @@
+// define the internal YAML document model produced by lowering
+//
+// declare strongly-typed structs for root data, parameter/pattern
+// sets, step/use/submit operations, analyse/result sections
 package lower
 
 import (

@@ -1,3 +1,7 @@
+// compile `let` blocks into `LetNamespace`
+//
+// evaluate assignments in-order in a local/global environment, reject
+// duplicates and non-scalar let values
 package sema
 
 import (

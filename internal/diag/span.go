@@ -1,3 +1,4 @@
+// define diagnostic message locations across source files
 package diag
 
 import "fmt"

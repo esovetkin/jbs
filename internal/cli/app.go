@@ -19,6 +19,8 @@ import (
 	"jbs/shared"
 )
 
+// analysisBundle contains the entire parsed AST, corresponding
+// sources (plural due to imports), and compiled program
 type analysisBundle struct {
 	Program ast.Program
 	Sources map[string]string

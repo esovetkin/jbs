@@ -1,3 +1,14 @@
+// evaluate assignment-level JBS expressions
+//
+// i.e. in
+// ```jbs
+// a = [1,2,3] * 2   # [2,4,6]
+// b = ("a","b") * 2 # ("a","b","a","b")
+// a */+ b
+// ```
+//
+// implement the `a` and `b` assignments. It also handles operations
+// with literals/unary/binary/compare/conditional/mode/conversion
 package eval
 
 import (

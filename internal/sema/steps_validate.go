@@ -1,3 +1,8 @@
+// perform semantic validation for step headers/import usage
+//
+// validate do/submit uniqueness, dependency existence and cycle
+// freedom, and `with`-clause source/variable correctness via resolver
+// policies, including conflicting imported-name diagnostics.
 package sema
 
 import (

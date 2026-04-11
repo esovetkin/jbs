@@ -1,3 +1,7 @@
+// build synthetic subset parameter sets used by steps
+//
+// build subset/index/rows helper parameters, handles direct vs
+// inherited row selection modes
 package lower
 
 import (

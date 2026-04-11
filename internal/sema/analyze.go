@@ -1,3 +1,10 @@
+// the semantic-analysis orchestrator
+//
+// walk the parsed program and builds a `sema.Result` by resolving
+// globals, compiling let/param blocks, collecting do/submit/analyse
+// blocks, building import sources and step import plans, validating
+// step/use semantics and references, compiling submit/analyse specs,
+// and accumulating diagnostics across all phases
 package sema
 
 import (

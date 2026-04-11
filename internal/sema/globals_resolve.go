@@ -1,3 +1,4 @@
+// resolve and validates top-level globals
 package sema
 
 import (

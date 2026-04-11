@@ -1,3 +1,11 @@
+// parse assignment-level expressions into AST nodes
+//
+// implement expression grammar with precedence/associativity
+// (logical, compare, arithmetic, unary),
+// literals/identifiers/qualified identifiers, lists/tuples,
+// conditional expressions, and mode/conversion forms (`shell`,
+// `python`, `tuple`, `list`), emitting syntax diagnostics for
+// malformed expression constructs.
 package parser
 
 import (

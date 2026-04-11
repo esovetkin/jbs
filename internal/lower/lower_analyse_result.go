@@ -1,3 +1,10 @@
+// lowers `analyse` semantics into JUBE `patternset`, `analyser`,
+// `result` sections
+//
+// emit/merge pattern groups, creates stable internal alias pattern
+// names for analyse assignments, wires analyser file extraction per
+// step, and builds result columns with correct source expressions and
+// titles
 package lower
 
 import (

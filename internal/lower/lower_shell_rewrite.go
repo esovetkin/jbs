@@ -1,3 +1,13 @@
+// rewrites shell-style variable references in lowered submit
+//
+// walk strings/lists/tuples recursively and rewrite `$name` and
+// `${...}` variables heads using an alias map, preserves
+// non-matching/escaped/special forms. the aliases are needed to allow
+// variables used in submit inside JUBE not to collide with variables
+// used in JBS.
+//
+// there are probably still several bugs with the way I handle shell
+// variables
 package lower
 
 import (

@@ -1,3 +1,8 @@
+// parse header clauses attached to blocks
+//
+// handle `with`, `after`, submit-header `use`, and step options,
+// including repetition/ordering rules, value parsing, and
+// clause-specific syntax diagnostics.
 package parser
 
 import (

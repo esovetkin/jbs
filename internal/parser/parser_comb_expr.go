@@ -1,3 +1,9 @@
+// parses `param` final combination expressions into `ast.CombExpr`
+//
+// handle the dedicated combination algebra grammar (`+` zip / `*`
+// product), precedence (`*` before `+`), parentheses, identifier
+// leaves, and emits combination-specific syntax diagnostics when
+// final-expression structure is invalid.
 package parser
 
 import (

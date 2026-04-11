@@ -1,3 +1,6 @@
+// defines types and what equality means
+//
+// ... the universe and everything (according to HoTT)
 package eval
 
 import (

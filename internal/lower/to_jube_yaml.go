@@ -1,3 +1,9 @@
+// lowering entry point from semantic result to YAML document
+//
+// initialise lowering context/state, emit root globals, lower
+// paramsets, then walk program order to lower do/submit steps
+// (including submit helper/alias setup), and finally lowers
+// analyse/result sections into the final JUBE document model.
 package lower
 
 import (

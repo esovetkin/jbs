@@ -1,3 +1,9 @@
+// construct data needed for `jbs printparam`
+//
+// compute step workpackage states in dependency-topological order,
+// expand explicit imports with inherited row-context constraints,
+// detect value/row conflicts, and produce a table of per-step
+// qualified values (e.g. `<namespace>.<variable>`).
 package printparam
 
 import (

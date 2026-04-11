@@ -1,3 +1,4 @@
+// define diagnostic policy mappings for with-resolution issues
 package sema
 
 import (

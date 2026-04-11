@@ -1,3 +1,8 @@
+// generate diagnostics codes markdown document
+//
+// there are too many codes to maintain manually inside markdown
+// documentation. `internal/diag/codes.go` defines all of them and
+// splits them by categories
 package main
 
 import (
