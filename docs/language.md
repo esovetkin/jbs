@@ -26,8 +26,11 @@ The intent is behavior-neutral modularity: parser, sema, and lowering logic stay
 ## Grammar
 
 ```ebnf
-program       := stmt (sep stmt)* sep? EOF
-sep           := (NEWLINE | ";")+
+program       := trivia? stmt (sep stmt)* sep? EOF
+sep           := (NEWLINE | ";" | comment)+
+trivia        := (NEWLINE | comment)*
+opt_comment   := comment?
+comment       := "#" COMMENT_TEXT
 stmt          := use_stmt | global_assign | let_block | param_block | do_block | submit_block | analyse_block
 
 use_stmt      := "use" (
@@ -38,13 +41,17 @@ use_stmt      := "use" (
 ident_list    := IDENT ("," IDENT)*
 use_source    := IDENT | STRING
 
-global_assign := IDENT "=" expr
+global_assign := IDENT "=" expr opt_comment
 
-let_block     := "let" IDENT "{" let_stmt* "}"
-let_stmt      := IDENT "=" expr
+let_block     := "let" IDENT let_header_item* "{" let_item* "}"
+let_header_item := NEWLINE | comment
+let_item      := let_stmt | sep
+let_stmt      := IDENT "=" expr opt_comment
 
-param_block   := "param" IDENT with_clause? "{" param_stmt* final_expr "}"
-param_stmt    := IDENT "=" expr
+param_block   := "param" IDENT with_clause? param_header_item* "{" param_item* final_expr opt_comment "}"
+param_header_item := NEWLINE | comment
+param_item    := param_stmt | sep
+param_stmt    := IDENT "=" expr opt_comment
 final_expr    := comb_expr
 
 with_clause   := "with" with_item ("," with_item)*
@@ -52,9 +59,11 @@ qualified_name := IDENT ("." IDENT)*
 with_item     := qualified_name ("from" qualified_name)?
               | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
 
-do_block      := "do" IDENT do_header_clause* raw_block
-submit_block  := "submit" IDENT submit_header_clause* "{" submit_stmt* "}"
+do_block      := "do" IDENT do_header_item* raw_block
+submit_block  := "submit" IDENT submit_header_item* "{" submit_item* "}"
 
+do_header_item := do_header_clause opt_comment | NEWLINE | comment
+submit_header_item := submit_header_clause opt_comment | NEWLINE | comment
 do_header_clause := after_clause | with_clause | step_opt_clause
 submit_header_clause := after_clause | use_clause | with_clause | step_opt_clause
 
@@ -63,7 +72,8 @@ use_clause    := "use" IDENT ("," IDENT)*
 step_opt_clause := "max_async" "=" INT | "procs" "=" INT | "iterations" "=" INT
 raw_block     := "{" RAW_TEXT "}"
 
-submit_stmt   := submit_key "=" submit_value
+submit_item   := submit_stmt | sep
+submit_stmt   := submit_key "=" submit_value opt_comment
 submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
                  "gres" | "mail" | "measurement" | "nodes" |
                  "notification" | "outlogfile" | "outerrfile" | "queue" |
@@ -71,8 +81,10 @@ submit_key    := "account" | "args_exec" | "args_starter" | "executable" |
                  "preprocess" | "postprocess"
 submit_value  := expr | raw_block
 
-analyse_block := "analyse" IDENT with_clause? "{" analyse_stmt* analyse_tuple "}"
-analyse_stmt  := IDENT "=" expr ("in" STRING)?
+analyse_block := "analyse" IDENT with_clause? analyse_header_item* "{" analyse_item* analyse_tuple opt_comment "}"
+analyse_header_item := NEWLINE | comment
+analyse_item  := analyse_stmt | sep
+analyse_stmt  := IDENT "=" expr ("in" STRING)? opt_comment
 analyse_tuple := "(" analyse_col ("," analyse_col)* ","? ")"
 analyse_col   := IDENT ("as" STRING)?
 ```
@@ -83,6 +95,22 @@ In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global 
 
 Multiline expressions require explicit backslash-newline continuation (`\n`).
 Implicit operator-based newline continuation is not supported.
+
+## Comments
+
+JBS uses line comments with `#`.
+
+Comments are now modeled as syntax-level elements in the parser (not only formatter trivia). This keeps comment placement stable across:
+
+- `jbs fmt`
+- semantic compilation
+- lowering projection for optional YAML comment emission
+
+Header comments are preserved for `param`, `let`, `do`, `submit`, and `analyse`, including:
+
+- standalone comment lines between header clauses
+- inline clause comments (for example `with p  # note`)
+- comment lines between the last header clause and `{`
 
 Example:
 
@@ -646,6 +674,7 @@ Rules:
 - Global assignments are emitted as `name <op> value`, preserving the source operator.
 - The block header is on the first line (`param|do|submit|let|analyse <name>`).
 - `after` and `with` clauses are emitted on dedicated continuation lines with 8 spaces.
+- Header comments are preserved and attached to canonical header clauses when possible.
 - The opening brace `{` is on its own line.
 - Block body indentation is normalized to 8 spaces.
 - If a body line ends with a continuation backslash (`\`), the next non-empty line is indented by 4 additional spaces.

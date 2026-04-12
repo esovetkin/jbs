@@ -8,6 +8,7 @@ type TokenType string
 const (
 	TokenEOF          TokenType = "EOF"
 	TokenNewline      TokenType = "NEWLINE"
+	TokenComment      TokenType = "COMMENT"
 	TokenIdent        TokenType = "IDENT"
 	TokenNumber       TokenType = "NUMBER"
 	TokenString       TokenType = "STRING"

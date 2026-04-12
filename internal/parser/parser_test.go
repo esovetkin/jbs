@@ -1573,6 +1573,162 @@ let p {
 	}
 }
 
+func TestParseDoHeaderElementsPreserveComments(t *testing.T) {
+	src := `do run
+        with p  # comment 3
+        # comment 1
+        procs=4
+        # comment 2
+{
+        echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("header_comments_do.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(prog.Stmts))
+	}
+	block, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if len(block.Header) != 4 {
+		t.Fatalf("expected 4 header elements, got %d", len(block.Header))
+	}
+	if block.Header[0].Kind != ast.HeaderElemWith {
+		t.Fatalf("expected first header element to be with, got %s", block.Header[0].Kind)
+	}
+	if block.Header[0].Inline == nil || block.Header[0].Inline.Text != "comment 3" {
+		t.Fatalf("expected inline comment on with clause, got %#v", block.Header[0].Inline)
+	}
+	if block.Header[1].Kind != ast.HeaderElemComment || block.Header[1].Comment == nil || block.Header[1].Comment.Text != "comment 1" {
+		t.Fatalf("expected standalone comment element for comment 1, got %#v", block.Header[1])
+	}
+	if block.Header[2].Kind != ast.HeaderElemOption {
+		t.Fatalf("expected option element, got %s", block.Header[2].Kind)
+	}
+	if block.Header[3].Kind != ast.HeaderElemComment || block.Header[3].Comment == nil || block.Header[3].Comment.Text != "comment 2" {
+		t.Fatalf("expected standalone comment element for comment 2, got %#v", block.Header[3])
+	}
+}
+
+func TestParseParamHeaderElementsPreserveCommentBeforeBrace(t *testing.T) {
+	src := `param p
+	      # comment 0
+{
+	        a = (1,2,3)
+	        a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("header_comments_param.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(prog.Stmts))
+	}
+	block, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(block.Header) != 1 {
+		t.Fatalf("expected 1 header element, got %d", len(block.Header))
+	}
+	if block.Header[0].Kind != ast.HeaderElemComment || block.Header[0].Comment == nil || block.Header[0].Comment.Text != "comment 0" {
+		t.Fatalf("expected comment element for comment 0, got %#v", block.Header[0])
+	}
+}
+
+func TestParseSubmitHeaderElementsPreserveComments(t *testing.T) {
+	src := `submit run
+	        use defaults  # c0
+	        # c1
+        with p
+        iterations=2 # c2
+{
+        args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("header_comments_submit.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	block, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if len(block.Header) != 4 {
+		t.Fatalf("expected 4 header elements, got %d", len(block.Header))
+	}
+	if block.Header[0].Kind != ast.HeaderElemUse || block.Header[0].Inline == nil || block.Header[0].Inline.Text != "c0" {
+		t.Fatalf("unexpected first header element: %#v", block.Header[0])
+	}
+	if block.Header[1].Kind != ast.HeaderElemComment || block.Header[1].Comment == nil || block.Header[1].Comment.Text != "c1" {
+		t.Fatalf("unexpected second header element: %#v", block.Header[1])
+	}
+	if block.Header[2].Kind != ast.HeaderElemWith {
+		t.Fatalf("unexpected third header element: %#v", block.Header[2])
+	}
+	if block.Header[3].Kind != ast.HeaderElemOption || block.Header[3].Inline == nil || block.Header[3].Inline.Text != "c2" {
+		t.Fatalf("unexpected fourth header element: %#v", block.Header[3])
+	}
+}
+
+func TestParseLetHeaderElementsPreserveCommentBeforeBrace(t *testing.T) {
+	src := `let l
+        # c0
+{
+        x = "a"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("header_comments_let.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	block, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if len(block.Header) != 1 || block.Header[0].Kind != ast.HeaderElemComment || block.Header[0].Comment == nil || block.Header[0].Comment.Text != "c0" {
+		t.Fatalf("unexpected let header elements: %#v", block.Header)
+	}
+}
+
+func TestParseAnalyseHeaderElementsPreserveCommentBeforeBrace(t *testing.T) {
+	src := `analyse write
+        with p
+        # c0
+{
+        p0 = number in "out"
+        (p0)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("header_comments_analyse.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	block, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if len(block.Header) != 2 {
+		t.Fatalf("expected 2 header elements, got %d", len(block.Header))
+	}
+	if block.Header[0].Kind != ast.HeaderElemWith {
+		t.Fatalf("unexpected first analyse header element: %#v", block.Header[0])
+	}
+	if block.Header[1].Kind != ast.HeaderElemComment || block.Header[1].Comment == nil || block.Header[1].Comment.Text != "c0" {
+		t.Fatalf("unexpected second analyse header element: %#v", block.Header[1])
+	}
+}
+
 func TestParseIntegerLiteralBoundariesExact(t *testing.T) {
 	cases := []struct {
 		name      string

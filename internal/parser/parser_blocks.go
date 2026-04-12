@@ -13,7 +13,11 @@ import (
 
 func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 	name, nameSpan := p.parseRequiredIdent(diag.CodeE082, "expected param block name")
+	headerStart := nameSpan.End
 	withItems := p.parseOptionalWithClause()
+	headerEnd := p.pos()
+	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
+	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
 	p.skipTrivia()
 	if p.peek() != '{' {
 		pos := p.pos()
@@ -25,6 +29,8 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 		return ast.ParamBlock{
 			Name:      name,
 			WithItems: withItems,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
 			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -34,6 +40,8 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 		return ast.ParamBlock{
 			Name:      name,
 			WithItems: withItems,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
 			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -44,6 +52,8 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 		WithItems:   withItems,
 		Assignments: assignments,
 		Final:       final,
+		HeaderRaw:   headerRaw,
+		Header:      headerElems,
 		BodyRaw:     body,
 		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
 	}
@@ -51,7 +61,11 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 
 func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 	name, nameSpan := p.parseRequiredIdent(diag.CodeE030, "expected do block name")
+	headerStart := nameSpan.End
 	after, withItems, opts := p.parseOptionalDoHeaderClauses()
+	headerEnd := p.pos()
+	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
+	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
 	p.skipTrivia()
 
 	if p.peek() != '{' {
@@ -68,6 +82,8 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			MaxAsync:   opts.MaxAsync,
 			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
+			HeaderRaw:  headerRaw,
+			Header:     headerElems,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -81,6 +97,8 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			MaxAsync:   opts.MaxAsync,
 			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
+			HeaderRaw:  headerRaw,
+			Header:     headerElems,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -92,6 +110,8 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 		MaxAsync:   opts.MaxAsync,
 		Procs:      opts.Procs,
 		Iterations: opts.Iterations,
+		HeaderRaw:  headerRaw,
+		Header:     headerElems,
 		Body:       body,
 		BodyStart:  innerStart,
 		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
@@ -100,7 +120,11 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 
 func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 	name, nameSpan := p.parseRequiredIdent(diag.CodeE040, "expected submit block name")
+	headerStart := nameSpan.End
 	after, useNames, withItems, opts := p.parseOptionalSubmitHeaderClauses()
+	headerEnd := p.pos()
+	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
+	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
 	p.skipTrivia()
 
 	if p.peek() != '{' {
@@ -118,6 +142,8 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 			MaxAsync:   opts.MaxAsync,
 			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
+			HeaderRaw:  headerRaw,
+			Header:     headerElems,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -132,6 +158,8 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 			MaxAsync:   opts.MaxAsync,
 			Procs:      opts.Procs,
 			Iterations: opts.Iterations,
+			HeaderRaw:  headerRaw,
+			Header:     headerElems,
 			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
@@ -146,6 +174,8 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		MaxAsync:   opts.MaxAsync,
 		Procs:      opts.Procs,
 		Iterations: opts.Iterations,
+		HeaderRaw:  headerRaw,
+		Header:     headerElems,
 		Fields:     fields,
 		BodyRaw:    body,
 		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
@@ -154,7 +184,11 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 
 func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
 	name, nameSpan := p.parseRequiredIdent(diag.CodeE080, "expected let block name")
+	headerStart := nameSpan.End
 	p.skipTrivia()
+	headerEnd := p.pos()
+	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
+	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
 	if p.peek() != '{' {
 		pos := p.pos()
 		p.diags.AddError(diag.CodeE081,
@@ -163,21 +197,27 @@ func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
 			"add '{' after let header",
 		)
 		return ast.LetBlock{
-			Name: name,
-			Span: diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:      name,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.LetBlock{
-			Name: name,
-			Span: diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:      name,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 	assignments := parseLetBody(p.file, body, innerStart, p.diags)
 	return ast.LetBlock{
 		Name:        name,
 		Assignments: assignments,
+		HeaderRaw:   headerRaw,
+		Header:      headerElems,
 		BodyRaw:     body,
 		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
 	}
@@ -185,7 +225,11 @@ func (p *Parser) parseLetBlock(blockStart diag.Position) ast.LetBlock {
 
 func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 	stepName, stepSpan := p.parseRequiredIdent(diag.CodeE416, "expected analyse target step name")
+	headerStart := stepSpan.End
 	after, withItems := p.parseOptionalAfterAndWith()
+	headerEnd := p.pos()
+	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
+	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
 	if len(after) > 0 {
 		span := diag.NewSpan(p.file, blockStart, p.pos())
 		p.diags.AddError(diag.CodeE416,
@@ -205,6 +249,8 @@ func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 		return ast.AnalyseBlock{
 			StepName:  stepName,
 			WithItems: withItems,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
 			Span:      diag.NewSpan(p.file, blockStart, stepSpan.End),
 		}
 	}
@@ -213,6 +259,8 @@ func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 		return ast.AnalyseBlock{
 			StepName:  stepName,
 			WithItems: withItems,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
 			Span:      diag.NewSpan(p.file, blockStart, stepSpan.End),
 		}
 	}
@@ -222,6 +270,8 @@ func (p *Parser) parseAnalyseBlock(blockStart diag.Position) ast.AnalyseBlock {
 		WithItems:   withItems,
 		Assignments: assignments,
 		Columns:     columns,
+		HeaderRaw:   headerRaw,
+		Header:      headerElems,
 		BodyRaw:     body,
 		Span:        diag.NewSpan(p.file, blockStart, blockEnd),
 	}

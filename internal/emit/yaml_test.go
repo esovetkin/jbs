@@ -316,3 +316,126 @@ func TestYAMLAnnotatesLetSubsetParameterSetComment(t *testing.T) {
 		t.Fatalf("missing let subset comment: %s", text)
 	}
 }
+
+func TestYAMLEmitsProjectedSourceComments(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		Step: []lower.Step{
+			{
+				Name: "run",
+				Use:  []interface{}{"p"},
+				Do:   []interface{}{lower.Literal("echo hi\n")},
+				Meta: lower.StepMeta{
+					Kind:   lower.StepKindDo,
+					Source: "run",
+				},
+			},
+		},
+		Meta: lower.DocumentMeta{
+			SourceComments: []lower.CommentProjection{
+				{Target: "do:run.header.with", Text: "from source with clause"},
+				{Target: "do:run.header", Text: "from source header"},
+			},
+		},
+	}
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "from source header") {
+		t.Fatalf("missing projected header comment: %s", text)
+	}
+	if !strings.Contains(text, "from source with clause") {
+		t.Fatalf("missing projected clause comment: %s", text)
+	}
+}
+
+func TestYAMLEmitsProjectedCommentsForParamLetAnalyse(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		ParameterSet: []lower.ParameterSet{
+			{
+				Name:      "p",
+				Parameter: []lower.Parameter{{Name: "a", Value: "1"}},
+				Meta: lower.ParameterSetMeta{
+					Kind:   lower.ParameterSetKindParam,
+					Source: "p",
+				},
+			},
+		},
+		PatternSet: []lower.PatternSet{
+			{
+				Name: "l",
+				Pattern: []lower.Pattern{
+					{Name: "number", Value: lower.SingleQuoted("Number: $jube_pat_int")},
+				},
+				Meta: lower.PatternSetMeta{
+					Kind:   lower.PatternSetKindLet,
+					Source: "l",
+				},
+			},
+		},
+		Analyser: []lower.Analyser{
+			{
+				Name: "analyser_write",
+				Analyse: []lower.AnalyseItem{
+					{Step: "write"},
+				},
+				Meta: lower.AnalyserMeta{Source: "write"},
+			},
+		},
+		Meta: lower.DocumentMeta{
+			SourceComments: []lower.CommentProjection{
+				{Target: "param:p.header", Text: "param header comment"},
+				{Target: "let:l.header", Text: "let header comment"},
+				{Target: "analyse:write.header", Text: "analyse header comment"},
+			},
+		},
+	}
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "param header comment") {
+		t.Fatalf("missing projected param comment: %s", text)
+	}
+	if !strings.Contains(text, "let header comment") {
+		t.Fatalf("missing projected let comment: %s", text)
+	}
+	if !strings.Contains(text, "analyse header comment") {
+		t.Fatalf("missing projected analyse comment: %s", text)
+	}
+}
+
+func TestYAMLEmitsProjectedCommentsUnconditionally(t *testing.T) {
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		Step: []lower.Step{
+			{
+				Name: "run",
+				Meta: lower.StepMeta{
+					Kind:   lower.StepKindDo,
+					Source: "run",
+				},
+			},
+		},
+		Meta: lower.DocumentMeta{
+			SourceComments: []lower.CommentProjection{
+				{Target: "do:run.header", Text: "must appear"},
+			},
+		},
+	}
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("unexpected encode error: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "must appear") {
+		t.Fatalf("projected comments must always be emitted: %s", text)
+	}
+}

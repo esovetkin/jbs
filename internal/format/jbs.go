@@ -292,7 +292,7 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 }
 
 func formatParamBlock(p ast.ParamBlock) []string {
-	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems, nil, nil, nil)
+	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems, nil, nil, nil, p.Header)
 	lines = append(lines, "{")
 	body := normalizeBody(p.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -301,7 +301,7 @@ func formatParamBlock(p ast.ParamBlock) []string {
 }
 
 func formatDoBlock(d ast.DoBlock) []string {
-	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations)
+	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations, d.Header)
 	lines = append(lines, "{")
 	body := normalizeBody(d.Body, bodyIndent)
 	lines = append(lines, body...)
@@ -310,7 +310,7 @@ func formatDoBlock(d ast.DoBlock) []string {
 }
 
 func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
-	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations)
+	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations, s.Header)
 	lines = append(lines, "{")
 	body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
 	if len(body) == 0 && len(s.Fields) > 0 {
@@ -322,7 +322,7 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 }
 
 func formatLetBlock(l ast.LetBlock) []string {
-	lines := renderBlockHeader("let", l.Name, nil, nil, nil, nil, nil, nil)
+	lines := renderBlockHeader("let", l.Name, nil, nil, nil, nil, nil, nil, l.Header)
 	lines = append(lines, "{")
 	body := normalizeBody(l.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -331,7 +331,7 @@ func formatLetBlock(l ast.LetBlock) []string {
 }
 
 func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems, nil, nil, nil)
+	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems, nil, nil, nil, a.Header)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
@@ -383,21 +383,156 @@ func formatUseStmt(u ast.UseStmt) []string {
 	return []string{"use " + strings.Join(u.Names, ", ") + " from " + target}
 }
 
-func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int) []string {
+type headerClauseKind int
+
+const (
+	headerClauseAfter headerClauseKind = iota
+	headerClauseUse
+	headerClauseWith
+	headerClauseOptions
+)
+
+type renderedHeaderClause struct {
+	Kind headerClauseKind
+	Text string
+}
+
+type headerCommentBucket struct {
+	Before []string
+	Inline string
+}
+
+func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int, header []ast.HeaderElem) []string {
 	lines := []string{kind + " " + name}
-	if len(after) > 0 {
-		lines = append(lines, clauseIndent+"after "+strings.Join(after, ", "))
+	clauses := buildRenderedHeaderClauses(after, useNames, with, maxAsync, procs, iterations)
+	if len(header) == 0 {
+		for _, clause := range clauses {
+			lines = append(lines, clauseIndent+clause.Text)
+		}
+		return lines
 	}
-	if len(useNames) > 0 {
-		lines = append(lines, clauseIndent+"use "+strings.Join(useNames, ", "))
+
+	buckets, trailing := collectHeaderCommentBuckets(header)
+	for _, clause := range clauses {
+		bucket := buckets[clause.Kind]
+		if bucket != nil {
+			for _, text := range bucket.Before {
+				lines = append(lines, renderHeaderCommentLine(text))
+			}
+		}
+		line := clauseIndent + clause.Text
+		if bucket != nil && bucket.Inline != "" {
+			line += "  " + bucket.Inline
+		}
+		lines = append(lines, line)
 	}
-	if len(with) > 0 {
-		lines = append(lines, clauseIndent+"with "+renderWithClause(with))
-	}
-	if optionLine := renderStepOptionClause(maxAsync, procs, iterations); optionLine != "" {
-		lines = append(lines, clauseIndent+optionLine)
+	for _, text := range trailing {
+		lines = append(lines, renderHeaderCommentLine(text))
 	}
 	return lines
+}
+
+func buildRenderedHeaderClauses(after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int) []renderedHeaderClause {
+	clauses := make([]renderedHeaderClause, 0, 4)
+	if len(after) > 0 {
+		clauses = append(clauses, renderedHeaderClause{
+			Kind: headerClauseAfter,
+			Text: "after " + strings.Join(after, ", "),
+		})
+	}
+	if len(useNames) > 0 {
+		clauses = append(clauses, renderedHeaderClause{
+			Kind: headerClauseUse,
+			Text: "use " + strings.Join(useNames, ", "),
+		})
+	}
+	if len(with) > 0 {
+		clauses = append(clauses, renderedHeaderClause{
+			Kind: headerClauseWith,
+			Text: "with " + renderWithClause(with),
+		})
+	}
+	if optionLine := renderStepOptionClause(maxAsync, procs, iterations); optionLine != "" {
+		clauses = append(clauses, renderedHeaderClause{
+			Kind: headerClauseOptions,
+			Text: optionLine,
+		})
+	}
+	return clauses
+}
+
+func collectHeaderCommentBuckets(header []ast.HeaderElem) (map[headerClauseKind]*headerCommentBucket, []string) {
+	buckets := map[headerClauseKind]*headerCommentBucket{
+		headerClauseAfter:   {},
+		headerClauseUse:     {},
+		headerClauseWith:    {},
+		headerClauseOptions: {},
+	}
+	pending := make([]string, 0)
+
+	appendPending := func(kind headerClauseKind) {
+		if len(pending) == 0 {
+			return
+		}
+		buckets[kind].Before = append(buckets[kind].Before, pending...)
+		pending = pending[:0]
+	}
+
+	for _, elem := range header {
+		switch elem.Kind {
+		case ast.HeaderElemBlank:
+			pending = append(pending, "")
+		case ast.HeaderElemComment:
+			if elem.Comment != nil {
+				pending = append(pending, "# "+strings.TrimSpace(elem.Comment.Text))
+			} else {
+				pending = append(pending, "#")
+			}
+		case ast.HeaderElemAfter, ast.HeaderElemUse, ast.HeaderElemWith, ast.HeaderElemOption:
+			kind := toHeaderClauseKind(elem.Kind)
+			if elem.Inline != nil && buckets[kind].Inline != "" {
+				buckets[kind].Before = append(buckets[kind].Before, buckets[kind].Inline)
+				buckets[kind].Inline = ""
+			}
+			appendPending(kind)
+			if elem.Inline != nil {
+				inline := "# " + strings.TrimSpace(elem.Inline.Text)
+				buckets[kind].Inline = strings.TrimSpace(inline)
+			}
+		default:
+			text := strings.TrimSpace(elem.Text)
+			if text != "" {
+				pending = append(pending, text)
+			}
+			if elem.Inline != nil {
+				pending = append(pending, "# "+strings.TrimSpace(elem.Inline.Text))
+			}
+		}
+	}
+
+	trailing := make([]string, len(pending))
+	copy(trailing, pending)
+	return buckets, trailing
+}
+
+func toHeaderClauseKind(kind ast.HeaderElemKind) headerClauseKind {
+	switch kind {
+	case ast.HeaderElemAfter:
+		return headerClauseAfter
+	case ast.HeaderElemUse:
+		return headerClauseUse
+	case ast.HeaderElemWith:
+		return headerClauseWith
+	default:
+		return headerClauseOptions
+	}
+}
+
+func renderHeaderCommentLine(text string) string {
+	if text == "" {
+		return ""
+	}
+	return clauseIndent + text
 }
 
 func renderStepOptionClause(maxAsync *int, procs *int, iterations *int) string {

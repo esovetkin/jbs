@@ -20,6 +20,45 @@ type Program struct {
 
 func (p Program) GetSpan() diag.Span { return p.Span }
 
+type Comment struct {
+	Text string
+	Span diag.Span
+}
+
+func (c Comment) GetSpan() diag.Span { return c.Span }
+
+type CommentGroup struct {
+	Comments []Comment
+}
+
+type NodeComments struct {
+	Leading  []CommentGroup
+	Inline   *Comment
+	Trailing []CommentGroup
+}
+
+type HeaderElemKind string
+
+const (
+	HeaderElemAfter   HeaderElemKind = "after"
+	HeaderElemUse     HeaderElemKind = "use"
+	HeaderElemWith    HeaderElemKind = "with"
+	HeaderElemOption  HeaderElemKind = "option"
+	HeaderElemComment HeaderElemKind = "comment"
+	HeaderElemBlank   HeaderElemKind = "blank"
+	HeaderElemUnknown HeaderElemKind = "unknown"
+)
+
+type HeaderElem struct {
+	Kind    HeaderElemKind
+	Text    string
+	Inline  *Comment
+	Comment *Comment
+	Span    diag.Span
+}
+
+func (h HeaderElem) GetSpan() diag.Span { return h.Span }
+
 type UseSourceKind string
 
 const (
@@ -86,8 +125,11 @@ func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 type LetBlock struct {
 	Name        string
 	Assignments []Assignment
+	HeaderRaw   string
+	Header      []HeaderElem
 	BodyRaw     string
 	Span        diag.Span
+	Comments    NodeComments
 }
 
 func (l LetBlock) stmtNode()          {}
@@ -98,8 +140,11 @@ type AnalyseBlock struct {
 	WithItems   []WithItem
 	Assignments []AnalyseAssign
 	Columns     []AnalyseColumn
+	HeaderRaw   string
+	Header      []HeaderElem
 	BodyRaw     string
 	Span        diag.Span
+	Comments    NodeComments
 }
 
 func (a AnalyseBlock) stmtNode()          {}
@@ -128,8 +173,11 @@ type ParamBlock struct {
 	WithItems   []WithItem
 	Assignments []Assignment
 	Final       CombExpr
+	HeaderRaw   string
+	Header      []HeaderElem
 	BodyRaw     string
 	Span        diag.Span
+	Comments    NodeComments
 }
 
 func (p ParamBlock) stmtNode()          {}
@@ -142,9 +190,12 @@ type DoBlock struct {
 	MaxAsync   *int
 	Procs      *int
 	Iterations *int
+	HeaderRaw  string
+	Header     []HeaderElem
 	Body       string
 	BodyStart  diag.Position
 	Span       diag.Span
+	Comments   NodeComments
 }
 
 func (d DoBlock) stmtNode()          {}
@@ -158,9 +209,12 @@ type SubmitBlock struct {
 	MaxAsync   *int
 	Procs      *int
 	Iterations *int
+	HeaderRaw  string
+	Header     []HeaderElem
 	Fields     []SubmitField
 	BodyRaw    string
 	Span       diag.Span
+	Comments   NodeComments
 }
 
 func (s SubmitBlock) stmtNode()          {}

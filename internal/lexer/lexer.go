@@ -58,7 +58,7 @@ func (l *Lexer) run() {
 			continue
 		}
 		if r == '#' {
-			l.skipComment()
+			l.lexComment()
 			continue
 		}
 		if unicode.IsLetter(r) || r == '_' {
@@ -121,10 +121,19 @@ func (l *Lexer) emit(tt TokenType, text, value string, start, end diag.Position)
 	l.tokens = append(l.tokens, Token{Type: tt, Text: text, Value: value, Span: diag.NewSpan(l.file, start, end)})
 }
 
-func (l *Lexer) skipComment() {
+func (l *Lexer) lexComment() {
+	start := l.pos()
+	l.advance()
 	for !l.eof() && l.peek() != '\n' {
 		l.advance()
 	}
+	end := l.pos()
+	text := string(l.src[start.Offset-l.base : end.Offset-l.base])
+	value := ""
+	if len(text) > 0 {
+		value = text[1:]
+	}
+	l.emit(TokenComment, text, value, start, end)
 }
 
 func (l *Lexer) lexIdent() {

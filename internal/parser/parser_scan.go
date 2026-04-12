@@ -128,7 +128,11 @@ func (p *Parser) pos() diag.Position {
 }
 
 func (p *tokenParser) skipNewlines() {
-	for p.peek().Type == lexer.TokenNewline {
+	for {
+		t := p.peek().Type
+		if t != lexer.TokenNewline && t != lexer.TokenComment {
+			break
+		}
 		p.next()
 	}
 }
@@ -136,7 +140,7 @@ func (p *tokenParser) skipNewlines() {
 func (p *tokenParser) skipStmtSeparators() {
 	for {
 		t := p.peek().Type
-		if t != lexer.TokenNewline && t != lexer.TokenSemicolon {
+		if t != lexer.TokenNewline && t != lexer.TokenSemicolon && t != lexer.TokenComment {
 			break
 		}
 		p.next()
@@ -144,7 +148,7 @@ func (p *tokenParser) skipStmtSeparators() {
 }
 
 func isStmtTerminator(t lexer.TokenType) bool {
-	return t == lexer.TokenEOF || t == lexer.TokenNewline || t == lexer.TokenSemicolon
+	return t == lexer.TokenEOF || t == lexer.TokenNewline || t == lexer.TokenSemicolon || t == lexer.TokenComment
 }
 
 func (p *tokenParser) consumeUntilStmtEnd() {
@@ -157,12 +161,12 @@ func (p *tokenParser) consumeUntilStmtEnd() {
 func (p *tokenParser) consumeUntilNewline() {
 	for {
 		t := p.peek().Type
-		if t == lexer.TokenEOF || t == lexer.TokenNewline {
+		if t == lexer.TokenEOF || t == lexer.TokenNewline || t == lexer.TokenComment {
 			break
 		}
 		p.next()
 	}
-	p.skipNewlines()
+	p.skipStmtSeparators()
 }
 
 func (p *tokenParser) expect(tt lexer.TokenType, code diag.Code, message string) lexer.Token {

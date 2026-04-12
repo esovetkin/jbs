@@ -131,6 +131,140 @@ do run
 	}
 }
 
+func TestFormatPreservesHeaderClauseComments(t *testing.T) {
+	src := `param p
+      # comment 0
+{
+        a = (1,2,3)
+        b = ("a","b")
+        a*b
+}
+
+do run
+        with p  # comment 3
+        # comment 1
+        procs=4
+        # comment 2
+{
+        echo $a
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("header_clause_comments.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `param p
+        # comment 0
+{
+        a = (1,2,3)
+        b = ("a","b")
+        a*b
+}
+
+do run
+        with p  # comment 3
+        # comment 1
+        procs=4
+        # comment 2
+{
+        echo $a
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatSubmitMergedUsePreservesComments(t *testing.T) {
+	src := `submit r
+        use d0  # c0
+        # c1
+        use d1  # c2
+{
+        args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("submit_merge_comments.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `submit r
+        # c0
+        # c1
+        use d0, d1  # c2
+{
+        args_exec = "-lc hostname"
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatPreservesLetHeaderCommentBeforeBrace(t *testing.T) {
+	src := `let l
+        # h0
+{
+        x = "a"
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("let_header_comment.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `let l
+        # h0
+{
+        x = "a"
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestFormatPreservesAnalyseHeaderCommentBeforeBrace(t *testing.T) {
+	src := `analyse write
+        with p
+        # h0
+{
+        v = number in "out"
+        (v)
+}
+`
+	diags := &diag.Diagnostics{}
+	got, err := JBS("analyse_header_comment.jbs", src, diags)
+	if err != nil {
+		t.Fatalf("format failed: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	want := `analyse write
+        with p
+        # h0
+{
+        v = number in "out"
+        (v)
+}
+`
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func TestFormatPreservesInlineTopLevelTrailingComment(t *testing.T) {
 	src := `jbs_name="x"   # benchmark
 param p

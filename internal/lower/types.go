@@ -42,7 +42,14 @@ type Document struct {
 	Meta         DocumentMeta   `yaml:"-"`
 }
 
-type DocumentMeta struct{}
+type DocumentMeta struct {
+	SourceComments []CommentProjection
+}
+
+type CommentProjection struct {
+	Target string
+	Text   string
+}
 
 type ParameterSetKind string
 

@@ -46,6 +46,7 @@ func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 	}
 
 	ctx.lowerAnalyseAndResult()
+	ctx.doc.Meta.SourceComments = projectSourceComments(res)
 
 	return ctx.doc
 }

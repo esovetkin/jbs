@@ -77,7 +77,10 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 	if expr != nil {
 		span = diag.Merge(span, expr.GetSpan())
 	}
-	if p.peek().Type != lexer.TokenEOF && p.peek().Type != lexer.TokenNewline && p.peek().Type != lexer.TokenSemicolon {
+	if p.peek().Type != lexer.TokenEOF &&
+		p.peek().Type != lexer.TokenNewline &&
+		p.peek().Type != lexer.TokenSemicolon &&
+		p.peek().Type != lexer.TokenComment {
 		tok := p.peek()
 		p.diags.AddError(diag.CodeE061,
 			"unexpected trailing tokens after assignment expression",

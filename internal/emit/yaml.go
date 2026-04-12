@@ -53,6 +53,7 @@ func annotateComments(root *yaml.Node, doc lower.Document) {
 	annotateSteps(mapValueNode(m, "step"), doc.Step)
 	annotateAnalysers(mapValueNode(m, "analyser"), doc.Analyser)
 	annotateResult(mapValueNode(m, "result"), doc.Result)
+	annotateProjectedComments(m, doc)
 }
 
 func annotateParameterSets(seq *yaml.Node, sets []lower.ParameterSet) {
@@ -331,6 +332,160 @@ func setHeadComment(n *yaml.Node, text string) {
 		return
 	}
 	n.HeadComment = text
+}
+
+func appendHeadComment(n *yaml.Node, text string) {
+	if n == nil || strings.TrimSpace(text) == "" {
+		return
+	}
+	if strings.TrimSpace(n.HeadComment) == "" {
+		n.HeadComment = text
+		return
+	}
+	n.HeadComment += "\n" + text
+}
+
+func annotateProjectedComments(root *yaml.Node, doc lower.Document) {
+	paramSeq := mapValueNode(root, "parameterset")
+	patternSeq := mapValueNode(root, "patternset")
+	stepSeq := mapValueNode(root, "step")
+	analyserSeq := mapValueNode(root, "analyser")
+	for _, c := range doc.Meta.SourceComments {
+		target := strings.TrimSpace(c.Target)
+		if target == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(target, "do:") || strings.HasPrefix(target, "submit:"):
+			annotateProjectedStepComment(stepSeq, target, c.Text)
+		case strings.HasPrefix(target, "param:"):
+			annotateProjectedParamComment(paramSeq, doc.ParameterSet, target, c.Text)
+		case strings.HasPrefix(target, "let:"):
+			annotateProjectedLetComment(patternSeq, doc.PatternSet, target, c.Text)
+		case strings.HasPrefix(target, "analyse:"):
+			annotateProjectedAnalyseComment(analyserSeq, doc.Analyser, target, c.Text)
+		}
+	}
+}
+
+func annotateProjectedStepComment(stepSeq *yaml.Node, target string, text string) {
+	parts := strings.SplitN(target, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+	rest := parts[1]
+	restParts := strings.Split(rest, ".")
+	if len(restParts) < 2 {
+		return
+	}
+	stepName := restParts[0]
+	scope := restParts[1]
+	stepNode := findStepNodeByName(stepSeq, stepName)
+	if stepNode == nil {
+		return
+	}
+	if scope != "header" {
+		return
+	}
+	if len(restParts) == 2 {
+		appendHeadComment(stepNode, text)
+		return
+	}
+	key := restParts[2]
+	switch key {
+	case "after":
+		appendHeadComment(mapKeyNode(stepNode, "depend"), text)
+	case "use":
+		appendHeadComment(mapKeyNode(stepNode, "use"), text)
+	case "with":
+		appendHeadComment(mapKeyNode(stepNode, "use"), text)
+	case "options":
+		if keyNode := mapKeyNode(stepNode, "max_async"); keyNode != nil {
+			appendHeadComment(keyNode, text)
+			return
+		}
+		if keyNode := mapKeyNode(stepNode, "procs"); keyNode != nil {
+			appendHeadComment(keyNode, text)
+			return
+		}
+		appendHeadComment(mapKeyNode(stepNode, "iterations"), text)
+	}
+}
+
+func findStepNodeByName(stepSeq *yaml.Node, name string) *yaml.Node {
+	if stepSeq == nil || stepSeq.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, item := range stepSeq.Content {
+		if item == nil || item.Kind != yaml.MappingNode {
+			continue
+		}
+		nameNode := mapValueNode(item, "name")
+		if nameNode == nil || nameNode.Kind != yaml.ScalarNode {
+			continue
+		}
+		if nameNode.Value == name {
+			return item
+		}
+	}
+	return nil
+}
+
+func annotateProjectedParamComment(paramSeq *yaml.Node, sets []lower.ParameterSet, target string, text string) {
+	name := strings.TrimPrefix(target, "param:")
+	name = strings.TrimSuffix(name, ".header")
+	name = strings.Split(name, ".")[0]
+	for i := range sets {
+		if sets[i].Meta.Kind != lower.ParameterSetKindParam {
+			continue
+		}
+		source := sets[i].Meta.Source
+		if source == "" {
+			source = sets[i].Name
+		}
+		if source != name {
+			continue
+		}
+		appendHeadComment(seqItem(paramSeq, i), text)
+		return
+	}
+}
+
+func annotateProjectedLetComment(patternSeq *yaml.Node, sets []lower.PatternSet, target string, text string) {
+	name := strings.TrimPrefix(target, "let:")
+	name = strings.TrimSuffix(name, ".header")
+	name = strings.Split(name, ".")[0]
+	for i := range sets {
+		if sets[i].Meta.Kind != lower.PatternSetKindLet {
+			continue
+		}
+		source := sets[i].Meta.Source
+		if source == "" {
+			source = sets[i].Name
+		}
+		if source != name {
+			continue
+		}
+		appendHeadComment(seqItem(patternSeq, i), text)
+		return
+	}
+}
+
+func annotateProjectedAnalyseComment(analyserSeq *yaml.Node, analysers []lower.Analyser, target string, text string) {
+	name := strings.TrimPrefix(target, "analyse:")
+	name = strings.TrimSuffix(name, ".header")
+	name = strings.Split(name, ".")[0]
+	for i := range analysers {
+		source := analysers[i].Meta.Source
+		if source == "" {
+			source = analysers[i].Name
+		}
+		if source != name {
+			continue
+		}
+		appendHeadComment(seqItem(analyserSeq, i), text)
+		return
+	}
 }
 
 func addBlockSpacing(in []byte) []byte {

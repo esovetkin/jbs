@@ -163,7 +163,10 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 		span = diag.Merge(nameTok.Span, fileTok.Span)
 	}
 
-	if tp.peek().Type != lexer.TokenEOF && tp.peek().Type != lexer.TokenNewline && tp.peek().Type != lexer.TokenSemicolon {
+	if tp.peek().Type != lexer.TokenEOF &&
+		tp.peek().Type != lexer.TokenNewline &&
+		tp.peek().Type != lexer.TokenSemicolon &&
+		tp.peek().Type != lexer.TokenComment {
 		diags.AddError(diag.CodeE416,
 			"unexpected trailing tokens in analyse statement",
 			tp.peek().Span,

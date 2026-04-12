@@ -21,6 +21,45 @@ func TestLexBasicTokens(t *testing.T) {
 	}
 }
 
+func TestLexEmitsCommentToken(t *testing.T) {
+	src := "a = 1 # trailing comment\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	found := false
+	for _, tok := range tokens {
+		if tok.Type != TokenComment {
+			continue
+		}
+		found = true
+		if tok.Text != "# trailing comment" {
+			t.Fatalf("unexpected comment token text: %q", tok.Text)
+		}
+		if tok.Value != " trailing comment" {
+			t.Fatalf("unexpected comment token value: %q", tok.Value)
+		}
+	}
+	if !found {
+		t.Fatalf("expected TokenComment in token stream")
+	}
+}
+
+func TestLexHashInsideStringIsNotCommentToken(t *testing.T) {
+	src := `a = "value # not comment"` + "\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	for _, tok := range tokens {
+		if tok.Type == TokenComment {
+			t.Fatalf("unexpected TokenComment for hash inside string")
+		}
+	}
+}
+
 func TestLexUnexpectedCharacter(t *testing.T) {
 	src := "a = @\n"
 	diags := &diag.Diagnostics{}
