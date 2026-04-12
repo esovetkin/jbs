@@ -1,4 +1,4 @@
-.PHONY: build test docs docs-check clean
+.PHONY: build test docs docs-check coverage clean
 
 build: docs
 	go build -o jbs ./cmd/jbs
@@ -17,4 +17,4 @@ coverage:
 	go tool cover -html=coverage.out -o coverage.html
 
 clean:
-	rm jbs
+	rm jbs coverage.out coverage.html

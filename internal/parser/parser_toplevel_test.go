@@ -1,0 +1,207 @@
+package parser
+
+import (
+	"strings"
+	"testing"
+
+	"jbs/internal/ast"
+	"jbs/internal/diag"
+)
+
+func newTopLevelParser(src string, diags *diag.Diagnostics) *Parser {
+	return &Parser{
+		file:  "in.jbs",
+		src:   []rune(src),
+		line:  1,
+		col:   1,
+		diags: diags,
+	}
+}
+
+func hasDiag(diags *diag.Diagnostics, code string) bool {
+	for _, item := range diags.Items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func parseUseDirect(src string) (ast.UseStmt, *diag.Diagnostics) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(src, diags)
+	start := p.pos()
+	p.consumeWord() // consume "use"
+	stmt := p.parseUseStmt(start)
+	return stmt, diags
+}
+
+func TestIsTopLevelAssignmentStart(t *testing.T) {
+	tests := []struct {
+		src  string
+		want bool
+	}{
+		{src: `jbs_name = "x"`, want: true},
+		{src: `jbs_name+= "x"`, want: true},
+		{src: `jbs_name -= "x"`, want: true},
+		{src: `jbs_name *= "x"`, want: true},
+		{src: `jbs_name /= "x"`, want: true},
+		{src: `jbs_name %= "x"`, want: true},
+		{src: `jbs_name + "x"`, want: false},
+		{src: `param p {`, want: false},
+		{src: `do run {`, want: false},
+		{src: `submit run {`, want: false},
+		{src: `let x {`, want: false},
+		{src: `analyse run {`, want: false},
+		{src: `use jsc`, want: false},
+		{src: `1x = 2`, want: false},
+		{src: `name`, want: false},
+	}
+
+	for _, tt := range tests {
+		p := newTopLevelParser(tt.src, &diag.Diagnostics{})
+		if got := p.isTopLevelAssignmentStart(); got != tt.want {
+			t.Fatalf("isTopLevelAssignmentStart(%q)=%v, want %v", tt.src, got, tt.want)
+		}
+	}
+}
+
+func TestParseGlobalAssignMalformedStart(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("not an assignment\n", diags)
+	start := p.pos()
+	got := p.parseGlobalAssign(start)
+	if !hasDiag(diags, "E012") {
+		t.Fatalf("expected E012 for malformed top-level assignment, got: %s", diags.String())
+	}
+	if got.Span.Start != start || got.Span.End != start {
+		t.Fatalf("expected zero-length span at start for malformed global assignment, got %+v", got.Span)
+	}
+}
+
+func TestParseUseStmtErrorBranches(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{name: "empty after use", src: "use\n"},
+		{name: "invalid first token", src: "use 123\n"},
+		{name: "path missing alias", src: `use "./x.jbs"` + "\n"},
+		{name: "path alias missing identifier", src: `use "./x.jbs" as 1` + "\n"},
+		{name: "from invalid source token", src: "use x from 1\n"},
+		{name: "namespace import with many names", src: "use a, b\n"},
+		{name: "trailing tokens", src: "use jsc extra\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, diags := parseUseDirect(tt.src)
+			if !hasDiag(diags, "E430") {
+				t.Fatalf("expected E430 for %q, got: %s", tt.src, diags.String())
+			}
+		})
+	}
+}
+
+func TestParseUseStmtPathMissingAliasKeepsSource(t *testing.T) {
+	stmt, diags := parseUseDirect(`use "./x.jbs"` + "\n")
+	if !hasDiag(diags, "E430") {
+		t.Fatalf("expected E430, got: %s", diags.String())
+	}
+	if stmt.Source.Kind != ast.UseSourcePath || stmt.Source.Value != "./x.jbs" {
+		t.Fatalf("expected path source to be preserved, got %#v", stmt.Source)
+	}
+}
+
+func TestReadTopLevelStatement(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantPrefix string
+		wantLine   int
+		wantCol    int
+	}{
+		{
+			name:       "inline comment terminates statement",
+			src:        "x = 1 # c\nnext = 2\n",
+			wantPrefix: "x = 1 ",
+			wantLine:   2,
+			wantCol:    1,
+		},
+		{
+			name:       "semicolon outside quotes terminates statement",
+			src:        `x = "a;b"; y = 2`,
+			wantPrefix: `x = "a;b"`,
+			wantLine:   1,
+			wantCol:    11,
+		},
+		{
+			name:       "line continuation keeps statement open",
+			src:        "x = \"a\" +\\\n\"b\"\nnext\n",
+			wantPrefix: "x = \"a\" +\\\n\"b\"",
+			wantLine:   3,
+			wantCol:    1,
+		},
+		{
+			name:       "hash inside quotes is not comment",
+			src:        "x = \"#not_comment\"\nnext\n",
+			wantPrefix: "x = \"#not_comment\"",
+			wantLine:   2,
+			wantCol:    1,
+		},
+		{
+			name:       "escaped quotes in strings are handled",
+			src:        "x = \"a\\\"#b\" + 'c\\'d#e'; z = 1\n",
+			wantPrefix: "x = \"a\\\"#b\" + 'c\\'d#e'",
+			wantLine:   1,
+			wantCol:    24,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newTopLevelParser(tt.src, &diag.Diagnostics{})
+			stmt, start := p.readTopLevelStatement()
+			if start.Line != 1 || start.Column != 1 || start.Offset != 0 {
+				t.Fatalf("unexpected start position: %+v", start)
+			}
+			if stmt != tt.wantPrefix {
+				t.Fatalf("unexpected statement text: got %q want %q", stmt, tt.wantPrefix)
+			}
+			if p.pos().Line != tt.wantLine || p.pos().Column != tt.wantCol {
+				t.Fatalf("unexpected parser position after statement: got=%+v want line=%d col=%d", p.pos(), tt.wantLine, tt.wantCol)
+			}
+		})
+	}
+}
+
+func TestReadTopLevelStatementStopsAtHashEvenWithoutBoundary(t *testing.T) {
+	p := newTopLevelParser("x=1#comment\ny=2\n", &diag.Diagnostics{})
+	stmt, _ := p.readTopLevelStatement()
+	if stmt != "x=1" {
+		t.Fatalf("expected statement to stop at '#', got %q", stmt)
+	}
+}
+
+func TestParseUseStmtSelectiveFromPath(t *testing.T) {
+	stmt, diags := parseUseDirect(`use helper, tool from "./lib.jbs"` + "\n")
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(stmt.Names) != 2 || stmt.Names[0] != "helper" || stmt.Names[1] != "tool" {
+		t.Fatalf("unexpected selective names: %#v", stmt.Names)
+	}
+	if stmt.Source.Kind != ast.UseSourcePath || stmt.Source.Value != "./lib.jbs" {
+		t.Fatalf("unexpected selective path source: %#v", stmt.Source)
+	}
+}
+
+func TestParseUseStmtUnexpectedTrailingTokensMessage(t *testing.T) {
+	_, diags := parseUseDirect("use jsc trailing\n")
+	if !hasDiag(diags, "E430") {
+		t.Fatalf("expected E430, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "unexpected trailing tokens in use statement") {
+		t.Fatalf("expected trailing-token message, got: %s", diags.String())
+	}
+}

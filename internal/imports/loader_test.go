@@ -3,6 +3,7 @@ package imports
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -465,5 +466,526 @@ do s with missing.p {
 	_, diags := load(t, entry, dir)
 	if !hasDiagCode(diags, "E537") {
 		t.Fatalf("expected E537 for unknown with alias, got: %s", diags.String())
+	}
+}
+
+func TestLoadAndExpandEntryErrorsAndEmptyCwd(t *testing.T) {
+	dir := t.TempDir()
+	diags := &diag.Diagnostics{}
+	if _, err := LoadAndExpand("missing.jbs", dir, diags); err == nil {
+		t.Fatalf("expected missing entry path to return error")
+	}
+
+	entry := writeTestFile(t, dir, "entry.jbs", `
+let l {
+  x = 1
+}
+`)
+	diags = &diag.Diagnostics{}
+	res, err := LoadAndExpand(entry, "", diags)
+	if err != nil {
+		t.Fatalf("unexpected error when cwd is empty and entry is absolute: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if res == nil || len(res.Program.Stmts) != 1 {
+		t.Fatalf("expected one expanded statement, got %#v", res)
+	}
+}
+
+func TestNormalizeEmbeddedName(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: ""},
+		{in: "  ", want: ""},
+		{in: "jsc", want: "jsc.jbs"},
+		{in: " jsc.jbs ", want: "jsc.jbs"},
+	}
+	for _, tt := range tests {
+		if got := normalizeEmbeddedName(tt.in); got != tt.want {
+			t.Fatalf("normalizeEmbeddedName(%q)=%q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestResolveUseSourceUnknownKind(t *testing.T) {
+	r := &resolver{
+		cwd:   t.TempDir(),
+		diags: &diag.Diagnostics{},
+		raw:   map[string]*rawModule{},
+	}
+	_, err := r.resolveUseSource(nil, ast.UseSource{
+		Kind:  ast.UseSourceKind("unknown"),
+		Value: "x",
+		Span:  diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)),
+	})
+	if err == nil {
+		t.Fatalf("expected error for unknown use source kind")
+	}
+}
+
+func TestModuleRefByID(t *testing.T) {
+	r := &resolver{
+		raw: map[string]*rawModule{
+			"raw-id": {Ref: moduleRef{ID: "raw-id", Label: "raw"}},
+		},
+		expanded: map[string]*expandedModule{
+			"exp-id": {Ref: moduleRef{ID: "exp-id", Label: "exp"}},
+		},
+	}
+	if ref, ok := r.moduleRefByID("raw-id"); !ok || ref.Label != "raw" {
+		t.Fatalf("expected raw module ref, got ref=%#v ok=%v", ref, ok)
+	}
+	if ref, ok := r.moduleRefByID("exp-id"); !ok || ref.Label != "exp" {
+		t.Fatalf("expected expanded module ref, got ref=%#v ok=%v", ref, ok)
+	}
+	if _, ok := r.moduleRefByID("missing"); ok {
+		t.Fatalf("expected missing id lookup to fail")
+	}
+}
+
+func TestStmtSymbolKinds(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	tests := []struct {
+		stmt       ast.Stmt
+		wantName   string
+		wantKind   symbolKind
+		wantOK     bool
+		importable bool
+	}{
+		{stmt: ast.LetBlock{Name: "l", Span: span}, wantName: "l", wantKind: symbolKindLet, wantOK: true, importable: true},
+		{stmt: ast.ParamBlock{Name: "p", Span: span}, wantName: "p", wantKind: symbolKindParam, wantOK: true, importable: true},
+		{stmt: ast.DoBlock{Name: "d", Span: span}, wantName: "d", wantKind: symbolKindDo, wantOK: true, importable: true},
+		{stmt: ast.SubmitBlock{Name: "s", Span: span}, wantName: "s", wantKind: symbolKindSubmit, wantOK: true, importable: true},
+		{stmt: ast.GlobalAssign{Name: "g", Span: span}, wantName: "g", wantKind: symbolKindGlobal, wantOK: true, importable: true},
+		{stmt: ast.AnalyseBlock{StepName: "a", Span: span}, wantName: "a", wantKind: symbolKindOther, wantOK: true, importable: false},
+		{stmt: ast.UseStmt{Span: span}, wantName: "", wantKind: symbolKindOther, wantOK: false, importable: false},
+	}
+	for _, tt := range tests {
+		name, kind, ok, importable := stmtSymbol(tt.stmt)
+		if name != tt.wantName || kind != tt.wantKind || ok != tt.wantOK || importable != tt.importable {
+			t.Fatalf("stmtSymbol(%T)=(%q,%v,%v,%v), want (%q,%v,%v,%v)",
+				tt.stmt, name, kind, ok, importable, tt.wantName, tt.wantKind, tt.wantOK, tt.importable)
+		}
+	}
+}
+
+func TestAddImportedSymbolBranches(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	source := &expandedModule{Ref: moduleRef{ID: "m1", Label: "m1"}}
+	sym := symbolDecl{Name: "x", Span: span, Importable: true}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		target := &expandedModule{
+			Aliases: map[string]moduleRef{"x": {ID: "alias"}},
+			Symbols: map[string]symbolDecl{},
+		}
+		if ok := r.addImportedSymbol(target, source, sym, span); ok {
+			t.Fatalf("expected alias collision to fail")
+		}
+		if !hasDiagCode(diags, "E534") {
+			t.Fatalf("expected E534 for alias collision, got: %s", diags.String())
+		}
+	}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		target := &expandedModule{
+			Aliases: map[string]moduleRef{},
+			Symbols: map[string]symbolDecl{
+				"x": {Name: "x", ModuleID: "m1"},
+			},
+		}
+		if ok := r.addImportedSymbol(target, source, sym, span); ok {
+			t.Fatalf("expected duplicate imported symbol from same module to return false")
+		}
+		if len(diags.Items) != 0 {
+			t.Fatalf("did not expect diagnostics for same-module duplicate, got: %s", diags.String())
+		}
+	}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		target := &expandedModule{
+			Aliases: map[string]moduleRef{},
+			Symbols: map[string]symbolDecl{
+				"x": {Name: "x", ModuleID: "other", Span: span},
+			},
+		}
+		if ok := r.addImportedSymbol(target, source, sym, span); ok {
+			t.Fatalf("expected cross-module collision to fail")
+		}
+		if !hasDiagCode(diags, "E534") {
+			t.Fatalf("expected E534 for cross-module collision, got: %s", diags.String())
+		}
+	}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		target := &expandedModule{
+			Aliases: map[string]moduleRef{},
+			Symbols: map[string]symbolDecl{},
+		}
+		if ok := r.addImportedSymbol(target, source, sym, span); !ok {
+			t.Fatalf("expected successful symbol import")
+		}
+		added, exists := target.Symbols["x"]
+		if !exists || !added.Imported || added.ModuleID != "m1" {
+			t.Fatalf("unexpected added imported symbol: %#v", added)
+		}
+	}
+}
+
+func TestAddLocalStmtBranches(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	local := ast.LetBlock{Name: "x", Span: span}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		mod := &expandedModule{
+			Aliases: map[string]moduleRef{"x": {ID: "m"}},
+			Symbols: map[string]symbolDecl{},
+			Stmts:   []ast.Stmt{},
+		}
+		r.addLocalStmt(mod, local)
+		if !hasDiagCode(diags, "E534") {
+			t.Fatalf("expected E534 for local/alias collision, got: %s", diags.String())
+		}
+	}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		mod := &expandedModule{
+			Aliases: map[string]moduleRef{},
+			Symbols: map[string]symbolDecl{"x": {Name: "x", Imported: true, Span: span}},
+			Stmts:   []ast.Stmt{},
+		}
+		r.addLocalStmt(mod, local)
+		if !hasDiagCode(diags, "E534") {
+			t.Fatalf("expected E534 for local/imported collision, got: %s", diags.String())
+		}
+	}
+
+	{
+		diags := &diag.Diagnostics{}
+		r := &resolver{diags: diags}
+		prev := symbolDecl{Name: "x", Imported: false, ModuleID: "self", Span: span}
+		mod := &expandedModule{
+			Aliases: map[string]moduleRef{},
+			Symbols: map[string]symbolDecl{"x": prev},
+			Stmts:   []ast.Stmt{},
+		}
+		r.addLocalStmt(mod, local)
+		if len(diags.Items) != 0 {
+			t.Fatalf("did not expect diagnostics for duplicate local symbol, got: %s", diags.String())
+		}
+		if got := mod.Symbols["x"]; !reflect.DeepEqual(got, prev) {
+			t.Fatalf("expected previous local symbol to be preserved, got %#v", got)
+		}
+	}
+}
+
+func TestExpandModuleMissingRawReturnsNil(t *testing.T) {
+	r := &resolver{
+		raw:       map[string]*rawModule{},
+		expanded:  map[string]*expandedModule{},
+		expanding: map[string]bool{},
+		diags:     &diag.Diagnostics{},
+	}
+	if got := r.expandModule(moduleRef{ID: "missing", Label: "missing"}); got != nil {
+		t.Fatalf("expected nil when raw module is missing, got %#v", got)
+	}
+}
+
+func TestSymbolDependencies(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	ref0 := moduleRef{ID: "m0", Label: "m0"}
+	ref1 := moduleRef{ID: "m1", Label: "m1"}
+	ref2 := moduleRef{ID: "m2", Label: "m2"}
+	r := &resolver{
+		raw: map[string]*rawModule{
+			"m0": {Ref: ref0},
+			"m1": {Ref: ref1},
+			"m2": {Ref: ref2},
+		},
+		expanded: map[string]*expandedModule{},
+		diags:    &diag.Diagnostics{},
+	}
+	mod := &expandedModule{
+		Ref: ref0,
+		Symbols: map[string]symbolDecl{
+			"p":    {Name: "p", ModuleID: "m0"},
+			"prep": {Name: "prep", ModuleID: "m0"},
+			"cfg":  {Name: "cfg", ModuleID: "m2"},
+		},
+		Aliases: map[string]moduleRef{
+			"lib": ref1,
+		},
+	}
+
+	doStmt := ast.DoBlock{
+		Name:  "run",
+		After: []string{"prep", "prep"},
+		WithItems: []ast.WithItem{
+			{Name: "p", Span: span},                    // from=="" resolveLocal(item.Name)
+			{Name: "x", From: "lib", Span: span},       // alias branch
+			{Name: "y", From: "p", Span: span},         // resolveLocal(item.From)
+			{Name: "p", From: "missing", Span: span},   // fallback resolveLocal(item.Name)
+			{Name: "absent", From: "none", Span: span}, // ignored
+		},
+		Span: span,
+	}
+	deps := r.symbolDependencies(mod, doStmt)
+	got := make([]string, 0, len(deps))
+	for _, dep := range deps {
+		got = append(got, dep.Source.ID+":"+dep.Name)
+	}
+	want := []string{"m0:p", "m0:prep", "m1:x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected do dependencies: got=%#v want=%#v", got, want)
+	}
+
+	submitStmt := ast.SubmitBlock{
+		Name:     "run_submit",
+		After:    []string{"prep"},
+		UseNames: []string{"cfg", "cfg"},
+		WithItems: []ast.WithItem{
+			{Name: "x", From: "lib", Span: span},
+		},
+		Span: span,
+	}
+	deps = r.symbolDependencies(mod, submitStmt)
+	got = got[:0]
+	for _, dep := range deps {
+		got = append(got, dep.Source.ID+":"+dep.Name)
+	}
+	want = []string{"m0:prep", "m1:x", "m2:cfg"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected submit dependencies: got=%#v want=%#v", got, want)
+	}
+
+	paramStmt := ast.ParamBlock{
+		Name: "pp",
+		WithItems: []ast.WithItem{
+			{Name: "p", Span: span},
+			{Name: "x", From: "lib", Span: span},
+		},
+		Span: span,
+	}
+	deps = r.symbolDependencies(mod, paramStmt)
+	got = got[:0]
+	for _, dep := range deps {
+		got = append(got, dep.Source.ID+":"+dep.Name)
+	}
+	want = []string{"m0:p", "m1:x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected param dependencies: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestResolveBareModuleEmptyName(t *testing.T) {
+	r := &resolver{
+		cwd:      t.TempDir(),
+		diags:    &diag.Diagnostics{},
+		raw:      map[string]*rawModule{},
+		expanded: map[string]*expandedModule{},
+		sources:  map[string]string{},
+	}
+	if _, err := r.resolveBareModule("   "); err == nil {
+		t.Fatalf("expected empty module name to fail")
+	}
+}
+
+func TestResolvePathModuleFallbackToResolverCwd(t *testing.T) {
+	dir := t.TempDir()
+	target := writeTestFile(t, dir, "lib.jbs", `
+let x {
+  a = 1
+}
+`)
+	r := &resolver{
+		cwd:      dir,
+		diags:    &diag.Diagnostics{},
+		raw:      map[string]*rawModule{},
+		expanded: map[string]*expandedModule{},
+		sources:  map[string]string{},
+	}
+	ref, err := r.resolvePathModule("./lib.jbs", "", diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)))
+	if err != nil {
+		t.Fatalf("unexpected resolvePathModule error: %v", err)
+	}
+	if ref.Label != filepath.Clean(target) {
+		t.Fatalf("expected resolved label %s, got %s", filepath.Clean(target), ref.Label)
+	}
+}
+
+func TestResolveUseSourcePrefersAlias(t *testing.T) {
+	ref := moduleRef{ID: "file:/tmp/m.jbs", Label: "/tmp/m.jbs"}
+	r := &resolver{
+		cwd:      t.TempDir(),
+		diags:    &diag.Diagnostics{},
+		raw:      map[string]*rawModule{},
+		expanded: map[string]*expandedModule{},
+		sources:  map[string]string{},
+	}
+	current := &expandedModule{Aliases: map[string]moduleRef{"lib": ref}}
+	got, err := r.resolveUseSource(current, ast.UseSource{
+		Kind:  ast.UseSourceBare,
+		Value: "lib",
+		Span:  diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)),
+	})
+	if err != nil {
+		t.Fatalf("unexpected resolveUseSource error: %v", err)
+	}
+	if got != ref {
+		t.Fatalf("expected alias module ref %#v, got %#v", ref, got)
+	}
+}
+
+func TestImportAliasCollisionDifferentModulesProducesE536(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "m1.jbs", `
+let a {
+  x = 1
+}
+`)
+	writeTestFile(t, dir, "m2.jbs", `
+let b {
+  x = 2
+}
+`)
+	entry := writeTestFile(t, dir, "entry.jbs", `
+use "./m1.jbs" as lib
+use "./m2.jbs" as lib
+`)
+	_, diags := load(t, entry, dir)
+	if !hasDiagCode(diags, "E536") {
+		t.Fatalf("expected E536, got: %s", diags.String())
+	}
+}
+
+func TestImportAliasSameModuleTwiceNoError(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "m1.jbs", `
+let a {
+  x = 1
+}
+`)
+	entry := writeTestFile(t, dir, "entry.jbs", `
+use "./m1.jbs" as lib
+use "./m1.jbs" as lib
+do s {
+  echo ok
+}
+`)
+	res, diags := load(t, entry, dir)
+	if diags.HasErrors() {
+		t.Fatalf("did not expect errors, got: %s", diags.String())
+	}
+	found := false
+	for _, stmt := range res.Program.Stmts {
+		if block, ok := stmt.(ast.DoBlock); ok && block.Name == "s" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected do block s in expanded program")
+	}
+}
+
+func TestQualifiedWithInvalidSyntaxProducesE537(t *testing.T) {
+	dir := t.TempDir()
+	entry := writeTestFile(t, dir, "entry.jbs", `
+use jsc
+do s with jsc.submit_defaults.extra {
+  echo ok
+}
+`)
+	_, diags := load(t, entry, dir)
+	if !hasDiagCode(diags, "E537") {
+		t.Fatalf("expected E537 for invalid qualified with reference, got: %s", diags.String())
+	}
+}
+
+func TestNormalizeWithRefMissingExpandedSourceReturnsSymbolName(t *testing.T) {
+	r := &resolver{
+		diags:    &diag.Diagnostics{},
+		raw:      map[string]*rawModule{},
+		expanded: map[string]*expandedModule{},
+	}
+	mod := &expandedModule{
+		Aliases: map[string]moduleRef{
+			"lib": {ID: "missing-module", Label: "missing-module"},
+		},
+		Symbols: map[string]symbolDecl{},
+	}
+	got := r.normalizeWithRef(mod, "lib.value", diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)), map[string]struct{}{})
+	if got != "value" {
+		t.Fatalf("expected normalized name 'value', got %q", got)
+	}
+	if len(r.diags.Items) != 0 {
+		t.Fatalf("did not expect diagnostics when source expansion is unavailable, got: %s", r.diags.String())
+	}
+}
+
+func TestImportSymbolNonImportableAndGuards(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	source := &expandedModule{
+		Ref: moduleRef{ID: "m1", Label: "m1"},
+		Symbols: map[string]symbolDecl{
+			"x": {
+				Name:       "x",
+				Kind:       symbolKindOther,
+				Importable: false,
+				Span:       span,
+			},
+		},
+	}
+	target := &expandedModule{
+		Ref:     moduleRef{ID: "target", Label: "target"},
+		Symbols: map[string]symbolDecl{},
+		Aliases: map[string]moduleRef{},
+		Stmts:   []ast.Stmt{},
+	}
+	r := &resolver{
+		diags:    &diag.Diagnostics{},
+		raw:      map[string]*rawModule{},
+		expanded: map[string]*expandedModule{},
+	}
+	r.importSymbol(target, source, "x", span, map[string]struct{}{}, map[string]struct{}{})
+	if !hasDiagCode(r.diags, "E533") {
+		t.Fatalf("expected E533 for non-importable symbol, got: %s", r.diags.String())
+	}
+
+	r.diags = &diag.Diagnostics{}
+	r.importSymbol(target, source, "missing", span, map[string]struct{}{}, map[string]struct{}{})
+	if !hasDiagCode(r.diags, "E532") {
+		t.Fatalf("expected E532 for unknown symbol, got: %s", r.diags.String())
+	}
+
+	r.diags = &diag.Diagnostics{}
+	source.Symbols["ok"] = symbolDecl{Name: "ok", Importable: true, Span: span}
+	inserted := map[string]struct{}{"m1::ok": {}}
+	r.importSymbol(target, source, "ok", span, inserted, map[string]struct{}{})
+	if _, exists := target.Symbols["ok"]; exists {
+		t.Fatalf("did not expect symbol insertion when key is already marked inserted")
+	}
+
+	r.diags = &diag.Diagnostics{}
+	visiting := map[string]struct{}{"m1::ok": {}}
+	r.importSymbol(target, source, "ok", span, map[string]struct{}{}, visiting)
+	if _, exists := target.Symbols["ok"]; exists {
+		t.Fatalf("did not expect symbol insertion when key is already being visited")
 	}
 }

@@ -139,10 +139,6 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	}
 
 	expr := tp.parseExpr()
-	if expr == nil {
-		tp.consumeUntilStmtEnd()
-		return ast.AnalyseAssign{}
-	}
 
 	fileName := ""
 	span := diag.Merge(nameTok.Span, expr.GetSpan())

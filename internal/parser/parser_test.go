@@ -1867,6 +1867,441 @@ param p {
 	}
 }
 
+func TestParseParamBlockWithClauseVariants(t *testing.T) {
+	src := `
+param derived with base, x from lib, (y,z) from lib2 {
+  a = (1, 2)
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_with_variants.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if got := len(pb.WithItems); got != 4 {
+		t.Fatalf("expected 4 with items, got %d", got)
+	}
+	if pb.WithItems[0].Name != "base" || pb.WithItems[0].From != "" {
+		t.Fatalf("unexpected with item 0: %#v", pb.WithItems[0])
+	}
+	if pb.WithItems[1].Name != "x" || pb.WithItems[1].From != "lib" {
+		t.Fatalf("unexpected with item 1: %#v", pb.WithItems[1])
+	}
+	if pb.WithItems[2].Name != "y" || pb.WithItems[2].From != "lib2" {
+		t.Fatalf("unexpected with item 2: %#v", pb.WithItems[2])
+	}
+	if pb.WithItems[3].Name != "z" || pb.WithItems[3].From != "lib2" {
+		t.Fatalf("unexpected with item 3: %#v", pb.WithItems[3])
+	}
+}
+
+func TestParseParamBlockHeaderWithInlineComment(t *testing.T) {
+	src := `param p with base # header comment
+{
+  a = (1)
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_header_with_comment.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(pb.Header) != 1 {
+		t.Fatalf("expected one header element, got %d", len(pb.Header))
+	}
+	if pb.Header[0].Kind != ast.HeaderElemWith {
+		t.Fatalf("expected with header element, got %#v", pb.Header[0])
+	}
+	if pb.Header[0].Inline == nil || pb.Header[0].Inline.Text != "header comment" {
+		t.Fatalf("expected inline comment in with header, got %#v", pb.Header[0].Inline)
+	}
+}
+
+func TestParseParamBlockMissingNameReportsE082(t *testing.T) {
+	src := `
+param {
+  a = 1
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_missing_name.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E082") {
+		t.Fatalf("expected E082, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.Name != "" {
+		t.Fatalf("expected empty param block name after E082, got %q", pb.Name)
+	}
+}
+
+func TestParseParamBlockMissingBodyStartReportsE083(t *testing.T) {
+	src := `param p`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_missing_body_start.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E083") {
+		t.Fatalf("expected E083, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.Final != nil || len(pb.Assignments) != 0 {
+		t.Fatalf("expected no parsed param body when missing '{', got assignments=%d final=%#v", len(pb.Assignments), pb.Final)
+	}
+}
+
+func TestParseParamBlockUnterminatedReportsE025(t *testing.T) {
+	src := `
+param p {
+  a = (1,2)
+  a
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_unterminated.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if pb.Final != nil || len(pb.Assignments) != 0 {
+		t.Fatalf("expected no parsed param body for unterminated block, got assignments=%d final=%#v", len(pb.Assignments), pb.Final)
+	}
+}
+
+func TestParseDoBlockMissingNameReportsE030(t *testing.T) {
+	src := `
+do {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("do_missing_name.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E030") {
+		t.Fatalf("expected E030, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if db.Name != "" {
+		t.Fatalf("expected empty do block name after E030, got %q", db.Name)
+	}
+	if strings.TrimSpace(db.Body) != "echo hi" {
+		t.Fatalf("expected do body to still be parsed, got %q", db.Body)
+	}
+}
+
+func TestParseDoBlockMissingBodyStartReportsE031(t *testing.T) {
+	src := `do run`
+	diags := &diag.Diagnostics{}
+	prog := Parse("do_missing_body_start.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E031") {
+		t.Fatalf("expected E031, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if db.Body != "" {
+		t.Fatalf("expected empty do body when '{' is missing, got %q", db.Body)
+	}
+}
+
+func TestParseDoBlockUnterminatedReportsE025(t *testing.T) {
+	src := `
+do run with p {
+  echo hi
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("do_unterminated.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	db, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block")
+	}
+	if db.Body != "" {
+		t.Fatalf("expected empty do body for unterminated block, got %q", db.Body)
+	}
+	if got := len(db.WithItems); got != 1 || db.WithItems[0].Name != "p" {
+		t.Fatalf("expected parsed with clause to be preserved, got %#v", db.WithItems)
+	}
+}
+
+func TestParseSubmitBlockMissingNameReportsE040(t *testing.T) {
+	src := `
+submit {
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_missing_name.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E040") {
+		t.Fatalf("expected E040, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if sb.Name != "" {
+		t.Fatalf("expected empty submit block name after E040, got %q", sb.Name)
+	}
+	if len(sb.Fields) != 1 || sb.Fields[0].Name != "args_exec" {
+		t.Fatalf("expected submit body to still parse fields, got %#v", sb.Fields)
+	}
+}
+
+func TestParseSubmitBlockMissingBodyStartReportsE041(t *testing.T) {
+	src := `submit run after prep use defaults with p iterations=2`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_missing_body_start.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E041") {
+		t.Fatalf("expected E041, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if sb.Fields != nil {
+		t.Fatalf("expected no parsed submit fields when '{' is missing, got %#v", sb.Fields)
+	}
+	if got := len(sb.After); got != 1 || sb.After[0] != "prep" {
+		t.Fatalf("expected after clause to be preserved, got %#v", sb.After)
+	}
+	if got := len(sb.UseNames); got != 1 || sb.UseNames[0] != "defaults" {
+		t.Fatalf("expected use clause to be preserved, got %#v", sb.UseNames)
+	}
+	if got := len(sb.WithItems); got != 1 || sb.WithItems[0].Name != "p" {
+		t.Fatalf("expected with clause to be preserved, got %#v", sb.WithItems)
+	}
+	if sb.Iterations == nil || *sb.Iterations != 2 {
+		t.Fatalf("expected iterations option to be preserved, got %#v", sb.Iterations)
+	}
+}
+
+func TestParseSubmitBlockUnterminatedReportsE025(t *testing.T) {
+	src := `
+submit run after prep use defaults with p {
+  args_exec = "-lc hostname"
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_unterminated.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block")
+	}
+	if sb.Fields != nil {
+		t.Fatalf("expected no parsed submit fields for unterminated block, got %#v", sb.Fields)
+	}
+	if got := len(sb.After); got != 1 || sb.After[0] != "prep" {
+		t.Fatalf("expected after clause to be preserved, got %#v", sb.After)
+	}
+	if got := len(sb.UseNames); got != 1 || sb.UseNames[0] != "defaults" {
+		t.Fatalf("expected use clause to be preserved, got %#v", sb.UseNames)
+	}
+	if got := len(sb.WithItems); got != 1 || sb.WithItems[0].Name != "p" {
+		t.Fatalf("expected with clause to be preserved, got %#v", sb.WithItems)
+	}
+}
+
+func TestParseLetBlockMissingNameReportsE080(t *testing.T) {
+	src := `
+let {
+  x = "a"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("let_missing_name.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E080") {
+		t.Fatalf("expected E080, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if lb.Name != "" {
+		t.Fatalf("expected empty let block name after E080, got %q", lb.Name)
+	}
+	if len(lb.Assignments) != 1 || lb.Assignments[0].Name != "x" {
+		t.Fatalf("expected let body to still parse, got %#v", lb.Assignments)
+	}
+}
+
+func TestParseLetBlockMissingBodyStartReportsE081(t *testing.T) {
+	src := `let l`
+	diags := &diag.Diagnostics{}
+	prog := Parse("let_missing_body_start.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E081") {
+		t.Fatalf("expected E081, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if lb.Assignments != nil {
+		t.Fatalf("expected no parsed let assignments when '{' is missing, got %#v", lb.Assignments)
+	}
+}
+
+func TestParseLetBlockUnterminatedReportsE025(t *testing.T) {
+	src := `
+let l {
+  x = "a"
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("let_unterminated.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	lb, ok := prog.Stmts[0].(ast.LetBlock)
+	if !ok {
+		t.Fatalf("expected let block")
+	}
+	if lb.Assignments != nil {
+		t.Fatalf("expected no parsed let assignments for unterminated block, got %#v", lb.Assignments)
+	}
+}
+
+func TestParseAnalyseBlockMissingTargetReportsE416(t *testing.T) {
+	src := `
+analyse {
+  x = "Number: %d" in "out"
+  (x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("analyse_missing_target.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E416") {
+		t.Fatalf("expected E416, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if ab.StepName != "" {
+		t.Fatalf("expected empty analyse step name after missing target, got %q", ab.StepName)
+	}
+	if len(ab.Assignments) != 1 || ab.Assignments[0].Name != "x" {
+		t.Fatalf("expected analyse body to still parse assignments, got %#v", ab.Assignments)
+	}
+	if len(ab.Columns) != 1 || ab.Columns[0].Name != "x" {
+		t.Fatalf("expected analyse result tuple to parse, got %#v", ab.Columns)
+	}
+}
+
+func TestParseAnalyseBlockMissingBodyStartReportsE416(t *testing.T) {
+	src := `analyse step with p`
+	diags := &diag.Diagnostics{}
+	prog := Parse("analyse_missing_body_start.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E416") {
+		t.Fatalf("expected E416, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if got := len(ab.WithItems); got != 1 || ab.WithItems[0].Name != "p" {
+		t.Fatalf("expected with clause to be preserved, got %#v", ab.WithItems)
+	}
+	if ab.Assignments != nil || ab.Columns != nil {
+		t.Fatalf("expected no parsed analyse body when '{' is missing, got assignments=%#v columns=%#v", ab.Assignments, ab.Columns)
+	}
+}
+
+func TestParseAnalyseBlockUnterminatedReportsE025(t *testing.T) {
+	src := `
+analyse step with p {
+  x = "Number: %d" in "out"
+  (x)
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("analyse_unterminated.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E025") {
+		t.Fatalf("expected E025, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	ab, ok := prog.Stmts[0].(ast.AnalyseBlock)
+	if !ok {
+		t.Fatalf("expected analyse block")
+	}
+	if got := len(ab.WithItems); got != 1 || ab.WithItems[0].Name != "p" {
+		t.Fatalf("expected with clause to be preserved, got %#v", ab.WithItems)
+	}
+	if ab.Assignments != nil || ab.Columns != nil {
+		t.Fatalf("expected no parsed analyse body for unterminated block, got assignments=%#v columns=%#v", ab.Assignments, ab.Columns)
+	}
+}
+
 func hasDiagCode(items []diag.Diagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {

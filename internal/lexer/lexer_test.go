@@ -98,6 +98,100 @@ func TestLexStringKeepsBackslashNLiteral(t *testing.T) {
 	}
 }
 
+func TestLexSingleQuotedStringWithEscapedQuote(t *testing.T) {
+	src := "x = 'a\\'b'\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	var str Token
+	found := false
+	for _, tok := range tokens {
+		if tok.Type == TokenString {
+			str = tok
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected string token")
+	}
+	if str.Text != `'a\'b'` {
+		t.Fatalf("unexpected string token text: got %q want %q", str.Text, `'a\'b'`)
+	}
+	if str.Value != "a'b" {
+		t.Fatalf("unexpected string token value: got %q want %q", str.Value, "a'b")
+	}
+}
+
+func TestLexUnterminatedStringReportsE001(t *testing.T) {
+	src := `x = "abc`
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+
+	hasE001 := false
+	for _, d := range diags.Items {
+		if d.Code == "E001" {
+			hasE001 = true
+			break
+		}
+	}
+	if !hasE001 {
+		t.Fatalf("expected E001 for unterminated string, got: %s", diags.String())
+	}
+
+	var str Token
+	found := false
+	for _, tok := range tokens {
+		if tok.Type == TokenString {
+			str = tok
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected TokenString even on unterminated string")
+	}
+	if str.Text != "abc" || str.Value != "abc" {
+		t.Fatalf("unexpected unterminated string token payload: %#v", str)
+	}
+}
+
+func TestLexUnterminatedStringWithTrailingBackslashAtEOF(t *testing.T) {
+	src := `x = "abc\`
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+
+	hasE001 := false
+	for _, d := range diags.Items {
+		if d.Code == "E001" {
+			hasE001 = true
+			break
+		}
+	}
+	if !hasE001 {
+		t.Fatalf("expected E001 for unterminated trailing-backslash string, got: %s", diags.String())
+	}
+
+	var str Token
+	found := false
+	for _, tok := range tokens {
+		if tok.Type == TokenString {
+			str = tok
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected TokenString even on unterminated trailing-backslash string")
+	}
+	if str.Text != "abc" || str.Value != "abc" {
+		t.Fatalf("unexpected token payload for trailing-backslash unterminated string: %#v", str)
+	}
+}
+
 func TestLexSemicolonToken(t *testing.T) {
 	src := "a = 1; b = 2\n"
 	diags := &diag.Diagnostics{}
@@ -246,5 +340,157 @@ func TestLexCompoundAssignmentAdjacency(t *testing.T) {
 	}
 	if tokens[0].Type != TokenIdent || tokens[1].Type != TokenPlus || tokens[2].Type != TokenEqual {
 		t.Fatalf("expected IDENT '+' '=' sequence, got: %#v %#v %#v", tokens[0], tokens[1], tokens[2])
+	}
+}
+
+func TestLexSymbolTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		src   string
+		tt    TokenType
+		text  string
+		value string
+	}{
+		{name: "comma", src: ",", tt: TokenComma, text: ",", value: ","},
+		{name: "semicolon", src: ";", tt: TokenSemicolon, text: ";", value: ";"},
+		{name: "dot", src: ".", tt: TokenDot, text: ".", value: "."},
+		{name: "equal", src: "=", tt: TokenEqual, text: "=", value: "="},
+		{name: "eqeq", src: "==", tt: TokenEqEq, text: "==", value: "=="},
+		{name: "neq", src: "!=", tt: TokenNeq, text: "!=", value: "!="},
+		{name: "lt", src: "<", tt: TokenLT, text: "<", value: "<"},
+		{name: "le", src: "<=", tt: TokenLE, text: "<=", value: "<="},
+		{name: "gt", src: ">", tt: TokenGT, text: ">", value: ">"},
+		{name: "ge", src: ">=", tt: TokenGE, text: ">=", value: ">="},
+		{name: "plus", src: "+", tt: TokenPlus, text: "+", value: "+"},
+		{name: "plus equal", src: "+=", tt: TokenPlusEqual, text: "+=", value: "+="},
+		{name: "minus", src: "-", tt: TokenMinus, text: "-", value: "-"},
+		{name: "minus equal", src: "-=", tt: TokenMinusEqual, text: "-=", value: "-="},
+		{name: "star", src: "*", tt: TokenStar, text: "*", value: "*"},
+		{name: "star equal", src: "*=", tt: TokenStarEqual, text: "*=", value: "*="},
+		{name: "slash", src: "/", tt: TokenSlash, text: "/", value: "/"},
+		{name: "slash equal", src: "/=", tt: TokenSlashEqual, text: "/=", value: "/="},
+		{name: "percent", src: "%", tt: TokenPercent, text: "%", value: "%"},
+		{name: "percent equal", src: "%=", tt: TokenPercentEqual, text: "%=", value: "%="},
+		{name: "lparen", src: "(", tt: TokenLParen, text: "(", value: "("},
+		{name: "rparen", src: ")", tt: TokenRParen, text: ")", value: ")"},
+		{name: "lbracket", src: "[", tt: TokenLBracket, text: "[", value: "["},
+		{name: "rbracket", src: "]", tt: TokenRBracket, text: "]", value: "]"},
+		{name: "lbrace", src: "{", tt: TokenLBrace, text: "{", value: "{"},
+		{name: "rbrace", src: "}", tt: TokenRBrace, text: "}", value: "}"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tokens := Lex("in.jbs", tc.src+"\n", diags)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected lexer errors for %q: %s", tc.src, diags.String())
+			}
+			if len(tokens) < 3 {
+				t.Fatalf("unexpected token count for %q: %d", tc.src, len(tokens))
+			}
+			if tokens[0].Type != tc.tt {
+				t.Fatalf("expected token type %s for %q, got %s", tc.tt, tc.src, tokens[0].Type)
+			}
+			if tokens[0].Text != tc.text || tokens[0].Value != tc.value {
+				t.Fatalf("unexpected token text/value for %q: %#v", tc.src, tokens[0])
+			}
+			if tokens[1].Type != TokenNewline || tokens[2].Type != TokenEOF {
+				t.Fatalf("expected newline and eof after symbol %q, got %s %s", tc.src, tokens[1].Type, tokens[2].Type)
+			}
+		})
+	}
+}
+
+func TestLexBangWithoutEqualReportsE002(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", "!\n", diags)
+
+	found := false
+	for _, d := range diags.Items {
+		if d.Code == "E002" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected E002 for '!' without '=', got: %s", diags.String())
+	}
+
+	if len(tokens) < 2 || tokens[0].Type != TokenNewline || tokens[1].Type != TokenEOF {
+		t.Fatalf("expected only NEWLINE and EOF tokens after invalid '!', got %#v", tokens)
+	}
+}
+
+func TestLexNumberTokenization(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantTypes []TokenType
+		wantVals  []string
+	}{
+		{
+			name:      "integer literal",
+			src:       "123\n",
+			wantTypes: []TokenType{TokenNumber, TokenNewline, TokenEOF},
+			wantVals:  []string{"123", "", ""},
+		},
+		{
+			name:      "float literal",
+			src:       "12.34\n",
+			wantTypes: []TokenType{TokenNumber, TokenNewline, TokenEOF},
+			wantVals:  []string{"12.34", "", ""},
+		},
+		{
+			name:      "dot without following digit splits token",
+			src:       "12.\n",
+			wantTypes: []TokenType{TokenNumber, TokenDot, TokenNewline, TokenEOF},
+			wantVals:  []string{"12", ".", "", ""},
+		},
+		{
+			name:      "multiple dots keep only first in number",
+			src:       "1.2.3\n",
+			wantTypes: []TokenType{TokenNumber, TokenDot, TokenNumber, TokenNewline, TokenEOF},
+			wantVals:  []string{"1.2", ".", "3", "", ""},
+		},
+		{
+			name:      "number followed by identifier",
+			src:       "12abc\n",
+			wantTypes: []TokenType{TokenNumber, TokenIdent, TokenNewline, TokenEOF},
+			wantVals:  []string{"12", "abc", "", ""},
+		},
+		{
+			name:      "number followed by underscore identifier",
+			src:       "12_3\n",
+			wantTypes: []TokenType{TokenNumber, TokenIdent, TokenNewline, TokenEOF},
+			wantVals:  []string{"12", "_3", "", ""},
+		},
+		{
+			name:      "leading dot not part of number",
+			src:       ".5\n",
+			wantTypes: []TokenType{TokenDot, TokenNumber, TokenNewline, TokenEOF},
+			wantVals:  []string{".", "5", "", ""},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tokens := Lex("in.jbs", tc.src, diags)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected lexer errors for %q: %s", tc.src, diags.String())
+			}
+			if len(tokens) != len(tc.wantTypes) {
+				t.Fatalf("unexpected token count for %q: got=%d want=%d", tc.src, len(tokens), len(tc.wantTypes))
+			}
+			for i := range tc.wantTypes {
+				if tokens[i].Type != tc.wantTypes[i] {
+					t.Fatalf("token[%d] type mismatch for %q: got=%s want=%s", i, tc.src, tokens[i].Type, tc.wantTypes[i])
+				}
+				if tokens[i].Value != tc.wantVals[i] {
+					t.Fatalf("token[%d] value mismatch for %q: got=%q want=%q", i, tc.src, tokens[i].Value, tc.wantVals[i])
+				}
+			}
+		})
 	}
 }

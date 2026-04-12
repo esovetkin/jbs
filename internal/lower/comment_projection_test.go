@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/parser"
 	"jbs/internal/sema"
@@ -134,6 +135,93 @@ analyse write
 	for key, seen := range expect {
 		if !seen {
 			t.Fatalf("missing projected comment %q in %#v", key, got)
+		}
+	}
+}
+
+func TestProjectSourceCommentsNilResult(t *testing.T) {
+	if got := projectSourceComments(nil); got != nil {
+		t.Fatalf("expected nil projection for nil sema result, got %#v", got)
+	}
+}
+
+func TestProjectSourceCommentsAllBlockKindsAndIgnoredStmts(t *testing.T) {
+	comment := func(text string) *ast.Comment {
+		return &ast.Comment{
+			Text: text,
+			Span: diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)),
+		}
+	}
+	res := &sema.Result{
+		Program: ast.Program{
+			File: "in.jbs",
+			Stmts: []ast.Stmt{
+				ast.ParamBlock{
+					Name: "p",
+					Header: []ast.HeaderElem{
+						{Kind: ast.HeaderElemComment, Comment: comment(" p0 ")},
+						{Kind: ast.HeaderElemComment, Comment: nil},
+					},
+				},
+				ast.LetBlock{
+					Name: "l",
+					Header: []ast.HeaderElem{
+						{Kind: ast.HeaderElemComment, Comment: comment("l0")},
+					},
+				},
+				ast.DoBlock{
+					Name: "d",
+					Header: []ast.HeaderElem{
+						{Kind: ast.HeaderElemAfter, Inline: comment(" after0 ")},
+						{Kind: ast.HeaderElemUse, Inline: comment(" ")},
+					},
+				},
+				ast.SubmitBlock{
+					Name: "s",
+					Header: []ast.HeaderElem{
+						{Kind: ast.HeaderElemUse, Inline: comment("use0")},
+						{Kind: ast.HeaderElemWith, Inline: nil},
+					},
+				},
+				ast.AnalyseBlock{
+					StepName: "a",
+					Header: []ast.HeaderElem{
+						{Kind: ast.HeaderElemOption, Inline: comment(" opt0 ")},
+						{Kind: ast.HeaderElemUnknown, Inline: comment("ignored")},
+					},
+				},
+				ast.GlobalAssign{Name: "g"},
+				ast.UseStmt{},
+			},
+		},
+	}
+	got := projectSourceComments(res)
+	want := []CommentProjection{
+		{Target: "param:p.header", Text: "p0"},
+		{Target: "let:l.header", Text: "l0"},
+		{Target: "do:d.header.after", Text: "after0"},
+		{Target: "submit:s.header.use", Text: "use0"},
+		{Target: "analyse:a.header.options", Text: "opt0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected projected comments\ngot=%#v\nwant=%#v", got, want)
+	}
+}
+
+func TestHeaderElemLabelAllKinds(t *testing.T) {
+	tests := []struct {
+		kind ast.HeaderElemKind
+		want string
+	}{
+		{kind: ast.HeaderElemAfter, want: "after"},
+		{kind: ast.HeaderElemUse, want: "use"},
+		{kind: ast.HeaderElemWith, want: "with"},
+		{kind: ast.HeaderElemOption, want: "options"},
+		{kind: ast.HeaderElemUnknown, want: "header"},
+	}
+	for _, tt := range tests {
+		if got := headerElemLabel(tt.kind); got != tt.want {
+			t.Fatalf("headerElemLabel(%q)=%q, want=%q", tt.kind, got, tt.want)
 		}
 	}
 }
