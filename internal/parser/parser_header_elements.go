@@ -176,7 +176,7 @@ func hasKeywordPrefix(text string, keyword string) bool {
 
 func isStepOptionLine(text string) bool {
 	key := leadingIdent(text)
-	if key != "max_async" && key != "procs" && key != "iterations" {
+	if !isAllowedStepOptionKey(key) {
 		return false
 	}
 	rest := strings.TrimSpace(text[len(key):])

@@ -69,7 +69,7 @@ submit_header_clause := after_clause | use_clause | with_clause | step_opt_claus
 
 after_clause  := "after" IDENT ("," IDENT)*
 use_clause    := "use" IDENT ("," IDENT)*
-step_opt_clause := "max_async" "=" INT | "procs" "=" INT | "iterations" "=" INT
+step_opt_clause := IDENT "=" INT
 raw_block     := "{" RAW_TEXT "}"
 
 submit_item   := submit_stmt | sep
@@ -132,7 +132,8 @@ param p {
 
 ## Step Options (`max_async`, `procs`, `iterations`)
 
-`do` and `submit` headers support optional step options:
+`do` and `submit` headers support optional step options using generic `key=value` syntax.
+The key must be one of:
 
 - `max_async=<int>` with `int >= 0`
 - `procs=<int>` with `int >= 0`

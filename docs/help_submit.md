@@ -17,9 +17,7 @@ submit <name>
         [after <step0>, <step1>, ...]
         [use <let_namespace0>, <let_namespace1>, ...]
         [with <paramset>, <var> from <paramset2>, ...]
-        [max_async=<int>]
-        [procs=<int>]
-        [iterations=<int>]
+        [<key>=<int> ...]
 {
         # expression keys
         account = "myacct"
@@ -52,7 +50,7 @@ submit <name>
 }
 ```
 
-`max_async`, `procs`, and `iterations` are optional JUBE step arguments:
+Step options use generic `key=value` syntax. Allowed keys are:
 
 - `max_async` must be an integer `>= 0`
 - `procs` must be an integer `>= 0`

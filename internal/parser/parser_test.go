@@ -1073,6 +1073,51 @@ submit run
 	}
 }
 
+func TestParseSubmitHeaderStepOptionsInterleavedWithAfter(t *testing.T) {
+	src := `
+submit run
+  with p
+  max_async=1
+  after prep
+  iterations=2
+  use defaults
+  procs=0
+{
+  args_exec = "-lc hostname"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("submit_header_options_interleaved_after.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	sb, ok := prog.Stmts[0].(ast.SubmitBlock)
+	if !ok {
+		t.Fatalf("expected submit block, got %T", prog.Stmts[0])
+	}
+	if len(sb.After) != 1 || sb.After[0] != "prep" {
+		t.Fatalf("unexpected after dependencies: %#v", sb.After)
+	}
+	if len(sb.UseNames) != 1 || sb.UseNames[0] != "defaults" {
+		t.Fatalf("unexpected use names: %#v", sb.UseNames)
+	}
+	if len(sb.WithItems) != 1 || sb.WithItems[0].Name != "p" {
+		t.Fatalf("unexpected with items: %#v", sb.WithItems)
+	}
+	if sb.MaxAsync == nil || *sb.MaxAsync != 1 {
+		t.Fatalf("expected max_async=1, got %#v", sb.MaxAsync)
+	}
+	if sb.Procs == nil || *sb.Procs != 0 {
+		t.Fatalf("expected procs=0, got %#v", sb.Procs)
+	}
+	if sb.Iterations == nil || *sb.Iterations != 2 {
+		t.Fatalf("expected iterations=2, got %#v", sb.Iterations)
+	}
+}
+
 func TestParseStepHeaderUnknownOptionReportsE032(t *testing.T) {
 	src := `
 do run iterattions=1 {

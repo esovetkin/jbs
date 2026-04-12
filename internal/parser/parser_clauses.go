@@ -52,6 +52,29 @@ type stepHeaderOptions struct {
 	MaxAsync   *int
 	Procs      *int
 	Iterations *int
+	seen       map[string]diag.Span
+}
+
+func (o *stepHeaderOptions) set(key string, value int, at diag.Span) bool {
+	if o.seen == nil {
+		o.seen = map[string]diag.Span{}
+	}
+	if _, exists := o.seen[key]; exists {
+		return false
+	}
+	o.seen[key] = at
+	switch key {
+	case "max_async":
+		v := value
+		o.MaxAsync = &v
+	case "procs":
+		v := value
+		o.Procs = &v
+	case "iterations":
+		v := value
+		o.Iterations = &v
+	}
+	return true
 }
 
 func (p *Parser) parseOptionalDoHeaderClauses() ([]string, []ast.WithItem, stepHeaderOptions) {
@@ -118,20 +141,21 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	if !ok {
 		return false
 	}
-	if !p.looksLikeStepHeaderAssignment() && word != "max_async" && word != "procs" && word != "iterations" {
+	if !p.looksLikeStepHeaderAssignment() && !isAllowedStepOptionKey(word) {
 		return false
 	}
 
 	keyStart := p.pos()
 	keyEnd := p.consumeWord()
 	keySpan := diag.NewSpan(p.file, keyStart, keyEnd)
+	key := word
 
 	p.skipTriviaInline()
 	if p.peek() != '=' {
 		p.diags.AddError(diag.CodeE035,
-			fmt.Sprintf("expected '=' after %s header option '%s'", kind, word),
+			fmt.Sprintf("expected '=' after %s header option '%s'", kind, key),
 			keySpan,
-			"use syntax: "+word+"=<integer>",
+			"use syntax: "+key+"=<integer>",
 		)
 		return true
 	}
@@ -140,18 +164,18 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	valueText, valueSpan, valueOK := p.readStepHeaderOptionValue()
 	if !valueOK {
 		p.diags.AddError(diag.CodeE034,
-			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
+			fmt.Sprintf("%s header option '%s' expects an integer value", kind, key),
 			keySpan,
-			"use syntax: "+word+"=<integer>",
+			"use syntax: "+key+"=<integer>",
 		)
 		return true
 	}
 
-	if word != "max_async" && word != "procs" && word != "iterations" {
+	if !isAllowedStepOptionKey(key) {
 		p.diags.AddError(diag.CodeE032,
-			fmt.Sprintf("unknown %s header option '%s'", kind, word),
+			fmt.Sprintf("unknown %s header option '%s'", kind, key),
 			keySpan,
-			"allowed options are max_async, procs and iterations",
+			"allowed options are "+allowedStepOptionKeysHint(),
 		)
 		return true
 	}
@@ -159,47 +183,20 @@ func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) boo
 	parsed, err := strconv.Atoi(valueText)
 	if err != nil {
 		p.diags.AddError(diag.CodeE034,
-			fmt.Sprintf("%s header option '%s' expects an integer value", kind, word),
+			fmt.Sprintf("%s header option '%s' expects an integer value", kind, key),
 			valueSpan,
-			"use syntax: "+word+"=<integer>",
+			"use syntax: "+key+"=<integer>",
 		)
 		return true
 	}
 
-	switch word {
-	case "max_async":
-		if opts.MaxAsync != nil {
-			p.diags.AddError(diag.CodeE033,
-				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
-				keySpan,
-				"set this option at most once per block",
-			)
-			return true
-		}
-		v := parsed
-		opts.MaxAsync = &v
-	case "procs":
-		if opts.Procs != nil {
-			p.diags.AddError(diag.CodeE033,
-				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
-				keySpan,
-				"set this option at most once per block",
-			)
-			return true
-		}
-		v := parsed
-		opts.Procs = &v
-	case "iterations":
-		if opts.Iterations != nil {
-			p.diags.AddError(diag.CodeE033,
-				fmt.Sprintf("duplicate %s header option '%s'", kind, word),
-				keySpan,
-				"set this option at most once per block",
-			)
-			return true
-		}
-		v := parsed
-		opts.Iterations = &v
+	if !opts.set(key, parsed, keySpan) {
+		p.diags.AddError(diag.CodeE033,
+			fmt.Sprintf("duplicate %s header option '%s'", kind, key),
+			keySpan,
+			"set this option at most once per block",
+		)
+		return true
 	}
 	return true
 }
