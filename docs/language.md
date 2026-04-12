@@ -189,6 +189,11 @@ Supported assignment expressions:
 - conditional expression: `a if cond else b`
 - mode declarations:
   - `shell("...")`
+
+     ensure there are no newlines; otherwise JUBE cannot handle it
+     ```jbs
+     systemname = shell("hostname | tr -d '\n'")
+     ```
   - `python("...")`
 - kernel functions:
   - `tuple(expr)`
@@ -334,6 +339,8 @@ The final line in a `param` block is still combination algebra (`+` zip, `*` out
 - Warning `W101` is emitted at the `+` operator span only when the shorter length does not divide the longer one.
 
 Repeated identifier use in a single combination expression is rejected (`E036`).
+
+`tuple` and `list` behave in the same way for the combination algebra expression.
 
 Examples:
 

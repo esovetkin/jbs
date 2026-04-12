@@ -126,6 +126,30 @@ submit run
 
 In this example, `nodes` resolves to `4` from `d1`.
 
+Important consequence for imported `with` symbols:
+
+- If an imported symbol is multi-row (series-valued), direct identifier assignment in `submit` evaluates as a collection, not a per-workpackage scalar.
+- For per-workpackage scalar substitution, use interpolation in a string value.
+
+Example:
+
+```jbs
+param p {
+        nodes = (1, 2)
+        nodes
+}
+
+submit run
+        with p
+{
+        account = "a"
+        queue = "q"
+        nodes = nodes      # series value, lowers as list literal
+        tasks = "${nodes}" # per-workpackage scalar substitution
+        args_exec = "-lc hostname"
+}
+```
+
 Explicit submit field assignments are not available as identifiers to later submit field expressions in the same block.
 
 Inside `submit`, key assignments can be separated by a newline or `;`:
@@ -208,7 +232,7 @@ From `platform.xml:executesub`, the replacements are:
 - `threadspertask` -> `#NTHREADS#`
 - `timelimit` -> `#TIME_LIMIT#`
 - `outlogfile` -> `#STDOUTLOGFILE#`
-- `errlogfile` -> `#STDERRLOGFILE#` (platform variable name)
+- `outerrfile` -> `#STDERRLOGFILE#` (platform variable name)
 - `queue` -> `#QUEUE#`
 - `gres` -> `#GRES#`
 - `account` -> `#ACCOUNT_CONFIG#` via:

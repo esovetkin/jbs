@@ -1,8 +1,8 @@
 # jbs help let
 
-The `let` block defines a namespace of reusable scalar variables.
+The `let` block defines a namespace of scalar variables, and can be imported using `with` in `param`, `do`, `submit`, and `analyse` sections.
 
-`let` values can be imported with `with` in `param`, `do`, `submit`, and `analyse`.
+In JUBE terms, JBS lowers `let` into JUBE [`parameterset` sections](), and ensures that they are added in [`use` step attributes]() in every step they are imported.
 
 ## Syntax
 
@@ -15,8 +15,6 @@ let <name>
 }
 ```
 
-## Rules
-
 - `let` values must be scalar.
 - Allowed value kinds: string, int, float, bool.
 - `shell("...")` and `python("...")` are allowed as scalar string-producing assignments.
@@ -25,6 +23,9 @@ let <name>
 - `let` expressions can use globals and earlier assignments in the same `let` block.
 - `let` expressions cannot implicitly read variables from other `let` namespaces.
 - Assignment operators: `=`, `+=`, `-=`, `*=`, `/=`, `%=`.
+- In `param`, `with <let_name>` imports all let variables into local scope.
+- In `analyse`, `with` imports are allowed only from `let` namespaces, and imported let variables must be strings.
+- `W310` and `W311` also apply to variables defined in `let` blocks.
 
 ## Example
 
@@ -58,42 +59,3 @@ analyse write
         (n, w)
 }
 ```
-
-## Step imports from `let`
-
-`do` and `submit` support all `with` forms for let namespaces:
-
-```jbs
-let l
-{
-        # ensure there are no newlines; otherwise JUBE cannot handle it
-        systemname = shell("hostname | tr -d '\n'")
-        queue = "batch"
-}
-
-do s1
-        with l
-{
-        echo ${systemname} ${queue}
-}
-
-do s2
-        with systemname from l
-{
-        echo ${systemname}
-}
-
-do s3
-        with (systemname, queue) from l
-{
-        echo ${systemname} ${queue}
-}
-```
-
-For step imports from `let`, jbs generates synthetic YAML `parameterset` entries and adds them to `step.use`.
-
-## Notes
-
-- In `param`, `with <let_name>` imports all let variables into local scope.
-- In `analyse`, `with` imports are allowed only from `let` namespaces, and imported let variables must be strings.
-- `W310` and `W311` also apply to variables defined in `let` blocks.

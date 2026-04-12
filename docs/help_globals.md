@@ -18,8 +18,4 @@ jbs_outpath = "out"
 
 # Benchmark comment (root `comment` field). maps_to: root:comment. mode: -
 jbs_comment = ""
-
-# Example multiline global assignment:
-# jbs_name = "bench_" + \
-#            "v1"
 ```

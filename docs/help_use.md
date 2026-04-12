@@ -2,6 +2,8 @@
 
 The `use` statement imports reusable definitions from embedded or local `.jbs` scripts.
 
+`use` is JBS-only syntax. During compilation, all imported content is merged into one generated JUBE YAML file.
+
 ## Syntax
 
 ```jbs
@@ -17,27 +19,31 @@ use <name0>, <name1> from <module>
 use <name> from "<path>.jbs"
 ```
 
-## Resolution rules
+After importing a module, `with` also supports namespace-qualified references:
 
+```jbs
+use test_lib
+
+do s
+        with x from test_lib.p
+{
+        echo ${x}
+}
+```
+
+Resolution rules:
 - `use <module>`:
   - first resolves embedded `shared/<module>.jbs`
-  - if missing, resolves local `./<module>.jbs` from the directory where `jbs` is called
+  - if missing, resolves local `./<module>.jbs` from the directory where `jbs` is invoked
 - `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory (or absolute if given)
 - quoted paths must end with `.jbs`
 
-## Importable symbols
-
-You can import:
-
+Importable symbols:
 - `let`
 - `param`
 - `do`
 - `submit`
 - top-level global assignments (by variable name)
-
-`analyse` is not importable by symbol name.
-
-## Step imports and dependency closure
 
 When you import a `do`/`submit` step symbol, JBS also imports its required dependencies:
 
@@ -45,9 +51,18 @@ When you import a `do`/`submit` step symbol, JBS also imports its required depen
 - referenced `with` sources
 - referenced submit-header `use` let namespaces
 
-This ensures that the final YAML file contains everything required.
+This ensures the final YAML file includes everything required.
 
-## Submit defaults from a let namespace
+`analyse` is not importable by symbol name.
+
+Name collisions during import are hard errors, including:
+
+- imported symbol vs local symbol
+- imported symbol vs imported symbol
+- transitive imported dependency collisions
+- alias collisions
+
+## Example: `submit` defaults from a let namespace
 
 ```jbs
 use submit_defaults from jsc
@@ -64,10 +79,10 @@ submit run
 Rules:
 
 - submit headers can contain one or more `use` clauses
-- non-submit variables in a defaults namespace are retained as internal helper parameters (`_jk__<step>_<name>`) in the generated submit parameter set
-- submit values referencing those helper variables are rewritten to the helper alias form
+- non-submit variables from defaults namespaces are retained as internal helper parameters (`_jk__<step>_<name>`) in the generated submit parameter set
+- submit values that reference those helper variables are rewritten to helper aliases
 - explicit submit fields override imported defaults
-- if multiple namespaces set the same submit key or helper variable name, JBS uses last-win precedence and emits warning `W072`
+- if multiple namespaces define the same submit key or helper variable name, JBS applies last-wins precedence and emits warning `W072`
 
 ## `jbs embed`
 
@@ -77,13 +92,4 @@ jbs embed jsc
 ```
 
 - `jbs embed` prints all embedded shared files
-- `jbs embed <filename>` prints an embedded file's content
-
-## Errors and collisions
-
-Import name collisions are hard errors, including:
-
-- imported symbol vs local symbol
-- imported symbol vs imported symbol
-- transitive imported dependency collisions
-- alias collisions
+- `jbs embed <filename>` prints the content of the embedded file

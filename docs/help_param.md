@@ -1,231 +1,187 @@
 # jbs help param
 
-The `param` block defines a parameter set.
-Inside a `param` block:
+The `param` block defines variables and how their values are combined.
 
-1. You assign variables.
-2. The last line is a combination expression using `+` and `*`.
-3. Variables used in the final expression become available to `do` and `submit`.
+In JUBE terms, JBS compiles each `param` block into a JUBE [`parameterset`](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#parameter-space-creation), and then adds it to step [`use`](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) clauses where it is imported.
 
-Assignment operators supported in `param` assignment statements:
-
-- `=`
-- `+=`, `-=`, `*=`, `/=`, `%=`
-
-Rewrite rules:
-
-- `x += y` -> `x = x + y`
-- `x -= y` -> `x = x - y`
-- `x *= y` -> `x = x * y`
-- `x /= y` -> `x = x / y`
-- `x %= y` -> `x = x % y`
-
-The final `param` line is still a combination expression (`+`/`*` over variable names), not an assignment statement.
+## Syntax
 
 ```jbs
 param <name> [with ...]
 {
         var0 = ...
         var1 = ...
-        var0 + var1   # last expression
+
+        # Final expression defines how variables are combined
+        var0 + var1
 }
 ```
 
-You can separate statements with a newline or `;`:
+Inside a `param` block:
+
+- assignments define variable values
+- the final expression uses `+` and `*` to define the parameter-space combination
+- using the same variable multiple times in the final expression is not allowed
+- variables used in the final expression become available to `do` and `submit` (when imported with `with`)
+
+### Variable Types
+
+Supported value types:
+
+- scalar
+  - string, for example `"hello"`
+  - int, for example `9007199254740993`
+  - float, for example `0.1`, `.1`, `1e-5`, `1E4`
+  - bool, for example `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
+- tuples, for example `(0,1,2)`
+- lists, for example `[0,1,2]`
+- kernel functions used in `param` assignments, for example `range(...)`, `rev(...)`
+- mode declarations with `shell(...)` and `python(...)`
+
+Example:
 
 ```jbs
-param quick
-{
-        a = (1, 2); b = ("x", "y"); a + b;
-}
+queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+# Removing the trailing newline is important for JUBE
+host = shell("hostname | tr -d '\n'")
 ```
 
-For multiline expressions, use explicit backslash-newline continuation (`\n`):
+`shell` and `python` lower to JUBE `mode` fields. They should be used as standalone assignment values, not inside tuple/list literals.
+
+### Tuple vs List Behavior
+
+In the final combination expression, tuples and lists behave the same.
+
+They differ in assignment-level arithmetic:
+
+- `[0,1,2] * 2` -> `[0,2,4]` (vector-style arithmetic)
+- `(0,1,2) * 2` -> `(0,1,2,0,1,2)` (tuple repetition)
+
+Use `tuple()` and `list()` to convert between representations.
+
+Supported operators:
+
+- assignment: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
+- expression: `+`, `-`, `*`, `/`, `%`
+
+## Example
 
 ```jbs
-param multiline
+param p0
 {
-        x = 1 + \
-            2 + 3
-        x
+    # (1,2,1,2)
+    a = (1,2) * 2
+
+    # [0.5, 1, 0.5, 1]
+    a = list(a) / 2
+
+    # [3.5, 3, 1.5, 1]
+    a += rev(range(4))
+
+    b = ("a", "b")
+    # ("a", "b", "c")
+    b += ("c",)
+
+    # `+` is direct sum (zip-like)
+    a + b
 }
+
+# Values of `a` and `b`
+# (with a warning for non-matching lengths)
+# | p0.a | p0.b |
+# |------|------|
+# | 3.5  | a    |
+# | 3.0  | b    |
+# | 1.5  | c    |
+# | 1.0  | a    |
+
+param p1
+    # Importing `b` from p0 here would cause a collision with local `b`
+    with a from p0
+{
+    # `;` can separate statements on one line
+    # `*` is Cartesian product
+    b = ("x", "y"); a * b
+}
+
+# | p1.a | p1.b |
+# |------|------|
+# | 3.5  | x    |
+# | 3.5  | y    |
+# | 3.0  | x    |
+# | 3.0  | y    |
+# | 1.5  | x    |
+# | 1.5  | y    |
+# | 1.0  | x    |
+# | 1.0  | y    |
+
+param p2
+    with p0
+{
+    c = (true, false)
+
+    # Operations on an entire imported parameter space are allowed
+    p0 + c
+}
+
+# | p2.a | p2.b | p2.c  |
+# |------|------|-------|
+# | 3.5  | a    | true  |
+# | 3.0  | b    | false |
+# | 1.5  | c    | true  |
+# | 1.0  | a    | false |
 ```
 
-Implicit continuation from operators on the next line is not supported.
-
-## 1) Basic param
+You can import multiple variables with:
 
 ```jbs
-param cases
-{
-        nnodes = (1, 2)
-        case = ("ddp", "fsdp")
-
-        case + nnodes
-}
+with (x, y) from base
 ```
 
-- `+` is a direct sum (zip-like).
-- Result rows: `(case="ddp", nnodes=1)`, `(case="fsdp", nnodes=2)`.
-
-## 2) `*` outer product
-
-```jbs
-param grid
-{
-        model = ("small", "base")
-        lr = (1e-3, 5e-4, 1e-4)
-
-        model * lr
-}
-```
-
-- `*` is a Cartesian product.
-- Result rows: `2 x 3 = 6` combinations.
-
-## 3) Precedence and parentheses
-
-```jbs
-param combos2
-{
-        a = (1, 2)
-        b = ("x", "y")
-        c = ("L", "R")
-
-        (a + b) * c
-}
-```
-
-## 4) Broadcasting with non-matching lengths
-
-```jbs
-param warn_example
-{
-        x = (1, 2)
-        y = ("a", "b", "c")
-
-        x + y
-}
-```
-
-- Lengths `2` and `3` do not match.
-- Cyclic broadcasting is applied to length `3`: `(1, "a"), (2, "b"), (1, "c")`.
-- No warning is emitted when lengths are divisible:
-
-```jbs
-param no_warn_example
-{
-        x = (1, 2)
-        y = ("a", "b", "c", "d")
-
-        # 2 broadcasts into 4 cleanly (4 % 2 == 0), so no W101.
-        x + y
-}
-```
-
-## 5) Importing from other parameter sets (`with`)
-
-Import an entire parameter set:
-
-```jbs
-param base
-{
-        x = (1, 2, 3)
-        y = ("a", "b", "c")
-        x + y
-}
-
-param derived with base
-{
-        tag = ("cpu", "gpu", "tpu")
-        x + tag
-}
-```
-
-Import selected variables:
-
-```jbs
-param derived2 with x from base
-{
-        phase = ("train", "valid", "test")
-        x + phase
-}
-```
-
-Import multiple selected variables:
-
-```jbs
-param derived3 with (x, y) from base
-{
-        z = ("u", "v", "w")
-        (x + y) + z
-}
-```
-
-If the same visible variable name is imported from different sources in one `param` block, compilation fails with `E214`.
-
-Import from a module alias namespace:
+Importing duplicate visible names causes a compilation error. You can also import from modules:
 
 ```jbs
 use "./lib.jbs" as lib
 
-param derived4 with lib.base
+param derived4
+    with lib.base
 {
-        z = ("u", "v", "w")
-        z
+    ...
 }
 ```
 
-Qualified `from` is also supported:
+Operator precedence and parentheses work as usual, for example `(a + b) * c`.
+
+### Multiline Continuation
+
+Use backslash-newline for multiline expressions:
 
 ```jbs
-use "./lib.jbs" as lib
-
-param derived5 with x from lib.base
-{
-        y = (1, 2, 3)
-        x + y
-}
+# Implicit continuation after operators is not supported
+x = 1 + \
+    2 + 3
 ```
 
-## 6) `python()` / `shell()` in `param`
+### Unused Variable Warnings
 
-`python()` and `shell()` are allowed as standalone assignment values:
-
-```jbs
-param envinfo
-{
-        queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
-        host = shell("hostname | tr -d '\n'")
-
-        queue + host
-}
-```
-
-Use them as complete assignment values, not inside tuple/list elements.
-
-## 7) Unused local assignments (`W312`)
-
-If a variable is declared inside `param` but does not contribute to the final combination expression, JBS emits `W312`.
+JBS warns about imported-but-unused variables and local variables that do not contribute to the final expression.
 
 ```jbs
-param p
+param p0
 {
         a = (1, 2)
         x = "unused"
         b = ("u", "v")
+        # Warning: x does not contribute to the final expression
         a + b
 }
-```
 
-The warning is not emitted when usage is transitive:
-
-```jbs
-param p
+param p1
 {
         x = "hello "
         y = x + "world"
         b = ("a", y)
+        # No warning: usage is transitive through y
         b
 }
 ```

@@ -2,13 +2,7 @@
 
 The `do` block defines shell commands executed by a JUBE step.
 
-At runtime, each workpackage executes the `do` body in its own JUBE work directory. In practice, this is the directory pointed to by `$jube_wp_abspath` (see the JUBE variables glossary: https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables).
-
-If you need to access files next to your `.jbs` file (or the generated JUBE file), use `$jube_benchmark_home` to jump back to the benchmark definition location instead of working only inside the workpackage directory.
-
-Related JUBE docs:
-- JUBE variables glossary: https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables
-- JUBE directory structure: https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-directory_structure
+In JUBE terms, JBS lowers `do` into JUBE [`step` sections](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies). JBS imports the correct parameter-space slices required for each step and raises errors for name collisions, plus warnings for missing or unused imports.
 
 ## Syntax
 
@@ -19,180 +13,33 @@ do <name>
         [<key>=<int> ...]
 {
         # shell commands
+        # ...
+        # variables can be used as $<var> or ${<var>} as usual
 }
 ```
 
-Step options use generic `key=value` syntax. Allowed keys are:
+### `after`: step dependency declarations
 
+The `after` keyword defines execution dependencies. A dependent step also inherits variables visible in predecessor steps. For example, in `do step1 after step0`, variables imported in `step0` are visible in `step1`. JBS imports only variables that are not already inherited.
+
+If the same variable name would come from a different parameter set (either inherited or explicitly imported with `with`), JBS raises an error. Dependency cycles are not permitted.
+
+### `with`: import parameters to be used in the step
+
+The `with` keyword lets you import entire parameter sets, slices of parameter sets (defined by `param`), or individual variables from namespaces (defined by `let`). You can import variables from different parameter sets; in JUBE this resolves to a Cartesian product across the imported sets. If you need different behavior, define a new parameter set with the desired partial imports.
+
+Any name collision results in an error. JBS raises warnings for forgotten imports (a variable is used in the shell body but its namespace was not imported in the step or inherited via dependencies) and for unused imports (a variable is imported but not used in the shell body).
+
+### `[<key>=<int> ...]`: optional key-value arguments
+
+`[<key>=<int> ...]` lets you set JUBE options for the [step_tag](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-step_tag). The currently allowed keys are:
 - `max_async` must be an integer `>= 0`
 - `procs` must be an integer `>= 0`
 - `iterations` must be an integer `>= 1`
 
-Example:
+### `${jube_...}`: useful JUBE variables inside `do`
 
-```jbs
-do run_case
-        with cases
-        max_async=4 procs=2 iterations=2
-{
-        echo "running ${case}"
-}
-```
-
-`with` also supports namespace-qualified module references after you import a module alias:
-
-```jbs
-use test_lib
-
-do s
-        with test_lib.p
-{
-        echo ${x}
-}
-```
-
-You can also qualify `from` sources:
-
-```jbs
-use test_lib
-
-do s
-        with x from test_lib.p
-{
-        echo ${x}
-}
-```
-
-## Variable inheritance with `after`
-
-`after` is not only an execution dependency. The dependent step also inherits variables that were visible in the predecessor step.
-
-- If `step1` has `after step0`, variables imported in `step0` are visible in `step1`.
-- If `step1` also uses `with ... from <same_paramset>`, JBS imports only variables that are not already inherited.
-- If the same variable name would come from different parameter sets (inherited vs explicit `with`), JBS raises an error.
-- JBS preserves source-row constraints from inherited imports:
-  - direct-sum pairing (`+`) is preserved in downstream steps
-  - outer-product expansions (`*`) remain valid where expected
-- row constraints propagate transitively across chains such as `step0 -> step1 -> step2`.
-
-Example:
-
-```jbs
-param pm0
-{
-        a = (1, 2)
-        b = ("x", "y")
-        c = (true, false)
-        a * b * c
-}
-
-do step0
-        with (a, b) from pm0
-{
-        echo "${a} ${b}"
-}
-
-do step1
-        after step0
-        with (b, c) from pm0
-{
-        # a and b come from inheritance; c is added by explicit import
-        echo "${a} ${b} ${c}"
-}
-```
-
-## Example 1: Basic `do` with one parameter set
-
-```jbs
-param cases
-{
-        case = ("ddp", "fsdp")
-        case
-}
-
-do run_case
-        with cases
-{
-        echo "running ${case}"
-        hostname
-}
-```
-
-What happens:
-- JUBE creates one workpackage per row in `cases`.
-- The `do` script runs once per workpackage.
-- `${case}` is substituted from the imported parameter set.
-
-## Example 2: `after` dependency
-
-```jbs
-do prepare
-{
-        echo "prepare inputs" > prepared.txt
-}
-
-do train
-        after prepare
-{
-        test -f ../prepare/work/prepared.txt
-        echo "train"
-}
-```
-
-What happens:
-- `train` starts only after `prepare` workpackages are complete.
-- Dependency links are provided by JUBE according to its workpackage directory structure.
-
-## Example 3: Use both workpackage-local and benchmark-home paths
-
-```jbs
-param p
-{
-        name = ("a", "b")
-        name
-}
-
-do build
-        with p
-{
-        echo "WP dir: ${jube_wp_abspath}"
-        echo "Benchmark home: ${jube_benchmark_home}"
-
-        # Read input from benchmark location
-        cp "${jube_benchmark_home}/configs/${name}.cfg" ./input.cfg
-
-        # Write output into this workpackage
-        echo "done ${name}" > result.txt
-}
-```
-
-Why this is useful:
-- Keep immutable/shared input in `$jube_benchmark_home`.
-- Keep per-run artifacts in the workpackage (`$jube_wp_abspath`).
-- See other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables).
-
-## Example 4: Import selected variables with `with ... from ...`
-
-```jbs
-param matrix
-{
-        case = ("ddp", "fsdp")
-        nnodes = (1, 2)
-        case * nnodes
-}
-
-do smoke
-        with (case, nnodes) from matrix
-{
-        echo "case=${case} nodes=${nnodes}"
-}
-```
-
-This imports only the listed variables from `matrix` into the step.
-
-## Example 5: Useful JUBE variables inside `do`
-
-All of the following are documented in the JUBE glossary linked above.
+At runtime, each workpackage executes the `do` body in a work directory, whose path is available as `$jube_wp_abspath`. If you need to access files next to your `.jbs` file (or the generated JUBE file), use `$jube_benchmark_home` to navigate to the benchmark configuration location. Read more in the [JUBE variables glossary](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables).
 
 ```jbs
 do inspect
@@ -206,10 +53,130 @@ do inspect
 }
 ```
 
-## Practical guidelines
+## Example
 
-- Use `do` for commands that should run directly in a JUBE workpackage.
-- Use `after` to enforce ordering between steps.
-- Use `with` to import exactly the variables needed by the step.
-- Use `$jube_benchmark_home` when you need stable paths to source/config files.
-- Use `$jube_wp_abspath` for workpackage-local outputs and debugging.
+```jbs
+param p0
+{
+        a = (1, 2)
+        b = ("a", "b")
+        c = (true, false)
+        (a + b) * c
+}
+
+param p1
+{
+        d = ("x", "y")
+        d
+}
+
+do step0
+        with (a, c) from p0
+{
+        echo "${a} ${c}" > prepared.txt
+}
+
+do step1
+        after step0    # step1 starts only after step0
+        with p0        # effectively, only b is imported, a, c inherited from step0
+        with d from p1 # `with p0, p1` is also valid syntax
+{
+        # dependency links are provided by JUBE
+        test -f ../step0/work/prepared.txt
+
+        # a and c come from inheritance; b is added by explicit import
+        echo "${a} ${b} ${c} ${d}"
+}
+```
+
+Running JUBE on that example produces:
+```bash
+% jbs printparam example.jbs
+| p0.a | p0.b | p0.c  | p1.d | step      |
+|------|------|-------|------|-----------|
+| 1    |      | true  |      | do: step0 |
+| 1    |      | false |      | do: step0 |
+| 2    |      | true  |      | do: step0 |
+| 2    |      | false |      | do: step0 |
+| 1    | a    | true  | x    | do: step1 |
+| 1    | a    | true  | y    | do: step1 |
+| 1    | a    | false | x    | do: step1 |
+| 1    | a    | false | y    | do: step1 |
+| 2    | b    | true  | x    | do: step1 |
+| 2    | b    | true  | y    | do: step1 |
+| 2    | b    | false | x    | do: step1 |
+| 2    | b    | false | y    | do: step1 |
+% jbs example.jbs -o example.yaml
+% jube-autorun example.yaml
+...
+  | stepname | all | open | wait | error | done |
+  |----------|-----|------|------|-------|------|
+  |    step0 |   4 |    0 |    0 |     0 |    4 |
+  |    step1 |   8 |    0 |    0 |     0 |    8 |
+...
+```
+
+### Imports from multiple parameter spaces
+
+```jbs
+param p0 { a = (1, 2); a }
+param p1 { b = ("a", "b"); b }
+
+do s0
+        # importing variables from two different
+        # parameter spaces results in the Cartesian product:
+        with a from p0, b from p1
+{
+        echo $a $b
+}
+
+#
+# | p0.a | p1.b | step   |
+# |------|------|--------|
+# | 1    | a    | do: s0 |
+# | 1    | b    | do: s0 |
+# | 2    | a    | do: s0 |
+# | 2    | b    | do: s0 |
+
+param p2 with p0, p1
+{
+        # one can apply combination algebra on entire namespaces
+        p0 + p1
+}
+
+do s1 with p2
+{
+        echo $a $b
+}
+
+# | p2.a | p2.b | step   |
+# |------|------|--------|
+# | 1    | a    | do: s1 |
+# | 2    | b    | do: s1 |
+```
+
+### XXX `sbatch` jobs submission with `do`
+
+The `-W` or `--wait` options make `sbatch` wait until the job terminates and return the submitted job's exit code. Therefore, you can submit jobs inside `do` like this:
+
+```jbs
+# XXX write a self-contained example
+do step0
+        ...
+        procs = 4
+{
+        sbatch -W \
+            --output=job.out --error=job.err \
+            --account=... --nodes=1
+            XXX
+}
+```
+
+Keep in mind that JUBE `do` steps run [sequentially](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#parallel-workpackages), so you need to use `procs` to allow multiple jobs to be submitted.
+
+XXX what happens when `sbatch -W` is killed. The job continues to run, but how should the benchmark be resumed? To avoid issues with unfinished steps caused by a killed process (or a lost SSH connection), you might consider submitting a job with `donefile` (next example) or using `submit`; see `jbs help submit` or [help_submit.md](help_submit.md).
+
+### XXX `sbatch` jobs submission with `do` and `donefile`
+
+XXX might require another keyword option for `do`
+

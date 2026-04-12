@@ -1,19 +1,8 @@
 # jbs help analyse
 
-The `analyse` block maps parsed values and step-visible variables into a result table.
+The `analyse` block targets an existing `do` or `submit` step and maps matched patterns and step-visible variables into a result table. The resulting table is saved as `result/result_<step_name>.dat`.
 
-In JUBE terms, JBS lowers `analyse` into JUBE `analyser` and `result` sections. The overall workflow matches the JUBE tutorial example for creating a result table.
-
-Reference:
-- JUBE tutorial: creating a result table
-  https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#creating-a-result-table
-
-## What `analyse` does
-
-1. Targets one existing `do` or `submit` step.
-2. Declares extraction assignments from files produced by that step.
-3. Defines output columns in a final tuple expression.
-4. Writes output to `result/result_<step_name>.dat`.
+In JUBE terms, JBS lowers `analyse` into JUBE `patternset`, `analyser` and `result` sections. The overall workflow matches the [JUBE tutorial example](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#creating-a-result-table) for creating a result table.
 
 ## Syntax
 
@@ -34,130 +23,54 @@ analyse <step_name>
 
 Rules:
 - `<step_name>` must be a declared `do` or `submit` block.
-- `with` in `analyse` can import only from `let` namespaces.
-- Imported `let` variables in `analyse` must be strings.
+- `with` in `analyse` can import only from `let` namespaces (useful for reusable pattern strings).
 - Extraction expressions must evaluate to a string.
-- Left-hand extraction aliases become available in the final tuple.
-- The final tuple is required and defines result columns.
-- `as "..."` sets a custom column heading.
-- Statements can be separated by newlines or `;`.
-- Assignment operators in `analyse` statements: `=`, `+=`, `-=`, `*=`, `/=`, `%=`.
+- Left-hand extraction aliases become available as variables in the final tuple.
+- The tuple in the final line is required and defines the columns in the result table.
+- `as "..."` sets a custom column heading. If it is omitted, the variable name is used as the column heading.
 
-Compact one-line example:
-
-```jbs
-analyse write with p { n = number in "out"; w = word in "out"; (n, w); }
-```
-
-## Minimal end-to-end example
+## Example
 
 ```jbs
 param p
 {
-        number = (1, 2, 4)
-        number
+        a = ("a", ) * 3
+        i = [1,2,3]
+        x = i / 2
+        a + i + x
 }
 
 do write_number
         with p
 {
-        echo "Number: ${number}" > en
-        echo "Zahl: ${number}" > de
-}
-
-let pat
-{
-        number_en = "Number: %d"
-        number_de = "Zahl: %d"
+        echo "Word: ${a}" > en
+        echo "Number: ${i}" >> en
+        echo "Zahl: ${x}" > de
 }
 
 analyse write_number
-        with pat
 {
-        en = number_en in "en"
-        de = number_de in "de"
+        alpha = "Word: %w" in "en"
+        en = "Number: %d" in "en"
+        de = "Zahl: %f" in "de"
 
-        (number, en as "Number", de as "Zahl")
+        (a, i, x, en as "Number", de as "Zahl", alpha as "Letter")
 }
 ```
 
-This follows the same idea as the JUBE tutorial:
-- produce files in a step
-- parse files in an analyser
-- define visible output columns in the result
-
-## Example with multiple parsed values
-
-```jbs
-param cfg
-{
-        case = ("ddp", "fsdp")
-        case
-}
-
-do run
-        with cfg
-{
-        echo "Runtime: 12.7" > job.out
-        echo "Final loss: 0.031" >> job.out
-        echo "Case: ${case}" > meta.out
-}
-
-let p
-{
-        runtime = "Runtime: %f"
-        loss = "Final loss: %f"
-        case_name = "Case: %w"
-}
-
-analyse run
-        with p
-{
-        rt = runtime in "job.out"
-        ls = loss in "job.out"
-        cs = case_name in "meta.out"
-
-        (case, cs as "parsed_case", rt as "runtime_s", ls as "final_loss")
-}
+Running JUBE on that example produces:
+```bash
+% jbs printparam example.jbs
+| p.a | p.i | p.x | step             |
+|-----|-----|-----|------------------|
+| a   | 1   | 0.5 | do: write_number |
+| a   | 2   | 1.0 | do: write_number |
+| a   | 3   | 1.5 | do: write_number |
+% jbs example.jbs -o example.yaml
+% jube-autorun example.yaml
+...
+a,i,x,Number,Zahl,Letter
+a,1,0.5,1,0.5,a
+a,2,1,2,1.0,a
+a,3,1.5,3,1.5,a
 ```
-
-## Example with `submit`
-
-`analyse` can target a `submit` step in exactly the same way.
-
-```jbs
-submit bench
-{
-        executable = "/bin/bash"
-        args_exec = "-lc 'echo Runtime: 3.5 > job.out'"
-}
-
-let p
-{
-        runtime = "Runtime: %f"
-}
-
-analyse bench
-        with p
-{
-        t = runtime in "job.out"
-        (t as "runtime_seconds")
-}
-```
-
-## How column naming works
-
-```jbs
-analyse write
-        with p
-{
-        p0 = number_en in "en"
-        p1 = number_de in "de"
-
-        (number, p0, p1 as "German")
-}
-```
-
-- `number` uses the column title `number`
-- `p0` uses the column title `p0`
-- `p1 as "German"` uses the column title `German`
