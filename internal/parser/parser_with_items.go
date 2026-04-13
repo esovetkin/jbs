@@ -23,6 +23,7 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 
 		src := ""
 		srcSpan := diag.Span{}
+		hasExplicitFrom := false
 		p.skipTriviaInline()
 		word, ok := p.peekWord()
 		if ok && word == "from" {
@@ -31,7 +32,25 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 			src = srcName
 			srcSpan = fromSpan
 			currentFrom = srcName
-		} else if currentFrom != "" {
+			hasExplicitFrom = true
+		}
+
+		alias := ""
+		aliasSpan := diag.Span{}
+		p.skipTriviaInline()
+		if word, ok := p.peekWord(); ok && word == "as" {
+			asStart := p.pos()
+			asEnd := p.consumeWord()
+			aliasName, parsedAliasSpan := p.parseRequiredIdent(diag.CodeE023, "expected alias identifier after 'as' in with clause")
+			if len(names) != 1 {
+				span := diag.NewSpan(p.file, asStart, parsedAliasSpan.End)
+				p.diags.AddError(diag.CodeE023, "alias is only allowed for a single with-clause item", span, "use `name as alias` or split tuple imports into individual aliased items")
+			} else {
+				alias = aliasName
+				aliasSpan = diag.Merge(diag.NewSpan(p.file, asStart, asEnd), parsedAliasSpan)
+			}
+		}
+		if !hasExplicitFrom && currentFrom != "" && alias == "" {
 			src = currentFrom
 		}
 
@@ -39,6 +58,12 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 			item := ast.WithItem{Name: name.Name, Span: name.Span, From: src}
 			if src != "" && !srcSpan.IsZero() {
 				item.Span = diag.Merge(item.Span, srcSpan)
+			}
+			if alias != "" {
+				item.Alias = alias
+				if !aliasSpan.IsZero() {
+					item.Span = diag.Merge(item.Span, aliasSpan)
+				}
 			}
 			items = append(items, item)
 		}

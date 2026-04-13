@@ -1,0 +1,5 @@
+p2.a,p2.b,p2.c,p2.d,step
+1,a,true,x,do: s
+1,a,false,y,do: s
+2,b,true,x,do: s
+2,b,false,y,do: s

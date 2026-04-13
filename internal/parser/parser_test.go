@@ -1954,6 +1954,90 @@ param derived with base, x from lib, (y,z) from lib2 {
 	}
 }
 
+func TestParseParamBlockWithRepeatedWithClauses(t *testing.T) {
+	src := `
+param derived
+  with base
+  with x from lib
+  with (y,z) from lib2
+{
+  a = (1, 2)
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_with_repeated_with.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if got := len(pb.WithItems); got != 4 {
+		t.Fatalf("expected 4 with items, got %d", got)
+	}
+	if pb.WithItems[0].Name != "base" || pb.WithItems[0].From != "" {
+		t.Fatalf("unexpected with item 0: %#v", pb.WithItems[0])
+	}
+	if pb.WithItems[1].Name != "x" || pb.WithItems[1].From != "lib" {
+		t.Fatalf("unexpected with item 1: %#v", pb.WithItems[1])
+	}
+	if pb.WithItems[2].Name != "y" || pb.WithItems[2].From != "lib2" {
+		t.Fatalf("unexpected with item 2: %#v", pb.WithItems[2])
+	}
+	if pb.WithItems[3].Name != "z" || pb.WithItems[3].From != "lib2" {
+		t.Fatalf("unexpected with item 3: %#v", pb.WithItems[3])
+	}
+}
+
+func TestParseParamWithClauseAliasVariants(t *testing.T) {
+	src := `
+param derived
+  with a from p0 as a_0, p1 as p1_0
+{
+  a_0 + p1_0
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("param_with_alias_variants.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if got := len(pb.WithItems); got != 2 {
+		t.Fatalf("expected 2 with items, got %d", got)
+	}
+	if pb.WithItems[0].Name != "a" || pb.WithItems[0].From != "p0" || pb.WithItems[0].Alias != "a_0" {
+		t.Fatalf("unexpected aliased variable import: %#v", pb.WithItems[0])
+	}
+	if pb.WithItems[1].Name != "p1" || pb.WithItems[1].From != "" || pb.WithItems[1].Alias != "p1_0" {
+		t.Fatalf("unexpected aliased full import: %#v", pb.WithItems[1])
+	}
+}
+
+func TestParseWithClauseTupleAliasReportsE023(t *testing.T) {
+	src := `
+param derived with (a,b) from p0 as pair {
+  a + b
+}
+`
+	diags := &diag.Diagnostics{}
+	_ = Parse("param_tuple_alias_error.jbs", src, diags)
+	if !hasDiagCode(diags.Items, "E023") {
+		t.Fatalf("expected E023 for tuple alias in with clause, got: %s", diags.String())
+	}
+}
+
 func TestParseParamBlockHeaderWithInlineComment(t *testing.T) {
 	src := `param p with base # header comment
 {

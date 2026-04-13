@@ -26,11 +26,12 @@ type ExpandedWithVar struct {
 }
 
 type ExpandedWithItem struct {
-	Source string
-	Kind   SourceKind
-	Vars   []ExpandedWithVar
-	Full   bool
-	Span   diag.Span
+	Source     string
+	Kind       SourceKind
+	Vars       []ExpandedWithVar
+	Full       bool
+	SourceExpr string
+	Span       diag.Span
 }
 
 type ResolveIssueKind int
@@ -77,17 +78,22 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 			continue
 		}
 		if _, ok := src.Vars[item.Name]; ok {
+			visible := item.Name
+			if item.Alias != "" {
+				visible = item.Alias
+			}
 			expanded = append(expanded, ExpandedWithItem{
 				Source: src.Name,
 				Kind:   src.Kind,
 				Vars: []ExpandedWithVar{
 					{
-						Visible:   item.Name,
+						Visible:   visible,
 						SourceVar: item.Name,
 					},
 				},
-				Full: false,
-				Span: item.Span,
+				Full:       false,
+				SourceExpr: "",
+				Span:       item.Span,
 			})
 			continue
 		}
@@ -188,11 +194,16 @@ func expandFullSource(item ast.WithItem, src *ImportSource) ExpandedWithItem {
 			SourceVar: name,
 		})
 	}
+	sourceExpr := item.Name
+	if item.Alias != "" {
+		sourceExpr = item.Alias
+	}
 	return ExpandedWithItem{
-		Source: src.Name,
-		Kind:   src.Kind,
-		Vars:   vars,
-		Full:   true,
-		Span:   item.Span,
+		Source:     src.Name,
+		Kind:       src.Kind,
+		Vars:       vars,
+		Full:       true,
+		SourceExpr: sourceExpr,
+		Span:       item.Span,
 	}
 }

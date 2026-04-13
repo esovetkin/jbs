@@ -553,10 +553,18 @@ func renderWithClause(items []ast.WithItem) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
 		if item.From == "" {
-			parts = append(parts, item.Name)
+			part := item.Name
+			if item.Alias != "" {
+				part += " as " + item.Alias
+			}
+			parts = append(parts, part)
 			continue
 		}
-		parts = append(parts, item.Name+" from "+item.From)
+		part := item.Name + " from " + item.From
+		if item.Alias != "" {
+			part += " as " + item.Alias
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")
 }

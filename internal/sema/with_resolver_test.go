@@ -223,3 +223,41 @@ func TestWithResolverAmbiguousSource(t *testing.T) {
 		t.Fatalf("expected one ambiguous source issue, got %#v", issues)
 	}
 }
+
+func TestWithResolverAppliesAliasToVisibleAndSourceExpr(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	p := &Paramset{
+		Name:  "p",
+		Vars:  map[string][]eval.Value{"a": {eval.Int(1)}},
+		Order: []string{"a"},
+	}
+	resolver := WithResolver{
+		Params: map[string]*Paramset{"p": p},
+		Lets:   map[string]*LetNamespace{},
+		Sources: map[string]*ImportSource{
+			"p": importSourceFromParam(p),
+		},
+	}
+	items := []ast.WithItem{
+		{Name: "a", From: "p", Alias: "a_0", Span: span},
+		{Name: "p", Alias: "p_0", Span: span},
+	}
+	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  false,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %#v", issues)
+	}
+	if len(expanded) != 2 {
+		t.Fatalf("expected 2 expanded items, got %d", len(expanded))
+	}
+	if expanded[0].Vars[0].Visible != "a_0" || expanded[0].Vars[0].SourceVar != "a" {
+		t.Fatalf("unexpected variable alias expansion: %#v", expanded[0])
+	}
+	if !expanded[1].Full || expanded[1].SourceExpr != "p_0" {
+		t.Fatalf("unexpected full-source alias expansion: %#v", expanded[1])
+	}
+}

@@ -125,8 +125,8 @@ func TestParseAssignmentBranches(t *testing.T) {
 
 func TestParseExprPrecedenceAndAssociativity(t *testing.T) {
 	tests := []struct {
-		name string
-		src  string
+		name  string
+		src   string
 		check func(t *testing.T, expr ast.Expr)
 	}{
 		{

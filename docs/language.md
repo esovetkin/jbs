@@ -48,7 +48,8 @@ let_header_item := NEWLINE | comment
 let_item      := let_stmt | sep
 let_stmt      := IDENT "=" expr opt_comment
 
-param_block   := "param" IDENT with_clause? param_header_item* "{" param_item* final_expr opt_comment "}"
+param_block   := "param" IDENT param_with_clause* param_header_item* "{" param_item* final_expr opt_comment "}"
+param_with_clause := with_clause
 param_header_item := NEWLINE | comment
 param_item    := param_stmt | sep
 param_stmt    := IDENT "=" expr opt_comment
@@ -56,7 +57,7 @@ final_expr    := comb_expr
 
 with_clause   := "with" with_item ("," with_item)*
 qualified_name := IDENT ("." IDENT)*
-with_item     := qualified_name ("from" qualified_name)?
+with_item     := qualified_name ("from" qualified_name)? ("as" IDENT)?
               | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
 
 do_block      := "do" IDENT do_header_item* raw_block
@@ -443,6 +444,8 @@ Supported forms:
 
 - `with p2, p3`
 - `with x from p2, y, z from p3`
+- `with x from p2 as x0`
+- `with p2 as rows_p2`
 - mixed form: `with x from p2, p3`
 - tuple form: `with (x, y) from p2`
 - mixed tuple form: `with (x, y) from p2, p3`
@@ -469,8 +472,14 @@ In `do`/`submit`:
 In `param`:
 
 - `with` can import from `param` and `let` sources.
+- repeated `with` clauses in the header are valid and concatenated.
 - If the same visible variable name is imported from different sources in one `param` block, compilation fails with `E214`.
 - Importing the same variable name repeatedly from the same source is allowed.
+- full-source imports can be used directly in the final combination expression (for example `p0 + d`, `p0 * p1 + x`).
+- mixing a full-source symbol and variables imported from that same source in one final expression is rejected (`E220`).
+- if a final-expression identifier matches both a visible variable and a visible full-source symbol, compilation fails as ambiguous (`E221`).
+- aliases (`as`) disambiguate both variable imports and full-source symbols.
+- tuple imports do not support `as`; use repeated single-item imports when aliasing is needed.
 
 In `analyse`:
 
@@ -736,3 +745,26 @@ For `W310`/`W311`, reference scanning applies to:
 - submit raw blocks (`preprocess`, `postprocess`).
 - string literals in expression-valued submit keys.
 - values imported via submit-header `use` (including helper-dependent defaults).
+
+Current scope note:
+- `W310` remains step-driven (do/submit usage). Param-to-param-only consumption is not counted yet.
+
+`param` source-expression examples:
+
+```jbs
+param p2 with p0, p1 {
+        p0 + p1
+}
+
+param p3 with p0, x from p1 {
+        p0 * p1 + x
+}
+
+param bad_mix with p0 {
+        p0 + a  # E220 if `a` is imported from p0
+}
+
+param bad_ambiguous with p1, p0 as p1 {
+        p1  # E221 (source symbol and variable symbol collide)
+}
+```

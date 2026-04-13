@@ -1,0 +1,26 @@
+# Reproducer for repeated param with-clauses.
+# Post-fix expectation: parses and compiles without E083/E011 cascade.
+param p0
+{
+        b = ("a", "b")
+        b
+}
+
+param p1
+{
+        d = ("x", "y")
+        d
+}
+
+param p2
+        with b from p0
+        with d from p1
+{
+        b + d
+}
+
+do s
+        with p2
+{
+        echo "${b} ${d}"
+}

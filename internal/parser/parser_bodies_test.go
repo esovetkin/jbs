@@ -141,11 +141,11 @@ p0 = p.number in "out.log"
 
 func TestParseAnalyseAssignmentErrorBranches(t *testing.T) {
 	tests := []struct {
-		name       string
-		body       string
-		wantName   string
-		wantFile   string
-		wantDiag   string
+		name     string
+		body     string
+		wantName string
+		wantFile string
+		wantDiag string
 	}{
 		{
 			name:     "statement does not start with ident",

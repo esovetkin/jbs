@@ -7,14 +7,15 @@ import (
 )
 
 type Paramset struct {
-	Name    string
-	Block   ast.ParamBlock
-	Rows    []eval.Row
-	Vars    map[string][]eval.Value
-	Origins map[string]diag.Span
-	Modes   map[string]string
-	Order   []string
-	HasPlus bool
+	Name     string
+	Block    ast.ParamBlock
+	Rows     []eval.Row
+	Vars     map[string][]eval.Value
+	BaseVars map[string][]eval.Value
+	Origins  map[string]diag.Span
+	Modes    map[string]string
+	Order    []string
+	HasPlus  bool
 }
 
 type GlobalState struct {

@@ -1,0 +1,27 @@
+# Reproducer for full-source expression leaves in a param final expression.
+# Post-fix expectation: 'p0' is treated as source rows and combined with 'd'.
+param p0
+{
+        a = (1, 2)
+        b = ("a", "b")
+        c = (true, false)
+        (a + b) * c
+}
+
+param p1
+{
+        d = ("x", "y")
+        d
+}
+
+param p2
+        with p0, p1
+{
+        p0 + d
+}
+
+do s
+        with p2
+{
+        echo "${a} ${b} ${c} ${d}"
+}

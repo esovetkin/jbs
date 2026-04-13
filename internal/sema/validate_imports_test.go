@@ -495,3 +495,210 @@ do s0 with (x,y) from l {
 		t.Fatalf("did not expect z in effective imports: %#v", plan.Effective)
 	}
 }
+
+func TestParamWithRepeatedWithClausesCompiles(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("a","b")
+  c = (true,false)
+  (a + b) * c
+}
+
+param p1 {
+  d = ("x","y")
+  d
+}
+
+param p2
+  with b from p0
+  with d from p1
+{
+  b + d
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected repeated with clauses in param to be valid, got: %s", diags.String())
+	}
+	p2 := res.ParamByName["p2"]
+	if p2 == nil {
+		t.Fatalf("missing p2")
+	}
+	if got := len(p2.Rows); got != 2 {
+		t.Fatalf("expected 2 rows, got %d", got)
+	}
+	if got := p2.Vars["b"][0].String(); got != "a" {
+		t.Fatalf("unexpected p2.b[0]=%q", got)
+	}
+	if got := p2.Vars["d"][1].String(); got != "y" {
+		t.Fatalf("unexpected p2.d[1]=%q", got)
+	}
+}
+
+func TestParamFullSourceZipExpression(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("a","b")
+  c = (true,false)
+  (a + b) * c
+}
+
+param p1 {
+  d = ("x","y")
+  d
+}
+
+param p2 with p0, p1 {
+  p0 + d
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected full-source zip expression to be valid, got: %s", diags.String())
+	}
+	p2 := res.ParamByName["p2"]
+	if p2 == nil {
+		t.Fatalf("missing p2")
+	}
+	if got := len(p2.Rows); got != 4 {
+		t.Fatalf("expected 4 rows, got %d", got)
+	}
+	wantD := []string{"x", "y", "x", "y"}
+	for i, w := range wantD {
+		if got := p2.Vars["d"][i].String(); got != w {
+			t.Fatalf("row %d: expected d=%q got %q", i, w, got)
+		}
+	}
+}
+
+func TestParamDerivedExpressionUsesBaseSeries(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("a","b")
+  c = (true,false)
+  (a + b) * c
+}
+
+param p1 {
+  d = ("x","y")
+  d
+}
+
+param p2 with p0, p1 {
+  a + b + c + d
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected derived expression to be valid, got: %s", diags.String())
+	}
+	p2 := res.ParamByName["p2"]
+	if p2 == nil {
+		t.Fatalf("missing p2")
+	}
+	if got := len(p2.Rows); got != 2 {
+		t.Fatalf("expected 2 rows recomputed from base series, got %d", got)
+	}
+	if got := p2.Vars["a"][0].String(); got != "1" {
+		t.Fatalf("unexpected a[0]=%q", got)
+	}
+	if got := p2.Vars["d"][1].String(); got != "y" {
+		t.Fatalf("unexpected d[1]=%q", got)
+	}
+}
+
+func TestParamMixedSourceAndVariableErrorsE220(t *testing.T) {
+	src := `
+param p0 {
+  a = (1,2)
+  b = ("a","b")
+  c = (true,false)
+  (a + b) * c
+}
+
+param p1 {
+  d = ("x","y")
+  d
+}
+
+param p2 with p0, p1 {
+  p0 + a + d
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E220") {
+		t.Fatalf("expected E220 for mixed source/variable usage, got: %s", diags.String())
+	}
+}
+
+func TestParamAmbiguousSourceAndVariableIdentifierErrorsE221(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+
+param p0 {
+  p1 = ("a","b")
+  p1
+}
+
+param p2 with p1, p0 {
+  p1
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E221") {
+		t.Fatalf("expected E221 for ambiguous identifier, got: %s", diags.String())
+	}
+}
+
+func TestParamAliasDisambiguatesSourceAndVariableIdentifier(t *testing.T) {
+	src := `
+param p1 {
+  x = (1,2)
+  x
+}
+
+param p0 {
+  p1 = ("a","b")
+  p1
+}
+
+param p2 with p1 as p1_src, p0 {
+  p1_src + p1
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("expected alias disambiguation to be valid, got: %s", diags.String())
+	}
+	p2 := res.ParamByName["p2"]
+	if p2 == nil {
+		t.Fatalf("missing p2")
+	}
+	if got := len(p2.Rows); got != 2 {
+		t.Fatalf("expected 2 rows, got %d", got)
+	}
+	if got := p2.Vars["p1"][0].String(); got != "a" {
+		t.Fatalf("unexpected p1[0]=%q", got)
+	}
+	if got := p2.Vars["x"][1].String(); got != "2" {
+		t.Fatalf("unexpected x[1]=%q", got)
+	}
+}

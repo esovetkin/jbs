@@ -184,7 +184,7 @@ func TestEvalCombProductEmptyInput(t *testing.T) {
 
 	for _, tt := range tests {
 		diags := &diag.Diagnostics{}
-		rows := evalComb(expr, tt.series, map[string]diag.Span{}, diags)
+		rows := evalComb(expr, tt.series, map[string]diag.Span{}, CombEvalOptions{}, diags)
 		if rows != nil {
 			t.Fatalf("%s: expected nil rows for empty product side, got %#v", tt.name, rows)
 		}
@@ -205,7 +205,7 @@ func TestEvalCombProductCartesianProduct(t *testing.T) {
 	rows := evalComb(expr, map[string][]Value{
 		"a": {Int(1), Int(2)},
 		"b": {String("x"), String("y")},
-	}, map[string]diag.Span{}, diags)
+	}, map[string]diag.Span{}, CombEvalOptions{}, diags)
 
 	if len(rows) != 4 {
 		t.Fatalf("expected 4 rows, got %d", len(rows))
@@ -244,7 +244,7 @@ func TestEvalCombProductMergeConflictsAreSkipped(t *testing.T) {
 
 	rows := evalComb(expr, map[string][]Value{
 		"x": {Int(1), Int(2)},
-	}, map[string]diag.Span{}, diags)
+	}, map[string]diag.Span{}, CombEvalOptions{}, diags)
 
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 merged rows after skipping conflicts, got %d", len(rows))
@@ -273,7 +273,7 @@ func TestEvalCombIdentUsesProvidedOrigin(t *testing.T) {
 	expr := ast.CombIdent{Name: "a", Span: exprSpan}
 	diags := &diag.Diagnostics{}
 
-	rows := evalComb(expr, map[string][]Value{"a": {Int(1), Int(2)}}, map[string]diag.Span{"a": originSpan}, diags)
+	rows := evalComb(expr, map[string][]Value{"a": {Int(1), Int(2)}}, map[string]diag.Span{"a": originSpan}, CombEvalOptions{}, diags)
 
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))
@@ -306,7 +306,7 @@ func TestEvalCombIdentFallsBackToExpressionSpan(t *testing.T) {
 
 	for _, tt := range tests {
 		diags := &diag.Diagnostics{}
-		rows := evalComb(expr, map[string][]Value{"a": {Int(1)}}, tt.origins, diags)
+		rows := evalComb(expr, map[string][]Value{"a": {Int(1)}}, tt.origins, CombEvalOptions{}, diags)
 		if len(rows) != 1 {
 			t.Fatalf("%s: expected 1 row, got %d", tt.name, len(rows))
 		}
@@ -325,7 +325,7 @@ func TestEvalCombUnknownIdentifier(t *testing.T) {
 	expr := ast.CombIdent{Name: "missing", Span: exprSpan}
 	diags := &diag.Diagnostics{}
 
-	rows := evalComb(expr, map[string][]Value{}, map[string]diag.Span{}, diags)
+	rows := evalComb(expr, map[string][]Value{}, map[string]diag.Span{}, CombEvalOptions{}, diags)
 	if rows != nil {
 		t.Fatalf("expected nil rows for unknown identifier, got %#v", rows)
 	}
@@ -357,7 +357,7 @@ func TestEvalCombUnsupportedOperator(t *testing.T) {
 	rows := evalComb(expr, map[string][]Value{
 		"a": {Int(1)},
 		"b": {Int(2)},
-	}, map[string]diag.Span{}, diags)
+	}, map[string]diag.Span{}, CombEvalOptions{}, diags)
 	if rows != nil {
 		t.Fatalf("expected nil rows for unsupported operator, got %#v", rows)
 	}

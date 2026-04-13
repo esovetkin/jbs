@@ -7,10 +7,12 @@ package sema
 
 import (
 	"fmt"
+	"slices"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 )
 
 func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals map[string]eval.Value, lets map[string]*LetNamespace, diags *diag.Diagnostics) *Paramset {
@@ -24,10 +26,17 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		env[k] = v
 	}
 
+	bindings := make(map[string]paramBindingInfo, len(block.Assignments)+16)
 	type importedOwner struct {
 		Source string
 	}
 	importedOwners := make(map[string]importedOwner)
+	importedVars := make(map[string]importedContribution, len(block.WithItems))
+	importedVarOrder := make([]string, 0, len(block.WithItems))
+	sourceSymbols := make(map[string]sourceSymbolInfo, len(block.WithItems))
+	sourceRows := make(map[string][]eval.Row, len(block.WithItems))
+	ambiguousSourceSymbols := make(map[string]bool)
+
 	canImport := func(visible, source string) bool {
 		if prev, exists := importedOwners[visible]; exists {
 			return prev.Source == source
@@ -35,11 +44,25 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		importedOwners[visible] = importedOwner{Source: source}
 		return true
 	}
-	importParamVar := func(visible, sourceVar string, src *Paramset) {
+	recordImportedContribution := func(visible, source, sourceVar string, span diag.Span) {
+		if _, exists := importedVars[visible]; exists {
+			return
+		}
+		importedVars[visible] = importedContribution{
+			Source:    source,
+			SourceVar: sourceVar,
+			Span:      span,
+		}
+		importedVarOrder = append(importedVarOrder, visible)
+	}
+	importParamVar := func(visible, sourceVar string, src *Paramset, at diag.Span) {
 		if src == nil {
 			return
 		}
-		vals, ok := src.Vars[sourceVar]
+		vals, ok := src.BaseVars[sourceVar]
+		if !ok {
+			vals, ok = src.Vars[sourceVar]
+		}
 		if !ok {
 			return
 		}
@@ -53,8 +76,15 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		if mode, ok := src.Modes[sourceVar]; ok {
 			modes[visible] = mode
 		}
+		bindings[visible] = paramBindingInfo{
+			Kind:      paramBindingImported,
+			Source:    src.Name,
+			SourceVar: sourceVar,
+			Span:      at,
+		}
+		recordImportedContribution(visible, src.Name, sourceVar, at)
 	}
-	importLetVar := func(visible, sourceVar string, src *LetNamespace) {
+	importLetVar := func(visible, sourceVar string, src *LetNamespace, at diag.Span) {
 		if src == nil {
 			return
 		}
@@ -72,6 +102,13 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		if mode, ok := src.Modes[sourceVar]; ok {
 			modes[visible] = mode
 		}
+		bindings[visible] = paramBindingInfo{
+			Kind:      paramBindingImported,
+			Source:    src.Name,
+			SourceVar: sourceVar,
+			Span:      at,
+		}
+		recordImportedContribution(visible, src.Name, sourceVar, at)
 	}
 
 	importSources := make(map[string]*ImportSource, len(known)+len(lets))
@@ -97,13 +134,40 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		switch item.Kind {
 		case SourceKindParam:
 			src := known[item.Source]
+			if item.Full {
+				sourceSymbol := item.SourceExpr
+				if sourceSymbol == "" {
+					sourceSymbol = item.Source
+				}
+				if sourceSymbol != "" {
+					if prev, exists := sourceSymbols[sourceSymbol]; exists {
+						if prev.Source != item.Source {
+							diags.AddError(
+								diag.CodeE221,
+								fmt.Sprintf("ambiguous source symbol '%s' resolves to both '%s' and '%s'", sourceSymbol, prev.Source, item.Source),
+								item.Span,
+								"use `with <source> as <alias>` to disambiguate source symbols",
+								diag.RelatedSpan{Message: "first source symbol binding", Span: prev.Span},
+							)
+							ambiguousSourceSymbols[sourceSymbol] = true
+						}
+					} else {
+						sourceSymbols[sourceSymbol] = sourceSymbolInfo{
+							Source:   item.Source,
+							Span:     item.Span,
+							VarOrder: planutil.SourceVarNames(src.Order, src.Vars),
+						}
+						sourceRows[sourceSymbol] = cloneEvalRows(src.Rows)
+					}
+				}
+			}
 			for _, v := range item.Vars {
-				importParamVar(v.Visible, v.SourceVar, src)
+				importParamVar(v.Visible, v.SourceVar, src, item.Span)
 			}
 		case SourceKindLet:
 			src := lets[item.Source]
 			for _, v := range item.Vars {
-				importLetVar(v.Visible, v.SourceVar, src)
+				importLetVar(v.Visible, v.SourceVar, src, item.Span)
 			}
 		}
 	}
@@ -143,6 +207,10 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 		env[asn.Name] = value
 		origins[asn.Name] = asn.Span
+		bindings[asn.Name] = paramBindingInfo{
+			Kind: paramBindingLocal,
+			Span: asn.Span,
+		}
 	}
 
 	series := make(map[string][]eval.Value, len(env))
@@ -152,27 +220,125 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 
 	if block.Final == nil {
 		return &Paramset{
-			Name:    block.Name,
-			Block:   block,
-			Rows:    nil,
-			Vars:    map[string][]eval.Value{},
-			Origins: map[string]diag.Span{},
-			Modes:   map[string]string{},
-			Order:   nil,
-			HasPlus: false,
+			Name:     block.Name,
+			Block:    block,
+			Rows:     nil,
+			Vars:     map[string][]eval.Value{},
+			BaseVars: map[string][]eval.Value{},
+			Origins:  map[string]diag.Span{},
+			Modes:    map[string]string{},
+			Order:    nil,
+			HasPlus:  false,
 		}
 	}
 
-	order := combIdentOrder(block.Final)
-	warnUnusedParamLocals(localAssigns, localAssignOrder, order, diags)
+	refs := combIdentRefs(block.Final)
+	ambiguousIdentifierSpans := make(map[string][]diag.Span)
+	sourceReferenced := make(map[string]bool)
+	for _, ref := range refs {
+		_, hasSourceSymbol := sourceSymbols[ref.Name]
+		if ambiguousSourceSymbols[ref.Name] {
+			hasSourceSymbol = false
+		}
+		_, hasBinding := bindings[ref.Name]
+		if hasSourceSymbol && hasBinding {
+			ambiguousIdentifierSpans[ref.Name] = append(ambiguousIdentifierSpans[ref.Name], ref.Span)
+			continue
+		}
+		if hasSourceSymbol {
+			sourceReferenced[ref.Name] = true
+		}
+	}
+	for name, spans := range ambiguousIdentifierSpans {
+		sourceInfo := sourceSymbols[name]
+		for _, span := range spans {
+			related := []diag.RelatedSpan{
+				{Message: "source symbol binding", Span: sourceInfo.Span},
+			}
+			if binding := bindings[name]; !binding.Span.IsZero() {
+				related = append(related, diag.RelatedSpan{Message: "variable binding", Span: binding.Span})
+			}
+			diags.AddError(
+				diag.CodeE221,
+				fmt.Sprintf("ambiguous identifier '%s' in final expression: matches both a variable and a source symbol", name),
+				span,
+				"use `with ... as ...` aliases to disambiguate variable/source references",
+				related...,
+			)
+		}
+	}
 
-	rows := eval.EvalCombination(block.Final, series, origins, diags)
+	reportedMixed := make(map[string]struct{})
+	for sourceName := range sourceReferenced {
+		sourceInfo := sourceSymbols[sourceName]
+		for _, ref := range refs {
+			binding, ok := bindings[ref.Name]
+			if !ok || binding.Kind != paramBindingImported {
+				continue
+			}
+			if binding.Source != sourceInfo.Source {
+				continue
+			}
+			key := sourceName + "::" + ref.Name
+			if _, exists := reportedMixed[key]; exists {
+				continue
+			}
+			reportedMixed[key] = struct{}{}
+			diags.AddError(
+				diag.CodeE220,
+				fmt.Sprintf("cannot mix full source '%s' with variable '%s' from the same source '%s' in one final expression", sourceName, ref.Name, sourceInfo.Source),
+				ref.Span,
+				"use either source-level expressions or variable-level expressions from that source, not both",
+				diag.RelatedSpan{Message: "source symbol usage", Span: sourceInfo.Span},
+			)
+		}
+	}
+
+	seed := make([]string, 0, len(refs))
+	seedSeen := make(map[string]struct{}, len(refs))
+	addSeed := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, exists := seedSeen[name]; exists {
+			return
+		}
+		seedSeen[name] = struct{}{}
+		seed = append(seed, name)
+	}
+	for _, ref := range refs {
+		name := ref.Name
+		if name == "" {
+			continue
+		}
+		if sourceReferenced[name] {
+			if sourceInfo, ok := sourceSymbols[name]; ok {
+				for _, sourceVar := range sourceInfo.VarOrder {
+					addSeed(sourceVar)
+				}
+			}
+			continue
+		}
+		addSeed(name)
+	}
+	warnUnusedParamContributors(localAssigns, localAssignOrder, importedVars, importedVarOrder, seed, diags)
+
+	rows := eval.EvalCombinationWithOptions(block.Final, series, origins, eval.CombEvalOptions{
+		SourceRows: sourceRows,
+	}, diags)
 	if rows == nil {
 		rows = make([]eval.Row, 0)
 	}
 
+	ambiguousRefNames := make(map[string]bool, len(ambiguousIdentifierSpans))
+	for name := range ambiguousIdentifierSpans {
+		ambiguousRefNames[name] = true
+	}
+	order := resolveFinalExposeOrder(refs, sourceSymbols, ambiguousRefNames)
+
 	vars := make(map[string][]eval.Value, len(order))
 	varOrigins := make(map[string]diag.Span, len(order))
+	baseVars := make(map[string][]eval.Value, len(order))
 
 	for _, name := range order {
 		values := make([]eval.Value, 0, len(rows))
@@ -192,6 +358,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			}
 		}
 		vars[name] = values
+		if s, ok := series[name]; ok {
+			baseVars[name] = slices.Clone(s)
+		}
 		if _, exists := varOrigins[name]; !exists {
 			if o, ok := origins[name]; ok {
 				varOrigins[name] = o
@@ -200,15 +369,110 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	}
 
 	return &Paramset{
-		Name:    block.Name,
-		Block:   block,
-		Rows:    rows,
-		Vars:    vars,
-		Origins: varOrigins,
-		Modes:   modes,
-		Order:   order,
-		HasPlus: combHasOp(block.Final, "+"),
+		Name:     block.Name,
+		Block:    block,
+		Rows:     rows,
+		Vars:     vars,
+		BaseVars: baseVars,
+		Origins:  varOrigins,
+		Modes:    modes,
+		Order:    order,
+		HasPlus:  combHasOp(block.Final, "+"),
 	}
+}
+
+type paramBindingKind uint8
+
+const (
+	paramBindingLocal paramBindingKind = iota
+	paramBindingImported
+)
+
+type paramBindingInfo struct {
+	Kind      paramBindingKind
+	Source    string
+	SourceVar string
+	Span      diag.Span
+}
+
+type importedContribution struct {
+	Source    string
+	SourceVar string
+	Span      diag.Span
+}
+
+type sourceSymbolInfo struct {
+	Source   string
+	Span     diag.Span
+	VarOrder []string
+}
+
+type combIdentRef struct {
+	Name string
+	Span diag.Span
+}
+
+func combIdentRefs(expr ast.CombExpr) []combIdentRef {
+	out := make([]combIdentRef, 0)
+	var walk func(ast.CombExpr)
+	walk = func(node ast.CombExpr) {
+		switch n := node.(type) {
+		case ast.CombIdent:
+			if n.Name != "" {
+				out = append(out, combIdentRef{Name: n.Name, Span: n.Span})
+			}
+		case ast.CombBinary:
+			walk(n.Left)
+			walk(n.Right)
+		}
+	}
+	walk(expr)
+	return out
+}
+
+func resolveFinalExposeOrder(refs []combIdentRef, sourceSymbols map[string]sourceSymbolInfo, ambiguous map[string]bool) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(refs))
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, exists := seen[name]; exists {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	for _, ref := range refs {
+		if ref.Name == "" {
+			continue
+		}
+		if !ambiguous[ref.Name] {
+			if source, ok := sourceSymbols[ref.Name]; ok {
+				for _, name := range source.VarOrder {
+					add(name)
+				}
+				continue
+			}
+		}
+		add(ref.Name)
+	}
+	return out
+}
+
+func cloneEvalRows(in []eval.Row) []eval.Row {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]eval.Row, len(in))
+	for i, row := range in {
+		values := make(map[string]eval.Cell, len(row.Values))
+		for name, cell := range row.Values {
+			values[name] = cell
+		}
+		out[i] = eval.Row{Values: values}
+	}
+	return out
 }
 
 func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {

@@ -14,7 +14,7 @@ import (
 func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 	name, nameSpan := p.parseRequiredIdent(diag.CodeE082, "expected param block name")
 	headerStart := nameSpan.End
-	withItems := p.parseOptionalWithClause()
+	withItems := p.parseOptionalParamWithClauses()
 	headerEnd := p.pos()
 	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
 	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)

@@ -138,7 +138,11 @@ func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource)
 			continue
 		}
 		if _, ok := src.Vars[item.Name]; ok {
-			add(item.Name, item.Name, src.Name, src.Kind, item.Span)
+			visible := item.Name
+			if item.Alias != "" {
+				visible = item.Alias
+			}
+			add(visible, item.Name, src.Name, src.Kind, item.Span)
 			continue
 		}
 		if fallback := sources[item.Name]; fallback != nil {

@@ -85,9 +85,10 @@ func (u UseStmt) stmtNode()          {}
 func (u UseStmt) GetSpan() diag.Span { return u.Span }
 
 type WithItem struct {
-	Name string
-	From string
-	Span diag.Span
+	Name  string
+	From  string
+	Alias string
+	Span  diag.Span
 }
 
 func (w WithItem) GetSpan() diag.Span { return w.Span }

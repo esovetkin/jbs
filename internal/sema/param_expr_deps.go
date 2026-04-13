@@ -2,6 +2,7 @@
 package sema
 
 import (
+	"fmt"
 	"slices"
 
 	"jbs/internal/ast"
@@ -55,6 +56,13 @@ func warnUnusedParamLocals(assigns map[string]localAssignMeta, order []string, s
 	if len(assigns) == 0 || len(seed) == 0 {
 		return
 	}
+	warnUnusedParamContributors(assigns, order, nil, nil, seed, diags)
+}
+
+func warnUnusedParamContributors(assigns map[string]localAssignMeta, order []string, imported map[string]importedContribution, importedOrder []string, seed []string, diags *diag.Diagnostics) {
+	if len(assigns) == 0 && len(imported) == 0 {
+		return
+	}
 
 	depsByVar := make(map[string][]string, len(assigns))
 	for name, meta := range assigns {
@@ -67,26 +75,33 @@ func warnUnusedParamLocals(assigns map[string]localAssignMeta, order []string, s
 			}
 			if _, ok := assigns[dep]; ok {
 				deps = append(deps, dep)
+				continue
+			}
+			if _, ok := imported[dep]; ok {
+				deps = append(deps, dep)
 			}
 		}
 		slices.Sort(deps)
 		depsByVar[name] = deps
 	}
 
-	reachable := make(map[string]bool, len(assigns))
+	reachable := make(map[string]bool, len(assigns)+len(imported))
 	var markReachable func(string)
 	markReachable = func(name string) {
 		if reachable[name] {
 			return
 		}
 		reachable[name] = true
+		if _, ok := imported[name]; ok {
+			return
+		}
 		for _, dep := range depsByVar[name] {
 			markReachable(dep)
 		}
 	}
 
 	for _, root := range seed {
-		if _, ok := assigns[root]; !ok {
+		if root == "" {
 			continue
 		}
 		markReachable(root)
@@ -105,6 +120,21 @@ func warnUnusedParamLocals(assigns map[string]localAssignMeta, order []string, s
 			"param variable '"+name+"' is declared but does not contribute to the final expression",
 			meta.Span,
 			"remove it, or reference it (directly or transitively) in the final combination expression",
+		)
+	}
+	for _, name := range importedOrder {
+		meta, ok := imported[name]
+		if !ok {
+			continue
+		}
+		if reachable[name] {
+			continue
+		}
+		diags.AddWarning(
+			diag.CodeW312,
+			fmt.Sprintf("imported variable '%s' from source '%s' does not contribute to the final expression", name, meta.Source),
+			meta.Span,
+			"remove it from imports or reference it (directly or transitively) in the final combination expression",
 		)
 	}
 }

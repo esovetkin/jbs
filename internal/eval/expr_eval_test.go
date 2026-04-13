@@ -105,10 +105,10 @@ func TestEvalExprWithCtxModeExprPassthrough(t *testing.T) {
 
 func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 	tests := []struct {
-		name           string
-		expr           ast.ConditionalExpr
-		want           Value
-		wantDiagE102   bool
+		name         string
+		expr         ast.ConditionalExpr
+		want         Value
+		wantDiagE102 bool
 	}{
 		{
 			name: "true branch",
@@ -163,10 +163,10 @@ func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 
 func TestEvalExprWithCtxCompareExpr(t *testing.T) {
 	tests := []struct {
-		name           string
-		expr           ast.CompareExpr
-		want           Value
-		wantDiagE110   bool
+		name         string
+		expr         ast.CompareExpr
+		want         Value
+		wantDiagE110 bool
 	}{
 		{
 			name: "numeric compare true",

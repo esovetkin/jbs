@@ -32,6 +32,10 @@ type Row struct {
 	Values map[string]Cell
 }
 
+type CombEvalOptions struct {
+	SourceRows map[string][]Row
+}
+
 func (r Row) clone() Row {
 	m := make(map[string]Cell, len(r.Values))
 	for k, v := range r.Values {
@@ -41,12 +45,16 @@ func (r Row) clone() Row {
 }
 
 func EvalCombination(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, diags *diag.Diagnostics) []Row {
+	return EvalCombinationWithOptions(expr, series, origins, CombEvalOptions{}, diags)
+}
+
+func EvalCombinationWithOptions(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, opts CombEvalOptions, diags *diag.Diagnostics) []Row {
 	if expr == nil {
 		diags.AddError(diag.CodeE113, "missing combination expression", diag.Span{}, "add a final combination expression in param block")
 		return nil
 	}
 	checkRepeatedIdentifiers(expr, diags)
-	return evalComb(expr, series, origins, diags)
+	return evalComb(expr, series, origins, opts, diags)
 }
 
 func checkRepeatedIdentifiers(expr ast.CombExpr, diags *diag.Diagnostics) {
@@ -78,26 +86,29 @@ func walkComb(expr ast.CombExpr, fn func(ast.CombIdent)) {
 	}
 }
 
-func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, diags *diag.Diagnostics) []Row {
+func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, opts CombEvalOptions, diags *diag.Diagnostics) []Row {
 	switch e := expr.(type) {
 	case ast.CombIdent:
 		vals, ok := series[e.Name]
-		if !ok {
-			diags.AddError(diag.CodeE111, fmt.Sprintf("unknown combination identifier '%s'", e.Name), e.Span, "define the variable before final expression")
-			return nil
+		if ok {
+			rows := make([]Row, 0, len(vals))
+			origin := e.Span
+			if o, exists := origins[e.Name]; exists && !o.IsZero() {
+				origin = o
+			}
+			for _, v := range vals {
+				rows = append(rows, Row{Values: map[string]Cell{e.Name: {Value: v, Origin: origin}}})
+			}
+			return rows
 		}
-		rows := make([]Row, 0, len(vals))
-		origin := e.Span
-		if o, exists := origins[e.Name]; exists && !o.IsZero() {
-			origin = o
+		if srcRows, ok := opts.SourceRows[e.Name]; ok {
+			return cloneRows(srcRows)
 		}
-		for _, v := range vals {
-			rows = append(rows, Row{Values: map[string]Cell{e.Name: {Value: v, Origin: origin}}})
-		}
-		return rows
+		diags.AddError(diag.CodeE111, fmt.Sprintf("unknown combination identifier '%s'", e.Name), e.Span, "define the variable before final expression")
+		return nil
 	case ast.CombBinary:
-		left := evalComb(e.Left, series, origins, diags)
-		right := evalComb(e.Right, series, origins, diags)
+		left := evalComb(e.Left, series, origins, opts, diags)
+		right := evalComb(e.Right, series, origins, opts, diags)
 		if e.Op == "+" {
 			return zipRows(left, right, e, diags)
 		}
@@ -110,6 +121,17 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 		diags.AddError(diag.CodeE113, "unsupported combination node", expr.GetSpan(), "check final expression syntax")
 		return nil
 	}
+}
+
+func cloneRows(in []Row) []Row {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]Row, len(in))
+	for i, row := range in {
+		out[i] = row.clone()
+	}
+	return out
 }
 
 func zipRows(left, right []Row, op ast.CombBinary, diags *diag.Diagnostics) []Row {

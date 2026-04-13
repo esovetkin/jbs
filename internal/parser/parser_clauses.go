@@ -24,6 +24,23 @@ func (p *Parser) parseOptionalWithClause() []ast.WithItem {
 	return p.parseWithItems()
 }
 
+func (p *Parser) parseOptionalParamWithClauses() []ast.WithItem {
+	withItems := make([]ast.WithItem, 0)
+	for {
+		p.skipTriviaInline()
+		word, ok := p.peekWord()
+		if !ok || word != "with" {
+			break
+		}
+		p.consumeWord()
+		withItems = append(withItems, p.parseWithItems()...)
+	}
+	if len(withItems) == 0 {
+		return nil
+	}
+	return withItems
+}
+
 func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 	after := make([]string, 0)
 	withItems := make([]ast.WithItem, 0)
