@@ -1,10 +1,13 @@
-.PHONY: build test docs docs-check coverage clean
+.PHONY: build test fmt docs docs-check coverage clean
 
 build: docs
 	go build -o jbs ./cmd/jbs
 
 test: docs-check
 	go test ./...
+
+fmt:
+	go fmt ./...
 
 docs:
 	go run ./cmd/gendiagdocs
