@@ -1,3 +1,5 @@
+![pipeline](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/dev/pipeline.svg) ![coverage](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/dev/coverage.svg)
+
 # JBS: A Language that Compiles to JUBE Configurations
 
 Disclaimer: JBS is still in early development and may contain bugs. If you find one or want additional features or syntax changes, please open an issue or PR. At the moment, only YAML output is supported. XML output may be added once JBS stabilizes.

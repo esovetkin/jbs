@@ -12,6 +12,22 @@ stages:
   - deploy
   - jube_testing
 
+coverage_report:
+  extends: .template
+  stage: deploy
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+    - when: never
+  before_script:
+    - mkdir -p "$CUSTOM_CI_BUILDS_DIR/.cache/go-build" "$CUSTOM_CI_BUILDS_DIR/.cache/go-mod"
+    - export GOCACHE="$CUSTOM_CI_BUILDS_DIR/.cache/go-build"
+    - export GOMODCACHE="$CUSTOM_CI_BUILDS_DIR/.cache/go-mod"
+  script:
+    - module load Go
+    - make coverage
+  coverage: '/Overall coverage:\s+(\d+(?:\.\d+)?%)/'
+
 build_test_install:
   extends: .template
   stage: deploy
