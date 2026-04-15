@@ -222,6 +222,55 @@ submit run with p {
 	}
 }
 
+func TestSubmitDirectSeriesIdentifierStillLowersAsListLiteral(t *testing.T) {
+	src := `
+param p {
+  nodes = (1,2)
+  nodes
+}
+
+submit run with p {
+  account = "a"
+  queue = "q"
+  nodes = nodes
+  args_exec = "-lc hostname"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	var submitSet *lower.ParameterSet
+	for i := range doc.ParameterSet {
+		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
+			submitSet = &doc.ParameterSet[i]
+			break
+		}
+	}
+	if submitSet == nil {
+		t.Fatalf("submit parameterset missing")
+	}
+	foundNodes := false
+	foundTasks := false
+	for _, p := range submitSet.Parameter {
+		switch p.Name {
+		case "nodes":
+			foundNodes = true
+			if p.Value != "[1,2]" {
+				t.Fatalf("expected direct series submit assignment to lower as list literal, got %#v", p.Value)
+			}
+		case "tasks":
+			foundTasks = true
+			if p.Value != "[1,2]" {
+				t.Fatalf("expected auto tasks from nodes list literal, got %#v", p.Value)
+			}
+		}
+	}
+	if !foundNodes || !foundTasks {
+		t.Fatalf("expected nodes and tasks submit parameters, got %#v", submitSet.Parameter)
+	}
+}
+
 func TestSubmitCollisionEscapesImportedVariablesAndRewritesRefs(t *testing.T) {
 	src := `
 param p {

@@ -152,6 +152,34 @@ submit run
 
 Explicit submit field assignments are not available as identifiers to later submit field expressions in the same block.
 
+## Series-valued identifiers in submit fields
+
+If a submit key is assigned directly from a row-varying identifier, JBS warns with `W075`.
+
+Example:
+
+```jbs
+param p {
+        nodes = (1, 2)
+        nodes
+}
+
+submit run
+        with p
+{
+        account = "a"
+        queue = "q"
+        nodes = nodes
+        args_exec = "-lc hostname"
+}
+```
+
+`nodes = nodes` evaluates to a series and lowers as a list literal. For per-row scheduling values, prefer interpolation:
+
+```jbs
+nodes = "${nodes}"
+```
+
 Inside `submit`, key assignments can be separated by a newline or `;`:
 
 ```jbs

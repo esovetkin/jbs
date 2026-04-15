@@ -353,6 +353,119 @@ submit run {
 	}
 }
 
+func TestSubmitSeriesIdentifierAssignmentWarning(t *testing.T) {
+	cases := []struct {
+		name      string
+		src       string
+		wantW075  int
+		wantList  bool
+		wantListN int
+		valueKey  string
+	}{
+		{
+			name: "direct identifier with multi-row import warns",
+			src: `
+param p {
+  nodes = (1,2)
+  nodes
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  nodes = nodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantW075:  1,
+			wantList:  true,
+			wantListN: 2,
+			valueKey:  "nodes",
+		},
+		{
+			name: "interpolation string does not warn",
+			src: `
+param p {
+  nodes = (1,2)
+  nodes
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  nodes = "${nodes}"
+  args_exec = "-lc hostname"
+}
+`,
+			wantW075: 0,
+			valueKey: "nodes",
+		},
+		{
+			name: "single-row direct identifier does not warn",
+			src: `
+param p {
+  nodes = (1)
+  nodes
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  nodes = nodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantW075: 0,
+			valueKey: "nodes",
+		},
+		{
+			name: "non-identifier expression does not warn",
+			src: `
+param p {
+  nodes = (1,2)
+  nodes
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  nodes = nodes if true else nodes
+  args_exec = "-lc hostname"
+}
+`,
+			wantW075:  0,
+			wantList:  true,
+			wantListN: 2,
+			valueKey:  "nodes",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			prog := parser.Parse("in.jbs", tc.src, diags)
+			res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+			if got := diagCount(diags, "W075"); got != tc.wantW075 {
+				t.Fatalf("unexpected W075 count: got=%d want=%d diags=%s", got, tc.wantW075, diags.String())
+			}
+			spec := res.SubmitByName["run"]
+			if spec == nil {
+				t.Fatalf("missing submit spec for run")
+			}
+			value, ok := submitValueByName(spec, tc.valueKey)
+			if !ok {
+				t.Fatalf("missing submit value %q: %#v", tc.valueKey, spec.Values)
+			}
+			if tc.wantList {
+				if value.Value.Kind != eval.KindList {
+					t.Fatalf("expected list value for %q, got %#v", tc.valueKey, value.Value)
+				}
+				if gotN := len(value.Value.L); gotN != tc.wantListN {
+					t.Fatalf("unexpected list length for %q: got=%d want=%d", tc.valueKey, gotN, tc.wantListN)
+				}
+			}
+		})
+	}
+}
+
 func TestSubmitAutoAddsTasksFromNodesWhenMissing(t *testing.T) {
 	src := `
 submit run {

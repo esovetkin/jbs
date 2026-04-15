@@ -617,6 +617,9 @@ parameterset:
   - submit raw blocks (`preprocess`, `postprocess`)
   - string-valued explicit submit expressions (for example `nodes = "${nodes}"`)
 - helper aliases are rewritten in all submit values (explicit fields, defaults imported via submit-header `use`, and raw blocks).
+- assigning a submit key directly from a row-varying identifier (for example `nodes = nodes`) emits warning `W075`.
+- this warning is diagnostic-only; lowering still emits list literals for such direct series assignments.
+- for per-row submit values, prefer interpolation strings (for example `nodes = "${nodes}"`).
 - auto-injects `tasks` when missing:
   - if `nodes` is set/resolved, `tasks` is set to the same value.
   - otherwise `tasks` is set to `$nodes`.

@@ -251,6 +251,18 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 				"use flat tuple/list values only",
 			)
 		}
+		if field.Op == ast.AssignEq {
+			if ident, ok := submitDirectIdentifier(effectiveExpr); ok {
+				if rows, series := submitSeriesRowCount(value); series {
+					diags.AddWarning(
+						diag.CodeW075,
+						fmt.Sprintf("submit key '%s' is assigned from series variable '%s' (%d rows); lowering emits a list literal", field.Name, ident, rows),
+						field.Span,
+						`for per-row submit values use interpolation (for example: nodes = "${nodes}")`,
+					)
+				}
+			}
+		}
 		setValue(SubmitValue{
 			Name:  field.Name,
 			Mode:  mode,
@@ -385,6 +397,28 @@ func evalValueHasEmptyString(v eval.Value) bool {
 		return true
 	}
 	return false
+}
+
+func submitDirectIdentifier(expr ast.Expr) (string, bool) {
+	_, inner, isModeExpr := unwrapModeExpr(expr)
+	if isModeExpr {
+		expr = inner
+	}
+	ident, ok := expr.(ast.IdentExpr)
+	if !ok {
+		return "", false
+	}
+	return ident.Name, true
+}
+
+func submitSeriesRowCount(value eval.Value) (int, bool) {
+	switch value.Kind {
+	case eval.KindList, eval.KindTuple:
+		if n := len(value.L); n > 1 {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func isRawSubmitKey(name string) bool {
