@@ -29,6 +29,10 @@ func TestRewriteShellRefsEscapedDollarParity(t *testing.T) {
 		{name: "bracedTripleEscaped", in: `\\\${nodes}`, want: `\\\${nodes}`},
 		{name: "defaultOddEscaped", in: `\${nodes:-0}`, want: `\${nodes:-0}`},
 		{name: "defaultEvenActive", in: `\\${nodes:-0}`, want: `\\${_ja__nodes:-0}`},
+		{name: "nestedBareOddEscaped", in: `${nodes:-\$nodes}`, want: `${_ja__nodes:-\$nodes}`},
+		{name: "nestedBareEvenActive", in: `${nodes:-\\$nodes}`, want: `${_ja__nodes:-\\$_ja__nodes}`},
+		{name: "nestedBracedOddEscaped", in: `${nodes:-\${nodes}}`, want: `${_ja__nodes:-\${nodes}}`},
+		{name: "nestedBracedEvenActive", in: `${nodes:-\\${nodes}}`, want: `${_ja__nodes:-\\${_ja__nodes}}`},
 		{name: "assignEvenActive", in: `\\${nodes:=0}`, want: `\\${_ja__nodes:=0}`},
 		{name: "altEvenActive", in: `\\${nodes:+x}`, want: `\\${_ja__nodes:+x}`},
 		{name: "suffixEvenActive", in: `\\${nodes%.*}`, want: `\\${_ja__nodes%.*}`},
@@ -48,7 +52,7 @@ func TestRewriteShellRefsEscapedDollarParity(t *testing.T) {
 }
 
 func TestRewriteShellRefsBracedOperators(t *testing.T) {
-	aliases := map[string]string{"nodes": "_ja__nodes"}
+	aliases := map[string]string{"nodes": "_ja__nodes", "fallback": "_ja__fallback"}
 	tests := []struct {
 		name string
 		in   string
@@ -66,7 +70,8 @@ func TestRewriteShellRefsBracedOperators(t *testing.T) {
 		{name: "length", in: `${#nodes}`, want: `${#_ja__nodes}`},
 		{name: "indirect", in: `${!nodes}`, want: `${!_ja__nodes}`},
 		{name: "indirectTail", in: `${!nodes[@]}`, want: `${!_ja__nodes[@]}`},
-		{name: "nestedTailPreserved", in: `${nodes:-${fallback}}`, want: `${_ja__nodes:-${fallback}}`},
+		{name: "nestedTailBraced", in: `${nodes:-${fallback}}`, want: `${_ja__nodes:-${_ja__fallback}}`},
+		{name: "nestedTailUnbraced", in: `${nodes:-$fallback}`, want: `${_ja__nodes:-$_ja__fallback}`},
 		{name: "mixedLine", in: `$nodes ${nodes} ${nodes:-x}`, want: `$_ja__nodes ${_ja__nodes} ${_ja__nodes:-x}`},
 	}
 	for _, tc := range tests {
@@ -94,6 +99,7 @@ func TestRewriteShellRefsSafetyCases(t *testing.T) {
 		{name: "unknownAlias", in: `${unknown:-x}`, want: `${unknown:-x}`},
 		{name: "malformedOpen", in: `${nodes:-x`, want: `${nodes:-x`},
 		{name: "malformedShort", in: `${`, want: `${`},
+		{name: "malformedNestedTail", in: `${nodes:-${fallback}`, want: `${nodes:-${fallback}`},
 		{name: "escapedBraceInTail", in: `${nodes#\}}`, want: `${_ja__nodes#\}}`},
 	}
 	for _, tc := range tests {

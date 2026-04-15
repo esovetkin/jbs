@@ -231,11 +231,12 @@ param p {
 }
 
 submit run with p {
-  nodes = "${nodes:-0}"
+  nodes = "${nodes:-$nodes}"
   preprocess = {
     echo ${nodes} ${a}
     echo $nodes $a
     echo ${nodes:-x} ${nodes:=x} ${nodes:+x}
+    echo ${nodes:-$nodes} ${nodes:+${nodes}}
     echo ${nodes%.*} ${nodes%%.*} ${nodes#n} ${nodes##n}
     echo ${nodes:1} ${nodes:1:2}
     echo ${#nodes} ${!nodes}
@@ -244,7 +245,7 @@ submit run with p {
   postprocess = {
     echo ${nodes:+done}
   }
-  args_exec = "-lc 'echo ${nodes:1:2} ${nodes#n} ${#nodes} ${a}'"
+  args_exec = "-lc 'echo ${nodes:-$nodes} ${nodes:+${nodes}} ${nodes:1:2} ${nodes#n} ${#nodes} ${a}'"
 }
 `
 	doc, diags := compileDoc(t, src)
@@ -314,7 +315,7 @@ submit run with p {
 	for _, p := range submitSet.Parameter {
 		if p.Name == "nodes" {
 			foundSubmitNodes = true
-			if got, ok := p.Value.(string); !ok || got != "${_ja__nodes:-0}" {
+			if got, ok := p.Value.(string); !ok || got != "${_ja__nodes:-$_ja__nodes}" {
 				t.Fatalf("expected submit nodes to reference aliased import, got %#v", p.Value)
 			}
 		}
@@ -334,6 +335,9 @@ submit run with p {
 			if !strings.Contains(text, `echo ${_ja__nodes:-x} ${_ja__nodes:=x} ${_ja__nodes:+x}`) {
 				t.Fatalf("expected default/assign/alternate braced rewrite in preprocess, got %q", text)
 			}
+			if !strings.Contains(text, `echo ${_ja__nodes:-$_ja__nodes} ${_ja__nodes:+${_ja__nodes}}`) {
+				t.Fatalf("expected nested tail rewrite in preprocess, got %q", text)
+			}
 			if !strings.Contains(text, `echo ${_ja__nodes%.*} ${_ja__nodes%%.*} ${_ja__nodes#n} ${_ja__nodes##n}`) {
 				t.Fatalf("expected prefix/suffix braced rewrite in preprocess, got %q", text)
 			}
@@ -352,7 +356,7 @@ submit run with p {
 		}
 		if p.Name == "args_exec" {
 			foundArgsExec = true
-			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__nodes:1:2} ${_ja__nodes#n} ${#_ja__nodes} ${a}'" {
+			if got, ok := p.Value.(string); !ok || got != "-lc 'echo ${_ja__nodes:-$_ja__nodes} ${_ja__nodes:+${_ja__nodes}} ${_ja__nodes:1:2} ${_ja__nodes#n} ${#_ja__nodes} ${a}'" {
 				t.Fatalf("expected args_exec rewrite, got %#v", p.Value)
 			}
 		}

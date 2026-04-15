@@ -1,10 +1,11 @@
 // rewrites shell-style variable references in lowered submit
 //
 // walk strings/lists/tuples recursively and rewrite `$name` and
-// `${...}` variables heads using an alias map, preserves
-// non-matching/escaped/special forms. the aliases are needed to allow
-// variables used in submit inside JUBE not to collide with variables
-// used in JBS.
+// `${...}` variable references using an alias map. for braced forms it
+// rewrites the head and recursively rewrites nested refs in the tail.
+// non-matching/escaped/special forms are preserved. aliases are needed
+// to allow variables used in submit inside JUBE not to collide with
+// variables used in JBS.
 // escaped-dollar handling uses odd/even backslash parity:
 // odd count escapes `$`, even count keeps `$` active.
 package lower
@@ -120,7 +121,8 @@ func rewriteBracedShellRef(fragment string, aliases map[string]string) (string, 
 	if mapped, ok := aliases[name]; ok && mapped != "" {
 		alias = mapped
 	}
-	rewritten := fragment[:headStart] + alias + fragment[nameEnd:closeIdx+1]
+	tail := rewriteShellRefs(fragment[nameEnd:closeIdx], aliases)
+	rewritten := fragment[:headStart] + alias + tail + "}"
 	return rewritten, closeIdx + 1, true
 }
 
