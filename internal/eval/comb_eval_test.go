@@ -344,6 +344,130 @@ func TestEvalCombUnknownIdentifier(t *testing.T) {
 	}
 }
 
+func TestEvalCombIdentUsesSourceRowsClone(t *testing.T) {
+	origin := diag.NewSpan("src.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	source := []Row{
+		{Values: map[string]Cell{"a": {Value: Int(1), Origin: origin}}},
+		{Values: map[string]Cell{"a": {Value: Int(2), Origin: origin}}},
+	}
+	expr := ast.CombIdent{Name: "base"}
+	diags := &diag.Diagnostics{}
+
+	rows := evalComb(expr, map[string][]Value{}, map[string]diag.Span{}, CombEvalOptions{
+		SourceRows: map[string][]Row{"base": source},
+	}, diags)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 cloned rows, got %d", len(rows))
+	}
+	if len(diags.Items) != 0 {
+		t.Fatalf("did not expect diagnostics, got: %s", diags.String())
+	}
+	rows[0].Values["a"] = Cell{Value: Int(99), Origin: origin}
+	if source[0].Values["a"].Value.I != 1 {
+		t.Fatalf("expected source rows to stay unchanged after clone mutation, got %d", source[0].Values["a"].Value.I)
+	}
+}
+
+func TestCloneRows(t *testing.T) {
+	if got := cloneRows(nil); got != nil {
+		t.Fatalf("expected nil clone for nil input, got %#v", got)
+	}
+
+	origin := diag.NewSpan("src.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	in := []Row{
+		{Values: map[string]Cell{"x": {Value: Int(1), Origin: origin}}},
+	}
+	out := cloneRows(in)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 row clone, got %d", len(out))
+	}
+	out[0].Values["x"] = Cell{Value: Int(42), Origin: origin}
+	if in[0].Values["x"].Value.I != 1 {
+		t.Fatalf("expected cloneRows to deep-clone row value maps, got %d", in[0].Values["x"].Value.I)
+	}
+}
+
+func TestZipRowsEdgeCases(t *testing.T) {
+	op := ast.CombBinary{Op: "+", OpSpan: diag.NewSpan("in.jbs", diag.NewPos(3, 1, 3), diag.NewPos(4, 1, 4))}
+	diags := &diag.Diagnostics{}
+	if got := zipRows(nil, []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, op, diags); got != nil {
+		t.Fatalf("expected nil for empty left zip input, got %#v", got)
+	}
+	if got := zipRows([]Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, nil, op, diags); got != nil {
+		t.Fatalf("expected nil for empty right zip input, got %#v", got)
+	}
+
+	diags = &diag.Diagnostics{}
+	left := []Row{
+		{Values: map[string]Cell{"a": {Value: Int(1)}}},
+		{Values: map[string]Cell{"a": {Value: Int(2)}}},
+		{Values: map[string]Cell{"a": {Value: Int(3)}}},
+	}
+	right := []Row{
+		{Values: map[string]Cell{"b": {Value: String("x")}}},
+		{Values: map[string]Cell{"b": {Value: String("y")}}},
+	}
+	rows := zipRows(left, right, op, diags)
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 zipped rows, got %d", len(rows))
+	}
+	hasW101 := false
+	for _, d := range diags.Items {
+		if d.Code == "W101" {
+			hasW101 = true
+			break
+		}
+	}
+	if !hasW101 {
+		t.Fatalf("expected W101 for non-divisible broadcast with swapped lengths, got: %s", diags.String())
+	}
+}
+
+func TestZipRowsMergeConflictsAreSkipped(t *testing.T) {
+	op := ast.CombBinary{Op: "+", OpSpan: diag.NewSpan("in.jbs", diag.NewPos(5, 1, 5), diag.NewPos(6, 1, 6))}
+	left := []Row{
+		{Values: map[string]Cell{"x": {Value: Int(1), Origin: diag.NewSpan("l.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))}}},
+		{Values: map[string]Cell{"x": {Value: Int(2), Origin: diag.NewSpan("l.jbs", diag.NewPos(3, 1, 3), diag.NewPos(4, 1, 4))}}},
+	}
+	right := []Row{
+		{Values: map[string]Cell{"x": {Value: Int(1), Origin: diag.NewSpan("r.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))}}},
+		{Values: map[string]Cell{"x": {Value: Int(3), Origin: diag.NewSpan("r.jbs", diag.NewPos(3, 1, 3), diag.NewPos(4, 1, 4))}}},
+	}
+	diags := &diag.Diagnostics{}
+
+	rows := zipRows(left, right, op, diags)
+	if len(rows) != 1 {
+		t.Fatalf("expected exactly 1 merged row after skipping one conflict, got %d", len(rows))
+	}
+	if rows[0].Values["x"].Value.I != 1 {
+		t.Fatalf("expected surviving row to have x=1, got %#v", rows[0].Values["x"].Value)
+	}
+	e042 := 0
+	for _, d := range diags.Items {
+		if d.Code == "E042" {
+			e042++
+		}
+	}
+	if e042 != 1 {
+		t.Fatalf("expected exactly one E042 conflict, got %d: %s", e042, diags.String())
+	}
+}
+
+func TestCheckRepeatedIdentifiersSkipsEmptyName(t *testing.T) {
+	expr := ast.CombBinary{
+		Left:  ast.CombIdent{Name: ""},
+		Op:    "+",
+		Right: ast.CombIdent{Name: ""},
+	}
+	diags := &diag.Diagnostics{}
+	checkRepeatedIdentifiers(expr, diags)
+	for _, d := range diags.Items {
+		if d.Code == "E036" {
+			t.Fatalf("did not expect E036 for empty identifiers, got: %s", diags.String())
+		}
+	}
+}
+
 func TestEvalCombUnsupportedOperator(t *testing.T) {
 	opSpan := diag.NewSpan("in.jbs", diag.NewPos(70, 12, 9), diag.NewPos(71, 12, 10))
 	expr := ast.CombBinary{

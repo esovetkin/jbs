@@ -374,3 +374,244 @@ func TestSourceKeyResolutionHelpers(t *testing.T) {
 		t.Fatalf("sourceKeyFromImportedVar explicit kind mismatch: got=%+v", got)
 	}
 }
+
+func TestBuildWarningSourcesFallbackAndSkips(t *testing.T) {
+	paramSpan := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	letSpan := diag.NewSpan("in.jbs", diag.NewPos(3, 1, 1), diag.NewPos(4, 1, 2))
+
+	res := &Result{
+		Paramsets: []*Paramset{
+			nil, // skipped
+			{
+				Name:  "empty",
+				Block: ast.ParamBlock{Span: paramSpan},
+				Vars:  map[string][]eval.Value{}, // skipped because no exposed vars
+			},
+			{
+				Name:  "p",
+				Block: ast.ParamBlock{Span: paramSpan},
+				Vars: map[string][]eval.Value{
+					"x": {eval.Int(1)},
+				},
+				Origins: map[string]diag.Span{}, // fallback to block span
+				Order:   []string{"x"},
+			},
+		},
+		LetNamespaces: []*LetNamespace{
+			nil, // skipped
+			{
+				Name: "l_empty",
+				Vars: map[string]eval.Value{}, // skipped because no vars
+				Span: letSpan,
+			},
+			{
+				Name: "l",
+				Vars: map[string]eval.Value{
+					"y": eval.String("v"),
+				},
+				Origins: map[string]diag.Span{}, // fallback to let span
+				Span:    letSpan,
+			},
+		},
+	}
+
+	got := buildWarningSources(res)
+	if len(got) != 2 {
+		t.Fatalf("expected only non-empty param/let warning sources, got %#v", got)
+	}
+	seen := map[sourceKey]warningSource{}
+	for _, src := range got {
+		seen[src.Key] = src
+	}
+
+	p, ok := seen[sourceKey{Kind: SourceKindParam, Name: "p"}]
+	if !ok {
+		t.Fatalf("expected param warning source for p, got %#v", seen)
+	}
+	if p.VarOrigins["x"] != paramSpan {
+		t.Fatalf("expected param origin fallback to block span, got=%+v want=%+v", p.VarOrigins["x"], paramSpan)
+	}
+
+	l, ok := seen[sourceKey{Kind: SourceKindLet, Name: "l"}]
+	if !ok {
+		t.Fatalf("expected let warning source for l, got %#v", seen)
+	}
+	if l.VarOrigins["y"] != letSpan {
+		t.Fatalf("expected let origin fallback to let span, got=%+v want=%+v", l.VarOrigins["y"], letSpan)
+	}
+}
+
+func TestResolveSourceKeyAdditionalBranches(t *testing.T) {
+	exposed := map[sourceKey]map[string]diag.Span{
+		{Kind: SourceKindParam, Name: "q"}: {"x": {}},
+		{Kind: SourceKindLet, Name: "p"}:   {"y": {}},
+	}
+	sources := map[string]*ImportSource{
+		"s": {Name: "s", Kind: SourceKindParam},
+		"p": {Name: "p", Kind: ""}, // force exposed fallback path
+	}
+
+	if got := resolveSourceKey("", "", sources, exposed); got != (sourceKey{}) {
+		t.Fatalf("expected zero key for empty name, got %+v", got)
+	}
+	if got := resolveSourceKey(SourceKindLet, "x", sources, exposed); got != (sourceKey{Kind: SourceKindLet, Name: "x"}) {
+		t.Fatalf("expected explicit kind resolution, got %+v", got)
+	}
+	if got := resolveSourceKey("", "s", sources, exposed); got != (sourceKey{Kind: SourceKindParam, Name: "s"}) {
+		t.Fatalf("expected source-kind resolution, got %+v", got)
+	}
+	if got := resolveSourceKey("", "q", nil, exposed); got != (sourceKey{Kind: SourceKindParam, Name: "q"}) {
+		t.Fatalf("expected param exposed fallback, got %+v", got)
+	}
+	if got := resolveSourceKey("", "p", sources, exposed); got != (sourceKey{Kind: SourceKindLet, Name: "p"}) {
+		t.Fatalf("expected let exposed fallback when source kind missing, got %+v", got)
+	}
+	if got := resolveSourceKey("", "unknown", nil, exposed); got != (sourceKey{Name: "unknown"}) {
+		t.Fatalf("expected name-only fallback for unknown source, got %+v", got)
+	}
+}
+
+func TestCollectSubmitStringRefsInvalidAndEscapedCases(t *testing.T) {
+	base := diag.NewPos(10, 3, 5)
+	text := `\$skip ${} $ ${ok}
+${also:-${nested}} ${bad`
+
+	refs := collectSubmitStringRefs(text, base, "in.jbs")
+	got := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		got = append(got, ref.Name)
+	}
+	want := []string{"ok", "also"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected submit string refs: got=%#v want=%#v", got, want)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected exactly 2 refs, got %#v", refs)
+	}
+	if refs[0].Span.Start.Line != 3 || refs[1].Span.Start.Line != 4 {
+		t.Fatalf("expected line tracking across newlines, got refs=%#v", refs)
+	}
+}
+
+func TestCollectExprStringRefsWithAdditionalWrappers(t *testing.T) {
+	sp := diag.NewSpan("in.jbs", diag.NewPos(50, 10, 7), diag.NewPos(60, 10, 17))
+	expr := ast.ConvertExpr{
+		Target: "tuple",
+		Expr: ast.UnaryExpr{
+			Op: "-",
+			Expr: ast.BinaryExpr{
+				Left: ast.StringExpr{Value: "$a", Span: sp},
+				Op:   "+",
+				Right: ast.CompareExpr{
+					Left: ast.StringExpr{Value: "${b}", Span: sp},
+					Op:   "==",
+					Right: ast.ConditionalExpr{
+						Then: ast.StringExpr{Value: "$c", Span: sp},
+						Cond: ast.BoolExpr{Value: true, Span: sp},
+						Else: ast.CallExpr{
+							Callee: ast.IdentExpr{Name: "f", Span: sp},
+							Args: []ast.Expr{
+								ast.StringExpr{Value: "$d", Span: sp},
+							},
+							Span: sp,
+						},
+						Span: sp,
+					},
+					Span: sp,
+				},
+				Span: sp,
+			},
+			Span: sp,
+		},
+		Span: sp,
+	}
+
+	refs := collectExprStringRefsWith(expr, func(text string, base diag.Position, file string) []varRef {
+		return []varRef{{Name: text, Span: diag.NewSpan(file, base, base)}}
+	})
+	got := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		got = append(got, ref.Name)
+	}
+	want := []string{"$a", "${b}", "$c", "$d"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected wrapped string refs: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestValidateStepVarReferencesW313ImportSpanFallback(t *testing.T) {
+	originSpan := diag.NewSpan("in.jbs", diag.NewPos(1, 2, 3), diag.NewPos(2, 2, 4))
+	stepSpan := diag.NewSpan("in.jbs", diag.NewPos(10, 5, 1), diag.NewPos(20, 5, 11))
+	ps := &Paramset{
+		Name: "p",
+		Block: ast.ParamBlock{
+			Span: originSpan,
+		},
+		Vars: map[string][]eval.Value{
+			"x": {eval.Int(1)},
+		},
+		Origins: map[string]diag.Span{
+			"x": originSpan,
+		},
+		Order: []string{"x"},
+	}
+	res := &Result{
+		Program: ast.Program{},
+		Paramsets: []*Paramset{
+			ps,
+		},
+		ParamByName: map[string]*Paramset{
+			"p": ps,
+		},
+		DoBlocks: []ast.DoBlock{
+			{
+				Name:      "s0",
+				Body:      "echo $x",
+				BodyStart: stepSpan.Start,
+				Span:      stepSpan,
+			},
+			{
+				Name:      "s1",
+				Body:      "echo nothing",
+				BodyStart: stepSpan.Start,
+				Span:      stepSpan,
+			},
+		},
+		StepImportByName: map[string]*StepImportPlan{
+			"s0": {
+				Effective: map[string]VarOrigin{
+					"x": {Paramset: "p", Kind: SourceKindParam, SourceVar: "x", Span: stepSpan},
+				},
+				ExplicitDelta: []PlannedImport{
+					{Source: "p", Kind: SourceKindParam, Visible: "x", SourceVar: "x", Span: stepSpan},
+				},
+			},
+			"s1": {
+				Effective: map[string]VarOrigin{
+					"x": {Paramset: "p", Kind: SourceKindParam, SourceVar: "x", Span: stepSpan},
+				},
+				// zero span to trigger fallback to source span in W313 emission
+				ExplicitDelta: []PlannedImport{
+					{Source: "p", Kind: SourceKindParam, Visible: "x", SourceVar: "x"},
+				},
+			},
+		},
+	}
+	buildImportSources(res)
+	diags := &diag.Diagnostics{}
+	validateStepVarReferences(res, diags)
+
+	if got := countDiagCode(diags, "W313"); got != 1 {
+		t.Fatalf("expected one W313 warning, got %d: %s", got, diags.String())
+	}
+	for _, d := range diags.Items {
+		if d.Code != "W313" {
+			continue
+		}
+		if d.Span != originSpan {
+			t.Fatalf("expected W313 span fallback to source origin span, got=%+v want=%+v", d.Span, originSpan)
+		}
+		return
+	}
+	t.Fatalf("expected W313 diagnostic, got: %s", diags.String())
+}

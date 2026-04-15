@@ -72,19 +72,6 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			v := eval.EvalExprWithOptions(assign.Expr, values, diags, eval.ExprOptions{
 				Context: eval.EvalCtxGlobalAssign,
 			})
-			if v.Kind != eval.KindString {
-				code := diag.CodeE301
-				if assign.Name == "jbs_outpath" {
-					code = diag.CodeE302
-				}
-				diags.AddError(
-					code,
-					fmt.Sprintf("%s must be a simple string literal", assign.Name),
-					assign.Span,
-					"assign a plain quoted string",
-				)
-				continue
-			}
 			values[assign.Name] = v
 			delete(modes, assign.Name)
 			spans[assign.Name] = assign.Span
@@ -140,9 +127,6 @@ func hasNestedList(v eval.Value) bool {
 	}
 	for _, item := range v.L {
 		if item.Kind == eval.KindList || item.Kind == eval.KindTuple {
-			return true
-		}
-		if hasNestedList(item) {
 			return true
 		}
 	}

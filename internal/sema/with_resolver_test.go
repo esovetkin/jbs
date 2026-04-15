@@ -261,3 +261,83 @@ func TestWithResolverAppliesAliasToVisibleAndSourceExpr(t *testing.T) {
 		t.Fatalf("unexpected full-source alias expansion: %#v", expanded[1])
 	}
 }
+
+func TestWithResolverResolveNamedSourceUnknown(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 2, 1), diag.NewPos(1, 2, 2))
+	item := ast.WithItem{Name: "missing", Span: span}
+	resolver := WithResolver{
+		Params:  map[string]*Paramset{},
+		Lets:    map[string]*LetNamespace{},
+		Sources: map[string]*ImportSource{},
+	}
+
+	src, issue := resolver.resolveNamedSource("missing", item, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     false,
+	})
+	if src != nil {
+		t.Fatalf("expected nil source for unknown source, got %#v", src)
+	}
+	if issue == nil {
+		t.Fatalf("expected unknown-source issue")
+	}
+	if issue.Kind != IssueUnknownSource {
+		t.Fatalf("expected IssueUnknownSource, got %v", issue.Kind)
+	}
+	if issue.Source != "missing" || issue.Span != span {
+		t.Fatalf("unexpected unknown-source issue payload: %#v", issue)
+	}
+}
+
+func TestWithResolverResolveFallbackSourceAmbiguous(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 3, 1), diag.NewPos(1, 3, 2))
+	item := ast.WithItem{Name: "x", From: "same", Span: span}
+	param := &Paramset{
+		Name:  "same",
+		Vars:  map[string][]eval.Value{"x": {eval.Int(1)}},
+		Order: []string{"x"},
+	}
+	let := &LetNamespace{
+		Name: "same",
+		Vars: map[string]eval.Value{"x": eval.String("a")},
+	}
+	resolver := WithResolver{
+		Params: map[string]*Paramset{
+			"same": param,
+		},
+		Lets: map[string]*LetNamespace{
+			"same": let,
+		},
+		Sources: map[string]*ImportSource{
+			"same": importSourceFromParam(param),
+		},
+	}
+
+	src, issue := resolver.resolveFallbackSource("same", item, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	if src != nil {
+		t.Fatalf("expected nil source for ambiguous fallback, got %#v", src)
+	}
+	if issue == nil {
+		t.Fatalf("expected ambiguous-source issue")
+	}
+	if issue.Kind != IssueAmbiguousSource {
+		t.Fatalf("expected IssueAmbiguousSource, got %v", issue.Kind)
+	}
+	if issue.Source != "same" || issue.Span != span {
+		t.Fatalf("unexpected ambiguous issue payload: %#v", issue)
+	}
+}
+
+func TestSourceKindAllowedDefault(t *testing.T) {
+	opts := WithResolveOptions{AllowParam: true, AllowLet: true}
+	if sourceKindAllowed(SourceKind("custom"), opts) {
+		t.Fatalf("expected custom source kind to be disallowed")
+	}
+}

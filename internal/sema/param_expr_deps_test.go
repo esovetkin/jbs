@@ -183,3 +183,125 @@ func TestWarnUnusedParamContributors_SelfRebindMarksImportedUsed(t *testing.T) {
 		t.Fatalf("did not expect W312 for self-rebind, got: %s", diags.String())
 	}
 }
+
+func TestCompareContributorID_AllBranches(t *testing.T) {
+	tests := []struct {
+		name string
+		a    contributorID
+		b    contributorID
+		want int
+	}{
+		{
+			name: "kind less",
+			a:    makeLocalContributorID("x"),
+			b:    makeImportedContributorID("x", "p", "x"),
+			want: -1,
+		},
+		{
+			name: "kind greater",
+			a:    makeImportedContributorID("x", "p", "x"),
+			b:    makeLocalContributorID("x"),
+			want: 1,
+		},
+		{
+			name: "visible less",
+			a:    makeLocalContributorID("a"),
+			b:    makeLocalContributorID("b"),
+			want: -1,
+		},
+		{
+			name: "visible greater",
+			a:    makeLocalContributorID("b"),
+			b:    makeLocalContributorID("a"),
+			want: 1,
+		},
+		{
+			name: "source less",
+			a:    makeImportedContributorID("x", "a", "v"),
+			b:    makeImportedContributorID("x", "b", "v"),
+			want: -1,
+		},
+		{
+			name: "source greater",
+			a:    makeImportedContributorID("x", "b", "v"),
+			b:    makeImportedContributorID("x", "a", "v"),
+			want: 1,
+		},
+		{
+			name: "source var less",
+			a:    makeImportedContributorID("x", "p", "a"),
+			b:    makeImportedContributorID("x", "p", "b"),
+			want: -1,
+		},
+		{
+			name: "source var greater",
+			a:    makeImportedContributorID("x", "p", "b"),
+			b:    makeImportedContributorID("x", "p", "a"),
+			want: 1,
+		},
+		{
+			name: "equal",
+			a:    makeImportedContributorID("x", "p", "a"),
+			b:    makeImportedContributorID("x", "p", "a"),
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compareContributorID(tt.a, tt.b)
+			switch {
+			case tt.want < 0 && got >= 0:
+				t.Fatalf("expected negative compare, got %d", got)
+			case tt.want > 0 && got <= 0:
+				t.Fatalf("expected positive compare, got %d", got)
+			case tt.want == 0 && got != 0:
+				t.Fatalf("expected zero compare, got %d", got)
+			}
+		})
+	}
+}
+
+func TestWarnUnusedParamContributors_AdditionalBranches(t *testing.T) {
+	sp := func(off int) diag.Span {
+		return diag.NewSpan("in.jbs", diag.NewPos(off, 1, off+1), diag.NewPos(off+1, 1, off+2))
+	}
+
+	t.Run("both empty returns early", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		warnUnusedParamContributors(nil, nil, nil, nil, []string{"x"}, diags)
+		if len(diags.Items) != 0 {
+			t.Fatalf("expected no diagnostics on empty inputs, got: %s", diags.String())
+		}
+	})
+
+	t.Run("covers imported fallback and seed imported roots", func(t *testing.T) {
+		assigns := map[string]localAssignMeta{
+			// z not listed in order to exercise localByVisible map fallback from assigns iteration
+			"z": {Expr: ast.StringExpr{Value: "z", Span: sp(1)}, Span: sp(1)},
+			"y": {Expr: ast.StringExpr{Value: "y", Span: sp(3)}, Span: sp(3)},
+		}
+		imported := map[string]importedContribution{
+			// "imp" absent from importedOrder to exercise importedByVisible fallback branch
+			"imp": {Source: "base", SourceVar: "imp", Span: sp(2)},
+		}
+		diags := &diag.Diagnostics{}
+		warnUnusedParamContributors(
+			assigns,
+			[]string{"ghost", "y"}, // y warning path; z still covers fallback insertion branch
+			imported,
+			[]string{"ghost_import"}, // missing import in imported map => skip branch
+			[]string{"", "imp"},      // "" hits root-skip, imp hits imported-root reachability path
+			diags,
+		)
+		if countDiagCode(diags, "W312") != 1 {
+			t.Fatalf("expected exactly one W312 (for local y), got %d: %s", countDiagCode(diags, "W312"), diags.String())
+		}
+		if !containsWarningForVar(diags, "y") {
+			t.Fatalf("expected local unused warning for y, got: %s", diags.String())
+		}
+		if strings.Contains(diags.String(), "imported variable 'imp' from source 'base'") {
+			t.Fatalf("did not expect imported warning for seeded imported root, got: %s", diags.String())
+		}
+	})
+}
