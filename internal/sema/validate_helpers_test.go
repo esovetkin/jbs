@@ -60,6 +60,19 @@ func hasW312For(diags *diag.Diagnostics, variable string) bool {
 	return false
 }
 
+func hasW313For(diags *diag.Diagnostics, step, variable string) bool {
+	target := "variable '" + variable + "' is imported in step '" + step + "'"
+	for _, d := range diags.Items {
+		if d.Code != "W313" {
+			continue
+		}
+		if strings.Contains(d.Message, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func w310HintFor(diags *diag.Diagnostics, param, variable string) string {
 	target := "exposed variable '" + variable + "' from param '" + param + "'"
 	for _, d := range diags.Items {

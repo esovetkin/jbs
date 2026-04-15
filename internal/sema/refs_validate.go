@@ -27,6 +27,14 @@ type varRef struct {
 	Span diag.Span
 }
 
+type stepUnusedImport struct {
+	StepName   string
+	Visible    string
+	Source     string
+	SourceVar  string
+	ImportSpan diag.Span
+}
+
 func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 	type sourceCandidate struct {
 		Source    string
@@ -35,6 +43,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 	exposedBySource := make(map[string]map[string]diag.Span)
 	candidatesByVar := make(map[string][]sourceCandidate)
 	used := make(map[string]map[string]bool)
+	stepUnused := make(map[string]stepUnusedImport)
 
 	for _, sourceName := range slices.Sorted(maps.Keys(res.ImportSourceByName)) {
 		src := res.ImportSourceByName[sourceName]
@@ -134,12 +143,79 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			warnMissing(stepName, ref, candidates)
 		}
 	}
-	processStep := func(stepName string, withItems []ast.WithItem, refs []varRef) {
+	resolveEffectiveImports := func(stepName string, withItems []ast.WithItem) map[string][]importedVar {
 		imports := resolveImportedVars(withItems, res.ImportSourceByName)
 		if plan := res.StepImportByName[stepName]; plan != nil {
 			imports = resolveImportedVarsFromPlan(plan)
 		}
-		processStepWithImports(stepName, imports, refs)
+		return imports
+	}
+	resolveExplicitImports := func(stepName string, withItems []ast.WithItem) map[string][]importedVar {
+		if plan := res.StepImportByName[stepName]; plan != nil {
+			imports := make(map[string][]importedVar, len(plan.ExplicitDelta))
+			for _, imp := range plan.ExplicitDelta {
+				if imp.Full {
+					src := res.ImportSourceByName[imp.Source]
+					if src == nil {
+						continue
+					}
+					for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
+						imports[name] = append(imports[name], importedVar{
+							Name:      name,
+							SourceVar: name,
+							Paramset:  imp.Source,
+							Kind:      imp.Kind,
+							Span:      imp.Span,
+						})
+					}
+					continue
+				}
+				sourceVar := imp.SourceVar
+				if sourceVar == "" {
+					sourceVar = imp.Visible
+				}
+				imports[imp.Visible] = append(imports[imp.Visible], importedVar{
+					Name:      imp.Visible,
+					SourceVar: sourceVar,
+					Paramset:  imp.Source,
+					Kind:      imp.Kind,
+					Span:      imp.Span,
+				})
+			}
+			return imports
+		}
+		return resolveImportedVars(withItems, res.ImportSourceByName)
+	}
+	collectStepUnusedImports := func(stepName string, imports map[string][]importedVar, refs []varRef) {
+		if len(imports) == 0 {
+			return
+		}
+		referenced := make(map[string]struct{}, len(refs))
+		for _, ref := range refs {
+			referenced[ref.Name] = struct{}{}
+		}
+		for visible, origins := range imports {
+			if _, ok := referenced[visible]; ok {
+				continue
+			}
+			for _, origin := range origins {
+				sourceVar := origin.SourceVar
+				if sourceVar == "" {
+					sourceVar = origin.Name
+				}
+				key := stepName + "::" + visible + "::" + origin.Paramset + "::" + sourceVar
+				if _, ok := stepUnused[key]; ok {
+					continue
+				}
+				stepUnused[key] = stepUnusedImport{
+					StepName:   stepName,
+					Visible:    visible,
+					Source:     origin.Paramset,
+					SourceVar:  sourceVar,
+					ImportSpan: origin.Span,
+				}
+			}
+		}
 	}
 
 	for _, block := range res.DoBlocks {
@@ -148,7 +224,10 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			base = block.Span.Start
 		}
 		refs := collectShellLikeRefs(block.Body, base, block.Span.File)
-		processStep(block.Name, block.WithItems, refs)
+		effectiveImports := resolveEffectiveImports(block.Name, block.WithItems)
+		processStepWithImports(block.Name, effectiveImports, refs)
+		explicitImports := resolveExplicitImports(block.Name, block.WithItems)
+		collectStepUnusedImports(block.Name, explicitImports, refs)
 	}
 	for _, block := range res.Submits {
 		for _, useName := range block.UseNames {
@@ -167,10 +246,8 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 
-		imports := resolveImportedVars(block.WithItems, res.ImportSourceByName)
-		if plan := res.StepImportByName[block.Name]; plan != nil {
-			imports = resolveImportedVarsFromPlan(plan)
-		}
+		imports := resolveEffectiveImports(block.Name, block.WithItems)
+		explicitImports := resolveExplicitImports(block.Name, block.WithItems)
 		if spec := res.SubmitByName[block.Name]; spec != nil {
 			for _, helper := range spec.Helpers {
 				imports[helper.Original] = append(imports[helper.Original], importedVar{
@@ -210,6 +287,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 		processStepWithImports(block.Name, imports, refs)
+		collectStepUnusedImports(block.Name, explicitImports, refs)
 	}
 	for _, stmt := range res.Program.Stmts {
 		block, ok := stmt.(ast.AnalyseBlock)
@@ -250,6 +328,37 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				hint,
 			)
 		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(stepUnused)) {
+		item := stepUnused[key]
+		if item.Source == "" || item.SourceVar == "" {
+			continue
+		}
+		if !used[item.Source][item.SourceVar] {
+			continue
+		}
+		sourceSpan := diag.Span{}
+		if byVar, ok := exposedBySource[item.Source]; ok {
+			sourceSpan = byVar[item.SourceVar]
+		}
+		span := item.ImportSpan
+		if span.IsZero() {
+			span = sourceSpan
+		}
+		related := []diag.RelatedSpan{}
+		if !sourceSpan.IsZero() {
+			related = append(related, diag.RelatedSpan{
+				Message: fmt.Sprintf("source '%s'", item.Source),
+				Span:    sourceSpan,
+			})
+		}
+		diags.AddWarning(
+			diag.CodeW313,
+			fmt.Sprintf("variable '%s' is imported in step '%s' but not referenced in this step", item.Visible, item.StepName),
+			span,
+			"remove it from the with-clause or reference it in this step",
+			related...,
+		)
 	}
 }
 

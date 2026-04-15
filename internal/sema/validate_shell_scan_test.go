@@ -381,6 +381,134 @@ submit run with p {
 	}
 }
 
+func TestStepLocalUnusedImportWarnsEvenIfUsedInOtherStep(t *testing.T) {
+	diags := analyzeShellSrc(t, `
+param p {
+  nodes = (1)
+  nodes
+}
+do s with p {
+  echo "\$nodes"
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  args_exec = "\\\\$nodes ${nodes}"
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW313For(diags, "s", "nodes") {
+		t.Fatalf("expected W313 for step-local unused import s.nodes, got: %s", diags.String())
+	}
+	if got := diagCount(diags, "W313"); got != 1 {
+		t.Fatalf("expected exactly one W313, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 when nodes is used in another step, got %d: %s", got, diags.String())
+	}
+}
+
+func TestStepLocalUnusedImportSkippedWhenGlobalW310Applies(t *testing.T) {
+	diags := analyzeShellSrc(t, `
+param p {
+  nodes = (1)
+  nodes
+}
+do s with p {
+  echo "\$nodes"
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW310For(diags, "p", "nodes") {
+		t.Fatalf("expected W310 for globally unused p.nodes, got: %s", diags.String())
+	}
+	if got := diagCount(diags, "W313"); got != 0 {
+		t.Fatalf("did not expect W313 when W310 already covers global unused variable, got %d: %s", got, diags.String())
+	}
+}
+
+func TestStepLocalUnusedImportInSubmitStep(t *testing.T) {
+	diags := analyzeShellSrc(t, `
+param p {
+  nodes = (1,2)
+  nodes
+}
+do prep with nodes from p {
+  echo ${nodes}
+}
+submit run with nodes from p {
+  account = "a"
+  queue = "q"
+  tasks = 1
+  args_exec = "echo done"
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW313For(diags, "run", "nodes") {
+		t.Fatalf("expected W313 for submit step run.nodes, got: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 because nodes is used in prep, got %d: %s", got, diags.String())
+	}
+}
+
+func TestStepLocalUnusedImportWithAfterUsesExplicitDeltaOnly(t *testing.T) {
+	diags := analyzeShellSrc(t, `
+param p {
+  a = (1,2)
+  b = ("x","y")
+  a + b
+}
+do s0 with a from p {
+  echo ${a}
+}
+do s1 after s0 with b from p {
+  echo ${a}
+}
+do s2 after s1 with b from p {
+  echo ${b}
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW313For(diags, "s1", "b") {
+		t.Fatalf("expected W313 for explicit delta import b in s1, got: %s", diags.String())
+	}
+	if hasW313For(diags, "s1", "a") {
+		t.Fatalf("did not expect W313 for inherited variable a in s1, got: %s", diags.String())
+	}
+}
+
+func TestStepLocalUnusedImportWarnsForLetSource(t *testing.T) {
+	diags := analyzeShellSrc(t, `
+let l {
+  x = "v"
+}
+do s0 with l {
+  echo hi
+}
+do s1 with x from l {
+  echo ${x}
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW313For(diags, "s0", "x") {
+		t.Fatalf("expected W313 for step-local unused let import s0.x, got: %s", diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 for l.x because it is used in s1, got %d: %s", got, diags.String())
+	}
+}
+
 func TestQualifiedLikeShellReferenceInStepDoesNotRaiseE100(t *testing.T) {
 	diags := analyzeShellSrc(t, `
 let l {

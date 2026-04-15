@@ -130,6 +130,45 @@ do run max_async=-1 procs=-1 iterations=0 {
 	}
 }
 
+func TestRunCheckReportsStepLocalUnusedImportWarningW313(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "unused_import_w313.jbs")
+	src := `
+param p {
+  nodes = (1)
+  nodes
+}
+do s with p {
+  echo "\$nodes"
+}
+submit run with p {
+  account = "a"
+  queue = "q"
+  args_exec = "\\\\$nodes ${nodes}"
+}
+`
+	if err := os.WriteFile(in, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errBuf bytes.Buffer
+	code := Run([]string{"-c", in}, &out, &errBuf)
+	if code != 0 {
+		t.Fatalf("expected exit 0 for warning-only check, got %d stderr=%s", code, errBuf.String())
+	}
+	text := errBuf.String()
+	if !strings.Contains(text, "W313") {
+		t.Fatalf("expected W313 in check output, got: %s", text)
+	}
+	if !strings.Contains(text, "step 's'") {
+		t.Fatalf("expected step name in W313 message, got: %s", text)
+	}
+	if strings.Contains(text, "W310") {
+		t.Fatalf("did not expect W310 in this scenario, got: %s", text)
+	}
+}
+
 func TestRunNoArgsShowsHelp(t *testing.T) {
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
