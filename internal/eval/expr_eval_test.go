@@ -948,22 +948,86 @@ func TestEvalBinaryLogicalOperatorTypeError(t *testing.T) {
 }
 
 func TestEvalBinaryStringOperations(t *testing.T) {
-	diagsConcat := &diag.Diagnostics{}
-	gotConcat := evalBinary("+", String("ab"), Int(3), spanAt(62, 1), diagsConcat, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
-	if diagsConcat.HasErrors() {
-		t.Fatalf("unexpected errors for string concat: %s", diagsConcat.String())
+	type tc struct {
+		name      string
+		op        string
+		l         Value
+		r         Value
+		want      Value
+		wantError string
 	}
-	if gotConcat.Kind != KindString || gotConcat.S != "ab3" {
-		t.Fatalf("unexpected string concat result: %#v", gotConcat)
+	tests := []tc{
+		{
+			name: "concat string plus int",
+			op:   "+",
+			l:    String("ab"),
+			r:    Int(3),
+			want: String("ab3"),
+		},
+		{
+			name: "repeat string times int",
+			op:   "*",
+			l:    String("ab"),
+			r:    Int(3),
+			want: String("ababab"),
+		},
+		{
+			name: "repeat int times string",
+			op:   "*",
+			l:    Int(3),
+			r:    String("ab"),
+			want: String("ababab"),
+		},
+		{
+			name: "repeat string times zero",
+			op:   "*",
+			l:    String("ab"),
+			r:    Int(0),
+			want: String(""),
+		},
+		{
+			name:      "repeat string times negative",
+			op:        "*",
+			l:         String("ab"),
+			r:         Int(-1),
+			want:      Null(),
+			wantError: "E105",
+		},
+		{
+			name:      "repeat string times float",
+			op:        "*",
+			l:         String("ab"),
+			r:         Float(2.5),
+			want:      Null(),
+			wantError: "E105",
+		},
+		{
+			name:      "unsupported string operator",
+			op:        "-",
+			l:         String("ab"),
+			r:         Int(1),
+			want:      Null(),
+			wantError: "E105",
+		},
 	}
 
-	diagsInvalid := &diag.Diagnostics{}
-	gotInvalid := evalBinary("*", String("ab"), Int(3), spanAt(63, 1), diagsInvalid, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
-	if gotInvalid.Kind != KindNull {
-		t.Fatalf("expected null for invalid string op, got %#v", gotInvalid)
-	}
-	if count := diagCount(diagsInvalid, "E105"); count != 1 {
-		t.Fatalf("expected one E105, got %d: %s", count, diagsInvalid.String())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := evalBinary(tc.op, tc.l, tc.r, spanAt(62, 1), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
+			if !Equal(got, tc.want) {
+				t.Fatalf("unexpected result: got=%#v want=%#v", got, tc.want)
+			}
+			if tc.wantError == "" {
+				if diags.HasErrors() {
+					t.Fatalf("unexpected errors: %s", diags.String())
+				}
+				return
+			}
+			if count := diagCount(diags, tc.wantError); count != 1 {
+				t.Fatalf("expected one %s, got %d: %s", tc.wantError, count, diags.String())
+			}
+		})
 	}
 }
 

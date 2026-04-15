@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"strings"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -169,11 +170,18 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 		return evalVectorBinary(op, l, r, at, diags, opts, ctx)
 	}
 	if l.Kind == KindString || r.Kind == KindString {
-		if op != "+" {
-			diags.AddError(diag.CodeE105, fmt.Sprintf("operator '%s' is not supported for strings", op), at, "use '+' for string concatenation")
+		switch op {
+		case "+":
+			return String(l.String() + r.String())
+		case "*":
+			if l.Kind == KindString {
+				return evalStringRepeat(l, r, at, diags)
+			}
+			return evalStringRepeat(r, l, at, diags)
+		default:
+			diags.AddError(diag.CodeE105, fmt.Sprintf("operator '%s' is not supported for strings", op), at, "use '+' for concatenation or '*' for repetition")
 			return Null()
 		}
-		return String(l.String() + r.String())
 	}
 	if !isNumeric(l) || !isNumeric(r) {
 		diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' requires numeric or string operands", op), at, "check operand types")
@@ -230,6 +238,23 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 		diags.AddError(diag.CodeE109, fmt.Sprintf("unknown operator '%s'", op), at, "use supported operators")
 		return Null()
 	}
+}
+
+func evalStringRepeat(str Value, count Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if count.Kind != KindInt {
+		diags.AddError(diag.CodeE105, "string '*' requires integer repeat count", at, "use string * int or int * string")
+		return Null()
+	}
+	if count.I < 0 {
+		diags.AddError(diag.CodeE105, "string repetition count must be non-negative", at, "use an integer value >= 0")
+		return Null()
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if count.I > maxInt {
+		diags.AddError(diag.CodeE105, "string repetition count is too large", at, "use a smaller repeat count")
+		return Null()
+	}
+	return String(strings.Repeat(str.S, int(count.I)))
 }
 
 func evalParamTupleBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {

@@ -192,6 +192,19 @@ Supported assignment expressions:
   - `tuple(expr)`
   - `list(expr)`
 
+String arithmetic in assignment expressions:
+
+- `string + value` concatenates (`value` is stringified)
+- `string * int` repeats the string
+- `int * string` repeats the string
+- repetition count must be non-negative
+
+```jbs
+x = "ha" * 3     # "hahaha"
+y = 2 * "ok"     # "okok"
+z = "a" + 5      # "a5"
+```
+
 Supported assignment operators in assignment statements:
 
 - `=`

@@ -123,6 +123,63 @@ submit run
 	}
 }
 
+func TestStringRepetitionInLetAndParamAssignments(t *testing.T) {
+	src := `
+jbs_comment = "a"
+jbs_comment *= 4
+
+let l {
+  repeated = "ha" * 3
+  mirrored = 2 * "ok"
+}
+
+param p {
+  s = ("ab" * 3, "x")
+  t = (1, 2)
+  s + t
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("string_repeat.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected sema errors: %s", diags.String())
+	}
+
+	if got := res.Globals.Values["jbs_comment"]; got.Kind != eval.KindString || got.S != "aaaa" {
+		t.Fatalf("unexpected global jbs_comment value: %#v", got)
+	}
+
+	ns := res.LetByName["l"]
+	if ns == nil {
+		t.Fatalf("expected let namespace 'l'")
+	}
+	if got := ns.Vars["repeated"]; got.Kind != eval.KindString || got.S != "hahaha" {
+		t.Fatalf("unexpected let repeated value: %#v", got)
+	}
+	if got := ns.Vars["mirrored"]; got.Kind != eval.KindString || got.S != "okok" {
+		t.Fatalf("unexpected let mirrored value: %#v", got)
+	}
+
+	ps := res.ParamByName["p"]
+	if ps == nil {
+		t.Fatalf("expected paramset 'p'")
+	}
+	sVals := ps.Vars["s"]
+	if len(sVals) != 2 {
+		t.Fatalf("unexpected row count for s: got=%d want=2", len(sVals))
+	}
+	if sVals[0].Kind != eval.KindString || sVals[0].S != "ababab" {
+		t.Fatalf("unexpected s[0]: %#v", sVals[0])
+	}
+	if sVals[1].Kind != eval.KindString || sVals[1].S != "x" {
+		t.Fatalf("unexpected s[1]: %#v", sVals[1])
+	}
+}
+
 func TestCompoundAssignUndefinedLhsEmitsE100(t *testing.T) {
 	srcTemplate := `
 let l {
