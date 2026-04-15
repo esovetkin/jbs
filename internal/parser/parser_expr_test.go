@@ -233,11 +233,21 @@ func TestParsePrimaryBoolModeConvertAndQualified(t *testing.T) {
 		},
 		{
 			name: "bool false literal with uppercase",
-			src:  "False",
+			src:  "FALSE",
 			want: func(t *testing.T, expr ast.Expr) {
 				b, ok := expr.(ast.BoolExpr)
 				if !ok || b.Value {
 					t.Fatalf("expected bool false, got %#v", expr)
+				}
+			},
+		},
+		{
+			name: "bool true literal with uppercase",
+			src:  "TRUE",
+			want: func(t *testing.T, expr ast.Expr) {
+				b, ok := expr.(ast.BoolExpr)
+				if !ok || !b.Value {
+					t.Fatalf("expected bool true, got %#v", expr)
 				}
 			},
 		},

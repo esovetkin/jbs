@@ -221,11 +221,11 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 	tok := p.peek()
 	switch tok.Type {
 	case lexer.TokenIdent:
-		if tok.Value == "true" || tok.Value == "True" {
+		if tok.Value == "true" || tok.Value == "True" || tok.Value == "TRUE" {
 			p.next()
 			return ast.BoolExpr{Value: true, Span: tok.Span}
 		}
-		if tok.Value == "false" || tok.Value == "False" {
+		if tok.Value == "false" || tok.Value == "False" || tok.Value == "FALSE" {
 			p.next()
 			return ast.BoolExpr{Value: false, Span: tok.Span}
 		}
