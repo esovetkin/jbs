@@ -46,7 +46,9 @@ func compileLetBlock(block ast.LetBlock, globals map[string]eval.Value, diags *d
 		if isModeExpr {
 			expr = inner
 		}
-		v := eval.EvalExpr(expr, env, diags)
+		v := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
+			Context: eval.EvalCtxLetAssign,
+		})
 		if isModeExpr {
 			v = coerceModeValue(mode, v, asn.Span, diags)
 			out.Modes[asn.Name] = mode

@@ -215,7 +215,7 @@ func TestParseConditionalExpressions(t *testing.T) {
 	})
 }
 
-func TestParsePrimaryBoolModeConvertAndQualified(t *testing.T) {
+func TestParsePrimaryBoolModeCallAndQualified(t *testing.T) {
 	tests := []struct {
 		name string
 		src  string
@@ -262,12 +262,36 @@ func TestParsePrimaryBoolModeConvertAndQualified(t *testing.T) {
 			},
 		},
 		{
-			name: "conversion expr list",
+			name: "kernel call list",
 			src:  "list(1)",
 			want: func(t *testing.T, expr ast.Expr) {
-				c, ok := expr.(ast.ConvertExpr)
-				if !ok || c.Target != "list" {
-					t.Fatalf("expected list ConvertExpr, got %#v", expr)
+				c, ok := expr.(ast.CallExpr)
+				if !ok {
+					t.Fatalf("expected CallExpr, got %#v", expr)
+				}
+				callee, ok := c.Callee.(ast.IdentExpr)
+				if !ok || callee.Name != "list" {
+					t.Fatalf("expected call callee list, got %#v", c.Callee)
+				}
+				if len(c.Args) != 1 {
+					t.Fatalf("expected 1 arg, got %d", len(c.Args))
+				}
+			},
+		},
+		{
+			name: "kernel call range",
+			src:  "range(0,10,2)",
+			want: func(t *testing.T, expr ast.Expr) {
+				c, ok := expr.(ast.CallExpr)
+				if !ok {
+					t.Fatalf("expected CallExpr, got %#v", expr)
+				}
+				callee, ok := c.Callee.(ast.IdentExpr)
+				if !ok || callee.Name != "range" {
+					t.Fatalf("expected call callee range, got %#v", c.Callee)
+				}
+				if len(c.Args) != 3 {
+					t.Fatalf("expected 3 args, got %d", len(c.Args))
 				}
 			},
 		},
@@ -416,6 +440,27 @@ func TestParsePrimaryNumberAndFallbackErrors(t *testing.T) {
 			t.Fatalf("expected E058, got: %s", diags.String())
 		}
 	})
+}
+
+func TestParseCallMalformedSyntax(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{name: "missing closing paren", src: "range(1,2"},
+		{name: "empty middle arg", src: "range(1,,3)"},
+		{name: "empty first arg", src: "rev(,)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(tc.src, diags)
+			_ = tp.parseExpr()
+			if !diags.HasErrors() {
+				t.Fatalf("expected parse errors for %q", tc.src)
+			}
+		})
+	}
 }
 
 func TestParsePrimaryTupleAndListBranches(t *testing.T) {

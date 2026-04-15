@@ -21,8 +21,20 @@ import (
 	"jbs/internal/diag"
 )
 
+type EvalContext int
+
+const (
+	EvalCtxDefault EvalContext = iota
+	EvalCtxParamAssign
+	EvalCtxLetAssign
+	EvalCtxSubmitField
+	EvalCtxGlobalAssign
+	EvalCtxAnalyseAssign
+)
+
 type ExprOptions struct {
 	ParamAssignmentTupleArithmetic bool
+	Context                        EvalContext
 }
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
@@ -78,7 +90,13 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		return Tuple(items)
 	case ast.ConvertExpr:
 		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
-		return evalConvert(e.Target, value)
+		return evalConvert(e.Target, value, e.Span, diags)
+	case ast.CallExpr:
+		args := make([]Value, 0, len(e.Args))
+		for _, it := range e.Args {
+			args = append(args, evalExprWithCtx(it, env, diags, opts, ctx))
+		}
+		return evalCall(e.Callee, args, e.Span, diags, opts)
 	case ast.UnaryExpr:
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
@@ -108,21 +126,188 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	}
 }
 
-func evalConvert(target string, value Value) Value {
+type kernelFunc struct {
+	allowed map[EvalContext]struct{}
+	eval    func(args []Value, at diag.Span, diags *diag.Diagnostics) Value
+}
+
+var kernelFuncs = map[string]kernelFunc{
+	"range": {
+		allowed: map[EvalContext]struct{}{
+			EvalCtxParamAssign: {},
+		},
+		eval: evalRangeCall,
+	},
+	"rev": {
+		allowed: map[EvalContext]struct{}{
+			EvalCtxParamAssign: {},
+		},
+		eval: evalRevCall,
+	},
+	"tuple": {
+		eval: evalTupleCall,
+	},
+	"list": {
+		eval: evalListCall,
+	},
+}
+
+func evalCall(callee ast.Expr, args []Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
+	name, ok := callName(callee)
+	if !ok {
+		diags.AddError(diag.CodeE199, "unsupported function callee", callee.GetSpan(), "use a simple function name")
+		return Null()
+	}
+	return evalKernelCall(name, args, at, diags, opts)
+}
+
+func callName(callee ast.Expr) (string, bool) {
+	switch n := callee.(type) {
+	case ast.IdentExpr:
+		if n.Name == "" {
+			return "", false
+		}
+		return n.Name, true
+	case ast.QualifiedIdentExpr:
+		if n.Namespace == "" || n.Name == "" {
+			return "", false
+		}
+		return n.Namespace + "." + n.Name, true
+	default:
+		return "", false
+	}
+}
+
+func evalKernelCall(name string, args []Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
+	fn, ok := kernelFuncs[name]
+	if !ok {
+		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), at, "use a supported kernel function")
+		return Null()
+	}
+	if len(fn.allowed) > 0 {
+		if _, ok := fn.allowed[opts.Context]; !ok {
+			diags.AddError(
+				diag.CodeE199,
+				fmt.Sprintf("function '%s' is only allowed in param assignments", name),
+				at,
+				"use this function only in param assignment expressions",
+			)
+			return Null()
+		}
+	}
+	return fn.eval(args, at, diags)
+}
+
+func evalConvert(target string, value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	switch target {
 	case "tuple":
-		if isSequence(value) {
-			return Tuple(slicesCloneValues(value.L))
-		}
-		return Tuple([]Value{value})
+		return evalTupleCall([]Value{value}, at, diags)
 	case "list":
-		if isSequence(value) {
-			return List(slicesCloneValues(value.L))
-		}
-		return List([]Value{value})
+		return evalListCall([]Value{value}, at, diags)
 	default:
 		return value
 	}
+}
+
+func evalTupleCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, "tuple() expects exactly one argument", at, "use tuple(expr)")
+		return Null()
+	}
+	value := args[0]
+	switch value.Kind {
+	case KindList, KindTuple:
+		return Tuple(slicesCloneValues(value.L))
+	default:
+		return Tuple([]Value{value})
+	}
+}
+
+func evalListCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, "list() expects exactly one argument", at, "use list(expr)")
+		return Null()
+	}
+	value := args[0]
+	switch value.Kind {
+	case KindList, KindTuple:
+		return List(slicesCloneValues(value.L))
+	default:
+		return List([]Value{value})
+	}
+}
+
+func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) < 1 || len(args) > 3 {
+		diags.AddError(diag.CodeE106, "range() expects 1, 2, or 3 integer arguments", at, "use range(stop), range(start, stop), or range(start, stop, step)")
+		return Null()
+	}
+
+	ints := make([]int64, len(args))
+	for i, arg := range args {
+		if arg.Kind == KindNull {
+			return Null()
+		}
+		if arg.Kind != KindInt {
+			diags.AddError(diag.CodeE106, "range() expects integer arguments", at, "use integer arguments only")
+			return Null()
+		}
+		ints[i] = arg.I
+	}
+
+	start := int64(0)
+	stop := int64(0)
+	step := int64(1)
+	switch len(ints) {
+	case 1:
+		stop = ints[0]
+	case 2:
+		start = ints[0]
+		stop = ints[1]
+	case 3:
+		start = ints[0]
+		stop = ints[1]
+		step = ints[2]
+	}
+
+	if step <= 0 {
+		diags.AddError(diag.CodeE106, "range() step must be a positive integer", at, "use step > 0")
+		return Null()
+	}
+	if start >= stop {
+		return List(nil)
+	}
+
+	items := make([]Value, 0)
+	for current := start; current < stop; {
+		items = append(items, Int(current))
+		if current > math.MaxInt64-step {
+			diags.AddError(diag.CodeE106, "range() overflow while generating values", at, "use smaller bounds or step")
+			return Null()
+		}
+		current += step
+	}
+	return List(items)
+}
+
+func evalRevCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, "rev() expects exactly one list argument", at, "use rev(list_expr)")
+		return Null()
+	}
+	value := args[0]
+	if value.Kind == KindNull {
+		return Null()
+	}
+	if value.Kind != KindList {
+		diags.AddError(diag.CodeE106, "rev() expects a list argument", at, "use rev(list_expr)")
+		return Null()
+	}
+	out := slicesCloneValues(value.L)
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return List(out)
 }
 
 func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {

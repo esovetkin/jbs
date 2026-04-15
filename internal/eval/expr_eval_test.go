@@ -825,6 +825,361 @@ func TestEvalTupleAndListConversions(t *testing.T) {
 	}
 }
 
+func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	opts := ExprOptions{Context: EvalCtxParamAssign}
+
+	rangeOne := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 5}},
+	}, map[string]Value{}, diags, opts)
+	if rangeOne.Kind != KindList || len(rangeOne.L) != 5 {
+		t.Fatalf("expected range(5) list of len 5, got %#v", rangeOne)
+	}
+	for i, v := range rangeOne.L {
+		if v.Kind != KindInt || v.I != int64(i) {
+			t.Fatalf("unexpected range(5) value at %d: %#v", i, v)
+		}
+	}
+
+	rangeStep := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args: []ast.Expr{
+			ast.NumberExpr{Int: true, IntValue: 0},
+			ast.NumberExpr{Int: true, IntValue: 10},
+			ast.NumberExpr{Int: true, IntValue: 2},
+		},
+	}, map[string]Value{}, diags, opts)
+	if rangeStep.Kind != KindList || len(rangeStep.L) != 5 {
+		t.Fatalf("expected range(0,10,2) len 5, got %#v", rangeStep)
+	}
+	for i, want := range []int64{0, 2, 4, 6, 8} {
+		if rangeStep.L[i].I != want {
+			t.Fatalf("unexpected range(0,10,2) value at %d: %#v", i, rangeStep.L[i])
+		}
+	}
+
+	revList := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "rev"},
+		Args: []ast.Expr{
+			ast.ListExpr{
+				Items: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 0},
+					ast.NumberExpr{Int: true, IntValue: 1},
+					ast.NumberExpr{Int: true, IntValue: 2},
+				},
+			},
+		},
+	}, map[string]Value{}, diags, opts)
+	if revList.Kind != KindList || len(revList.L) != 3 {
+		t.Fatalf("expected rev list len 3, got %#v", revList)
+	}
+	for i, want := range []int64{2, 1, 0} {
+		if revList.L[i].I != want {
+			t.Fatalf("unexpected rev value at %d: %#v", i, revList.L[i])
+		}
+	}
+
+	tupleVal := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "tuple"},
+		Args: []ast.Expr{
+			ast.ListExpr{
+				Items: []ast.Expr{
+					ast.StringExpr{Value: "a"},
+					ast.StringExpr{Value: "b"},
+				},
+			},
+		},
+	}, map[string]Value{}, diags, ExprOptions{})
+	if tupleVal.Kind != KindTuple || len(tupleVal.L) != 2 {
+		t.Fatalf("expected tuple conversion via call, got %#v", tupleVal)
+	}
+
+	listVal := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "list"},
+		Args: []ast.Expr{
+			ast.TupleExpr{
+				Items: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 3},
+					ast.NumberExpr{Int: true, IntValue: 4},
+				},
+			},
+		},
+	}, map[string]Value{}, diags, ExprOptions{})
+	if listVal.Kind != KindList || len(listVal.L) != 2 {
+		t.Fatalf("expected list conversion via call, got %#v", listVal)
+	}
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
+	tests := []struct {
+		name       string
+		expr       ast.Expr
+		opts       ExprOptions
+		wantCode   string
+		wantNoErrs bool
+	}{
+		{
+			name: "range arity error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args:   nil,
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
+			name: "range type error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args:   []ast.Expr{ast.StringExpr{Value: "x"}},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
+			name: "range step error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 0},
+					ast.NumberExpr{Int: true, IntValue: 5},
+					ast.NumberExpr{Int: true, IntValue: 0},
+				},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
+			name: "rev list type error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "rev"},
+				Args:   []ast.Expr{ast.TupleExpr{}},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
+			name: "range context error outside param",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 3}},
+			},
+			opts:     ExprOptions{Context: EvalCtxLetAssign},
+			wantCode: "E199",
+		},
+		{
+			name: "unknown function",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "unknown"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E199",
+		},
+		{
+			name: "range empty output for start greater than stop",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 10},
+					ast.NumberExpr{Int: true, IntValue: 1},
+				},
+			},
+			opts:       ExprOptions{Context: EvalCtxParamAssign},
+			wantNoErrs: true,
+		},
+		{
+			name: "range empty output for negative stop",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: -1}},
+			},
+			opts:       ExprOptions{Context: EvalCtxParamAssign},
+			wantNoErrs: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, map[string]Value{}, diags, tc.opts)
+			if tc.wantNoErrs {
+				if diags.HasErrors() {
+					t.Fatalf("expected no errors, got: %s", diags.String())
+				}
+				if got.Kind != KindList || len(got.L) != 0 {
+					t.Fatalf("expected empty list, got %#v", got)
+				}
+				return
+			}
+			if diagCount(diags, tc.wantCode) == 0 {
+				t.Fatalf("expected %s, got: %s", tc.wantCode, diags.String())
+			}
+		})
+	}
+}
+
+func TestCallNameBranches(t *testing.T) {
+	tests := []struct {
+		name      string
+		callee    ast.Expr
+		wantName  string
+		wantValid bool
+	}{
+		{
+			name:      "ident valid",
+			callee:    ast.IdentExpr{Name: "range"},
+			wantName:  "range",
+			wantValid: true,
+		},
+		{
+			name:      "ident empty",
+			callee:    ast.IdentExpr{Name: ""},
+			wantName:  "",
+			wantValid: false,
+		},
+		{
+			name:      "qualified valid",
+			callee:    ast.QualifiedIdentExpr{Namespace: "mod", Name: "fn"},
+			wantName:  "mod.fn",
+			wantValid: true,
+		},
+		{
+			name:      "qualified missing namespace",
+			callee:    ast.QualifiedIdentExpr{Namespace: "", Name: "fn"},
+			wantName:  "",
+			wantValid: false,
+		},
+		{
+			name:      "qualified missing name",
+			callee:    ast.QualifiedIdentExpr{Namespace: "mod", Name: ""},
+			wantName:  "",
+			wantValid: false,
+		},
+		{
+			name:      "unsupported callee expression",
+			callee:    ast.NumberExpr{Int: true, IntValue: 1},
+			wantName:  "",
+			wantValid: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotName, gotValid := callName(tc.callee)
+			if gotName != tc.wantName || gotValid != tc.wantValid {
+				t.Fatalf("callName(%#v) = (%q,%v), want (%q,%v)", tc.callee, gotName, gotValid, tc.wantName, tc.wantValid)
+			}
+		})
+	}
+}
+
+func TestEvalCallUnsupportedCallee(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := evalCall(ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(73, 1)}, nil, spanAt(73, 1), diags, ExprOptions{Context: EvalCtxParamAssign})
+	if got.Kind != KindNull {
+		t.Fatalf("expected null for unsupported callee, got %#v", got)
+	}
+	if diagCount(diags, "E199") != 1 {
+		t.Fatalf("expected one E199, got: %s", diags.String())
+	}
+}
+
+func TestEvalTupleAndListCallValidationBranches(t *testing.T) {
+	t.Run("tuple arity error", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalTupleCall([]Value{Int(1), Int(2)}, spanAt(74, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+
+	t.Run("tuple from tuple clones", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		src := Tuple([]Value{Int(1), Int(2)})
+		got := evalTupleCall([]Value{src}, spanAt(75, 1), diags)
+		if got.Kind != KindTuple || len(got.L) != 2 {
+			t.Fatalf("expected tuple clone, got %#v", got)
+		}
+		src.L[0] = Int(9)
+		if got.L[0].I != 1 {
+			t.Fatalf("expected cloned tuple independent from source, got %#v", got)
+		}
+	})
+
+	t.Run("list arity error", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalListCall([]Value{}, spanAt(76, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+
+	t.Run("list scalar wraps", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalListCall([]Value{String("x")}, spanAt(77, 1), diags)
+		if got.Kind != KindList || len(got.L) != 1 || got.L[0].Kind != KindString || got.L[0].S != "x" {
+			t.Fatalf("expected scalar wrapped in list, got %#v", got)
+		}
+	})
+}
+
+func TestEvalRangeAndRevCornerBranches(t *testing.T) {
+	t.Run("range null arg returns null without type diagnostic", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalRangeCall([]Value{Null()}, spanAt(78, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 0 {
+			t.Fatalf("did not expect E106 for null short-circuit, got: %s", diags.String())
+		}
+	})
+
+	t.Run("range overflow guard", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalRangeCall([]Value{Int(math.MaxInt64 - 1), Int(math.MaxInt64), Int(2)}, spanAt(79, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null on overflow guard, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected E106 overflow diagnostic, got: %s", diags.String())
+		}
+	})
+
+	t.Run("rev arity error", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalRevCall([]Value{}, spanAt(80, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+
+	t.Run("rev null arg returns null without type diagnostic", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalRevCall([]Value{Null()}, spanAt(81, 1), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 0 {
+			t.Fatalf("did not expect E106 for null short-circuit, got: %s", diags.String())
+		}
+	})
+}
+
 func TestEvalConvert(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -878,7 +1233,7 @@ func TestEvalConvert(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := evalConvert(tc.target, tc.input)
+			got := evalConvert(tc.target, tc.input, spanAt(70, 1), &diag.Diagnostics{})
 			if !Equal(got, tc.want) {
 				t.Fatalf("expected %#v, got %#v", tc.want, got)
 			}
@@ -888,7 +1243,7 @@ func TestEvalConvert(t *testing.T) {
 
 func TestEvalConvertClonesSequenceValues(t *testing.T) {
 	srcList := List([]Value{Int(1), Int(2)})
-	convertedTuple := evalConvert("tuple", srcList)
+	convertedTuple := evalConvert("tuple", srcList, spanAt(71, 1), &diag.Diagnostics{})
 	srcList.L[0] = Int(99)
 	if convertedTuple.Kind != KindTuple || len(convertedTuple.L) != 2 {
 		t.Fatalf("unexpected converted tuple: %#v", convertedTuple)
@@ -898,7 +1253,7 @@ func TestEvalConvertClonesSequenceValues(t *testing.T) {
 	}
 
 	srcTuple := Tuple([]Value{String("a"), String("b")})
-	convertedList := evalConvert("list", srcTuple)
+	convertedList := evalConvert("list", srcTuple, spanAt(72, 1), &diag.Diagnostics{})
 	srcTuple.L[1] = String("z")
 	if convertedList.Kind != KindList || len(convertedList.L) != 2 {
 		t.Fatalf("unexpected converted list: %#v", convertedList)

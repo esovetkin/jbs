@@ -309,7 +309,7 @@ submit run {
 func TestAssignmentTrailingTokensError(t *testing.T) {
 	src := `
 param p {
-  a = f(1)
+  a = 1 trailing
   a
 }
 `
@@ -673,7 +673,7 @@ param p {
 	}
 }
 
-func TestParseParamConversionExpressions(t *testing.T) {
+func TestParseParamFunctionCallExpressions(t *testing.T) {
 	src := `
 param p {
   a = tuple(1)
@@ -697,21 +697,40 @@ param p {
 	if len(pb.Assignments) != 3 {
 		t.Fatalf("expected 3 assignments, got %d", len(pb.Assignments))
 	}
-	c0, ok := pb.Assignments[0].Expr.(ast.ConvertExpr)
-	if !ok || c0.Target != "tuple" {
-		t.Fatalf("expected tuple conversion for first assignment, got %#v", pb.Assignments[0].Expr)
+	c0, ok := pb.Assignments[0].Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression for first assignment, got %#v", pb.Assignments[0].Expr)
 	}
-	c1, ok := pb.Assignments[1].Expr.(ast.ConvertExpr)
-	if !ok || c1.Target != "list" {
-		t.Fatalf("expected list conversion for second assignment, got %#v", pb.Assignments[1].Expr)
+	c0callee, ok := c0.Callee.(ast.IdentExpr)
+	if !ok || c0callee.Name != "tuple" {
+		t.Fatalf("expected tuple callee, got %#v", c0.Callee)
 	}
-	c2, ok := pb.Assignments[2].Expr.(ast.ConvertExpr)
-	if !ok || c2.Target != "tuple" {
-		t.Fatalf("expected tuple conversion for third assignment, got %#v", pb.Assignments[2].Expr)
+	c1, ok := pb.Assignments[1].Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression for second assignment, got %#v", pb.Assignments[1].Expr)
 	}
-	inner, ok := c2.Expr.(ast.ConvertExpr)
-	if !ok || inner.Target != "list" {
-		t.Fatalf("expected nested list conversion, got %#v", c2.Expr)
+	c1callee, ok := c1.Callee.(ast.IdentExpr)
+	if !ok || c1callee.Name != "list" {
+		t.Fatalf("expected list callee, got %#v", c1.Callee)
+	}
+	c2, ok := pb.Assignments[2].Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression for third assignment, got %#v", pb.Assignments[2].Expr)
+	}
+	c2callee, ok := c2.Callee.(ast.IdentExpr)
+	if !ok || c2callee.Name != "tuple" {
+		t.Fatalf("expected tuple callee for third assignment, got %#v", c2.Callee)
+	}
+	if len(c2.Args) != 1 {
+		t.Fatalf("expected 1 arg for third assignment, got %d", len(c2.Args))
+	}
+	inner, ok := c2.Args[0].(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected nested call expression, got %#v", c2.Args[0])
+	}
+	innerCallee, ok := inner.Callee.(ast.IdentExpr)
+	if !ok || innerCallee.Name != "list" {
+		t.Fatalf("expected nested list call, got %#v", inner.Callee)
 	}
 }
 

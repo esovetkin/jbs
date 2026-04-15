@@ -240,28 +240,21 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 				Span: diag.Merge(modeTok.Span, close.Span),
 			}
 		}
-		if (tok.Value == "tuple" || tok.Value == "list") && p.peekN(1).Type == lexer.TokenLParen {
-			targetTok := p.next()
-			p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after conversion expression")
-			arg := p.parseExpr()
-			close := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close conversion expression")
-			return ast.ConvertExpr{
-				Target: targetTok.Value,
-				Expr:   arg,
-				Span:   diag.Merge(targetTok.Span, close.Span),
-			}
-		}
 		nameTok := p.next()
+		callee := ast.Expr(ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span})
 		if p.peek().Type == lexer.TokenDot {
 			p.next()
 			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
-			return ast.QualifiedIdentExpr{
+			callee = ast.QualifiedIdentExpr{
 				Namespace: nameTok.Value,
 				Name:      memberTok.Value,
 				Span:      diag.Merge(nameTok.Span, memberTok.Span),
 			}
 		}
-		return ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span}
+		if p.peek().Type == lexer.TokenLParen {
+			return p.parseCallExpr(callee)
+		}
+		return callee
 	case lexer.TokenString:
 		p.next()
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
@@ -352,6 +345,38 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		p.next()
 		return ast.StringExpr{Value: "", Span: tok.Span}
 	}
+}
+
+func (p *tokenParser) parseCallExpr(callee ast.Expr) ast.Expr {
+	p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after function name")
+	args := p.parseCallArgs()
+	close := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close function call")
+	return ast.CallExpr{
+		Callee: callee,
+		Args:   args,
+		Span:   diag.Merge(callee.GetSpan(), close.Span),
+	}
+}
+
+func (p *tokenParser) parseCallArgs() []ast.Expr {
+	p.skipNewlines()
+	if p.peek().Type == lexer.TokenRParen {
+		return nil
+	}
+	args := make([]ast.Expr, 0, 2)
+	for {
+		args = append(args, p.parseExpr())
+		p.skipNewlines()
+		if p.peek().Type != lexer.TokenComma {
+			break
+		}
+		p.next()
+		p.skipNewlines()
+		if p.peek().Type == lexer.TokenRParen {
+			break
+		}
+	}
+	return args
 }
 
 func isDecimalIntegerLiteral(text string) bool {

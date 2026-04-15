@@ -237,7 +237,9 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		if isModeExpr {
 			expr = inner
 		}
-		value := eval.EvalExpr(expr, env, diags)
+		value := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
+			Context: eval.EvalCtxSubmitField,
+		})
 		if isModeExpr {
 			value = coerceModeValue(mode, value, field.Span, diags)
 		}

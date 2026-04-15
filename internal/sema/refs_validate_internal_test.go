@@ -21,14 +21,16 @@ func TestCollectExprIdentRefs(t *testing.T) {
 		Op:   "+",
 		Right: ast.TupleExpr{
 			Items: []ast.Expr{
-				ast.ConvertExpr{
-					Target: "list",
-					Expr: ast.ListExpr{
-						Items: []ast.Expr{
-							ast.IdentExpr{Name: "b", Span: sp},
-							ast.QualifiedIdentExpr{Namespace: "ns", Name: "q", Span: sp},
+				ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "list", Span: sp},
+					Args: []ast.Expr{
+						ast.ListExpr{
+							Items: []ast.Expr{
+								ast.IdentExpr{Name: "b", Span: sp},
+								ast.QualifiedIdentExpr{Namespace: "ns", Name: "q", Span: sp},
+							},
+							Span: sp,
 						},
-						Span: sp,
 					},
 					Span: sp,
 				},

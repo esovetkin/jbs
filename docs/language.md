@@ -190,8 +190,18 @@ Supported assignment expressions:
 - mode declarations:
   - `shell("...")`
   - `python("...")`
+- kernel functions:
   - `tuple(expr)`
   - `list(expr)`
+  - `range(stop)`
+  - `range(start, stop)`
+  - `range(start, stop, step)`
+  - `rev(list_expr)`
+
+Context restriction:
+
+- `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
+- `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
 
 String arithmetic in assignment expressions:
 
@@ -241,7 +251,7 @@ Mode declarations lower to JUBE parameter mode fields:
 
 Unsupported syntax (diagnostics emitted):
 
-- function calls (except `tuple(...)` and `list(...)`)
+- arbitrary/user-defined function definitions and calls
 - dict literals
 - import statements
 
@@ -288,6 +298,16 @@ Conversions:
 
 - `tuple(expr)` converts scalar/list/tuple to tuple
 - `list(expr)` converts scalar/list/tuple to list
+
+Kernel list helpers in `param` assignments:
+
+- `range(5)` -> `[0,1,2,3,4]`
+- `range(1,4)` -> `[1,2,3]`
+- `range(0,10,2)` -> `[0,2,4,6,8]`
+- `range(0)` -> `[]`
+- `range(-1)` -> `[]`
+- `range(10,1)` -> `[]`
+- `rev([0,1,2,3,4])` -> `[4,3,2,1,0]`
 
 ```jbs
 param p_convert {

@@ -21,30 +21,32 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 		Then: ast.BinaryExpr{
 			Left: ast.UnaryExpr{
 				Op: "-",
-				Expr: ast.ConvertExpr{
-					Target: "list",
-					Expr: ast.ModeExpr{
-						Mode: "python",
-						Expr: ast.ListExpr{
-							Items: []ast.Expr{
-								ast.IdentExpr{Name: "a", Span: sp},
-								ast.QualifiedIdentExpr{Namespace: "ns", Name: "skip", Span: sp},
-								ast.TupleExpr{
-									Items: []ast.Expr{
-										ast.IdentExpr{Name: "b", Span: sp},
-										ast.CompareExpr{
-											Left:  ast.IdentExpr{Name: "c", Span: sp},
-											Op:    "==",
-											Right: ast.IdentExpr{Name: "d", Span: sp},
-											Span:  sp,
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "list", Span: sp},
+					Args: []ast.Expr{
+						ast.ModeExpr{
+							Mode: "python",
+							Expr: ast.ListExpr{
+								Items: []ast.Expr{
+									ast.IdentExpr{Name: "a", Span: sp},
+									ast.QualifiedIdentExpr{Namespace: "ns", Name: "skip", Span: sp},
+									ast.TupleExpr{
+										Items: []ast.Expr{
+											ast.IdentExpr{Name: "b", Span: sp},
+											ast.CompareExpr{
+												Left:  ast.IdentExpr{Name: "c", Span: sp},
+												Op:    "==",
+												Right: ast.IdentExpr{Name: "d", Span: sp},
+												Span:  sp,
+											},
 										},
+										Span: sp,
 									},
-									Span: sp,
 								},
+								Span: sp,
 							},
 							Span: sp,
 						},
-						Span: sp,
 					},
 					Span: sp,
 				},

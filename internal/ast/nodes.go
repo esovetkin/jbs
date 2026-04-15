@@ -307,6 +307,15 @@ type ConvertExpr struct {
 func (e ConvertExpr) exprNode()          {}
 func (e ConvertExpr) GetSpan() diag.Span { return e.Span }
 
+type CallExpr struct {
+	Callee Expr
+	Args   []Expr
+	Span   diag.Span
+}
+
+func (e CallExpr) exprNode()          {}
+func (e CallExpr) GetSpan() diag.Span { return e.Span }
+
 type UnaryExpr struct {
 	Op   string
 	Expr Expr

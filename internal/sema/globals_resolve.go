@@ -69,7 +69,9 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 				)
 				continue
 			}
-			v := eval.EvalExpr(assign.Expr, values, diags)
+			v := eval.EvalExprWithOptions(assign.Expr, values, diags, eval.ExprOptions{
+				Context: eval.EvalCtxGlobalAssign,
+			})
 			if v.Kind != eval.KindString {
 				code := diag.CodeE301
 				if assign.Name == "jbs_outpath" {
@@ -94,7 +96,9 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 		if isModeExpr {
 			expr = inner
 		}
-		v := eval.EvalExpr(expr, values, diags)
+		v := eval.EvalExprWithOptions(expr, values, diags, eval.ExprOptions{
+			Context: eval.EvalCtxGlobalAssign,
+		})
 		if isModeExpr {
 			v = coerceModeValue(mode, v, assign.Span, diags)
 			modes[assign.Name] = mode

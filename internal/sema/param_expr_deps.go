@@ -37,6 +37,10 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		}
 	case ast.ConvertExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
+	case ast.CallExpr:
+		for _, arg := range e.Args {
+			collectExprLocalIdentDeps(arg, out)
+		}
 	case ast.UnaryExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.BinaryExpr:

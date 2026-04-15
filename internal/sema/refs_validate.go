@@ -483,6 +483,10 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 			}
 		case ast.ConvertExpr:
 			walk(n.Expr)
+		case ast.CallExpr:
+			for _, arg := range n.Args {
+				walk(arg)
+			}
 		case ast.UnaryExpr:
 			walk(n.Expr)
 		case ast.BinaryExpr:
@@ -534,6 +538,10 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 			}
 		case ast.ConvertExpr:
 			walk(n.Expr)
+		case ast.CallExpr:
+			for _, arg := range n.Args {
+				walk(arg)
+			}
 		case ast.UnaryExpr:
 			walk(n.Expr)
 		case ast.BinaryExpr:
