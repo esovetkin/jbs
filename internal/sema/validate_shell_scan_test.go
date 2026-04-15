@@ -137,6 +137,32 @@ do run with p {
 			wantW310: 1,
 		},
 		{
+			name: "even backslashes before dollar count as usage",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo \\$x
+}
+`,
+			wantW310: 0,
+		},
+		{
+			name: "even backslashes before braced ref count as usage",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+do run with p {
+  echo \\${x:-1}
+}
+`,
+			wantW310: 0,
+		},
+		{
 			name: "braced variants count",
 			src: `
 param p {
@@ -288,6 +314,20 @@ submit run with p {
 			wantW311: 0,
 		},
 		{
+			name: "even backslashes in submit string count usage",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+submit run with p {
+  args_exec = "-lc 'echo \\\\$x \\\\${x:-1}'"
+}
+`,
+			wantW310: 0,
+			wantW311: 0,
+		},
+		{
 			name: "malformed braced expansions do not hard error",
 			src: `
 param p {
@@ -358,5 +398,72 @@ do s0 {
 	}
 	if !hasW310ForLet(diags, "l", "systemname") {
 		t.Fatalf("expected W310 for let.l.systemname because ${l.systemname} must not count as qualified usage, got: %s", diags.String())
+	}
+}
+
+func TestShellParityAffectsW310AndW311(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		wantW310 int
+		wantW311 int
+	}{
+		{
+			name: "odd escaped ref is ignored",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo \$x
+}
+`,
+			wantW310: 1,
+			wantW311: 0,
+		},
+		{
+			name: "even parity bare ref is active",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo \\$x
+}
+`,
+			wantW310: 0,
+			wantW311: 1,
+		},
+		{
+			name: "even parity braced ref is active",
+			src: `
+param p {
+  x = (1,2)
+  x
+}
+do run {
+  echo \\${x:-1}
+}
+`,
+			wantW310: 0,
+			wantW311: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := analyzeShellSrc(t, tc.src)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+			if got := diagCount(diags, "W310"); got != tc.wantW310 {
+				t.Fatalf("unexpected W310 count: got=%d want=%d diags=%s", got, tc.wantW310, diags.String())
+			}
+			if got := diagCount(diags, "W311"); got != tc.wantW311 {
+				t.Fatalf("unexpected W311 count: got=%d want=%d diags=%s", got, tc.wantW311, diags.String())
+			}
+		})
 	}
 }

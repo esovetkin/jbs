@@ -5,9 +5,8 @@
 // non-matching/escaped/special forms. the aliases are needed to allow
 // variables used in submit inside JUBE not to collide with variables
 // used in JBS.
-//
-// there are probably still several bugs with the way I handle shell
-// variables
+// escaped-dollar handling uses odd/even backslash parity:
+// odd count escapes `$`, even count keeps `$` active.
 package lower
 
 import (
@@ -45,14 +44,13 @@ func rewriteShellRefs(text string, aliases map[string]string) string {
 	out.Grow(len(text))
 	for i := 0; i < len(text); {
 		ch := text[i]
-		if ch == '\\' && i+1 < len(text) && text[i+1] == '$' {
-			out.WriteByte('\\')
-			out.WriteByte('$')
-			i += 2
-			continue
-		}
 		if ch != '$' {
 			out.WriteByte(ch)
+			i++
+			continue
+		}
+		if isEscapedDollarASCII(text, i) {
+			out.WriteByte('$')
 			i++
 			continue
 		}
@@ -92,6 +90,17 @@ func rewriteShellRefs(text string, aliases map[string]string) string {
 		i++
 	}
 	return out.String()
+}
+
+func isEscapedDollarASCII(text string, idx int) bool {
+	count := 0
+	for i := idx - 1; i >= 0; i-- {
+		if text[i] != '\\' {
+			break
+		}
+		count++
+	}
+	return count%2 == 1
 }
 
 func rewriteBracedShellRef(fragment string, aliases map[string]string) (string, int, bool) {
