@@ -463,9 +463,26 @@ do s with missing.p {
   echo ${x}
 }
 `)
-	_, diags := load(t, entry, dir)
+	res, diags := load(t, entry, dir)
 	if !hasDiagCode(diags, "E537") {
 		t.Fatalf("expected E537 for unknown with alias, got: %s", diags.String())
+	}
+	found := false
+	for _, stmt := range res.Program.Stmts {
+		block, ok := stmt.(ast.DoBlock)
+		if !ok || block.Name != "s" {
+			continue
+		}
+		if len(block.WithItems) != 1 {
+			t.Fatalf("expected one with item, got %#v", block.WithItems)
+		}
+		if !block.WithItems[0].Rejected {
+			t.Fatalf("expected rejected with item for unknown alias, got %#v", block.WithItems[0])
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected do block s in expanded program")
 	}
 }
 
@@ -930,12 +947,52 @@ func TestNormalizeWithRefMissingExpandedSourceReturnsSymbolName(t *testing.T) {
 		},
 		Symbols: map[string]symbolDecl{},
 	}
-	got := r.normalizeWithRef(mod, "lib.value", diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)), map[string]struct{}{})
+	got, rejected := r.normalizeWithRef(mod, "lib.value", diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2)), map[string]struct{}{})
 	if got != "value" {
 		t.Fatalf("expected normalized name 'value', got %q", got)
 	}
+	if rejected {
+		t.Fatalf("did not expect rejected=true when source expansion is unavailable")
+	}
 	if len(r.diags.Items) != 0 {
 		t.Fatalf("did not expect diagnostics when source expansion is unavailable, got: %s", r.diags.String())
+	}
+}
+
+func TestQualifiedWithUnknownSymbolMarksRejected(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "lib.jbs", `
+param p {
+  x = (1)
+  x
+}
+`)
+	entry := writeTestFile(t, dir, "entry.jbs", `
+use "./lib.jbs" as m
+do s with m.nope {
+  echo hi
+}
+`)
+	res, diags := load(t, entry, dir)
+	if !hasDiagCode(diags, "E532") {
+		t.Fatalf("expected E532 for unknown symbol in qualified with, got: %s", diags.String())
+	}
+	found := false
+	for _, stmt := range res.Program.Stmts {
+		block, ok := stmt.(ast.DoBlock)
+		if !ok || block.Name != "s" {
+			continue
+		}
+		if len(block.WithItems) != 1 {
+			t.Fatalf("expected one with item, got %#v", block.WithItems)
+		}
+		if !block.WithItems[0].Rejected {
+			t.Fatalf("expected rejected with item for unknown symbol, got %#v", block.WithItems[0])
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected do block s in expanded program")
 	}
 }
 

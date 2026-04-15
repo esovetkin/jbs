@@ -60,6 +60,19 @@ func TestWithResolverExpandWithItems(t *testing.T) {
 		wantVars   []string
 	}{
 		{
+			name: "rejected item is skipped",
+			items: []ast.WithItem{
+				{Name: "p", Rejected: true, Span: span},
+			},
+			opts: WithResolveOptions{
+				AllowParam:                true,
+				AllowLet:                  true,
+				EnableMixedSourceFallback: true,
+				DetectAmbiguousSource:     true,
+			},
+			wantItems: 0,
+		},
+		{
 			name: "full source import",
 			items: []ast.WithItem{
 				{Name: "p", Span: span},
@@ -188,6 +201,41 @@ func TestWithResolverExpandWithItems(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWithResolverRejectedAndValidItemsMixed(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	p := &Paramset{
+		Name:  "p",
+		Vars:  map[string][]eval.Value{"a": {eval.Int(1)}},
+		Order: []string{"a"},
+	}
+	resolver := WithResolver{
+		Params: map[string]*Paramset{"p": p},
+		Lets:   map[string]*LetNamespace{},
+		Sources: map[string]*ImportSource{
+			"p": importSourceFromParam(p),
+		},
+	}
+	items := []ast.WithItem{
+		{Name: "missing.p", Rejected: true, Span: span},
+		{Name: "p", Span: span},
+	}
+	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  true,
+		EnableMixedSourceFallback: true,
+		DetectAmbiguousSource:     true,
+	})
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues for mixed rejected+valid items, got %#v", issues)
+	}
+	if len(expanded) != 1 {
+		t.Fatalf("expected one expanded item, got %#v", expanded)
+	}
+	if expanded[0].Source != "p" {
+		t.Fatalf("expected valid source p to be resolved, got %#v", expanded[0])
 	}
 }
 

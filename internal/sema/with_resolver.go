@@ -62,6 +62,9 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 	issues := make([]ResolveIssue, 0)
 
 	for _, item := range items {
+		if item.Rejected {
+			continue
+		}
 		if item.From == "" {
 			src, issue := r.resolveNamedSource(item.Name, item, opts)
 			if issue != nil {

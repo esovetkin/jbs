@@ -812,6 +812,9 @@ func TestRunCheckQualifiedWithMissingSymbolFixture(t *testing.T) {
 	if !strings.Contains(errBuf.String(), "E532") {
 		t.Fatalf("expected E532 in diagnostics, got: %s", errBuf.String())
 	}
+	if strings.Contains(errBuf.String(), "E020") {
+		t.Fatalf("did not expect duplicate E020 when E532 is present, got: %s", errBuf.String())
+	}
 }
 
 func TestRunCheckSubmitUseParamInvalidFixture(t *testing.T) {
@@ -924,6 +927,7 @@ func TestRunFmtAndCheckParityForQualifiedWithCases(t *testing.T) {
 		wantFmt      int
 		wantStrict   int
 		wantDiagPart string
+		forbidDiag   string
 	}{
 		{
 			name: "valid",
@@ -972,6 +976,29 @@ do s0 with unknown_alias.p {
 			wantFmt:      0,
 			wantStrict:   1,
 			wantDiagPart: "E537",
+			forbidDiag:   "E020",
+		},
+		{
+			name: "unknown_symbol",
+			lib: `
+param p
+{
+        x = 1
+        x
+}
+`,
+			main: `
+use "./test_lib.jbs" as m
+
+do s0 with m.nope {
+    echo ${x}
+}
+`,
+			wantCheck:    1,
+			wantFmt:      0,
+			wantStrict:   1,
+			wantDiagPart: "E532",
+			forbidDiag:   "E020",
 		},
 	}
 
@@ -1014,6 +1041,9 @@ do s0 with unknown_alias.p {
 				}
 				if tc.wantDiagPart != "" && cmd.want != 0 && !strings.Contains(errBuf.String(), tc.wantDiagPart) {
 					t.Fatalf("args=%v expected diagnostics to contain %q, got: %s", cmd.args, tc.wantDiagPart, errBuf.String())
+				}
+				if tc.forbidDiag != "" && strings.Contains(errBuf.String(), tc.forbidDiag) {
+					t.Fatalf("args=%v did not expect diagnostics to contain %q, got: %s", cmd.args, tc.forbidDiag, errBuf.String())
 				}
 			}
 		})

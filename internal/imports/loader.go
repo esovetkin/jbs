@@ -381,10 +381,13 @@ func (r *resolver) normalizeWithRefs(mod *expandedModule, stmt ast.Stmt, inserte
 		out := make([]ast.WithItem, len(items))
 		for i, item := range items {
 			n := item
-			n.Name = r.normalizeWithRef(mod, item.Name, item.Span, inserted)
+			nameRejected := false
+			fromRejected := false
+			n.Name, nameRejected = r.normalizeWithRef(mod, item.Name, item.Span, inserted)
 			if item.From != "" {
-				n.From = r.normalizeWithRef(mod, item.From, item.Span, inserted)
+				n.From, fromRejected = r.normalizeWithRef(mod, item.From, item.Span, inserted)
 			}
+			n.Rejected = nameRejected || fromRejected
 			out[i] = n
 		}
 		return out
@@ -408,10 +411,10 @@ func (r *resolver) normalizeWithRefs(mod *expandedModule, stmt ast.Stmt, inserte
 	}
 }
 
-func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Span, inserted map[string]struct{}) string {
+func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Span, inserted map[string]struct{}) (string, bool) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" || !strings.Contains(ref, ".") {
-		return ref
+		return ref, false
 	}
 	alias, name, ok := strings.Cut(ref, ".")
 	if !ok || alias == "" || name == "" || strings.Contains(name, ".") {
@@ -421,7 +424,7 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 			at,
 			"use syntax alias.symbol in with clauses",
 		)
-		return ref
+		return ref, true
 	}
 	sourceRef, ok := mod.Aliases[alias]
 	if !ok {
@@ -431,14 +434,18 @@ func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Spa
 			at,
 			"declare alias first with `use <module>` or `use \"path\" as <alias>`",
 		)
-		return ref
+		return ref, true
 	}
 	source := r.expandModule(sourceRef)
 	if source == nil {
-		return name
+		return name, false
 	}
 	r.importSymbol(mod, source, name, at, inserted, make(map[string]struct{}))
-	return name
+	sym, imported := mod.Symbols[name]
+	if !imported || sym.ModuleID != source.Ref.ID {
+		return name, true
+	}
+	return name, false
 }
 
 func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, name string, at diag.Span, inserted map[string]struct{}, visiting map[string]struct{}) {

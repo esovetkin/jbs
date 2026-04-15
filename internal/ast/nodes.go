@@ -88,7 +88,10 @@ type WithItem struct {
 	Name  string
 	From  string
 	Alias string
-	Span  diag.Span
+	// Rejected marks items that failed qualified import normalization.
+	// Semantic with-resolution skips these to avoid duplicate root-cause diagnostics.
+	Rejected bool
+	Span     diag.Span
 }
 
 func (w WithItem) GetSpan() diag.Span { return w.Span }
