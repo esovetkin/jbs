@@ -143,6 +143,139 @@ do run with p {
 	}
 }
 
+func TestW310ParamLetSameNameBothReported(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+let p {
+  y = "z"
+}
+do run {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 2 {
+		t.Fatalf("expected two W310 warnings, got %d: %s", got, diags.String())
+	}
+	if !hasW310For(diags, "p", "x") {
+		t.Fatalf("expected W310 for param p.x, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "p", "y") {
+		t.Fatalf("expected W310 for let p.y, got: %s", diags.String())
+	}
+}
+
+func TestW310ParamLetSameNameOneSideUsed(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+let p {
+  y = "z"
+}
+do run {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one W311 for missing import of x, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 1 {
+		t.Fatalf("expected one W310 warning, got %d: %s", got, diags.String())
+	}
+	if hasW310For(diags, "p", "x") {
+		t.Fatalf("did not expect W310 for param p.x because it is referenced, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "p", "y") {
+		t.Fatalf("expected W310 for let p.y, got: %s", diags.String())
+	}
+}
+
+func TestW311WithParamLetSameNameAndSameVariable(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+let p {
+  x = 7
+}
+do run {
+  echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 1 {
+		t.Fatalf("expected one W311 warning, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 0 {
+		t.Fatalf("did not expect W310 because both sources for x are referenced, got %d: %s", got, diags.String())
+	}
+}
+
+func TestW310ParamLetSameNameMultiplePairs(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  x
+}
+let p {
+  y = "z"
+}
+param q {
+  a = (3,4)
+  a
+}
+let q {
+  b = "k"
+}
+do run {
+  echo hi
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W311"); got != 0 {
+		t.Fatalf("did not expect W311, got %d: %s", got, diags.String())
+	}
+	if got := diagCount(diags, "W310"); got != 4 {
+		t.Fatalf("expected four W310 warnings, got %d: %s", got, diags.String())
+	}
+	if !hasW310For(diags, "p", "x") || !hasW310ForLet(diags, "p", "y") {
+		t.Fatalf("expected both W310 warnings for source name p, got: %s", diags.String())
+	}
+	if !hasW310For(diags, "q", "a") || !hasW310ForLet(diags, "q", "b") {
+		t.Fatalf("expected both W310 warnings for source name q, got: %s", diags.String())
+	}
+}
+
 func TestWarnMissingImportW311WithoutW310(t *testing.T) {
 	src := `
 param p {

@@ -31,50 +31,150 @@ type stepUnusedImport struct {
 	StepName   string
 	Visible    string
 	Source     string
+	SourceKind SourceKind
 	SourceVar  string
 	ImportSpan diag.Span
 }
 
-func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
-	type sourceCandidate struct {
-		Source    string
-		SourceVar string
+type sourceKey struct {
+	Kind SourceKind
+	Name string
+}
+
+type sourceCandidate struct {
+	Key       sourceKey
+	Source    string
+	Kind      SourceKind
+	SourceVar string
+}
+
+type warningSource struct {
+	Key        sourceKey
+	Kind       SourceKind
+	Name       string
+	Span       diag.Span
+	Order      []string
+	VarOrigins map[string]diag.Span
+}
+
+func buildWarningSources(res *Result) []warningSource {
+	out := make([]warningSource, 0, len(res.Paramsets)+len(res.LetNamespaces))
+	for _, ps := range res.Paramsets {
+		if ps == nil {
+			continue
+		}
+		order := exposedVarNames(ps)
+		if len(order) == 0 {
+			continue
+		}
+		origins := make(map[string]diag.Span, len(order))
+		for _, name := range order {
+			origin := ps.Origins[name]
+			if origin.IsZero() {
+				origin = ps.Block.Span
+			}
+			origins[name] = origin
+		}
+		out = append(out, warningSource{
+			Key:        sourceKey{Kind: SourceKindParam, Name: ps.Name},
+			Kind:       SourceKindParam,
+			Name:       ps.Name,
+			Span:       ps.Block.Span,
+			Order:      order,
+			VarOrigins: origins,
+		})
 	}
-	exposedBySource := make(map[string]map[string]diag.Span)
+	for _, ls := range res.LetNamespaces {
+		if ls == nil {
+			continue
+		}
+		order := slices.Sorted(maps.Keys(ls.Vars))
+		if len(order) == 0 {
+			continue
+		}
+		origins := make(map[string]diag.Span, len(order))
+		for _, name := range order {
+			origin := ls.Origins[name]
+			if origin.IsZero() {
+				origin = ls.Span
+			}
+			origins[name] = origin
+		}
+		out = append(out, warningSource{
+			Key:        sourceKey{Kind: SourceKindLet, Name: ls.Name},
+			Kind:       SourceKindLet,
+			Name:       ls.Name,
+			Span:       ls.Span,
+			Order:      order,
+			VarOrigins: origins,
+		})
+	}
+	return out
+}
+
+func sourceKeyFromImportedVar(origin importedVar, sources map[string]*ImportSource) sourceKey {
+	kind := origin.Kind
+	if kind == "" {
+		if src := sources[origin.Paramset]; src != nil {
+			kind = src.Kind
+		}
+	}
+	return sourceKey{Kind: kind, Name: origin.Paramset}
+}
+
+func resolveSourceKey(kind SourceKind, name string, sources map[string]*ImportSource, exposedBySource map[sourceKey]map[string]diag.Span) sourceKey {
+	if name == "" {
+		return sourceKey{}
+	}
+	if kind != "" {
+		return sourceKey{Kind: kind, Name: name}
+	}
+	if src := sources[name]; src != nil && src.Kind != "" {
+		return sourceKey{Kind: src.Kind, Name: name}
+	}
+	paramKey := sourceKey{Kind: SourceKindParam, Name: name}
+	if _, ok := exposedBySource[paramKey]; ok {
+		return paramKey
+	}
+	letKey := sourceKey{Kind: SourceKindLet, Name: name}
+	if _, ok := exposedBySource[letKey]; ok {
+		return letKey
+	}
+	return sourceKey{Name: name}
+}
+
+func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
+	warningSources := buildWarningSources(res)
+	exposedBySource := make(map[sourceKey]map[string]diag.Span, len(warningSources))
+	sourceVarsByKey := make(map[sourceKey][]string, len(warningSources))
 	candidatesByVar := make(map[string][]sourceCandidate)
-	used := make(map[string]map[string]bool)
+	used := make(map[sourceKey]map[string]bool)
 	stepUnused := make(map[string]stepUnusedImport)
 
-	for _, sourceName := range slices.Sorted(maps.Keys(res.ImportSourceByName)) {
-		src := res.ImportSourceByName[sourceName]
-		if src == nil {
+	for _, src := range warningSources {
+		if len(src.Order) == 0 {
 			continue
 		}
-		varNames := planutil.SourceVarNames(src.Order, src.Vars)
-		if len(varNames) == 0 {
-			continue
-		}
-		if _, ok := exposedBySource[sourceName]; !ok {
-			exposedBySource[sourceName] = make(map[string]diag.Span)
-		}
-		for _, name := range varNames {
-			origin := src.Origins[name]
-			if origin.IsZero() {
-				origin = src.Span
-			}
-			exposedBySource[sourceName][name] = origin
+		exposedBySource[src.Key] = maps.Clone(src.VarOrigins)
+		sourceVarsByKey[src.Key] = append([]string(nil), src.Order...)
+		for _, name := range src.Order {
 			candidatesByVar[name] = append(candidatesByVar[name], sourceCandidate{
-				Source:    sourceName,
+				Key:       src.Key,
+				Source:    src.Name,
+				Kind:      src.Kind,
 				SourceVar: name,
 			})
 		}
 	}
 
-	markUsedExact := func(sourceName, sourceVar string) {
-		if _, ok := used[sourceName]; !ok {
-			used[sourceName] = make(map[string]bool)
+	markUsedExact := func(source sourceKey, sourceVar string) {
+		if source.Name == "" || sourceVar == "" {
+			return
 		}
-		used[sourceName][sourceVar] = true
+		if _, ok := used[source]; !ok {
+			used[source] = make(map[string]bool)
+		}
+		used[source][sourceVar] = true
 	}
 
 	markUsedByImports := func(imports []importedVar) {
@@ -83,13 +183,13 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			if sourceVar == "" {
 				sourceVar = imp.Name
 			}
-			markUsedExact(imp.Paramset, sourceVar)
+			markUsedExact(sourceKeyFromImportedVar(imp, res.ImportSourceByName), sourceVar)
 		}
 	}
 
 	markUsedCandidates := func(candidates []sourceCandidate) {
 		for _, cand := range candidates {
-			markUsedExact(cand.Source, cand.SourceVar)
+			markUsedExact(cand.Key, cand.SourceVar)
 		}
 	}
 
@@ -98,15 +198,15 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			return
 		}
 		originSpan := diag.Span{}
-		source := candidates[0].Source
-		sourceVar := candidates[0].SourceVar
-		if byVar, ok := exposedBySource[source]; ok {
+		source := candidates[0]
+		if byVar, ok := exposedBySource[source.Key]; ok {
+			sourceVar := source.SourceVar
 			originSpan = byVar[sourceVar]
 		}
 		related := []diag.RelatedSpan{}
 		if !originSpan.IsZero() {
 			related = append(related, diag.RelatedSpan{
-				Message: fmt.Sprintf("source '%s'", source),
+				Message: fmt.Sprintf("source '%s'", source.Source),
 				Span:    originSpan,
 			})
 		}
@@ -155,16 +255,26 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			imports := make(map[string][]importedVar, len(plan.ExplicitDelta))
 			for _, imp := range plan.ExplicitDelta {
 				if imp.Full {
-					src := res.ImportSourceByName[imp.Source]
-					if src == nil {
+					srcKey := resolveSourceKey(imp.Kind, imp.Source, res.ImportSourceByName, exposedBySource)
+					varNames := sourceVarsByKey[srcKey]
+					if len(varNames) == 0 {
+						src := res.ImportSourceByName[imp.Source]
+						if src != nil {
+							varNames = planutil.SourceVarNames(src.Order, src.Vars)
+							if srcKey.Kind == "" {
+								srcKey.Kind = src.Kind
+							}
+						}
+					}
+					if len(varNames) == 0 {
 						continue
 					}
-					for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
+					for _, name := range varNames {
 						imports[name] = append(imports[name], importedVar{
 							Name:      name,
 							SourceVar: name,
 							Paramset:  imp.Source,
-							Kind:      imp.Kind,
+							Kind:      srcKey.Kind,
 							Span:      imp.Span,
 						})
 					}
@@ -203,7 +313,11 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				if sourceVar == "" {
 					sourceVar = origin.Name
 				}
-				key := stepName + "::" + visible + "::" + origin.Paramset + "::" + sourceVar
+				srcKey := sourceKeyFromImportedVar(origin, res.ImportSourceByName)
+				if srcKey.Kind == "" {
+					srcKey = resolveSourceKey("", origin.Paramset, res.ImportSourceByName, exposedBySource)
+				}
+				key := stepName + "::" + visible + "::" + string(srcKey.Kind) + "::" + origin.Paramset + "::" + sourceVar
 				if _, ok := stepUnused[key]; ok {
 					continue
 				}
@@ -211,6 +325,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 					StepName:   stepName,
 					Visible:    visible,
 					Source:     origin.Paramset,
+					SourceKind: srcKey.Kind,
 					SourceVar:  sourceVar,
 					ImportSpan: origin.Span,
 				}
@@ -242,7 +357,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				if isRawSubmitKey(name) {
 					continue
 				}
-				markUsedExact(useName, name)
+				markUsedExact(sourceKey{Kind: SourceKindLet, Name: useName}, name)
 			}
 		}
 
@@ -304,21 +419,22 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 				if sourceVar == "" {
 					sourceVar = origin.Name
 				}
-				markUsedExact(origin.Paramset, sourceVar)
+				markUsedExact(sourceKeyFromImportedVar(origin, res.ImportSourceByName), sourceVar)
 			}
 		}
 	}
 
-	for sourceName, byVar := range exposedBySource {
-		src := res.ImportSourceByName[sourceName]
-		for varName, origin := range byVar {
-			if used[sourceName][varName] {
+	for _, src := range warningSources {
+		byVar := exposedBySource[src.Key]
+		for _, varName := range src.Order {
+			origin := byVar[varName]
+			if used[src.Key][varName] {
 				continue
 			}
-			message := fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, sourceName)
+			message := fmt.Sprintf("exposed variable '%s' from param '%s' is never used in any do/submit block", varName, src.Name)
 			hint := fmt.Sprintf("remove it from the final expression or reference it with $%s/${%s} in a step", varName, varName)
-			if src != nil && src.Kind == SourceKindLet {
-				message = fmt.Sprintf("exposed variable '%s' from let '%s' is never used in any do/submit/analyse block", varName, sourceName)
+			if src.Kind == SourceKindLet {
+				message = fmt.Sprintf("exposed variable '%s' from let '%s' is never used in any do/submit/analyse block", varName, src.Name)
 				hint = fmt.Sprintf("remove it from the let block or reference it with %s via with-imports", varName)
 			}
 			diags.AddWarning(
@@ -334,11 +450,12 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		if item.Source == "" || item.SourceVar == "" {
 			continue
 		}
-		if !used[item.Source][item.SourceVar] {
+		itemSource := resolveSourceKey(item.SourceKind, item.Source, res.ImportSourceByName, exposedBySource)
+		if !used[itemSource][item.SourceVar] {
 			continue
 		}
 		sourceSpan := diag.Span{}
-		if byVar, ok := exposedBySource[item.Source]; ok {
+		if byVar, ok := exposedBySource[itemSource]; ok {
 			sourceSpan = byVar[item.SourceVar]
 		}
 		span := item.ImportSpan

@@ -266,3 +266,111 @@ func TestCommentBoundaryAndSanitizeHelpers(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildWarningSourcesIncludesParamAndLetWithSameName(t *testing.T) {
+	paramBlockSpan := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(10, 1, 10))
+	paramVarSpan := diag.NewSpan("in.jbs", diag.NewPos(2, 2, 3), diag.NewPos(3, 2, 4))
+	letSpan := diag.NewSpan("in.jbs", diag.NewPos(20, 3, 1), diag.NewPos(30, 3, 11))
+	letVarSpan := diag.NewSpan("in.jbs", diag.NewPos(21, 4, 3), diag.NewPos(22, 4, 4))
+
+	res := &Result{
+		Paramsets: []*Paramset{
+			{
+				Name:  "p",
+				Block: ast.ParamBlock{Span: paramBlockSpan},
+				Vars: map[string][]eval.Value{
+					"x": {eval.Int(1)},
+				},
+				Origins: map[string]diag.Span{
+					"x": paramVarSpan,
+				},
+				Order: []string{"x"},
+			},
+		},
+		LetNamespaces: []*LetNamespace{
+			{
+				Name: "p",
+				Vars: map[string]eval.Value{
+					"y": eval.String("z"),
+				},
+				Origins: map[string]diag.Span{
+					"y": letVarSpan,
+				},
+				Span: letSpan,
+			},
+		},
+	}
+
+	sources := buildWarningSources(res)
+	if len(sources) != 2 {
+		t.Fatalf("expected 2 warning sources, got %d", len(sources))
+	}
+
+	seen := map[sourceKey]warningSource{}
+	for _, src := range sources {
+		seen[src.Key] = src
+	}
+
+	paramKey := sourceKey{Kind: SourceKindParam, Name: "p"}
+	paramSource, ok := seen[paramKey]
+	if !ok {
+		t.Fatalf("missing param warning source for key %+v", paramKey)
+	}
+	if !reflect.DeepEqual(paramSource.Order, []string{"x"}) {
+		t.Fatalf("unexpected param order: got=%v want=%v", paramSource.Order, []string{"x"})
+	}
+	if got := paramSource.VarOrigins["x"]; got != paramVarSpan {
+		t.Fatalf("unexpected param origin span: got=%+v want=%+v", got, paramVarSpan)
+	}
+
+	letKey := sourceKey{Kind: SourceKindLet, Name: "p"}
+	letSource, ok := seen[letKey]
+	if !ok {
+		t.Fatalf("missing let warning source for key %+v", letKey)
+	}
+	if !reflect.DeepEqual(letSource.Order, []string{"y"}) {
+		t.Fatalf("unexpected let order: got=%v want=%v", letSource.Order, []string{"y"})
+	}
+	if got := letSource.VarOrigins["y"]; got != letVarSpan {
+		t.Fatalf("unexpected let origin span: got=%+v want=%+v", got, letVarSpan)
+	}
+}
+
+func TestSourceKeyResolutionHelpers(t *testing.T) {
+	exposed := map[sourceKey]map[string]diag.Span{
+		{Kind: SourceKindParam, Name: "p"}: {
+			"x": diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2)),
+		},
+		{Kind: SourceKindLet, Name: "p"}: {
+			"y": diag.NewSpan("in.jbs", diag.NewPos(3, 1, 1), diag.NewPos(4, 1, 2)),
+		},
+		{Kind: SourceKindParam, Name: "q"}: {
+			"a": diag.NewSpan("in.jbs", diag.NewPos(5, 1, 1), diag.NewPos(6, 1, 2)),
+		},
+	}
+	sources := map[string]*ImportSource{
+		"p": {Name: "p", Kind: SourceKindLet},
+	}
+
+	if got := resolveSourceKey(SourceKindParam, "p", sources, exposed); got != (sourceKey{Kind: SourceKindParam, Name: "p"}) {
+		t.Fatalf("resolveSourceKey explicit param mismatch: got=%+v", got)
+	}
+	if got := resolveSourceKey("", "p", sources, exposed); got != (sourceKey{Kind: SourceKindLet, Name: "p"}) {
+		t.Fatalf("resolveSourceKey fallback from sources mismatch: got=%+v", got)
+	}
+	if got := resolveSourceKey("", "q", nil, exposed); got != (sourceKey{Kind: SourceKindParam, Name: "q"}) {
+		t.Fatalf("resolveSourceKey fallback from exposed mismatch: got=%+v", got)
+	}
+	if got := resolveSourceKey("", "unknown", nil, nil); got != (sourceKey{Name: "unknown"}) {
+		t.Fatalf("resolveSourceKey unknown fallback mismatch: got=%+v", got)
+	}
+
+	originNoKind := importedVar{Paramset: "p"}
+	if got := sourceKeyFromImportedVar(originNoKind, sources); got != (sourceKey{Kind: SourceKindLet, Name: "p"}) {
+		t.Fatalf("sourceKeyFromImportedVar source fallback mismatch: got=%+v", got)
+	}
+	originWithKind := importedVar{Paramset: "p", Kind: SourceKindParam}
+	if got := sourceKeyFromImportedVar(originWithKind, sources); got != (sourceKey{Kind: SourceKindParam, Name: "p"}) {
+		t.Fatalf("sourceKeyFromImportedVar explicit kind mismatch: got=%+v", got)
+	}
+}
