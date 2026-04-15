@@ -7,6 +7,53 @@ import (
 	"jbs/internal/lower"
 )
 
+func mustFindSubmitParamSet(t *testing.T, doc lower.Document, step string) *lower.ParameterSet {
+	t.Helper()
+	want := step + "__submit_params"
+	for i := range doc.ParameterSet {
+		if doc.ParameterSet[i].Name == want {
+			return &doc.ParameterSet[i]
+		}
+	}
+	t.Fatalf("missing submit parameterset %q in %#v", want, doc.ParameterSet)
+	return nil
+}
+
+func mustFindParameterSetByPrefix(t *testing.T, doc lower.Document, prefix string) *lower.ParameterSet {
+	t.Helper()
+	for i := range doc.ParameterSet {
+		if strings.HasPrefix(doc.ParameterSet[i].Name, prefix) {
+			return &doc.ParameterSet[i]
+		}
+	}
+	t.Fatalf("missing parameterset with prefix %q in %#v", prefix, doc.ParameterSet)
+	return nil
+}
+
+func assertSubmitParamValue(t *testing.T, submitSet *lower.ParameterSet, name, want string) {
+	t.Helper()
+	for _, p := range submitSet.Parameter {
+		if p.Name != name {
+			continue
+		}
+		switch got := p.Value.(type) {
+		case string:
+			if got != want {
+				t.Fatalf("submit param %q mismatch: got=%q want=%q", name, got, want)
+			}
+			return
+		case lower.SingleQuoted:
+			if string(got) != want {
+				t.Fatalf("submit param %q mismatch: got=%q want=%q", name, string(got), want)
+			}
+			return
+		default:
+			t.Fatalf("submit param %q has unsupported value type %T with value %#v", name, p.Value, p.Value)
+		}
+	}
+	t.Fatalf("submit param %q not found in %#v", name, submitSet.Parameter)
+}
+
 func TestSubmitAndSubsetLowering(t *testing.T) {
 	src := `
 param p {
@@ -92,16 +139,7 @@ submit run with p {
 	if doc.Comment != "demo comment" {
 		t.Fatalf("expected root comment from jbs_comment, got %q", doc.Comment)
 	}
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
-			submitSet = &doc.ParameterSet[i]
-			break
-		}
-	}
-	if submitSet == nil {
-		t.Fatalf("submit parameterset missing")
-	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	foundQueue := false
 	foundNodes := false
 	foundTasks := false
@@ -191,16 +229,7 @@ submit run with p {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
 
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
-			submitSet = &doc.ParameterSet[i]
-			break
-		}
-	}
-	if submitSet == nil {
-		t.Fatalf("submit parameterset missing")
-	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	if len(submitSet.Parameter) != 3 {
 		t.Fatalf("expected executable,args_exec plus auto tasks, got %#v", submitSet.Parameter)
 	}
@@ -240,16 +269,7 @@ submit run with p {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		if strings.HasSuffix(doc.ParameterSet[i].Name, "__submit_params") {
-			submitSet = &doc.ParameterSet[i]
-			break
-		}
-	}
-	if submitSet == nil {
-		t.Fatalf("submit parameterset missing")
-	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	foundNodes := false
 	foundTasks := false
 	for _, p := range submitSet.Parameter {
@@ -326,20 +346,8 @@ submit run with p {
 		t.Fatalf("expected subset use under submit-key collision: %#v", use)
 	}
 
-	var subset *lower.ParameterSet
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		ps := &doc.ParameterSet[i]
-		if strings.HasPrefix(ps.Name, "_js__run__p__") {
-			subset = ps
-		}
-		if strings.HasSuffix(ps.Name, "__submit_params") {
-			submitSet = ps
-		}
-	}
-	if subset == nil || submitSet == nil {
-		t.Fatalf("expected both subset and submit parametersets, got %#v", doc.ParameterSet)
-	}
+	subset := mustFindParameterSetByPrefix(t, doc, "_js__run__p__")
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	foundAliasedNodes := false
 	foundPlainNodes := false
 	for _, p := range subset.Parameter {
@@ -469,6 +477,30 @@ submit run with p {
 	}
 }
 
+func TestSubmitUseDefaultsExplicitOverrideLowering(t *testing.T) {
+	src := `
+let defaults {
+  queue = "batch"
+  nodes = 2
+}
+
+submit run
+  use defaults
+{
+  queue = "custom"
+  args_exec = "-lc hostname"
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
+	assertSubmitParamValue(t, submitSet, "queue", "custom")
+	assertSubmitParamValue(t, submitSet, "nodes", "2")
+	assertSubmitParamValue(t, submitSet, "tasks", "2")
+}
+
 func TestSubmitUseHelpersAreEmittedAndRewritten(t *testing.T) {
 	src := `
 let submit_defaults {
@@ -491,17 +523,7 @@ submit run
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		ps := &doc.ParameterSet[i]
-		if strings.HasSuffix(ps.Name, "__submit_params") {
-			submitSet = ps
-			break
-		}
-	}
-	if submitSet == nil {
-		t.Fatalf("expected submit parameter set, got %#v", doc.ParameterSet)
-	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	foundHelper := false
 	foundQueue := false
 	foundArgsExec := false
@@ -563,17 +585,7 @@ submit run
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		ps := &doc.ParameterSet[i]
-		if strings.HasSuffix(ps.Name, "__submit_params") {
-			submitSet = ps
-			break
-		}
-	}
-	if submitSet == nil {
-		t.Fatalf("expected submit parameterset, got %#v", doc.ParameterSet)
-	}
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	foundHelper := false
 	foundNodes := false
 	for _, p := range submitSet.Parameter {
@@ -615,20 +627,8 @@ submit run with l {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	var subset *lower.ParameterSet
-	var submitSet *lower.ParameterSet
-	for i := range doc.ParameterSet {
-		ps := &doc.ParameterSet[i]
-		if strings.HasPrefix(ps.Name, "_js__run__l__") {
-			subset = ps
-		}
-		if strings.HasSuffix(ps.Name, "__submit_params") {
-			submitSet = ps
-		}
-	}
-	if subset == nil || submitSet == nil {
-		t.Fatalf("expected subset and submit paramsets, got %#v", doc.ParameterSet)
-	}
+	subset := mustFindParameterSetByPrefix(t, doc, "_js__run__l__")
+	submitSet := mustFindSubmitParamSet(t, doc, "run")
 	hasAliasedQueue := false
 	hasPlainQueue := false
 	for _, p := range subset.Parameter {

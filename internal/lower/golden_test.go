@@ -32,9 +32,6 @@ func TestGolden(t *testing.T) {
 		{name: "let_step_imports"},
 		{name: "use_embed_defaults"},
 		{name: "use_import_step_chain"},
-		{name: "use_submit_defaults_override"},
-		{name: "submit_param_collision_escape"},
-		{name: "submit_use_helper_alias"},
 		{name: "step_options"},
 	}
 
