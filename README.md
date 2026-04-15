@@ -1,4 +1,4 @@
-![pipeline](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/dev/pipeline.svg) ![coverage](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/dev/coverage.svg)
+![pipeline](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/main/pipeline.svg) ![coverage](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/main/coverage.svg)
 
 # JBS: A Language that Compiles to JUBE Configurations
 
