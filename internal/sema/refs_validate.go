@@ -360,18 +360,13 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		if !ok {
 			continue
 		}
-		imports := resolveImportedVars(block.WithItems, res.ImportSourceByName)
-		for _, origins := range imports {
-			for _, origin := range origins {
-				if origin.Kind != SourceKindLet {
-					continue
-				}
-				sourceVar := origin.SourceVar
-				if sourceVar == "" {
-					sourceVar = origin.Name
-				}
-				markUsedExact(sourceKeyFromImportedVar(origin, res.ImportSourceByName), sourceVar)
-			}
+		// Analyse usage accounting must follow canonical analyse import
+		// resolution and only mark semantically valid imports.
+		imports := resolveAnalyseImportsCanonical(block.WithItems, res, nil, analyseImportOptions{
+			EmitDiagnostics: false,
+		})
+		for _, origin := range imports {
+			markUsedExact(sourceKey{Kind: SourceKindLet, Name: origin.Source}, origin.SourceVar)
 		}
 	}
 

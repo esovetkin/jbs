@@ -754,3 +754,93 @@ analyse write
 		t.Fatalf("did not expect W310 when let vars are used in analyse with-clause, got %d: %s", got, diags.String())
 	}
 }
+
+func TestAnalyseAmbiguousWithDoesNotSuppressW310(t *testing.T) {
+	src := `
+let p {
+  x = "foo"
+}
+param p {
+  y = (1)
+  y
+}
+do run {
+  echo hi
+}
+analyse run
+  with p
+{
+  z = x in "out"
+  (z)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E218") {
+		t.Fatalf("expected E218, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "p", "x") {
+		t.Fatalf("expected W310 for let p.x, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseNonStringWithImportDoesNotSuppressW310(t *testing.T) {
+	src := `
+let l {
+  s = 1
+}
+param p {
+  a = (1)
+  a
+}
+do run with p {
+  echo ${a}
+}
+analyse run
+  with l
+{
+  z = s in "out"
+  (z)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E422") {
+		t.Fatalf("expected E422, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "l", "s") {
+		t.Fatalf("expected W310 for let l.s, got: %s", diags.String())
+	}
+}
+
+func TestAnalyseWithParamDoesNotCreateFalseLetUsage(t *testing.T) {
+	src := `
+let l {
+  x = "foo"
+}
+param p {
+  a = (1)
+  a
+}
+do run with p {
+  echo ${a}
+}
+analyse run
+  with p
+{
+  z = "A: %d" in "out"
+  (z)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if !hasDiagCode(diags, "E420") {
+		t.Fatalf("expected E420, got: %s", diags.String())
+	}
+	if !hasW310ForLet(diags, "l", "x") {
+		t.Fatalf("expected W310 for let l.x, got: %s", diags.String())
+	}
+}

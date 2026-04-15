@@ -258,7 +258,11 @@ type analyseLetImport struct {
 	Span      diag.Span
 }
 
-func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseLetImport {
+type analyseImportOptions struct {
+	EmitDiagnostics bool
+}
+
+func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseLetImport {
 	out := make(map[string]analyseLetImport)
 	resolver := WithResolver{
 		Params:  res.ParamByName,
@@ -271,7 +275,9 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 		EnableMixedSourceFallback: true,
 		DetectAmbiguousSource:     true,
 	})
-	emitWithIssues(diags, analyseWithDiagPolicy(), issues)
+	if opts.EmitDiagnostics && diags != nil {
+		emitWithIssues(diags, analyseWithDiagPolicy(), issues)
+	}
 
 	tracker := newImportConflictTracker()
 	for _, item := range expanded {
@@ -285,17 +291,19 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 				continue
 			}
 			if value.Kind != eval.KindString {
-				diags.AddError(
-					diag.CodeE422,
-					fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", v.SourceVar, item.Source),
-					item.Span,
-					"use string-valued let variables for analyse imports",
-				)
+				if opts.EmitDiagnostics && diags != nil {
+					diags.AddError(
+						diag.CodeE422,
+						fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", v.SourceVar, item.Source),
+						item.Span,
+						"use string-valued let variables for analyse imports",
+					)
+				}
 				continue
 			}
 			prev, conflict, first := tracker.Add(v.Visible, item.Source, item.Span)
 			if conflict {
-				if first {
+				if opts.EmitDiagnostics && diags != nil && first {
 					diags.AddError(
 						diag.CodeE214,
 						fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", v.Visible, prev.Source, item.Source),
@@ -315,6 +323,12 @@ func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Di
 	}
 
 	return out
+}
+
+func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseLetImport {
+	return resolveAnalyseImportsCanonical(items, res, diags, analyseImportOptions{
+		EmitDiagnostics: true,
+	})
 }
 
 func hasErrorCodeSince(diags *diag.Diagnostics, start int, code diag.Code) bool {
