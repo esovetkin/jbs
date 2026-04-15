@@ -63,7 +63,7 @@ func buildWarningSources(res *Result) []warningSource {
 		if ps == nil {
 			continue
 		}
-		order := exposedVarNames(ps)
+		order := planutil.SourceVarNames(ps.Order, ps.Vars)
 		if len(order) == 0 {
 			continue
 		}

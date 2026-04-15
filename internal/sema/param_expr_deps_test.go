@@ -8,6 +8,13 @@ import (
 	"jbs/internal/diag"
 )
 
+func warnUnusedParamLocalsTest(assigns map[string]localAssignMeta, order, seed []string, diags *diag.Diagnostics) {
+	if len(assigns) == 0 || len(seed) == 0 {
+		return
+	}
+	warnUnusedParamContributors(assigns, order, nil, nil, seed, diags)
+}
+
 func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 	sp := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
 
@@ -96,19 +103,19 @@ func TestWarnUnusedParamLocals_EarlyReturnAndReachability(t *testing.T) {
 	order := []string{"ghost", "a", "b", "c", "x", "y"}
 
 	diags := &diag.Diagnostics{}
-	warnUnusedParamLocals(assigns, order, nil, diags)
+	warnUnusedParamLocalsTest(assigns, order, nil, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("expected no diagnostics when seed is empty, got: %s", diags.String())
 	}
 
 	diags = &diag.Diagnostics{}
-	warnUnusedParamLocals(nil, order, []string{"a"}, diags)
+	warnUnusedParamLocalsTest(nil, order, []string{"a"}, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("expected no diagnostics when assigns is empty, got: %s", diags.String())
 	}
 
 	diags = &diag.Diagnostics{}
-	warnUnusedParamLocals(assigns, order, []string{"missing", "a"}, diags)
+	warnUnusedParamLocalsTest(assigns, order, []string{"missing", "a"}, diags)
 	if countDiagCode(diags, "W312") != 2 {
 		t.Fatalf("expected 2 W312 warnings for unreachable x/y, got %d: %s", countDiagCode(diags, "W312"), diags.String())
 	}

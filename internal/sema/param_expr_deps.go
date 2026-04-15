@@ -56,13 +56,6 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 	}
 }
 
-func warnUnusedParamLocals(assigns map[string]localAssignMeta, order []string, seed []string, diags *diag.Diagnostics) {
-	if len(assigns) == 0 || len(seed) == 0 {
-		return
-	}
-	warnUnusedParamContributors(assigns, order, nil, nil, seed, diags)
-}
-
 type contributorKind uint8
 
 const (

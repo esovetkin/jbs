@@ -11,6 +11,7 @@ import (
 
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/planutil"
 )
 
 func buildImportSources(res *Result) {
@@ -36,7 +37,7 @@ func importSourceFromParam(ps *Paramset) *ImportSource {
 		Vars:    cloneSeriesMap(ps.Vars),
 		Origins: cloneSpanMap(ps.Origins),
 		Modes:   cloneModeMap(ps.Modes),
-		Order:   append([]string(nil), exposedVarNames(ps)...),
+		Order:   append([]string(nil), planutil.SourceVarNames(ps.Order, ps.Vars)...),
 		Span:    ps.Block.Span,
 	}
 }
