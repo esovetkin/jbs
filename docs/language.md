@@ -89,6 +89,20 @@ analyse_tuple := "(" analyse_col ("," analyse_col)* ","? ")"
 analyse_col   := IDENT ("as" STRING)?
 ```
 
+Numeric literal token grammar:
+
+```ebnf
+number      := int_part frac_part? exp_part?
+             | "." digits exp_part?
+int_part    := digits
+frac_part   := "." digits
+exp_part    := ("e" | "E") ("+" | "-")? digits
+digits      := digit { digit }
+digit       := "0" | ... | "9"
+```
+
+`+` and `-` signs are parsed by unary-expression grammar, not as part of the `number` token.
+
 ## Statement Separators
 
 In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by a newline or `;`.

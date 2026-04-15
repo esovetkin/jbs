@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -1865,6 +1866,56 @@ param p {
 	if num.FloatValue != 1.25 {
 		t.Fatalf("unexpected float literal value: got=%v want=1.25", num.FloatValue)
 	}
+}
+
+func TestParseFloatLiteralScientificAndLeadingDotVariants(t *testing.T) {
+	src := `
+param p {
+  a = 1e3
+  b = 1E5
+  c = .121e-1
+  d = .1E-12
+  e = -.2
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := Parse("float_literal_variants.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement")
+	}
+	pb, ok := prog.Stmts[0].(ast.ParamBlock)
+	if !ok {
+		t.Fatalf("expected param block")
+	}
+	if len(pb.Assignments) != 5 {
+		t.Fatalf("expected five assignments, got %d", len(pb.Assignments))
+	}
+	assertFloat := func(expr ast.Expr, want float64) {
+		t.Helper()
+		num, ok := expr.(ast.NumberExpr)
+		if !ok {
+			t.Fatalf("expected number expression, got %T", expr)
+		}
+		if num.Int {
+			t.Fatalf("expected float number expression, got int")
+		}
+		if math.Abs(num.FloatValue-want) > 1e-15*math.Max(1, math.Abs(want)) {
+			t.Fatalf("unexpected float value: got=%v want=%v", num.FloatValue, want)
+		}
+	}
+	assertFloat(pb.Assignments[0].Expr, 1e3)
+	assertFloat(pb.Assignments[1].Expr, 1e5)
+	assertFloat(pb.Assignments[2].Expr, .121e-1)
+	assertFloat(pb.Assignments[3].Expr, .1e-12)
+	unary, ok := pb.Assignments[4].Expr.(ast.UnaryExpr)
+	if !ok || unary.Op != "-" {
+		t.Fatalf("expected unary minus expression for e, got %#v", pb.Assignments[4].Expr)
+	}
+	assertFloat(unary.Expr, .2)
 }
 
 func TestParseParamBlockWithClauseVariants(t *testing.T) {

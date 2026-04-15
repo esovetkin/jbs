@@ -65,7 +65,7 @@ func (l *Lexer) run() {
 			l.lexIdent()
 			continue
 		}
-		if unicode.IsDigit(r) {
+		if unicode.IsDigit(r) || (r == '.' && unicode.IsDigit(l.peekN(1))) {
 			l.lexNumber()
 			continue
 		}
@@ -157,20 +157,37 @@ func (l *Lexer) lexIdent() {
 
 func (l *Lexer) lexNumber() {
 	start := l.pos()
-	buf := make([]rune, 0, 16)
-	hasDot := false
-	for !l.eof() {
-		r := l.peek()
-		if unicode.IsDigit(r) {
+	buf := make([]rune, 0, 24)
+
+	if l.peek() == '.' {
+		buf = append(buf, l.advance())
+		for unicode.IsDigit(l.peek()) {
 			buf = append(buf, l.advance())
-			continue
 		}
-		if r == '.' && !hasDot && unicode.IsDigit(l.peekN(1)) {
-			hasDot = true
+	} else {
+		for unicode.IsDigit(l.peek()) {
 			buf = append(buf, l.advance())
-			continue
 		}
-		break
+		if l.peek() == '.' && unicode.IsDigit(l.peekN(1)) {
+			buf = append(buf, l.advance())
+			for unicode.IsDigit(l.peek()) {
+				buf = append(buf, l.advance())
+			}
+		}
+	}
+
+	if l.peek() == 'e' || l.peek() == 'E' {
+		first := l.peekN(1)
+		second := l.peekN(2)
+		if unicode.IsDigit(first) || ((first == '+' || first == '-') && unicode.IsDigit(second)) {
+			buf = append(buf, l.advance())
+			if l.peek() == '+' || l.peek() == '-' {
+				buf = append(buf, l.advance())
+			}
+			for unicode.IsDigit(l.peek()) {
+				buf = append(buf, l.advance())
+			}
+		}
 	}
 	text := string(buf)
 	l.emit(TokenNumber, text, text, start, l.pos())

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"math"
 	"testing"
 
 	"jbs/internal/ast"
@@ -312,6 +313,58 @@ func TestParsePrimaryNumberAndFallbackErrors(t *testing.T) {
 		}
 		if !hasCode(diags, "E065") {
 			t.Fatalf("expected E065, got: %s", diags.String())
+		}
+	})
+
+	t.Run("scientific notation is parsed as float", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("1e3", diags)
+		expr := tp.parseExpr()
+		num, ok := expr.(ast.NumberExpr)
+		if !ok || num.Int {
+			t.Fatalf("expected float NumberExpr, got %#v", expr)
+		}
+		if num.FloatValue != 1000 {
+			t.Fatalf("unexpected float value: got=%v want=1000", num.FloatValue)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("leading dot scientific notation parses as float", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP(".1E-12", diags)
+		expr := tp.parseExpr()
+		num, ok := expr.(ast.NumberExpr)
+		if !ok || num.Int {
+			t.Fatalf("expected float NumberExpr, got %#v", expr)
+		}
+		if math.Abs(num.FloatValue-1e-13) > 1e-20 {
+			t.Fatalf("unexpected float value: got=%v want=%v", num.FloatValue, 1e-13)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("unary minus over leading dot float", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("-.2", diags)
+		expr := tp.parseExpr()
+		unary, ok := expr.(ast.UnaryExpr)
+		if !ok || unary.Op != "-" {
+			t.Fatalf("expected unary minus expression, got %#v", expr)
+		}
+		num, ok := unary.Expr.(ast.NumberExpr)
+		if !ok || num.Int {
+			t.Fatalf("expected float NumberExpr as unary child, got %#v", unary.Expr)
+		}
+		if math.Abs(num.FloatValue-0.2) > 1e-15 {
+			t.Fatalf("unexpected float value: got=%v want=0.2", num.FloatValue)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
 		}
 	})
 

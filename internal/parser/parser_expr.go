@@ -11,7 +11,6 @@ package parser
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -268,7 +267,7 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
 	case lexer.TokenNumber:
 		p.next()
-		if !strings.Contains(tok.Value, ".") {
+		if isDecimalIntegerLiteral(tok.Value) {
 			intValue, err := strconv.ParseInt(tok.Value, 10, 64)
 			if err != nil {
 				p.diags.AddError(diag.CodeE065, "invalid integer literal", tok.Span, "use a valid 64-bit signed integer literal")
@@ -353,4 +352,16 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		p.next()
 		return ast.StringExpr{Value: "", Span: tok.Span}
 	}
+}
+
+func isDecimalIntegerLiteral(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
