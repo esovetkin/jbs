@@ -220,8 +220,21 @@ func TestCompileAnalyseBlockSubmitAndSyntheticPattern(t *testing.T) {
 				},
 			},
 		},
-		LetByName:        map[string]*LetNamespace{},
-		StepImportByName: map[string]*StepImportPlan{},
+		LetByName: map[string]*LetNamespace{},
+		StepImportByName: map[string]*StepImportPlan{
+			"run": {
+				StepName: "run",
+				Effective: map[string]VarOrigin{
+					"a": {
+						Name:      "a",
+						SourceVar: "a",
+						Paramset:  "p",
+						Kind:      SourceKindParam,
+						Span:      sp,
+					},
+				},
+			},
+		},
 		Submits: []ast.SubmitBlock{
 			{
 				Name:      "run",

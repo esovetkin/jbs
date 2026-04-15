@@ -74,6 +74,9 @@ type PlannedImport struct {
 }
 
 type StepImportPlan struct {
+	// Canonical step import representation consumed by semantic step
+	// visibility/reference accounting and lowering.
+	// Step consumers must not re-expand raw with-items independently.
 	StepName       string
 	Inherited      map[string]VarOrigin
 	ExplicitDelta  []PlannedImport

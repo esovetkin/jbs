@@ -111,7 +111,23 @@ func TestStepVisibleVariables(t *testing.T) {
 		{Name: "e", Span: itemSpan},
 	}
 
-	got := stepVisibleVariables(items, sources)
+	imports := resolveImportedVars(items, sources)
+	plan := &StepImportPlan{Effective: map[string]VarOrigin{}}
+	for name, origins := range imports {
+		if len(origins) == 0 {
+			continue
+		}
+		origin := origins[0]
+		plan.Effective[name] = VarOrigin{
+			Name:      name,
+			SourceVar: origin.SourceVar,
+			Paramset:  origin.Paramset,
+			Kind:      origin.Kind,
+			Span:      origin.Span,
+		}
+	}
+
+	got := visibleSpansFromStepPlan(plan, sources)
 	if got["aa"] != originA {
 		t.Fatalf("expected visible alias span from source origin, got %#v", got["aa"])
 	}
@@ -148,7 +164,7 @@ func TestStepVisibleVariablesFromPlan(t *testing.T) {
 		},
 	}
 
-	got := stepVisibleVariablesFromPlan(plan, sources)
+	got := visibleSpansFromStepPlan(plan, sources)
 	if got["x"] != originX {
 		t.Fatalf("expected name-fallback source var span for x, got %#v", got["x"])
 	}
@@ -165,7 +181,7 @@ func TestStepVisibleVariablesFromPlan(t *testing.T) {
 
 func TestAddStepValuesToEnvFromPlan(t *testing.T) {
 	env := map[string]eval.Value{"pre": eval.String("keep")}
-	addStepValuesToEnvFromPlan(env, nil, nil)
+	addEnvFromStepPlan(env, nil, nil)
 	if env["pre"].S != "keep" {
 		t.Fatalf("nil plan must not mutate env, got %#v", env)
 	}
@@ -187,7 +203,7 @@ func TestAddStepValuesToEnvFromPlan(t *testing.T) {
 			},
 		},
 	}
-	addStepValuesToEnvFromPlan(env, plan, sources)
+	addEnvFromStepPlan(env, plan, sources)
 
 	wantA := eval.List([]eval.Value{eval.Int(1), eval.Int(2)})
 	if !eval.Equal(env["a"], wantA) {
@@ -247,7 +263,22 @@ func TestAddStepValuesToEnvFromWithItems(t *testing.T) {
 		{Name: "z", From: "unknown", Span: span},
 	}
 	env := map[string]eval.Value{}
-	addStepValuesToEnvFromWithItems(env, items, sources)
+	imports := resolveImportedVars(items, sources)
+	plan := &StepImportPlan{Effective: map[string]VarOrigin{}}
+	for name, origins := range imports {
+		if len(origins) == 0 {
+			continue
+		}
+		origin := origins[0]
+		plan.Effective[name] = VarOrigin{
+			Name:      name,
+			SourceVar: origin.SourceVar,
+			Paramset:  origin.Paramset,
+			Kind:      origin.Kind,
+			Span:      origin.Span,
+		}
+	}
+	addEnvFromStepPlan(env, plan, sources)
 
 	if !eval.Equal(env["a"], eval.List([]eval.Value{eval.Int(1), eval.Int(2)})) {
 		t.Fatalf("expected a from full import, got %#v", env["a"])
@@ -280,7 +311,7 @@ func TestResolveImportedVarsFromPlan(t *testing.T) {
 			"b": {SourceVar: "srcB", Paramset: "l", Kind: SourceKindLet, Span: span},
 		},
 	}
-	got := resolveImportedVarsFromPlan(plan)
+	got := importsFromStepPlan(plan)
 	if len(got) != 2 {
 		t.Fatalf("expected two imported variables, got %#v", got)
 	}
@@ -295,5 +326,41 @@ func TestResolveImportedVarsFromPlan(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got["a"][0].Span, span) || !reflect.DeepEqual(got["b"][0].Span, span) {
 		t.Fatalf("expected span propagation from plan effective origins, got %#v", got)
+	}
+}
+
+func TestExplicitImportsFromStepPlan(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 5))
+	plan := &StepImportPlan{
+		ExplicitDelta: []PlannedImport{
+			{Source: "p", Kind: SourceKindParam, Full: true, Span: span},
+			{Source: "l", Kind: SourceKindLet, Visible: "vv", SourceVar: "sv", Span: span},
+			{Source: "missing", Kind: SourceKindParam, Full: true, Span: span},
+		},
+	}
+	sources := map[string]*ImportSource{
+		"p": {
+			Name:  "p",
+			Kind:  SourceKindParam,
+			Order: []string{"a", "b"},
+			Vars: map[string][]eval.Value{
+				"a": {eval.Int(1)},
+				"b": {eval.Int(2)},
+			},
+		},
+	}
+
+	got := explicitImportsFromStepPlan(plan, sources)
+	if len(got["a"]) != 1 || got["a"][0].Paramset != "p" || got["a"][0].SourceVar != "a" {
+		t.Fatalf("unexpected explicit full import expansion for a: %#v", got["a"])
+	}
+	if len(got["b"]) != 1 || got["b"][0].Paramset != "p" || got["b"][0].SourceVar != "b" {
+		t.Fatalf("unexpected explicit full import expansion for b: %#v", got["b"])
+	}
+	if len(got["vv"]) != 1 || got["vv"][0].Paramset != "l" || got["vv"][0].SourceVar != "sv" || got["vv"][0].Kind != SourceKindLet {
+		t.Fatalf("unexpected explicit visible/source mapping: %#v", got["vv"])
+	}
+	if _, ok := got["missing"]; ok {
+		t.Fatalf("did not expect missing full import source to expand, got %#v", got["missing"])
 	}
 }

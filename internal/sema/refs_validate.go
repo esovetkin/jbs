@@ -146,7 +146,6 @@ func resolveSourceKey(kind SourceKind, name string, sources map[string]*ImportSo
 func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 	warningSources := buildWarningSources(res)
 	exposedBySource := make(map[sourceKey]map[string]diag.Span, len(warningSources))
-	sourceVarsByKey := make(map[sourceKey][]string, len(warningSources))
 	candidatesByVar := make(map[string][]sourceCandidate)
 	used := make(map[sourceKey]map[string]bool)
 	stepUnused := make(map[string]stepUnusedImport)
@@ -156,7 +155,6 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			continue
 		}
 		exposedBySource[src.Key] = maps.Clone(src.VarOrigins)
-		sourceVarsByKey[src.Key] = append([]string(nil), src.Order...)
 		for _, name := range src.Order {
 			candidatesByVar[name] = append(candidatesByVar[name], sourceCandidate{
 				Key:       src.Key,
@@ -243,58 +241,11 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			warnMissing(stepName, ref, candidates)
 		}
 	}
-	resolveEffectiveImports := func(stepName string, withItems []ast.WithItem) map[string][]importedVar {
-		imports := resolveImportedVars(withItems, res.ImportSourceByName)
-		if plan := res.StepImportByName[stepName]; plan != nil {
-			imports = resolveImportedVarsFromPlan(plan)
-		}
-		return imports
+	resolveEffectiveImports := func(stepName string) map[string][]importedVar {
+		return importsFromStepPlan(res.StepImportByName[stepName])
 	}
-	resolveExplicitImports := func(stepName string, withItems []ast.WithItem) map[string][]importedVar {
-		if plan := res.StepImportByName[stepName]; plan != nil {
-			imports := make(map[string][]importedVar, len(plan.ExplicitDelta))
-			for _, imp := range plan.ExplicitDelta {
-				if imp.Full {
-					srcKey := resolveSourceKey(imp.Kind, imp.Source, res.ImportSourceByName, exposedBySource)
-					varNames := sourceVarsByKey[srcKey]
-					if len(varNames) == 0 {
-						src := res.ImportSourceByName[imp.Source]
-						if src != nil {
-							varNames = planutil.SourceVarNames(src.Order, src.Vars)
-							if srcKey.Kind == "" {
-								srcKey.Kind = src.Kind
-							}
-						}
-					}
-					if len(varNames) == 0 {
-						continue
-					}
-					for _, name := range varNames {
-						imports[name] = append(imports[name], importedVar{
-							Name:      name,
-							SourceVar: name,
-							Paramset:  imp.Source,
-							Kind:      srcKey.Kind,
-							Span:      imp.Span,
-						})
-					}
-					continue
-				}
-				sourceVar := imp.SourceVar
-				if sourceVar == "" {
-					sourceVar = imp.Visible
-				}
-				imports[imp.Visible] = append(imports[imp.Visible], importedVar{
-					Name:      imp.Visible,
-					SourceVar: sourceVar,
-					Paramset:  imp.Source,
-					Kind:      imp.Kind,
-					Span:      imp.Span,
-				})
-			}
-			return imports
-		}
-		return resolveImportedVars(withItems, res.ImportSourceByName)
+	resolveExplicitImports := func(stepName string) map[string][]importedVar {
+		return explicitImportsFromStepPlan(res.StepImportByName[stepName], res.ImportSourceByName)
 	}
 	collectStepUnusedImports := func(stepName string, imports map[string][]importedVar, refs []varRef) {
 		if len(imports) == 0 {
@@ -339,9 +290,9 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			base = block.Span.Start
 		}
 		refs := collectShellLikeRefs(block.Body, base, block.Span.File)
-		effectiveImports := resolveEffectiveImports(block.Name, block.WithItems)
+		effectiveImports := resolveEffectiveImports(block.Name)
 		processStepWithImports(block.Name, effectiveImports, refs)
-		explicitImports := resolveExplicitImports(block.Name, block.WithItems)
+		explicitImports := resolveExplicitImports(block.Name)
 		collectStepUnusedImports(block.Name, explicitImports, refs)
 	}
 	for _, block := range res.Submits {
@@ -361,8 +312,8 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 
-		imports := resolveEffectiveImports(block.Name, block.WithItems)
-		explicitImports := resolveExplicitImports(block.Name, block.WithItems)
+		imports := resolveEffectiveImports(block.Name)
+		explicitImports := resolveExplicitImports(block.Name)
 		if spec := res.SubmitByName[block.Name]; spec != nil {
 			for _, helper := range spec.Helpers {
 				imports[helper.Original] = append(imports[helper.Original], importedVar{

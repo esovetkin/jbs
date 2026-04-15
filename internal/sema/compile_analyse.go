@@ -91,36 +91,14 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	}
 	spec.StepKind = stepKind
 
-	var stepWithItems []ast.WithItem
-	for _, doBlock := range res.DoBlocks {
-		if doBlock.Name == block.StepName {
-			stepWithItems = doBlock.WithItems
-			break
-		}
-	}
-	if len(stepWithItems) == 0 {
-		for _, submit := range res.Submits {
-			if submit.Name == block.StepName {
-				stepWithItems = submit.WithItems
-				break
-			}
-		}
-	}
-	if plan := res.StepImportByName[block.StepName]; plan != nil {
-		spec.StepVars = stepVisibleVariablesFromPlan(plan, res.ImportSourceByName)
-	} else {
-		spec.StepVars = stepVisibleVariables(stepWithItems, res.ImportSourceByName)
-	}
+	plan := res.StepImportByName[block.StepName]
+	spec.StepVars = visibleSpansFromStepPlan(plan, res.ImportSourceByName)
 
 	env := make(map[string]eval.Value, len(res.Globals.Values)+32)
 	for k, v := range res.Globals.Values {
 		env[k] = v
 	}
-	if plan := res.StepImportByName[block.StepName]; plan != nil {
-		addStepValuesToEnvFromPlan(env, plan, res.ImportSourceByName)
-	} else {
-		addStepValuesToEnvFromWithItems(env, stepWithItems, res.ImportSourceByName)
-	}
+	addEnvFromStepPlan(env, plan, res.ImportSourceByName)
 	analyseImports := resolveAnalyseWithImports(block.WithItems, res, diags)
 	for visible, imported := range analyseImports {
 		ns := res.LetByName[imported.Source]

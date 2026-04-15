@@ -84,6 +84,8 @@ func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagno
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
 	buildStepImportPlans(res, diags)
+	// From this point on, step-level semantic consumers should project
+	// imports from StepImportPlan only, not by re-expanding raw with-items.
 	for _, submit := range res.Submits {
 		effective := map[string]VarOrigin{}
 		if plan := res.StepImportByName[submit.Name]; plan != nil {
