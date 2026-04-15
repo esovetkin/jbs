@@ -62,51 +62,13 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases ma
 				})
 				continue
 			}
-
-			param := Parameter{Name: field.Name}
-			if t := submitParameterType(field.Name); t != "" {
-				param.Type = t
-			}
-			value := rewriteShellRefsInEvalValue(field.Value, aliases)
-			if field.Mode != "" {
-				param.Mode = field.Mode
-				if field.Mode == "python" {
-					param.Value = SingleQuoted(asString(value))
-				} else {
-					param.Value = asString(value)
-				}
-			} else {
-				switch value.Kind {
-				case eval.KindList, eval.KindTuple, eval.KindNull:
-					param.Value = pythonLiteral(value)
-				default:
-					param.Value = templateValue(value)
-				}
-			}
-			params = append(params, param)
+			params = append(params, buildSubmitParameter(field.Name, field.Mode, field.Value, aliases, true))
 		}
 		for _, helper := range spec.Helpers {
 			if helper.Aliased == "" {
 				continue
 			}
-			param := Parameter{Name: helper.Aliased}
-			value := rewriteShellRefsInEvalValue(helper.Value, aliases)
-			if helper.Mode != "" {
-				param.Mode = helper.Mode
-				if helper.Mode == "python" {
-					param.Value = SingleQuoted(asString(value))
-				} else {
-					param.Value = asString(value)
-				}
-			} else {
-				switch value.Kind {
-				case eval.KindList, eval.KindTuple, eval.KindNull:
-					param.Value = pythonLiteral(value)
-				default:
-					param.Value = templateValue(value)
-				}
-			}
-			params = append(params, param)
+			params = append(params, buildSubmitParameter(helper.Aliased, helper.Mode, helper.Value, aliases, false))
 		}
 	}
 
@@ -164,6 +126,33 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 		`echo "true" > success`,
 	}
 	return step
+}
+
+// buildSubmitParameter converts one submit field/helper value into a JUBE parameter payload.
+func buildSubmitParameter(name, mode string, value eval.Value, aliases map[string]string, withTypeInference bool) Parameter {
+	param := Parameter{Name: name}
+	if withTypeInference {
+		if t := submitParameterType(name); t != "" {
+			param.Type = t
+		}
+	}
+	value = rewriteShellRefsInEvalValue(value, aliases)
+	if mode != "" {
+		param.Mode = mode
+		if mode == "python" {
+			param.Value = SingleQuoted(asString(value))
+		} else {
+			param.Value = asString(value)
+		}
+		return param
+	}
+	switch value.Kind {
+	case eval.KindList, eval.KindTuple, eval.KindNull:
+		param.Value = pythonLiteral(value)
+	default:
+		param.Value = templateValue(value)
+	}
+	return param
 }
 
 func submitParameterType(name string) string {

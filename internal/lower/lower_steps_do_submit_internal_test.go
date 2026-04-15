@@ -49,13 +49,17 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 						{Name: "mail", Mode: "shell", Value: eval.String("echo ${x}")},
 						{Name: "threadspertask", Value: eval.Int(8)},
 						{Name: "measurement", Value: eval.List([]eval.Value{eval.String("$x"), eval.Int(1)})},
+						{Name: "notification", Value: eval.String("$x")},
 						{Name: "starter", Value: eval.Null()},
 					},
 					Helpers: []sema.SubmitHelper{
 						{Original: "skip", Aliased: "", Value: eval.String("ignored")},
 						{Original: "hpy", Aliased: "_jk__run_hpy", Mode: "python", Value: eval.String("${x}")},
 						{Original: "hsh", Aliased: "_jk__run_hsh", Mode: "shell", Value: eval.String("$x")},
+						{Original: "hnodes", Aliased: "nodes", Value: eval.Int(9)},
 						{Original: "htuple", Aliased: "_jk__run_htuple", Value: eval.Tuple([]eval.Value{eval.String("$x")})},
+						{Original: "hlist", Aliased: "_jk__run_hlist", Value: eval.List([]eval.Value{eval.String("$x"), eval.Int(2)})},
+						{Original: "hnull", Aliased: "_jk__run_hnull", Value: eval.Null()},
 						{Original: "hstr", Aliased: "_jk__run_hstr", Value: eval.String("$x")},
 					},
 				},
@@ -130,6 +134,17 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 		t.Fatalf("expected list python literal rewrite, got %#v (%T)", measurement.Value, measurement.Value)
 	}
 
+	notification, ok := params["notification"]
+	if !ok {
+		t.Fatalf("missing notification parameter")
+	}
+	if notification.Mode != "" {
+		t.Fatalf("expected no explicit mode for notification, got %q", notification.Mode)
+	}
+	if got, ok := notification.Value.(string); !ok || got != "$_ja__x" {
+		t.Fatalf("expected scalar fallback rewrite for notification, got %#v (%T)", notification.Value, notification.Value)
+	}
+
 	starter, ok := params["starter"]
 	if !ok {
 		t.Fatalf("missing starter parameter")
@@ -164,12 +179,39 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 		t.Fatalf("expected shell helper rewrite, got %#v (%T)", hsh.Value, hsh.Value)
 	}
 
+	hnodes, ok := params["nodes"]
+	if !ok {
+		t.Fatalf("missing helper nodes parameter")
+	}
+	if hnodes.Type != "" {
+		t.Fatalf("did not expect submit-key type inference for helper alias nodes, got %q", hnodes.Type)
+	}
+	if got, ok := hnodes.Value.(string); !ok || got != "9" {
+		t.Fatalf("expected helper nodes scalar template value, got %#v (%T)", hnodes.Value, hnodes.Value)
+	}
+
 	htuple, ok := params["_jk__run_htuple"]
 	if !ok {
 		t.Fatalf("missing tuple helper parameter")
 	}
 	if got, ok := htuple.Value.(string); !ok || got != "(\"$_ja__x\",)" {
 		t.Fatalf("expected tuple helper python literal rewrite, got %#v (%T)", htuple.Value, htuple.Value)
+	}
+
+	hlist, ok := params["_jk__run_hlist"]
+	if !ok {
+		t.Fatalf("missing list helper parameter")
+	}
+	if got, ok := hlist.Value.(string); !ok || got != "[\"$_ja__x\",2]" {
+		t.Fatalf("expected list helper python literal rewrite, got %#v (%T)", hlist.Value, hlist.Value)
+	}
+
+	hnull, ok := params["_jk__run_hnull"]
+	if !ok {
+		t.Fatalf("missing null helper parameter")
+	}
+	if got, ok := hnull.Value.(string); !ok || got != "None" {
+		t.Fatalf("expected null helper python literal rewrite, got %#v (%T)", hnull.Value, hnull.Value)
 	}
 
 	hstr, ok := params["_jk__run_hstr"]
