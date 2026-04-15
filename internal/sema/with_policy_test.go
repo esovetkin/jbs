@@ -268,3 +268,95 @@ func TestPolicyFormatForIssueDefault(t *testing.T) {
 		t.Fatalf("expected nil message/hint for unknown issue kind, got %#v", got)
 	}
 }
+
+func TestUnknownSourceFormat(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	format := unknownSourceFormat(func(ResolveIssue) string { return "custom source hint" })
+	issue := ResolveIssue{Source: "p", Span: span}
+	if format.Code != diag.CodeE020 {
+		t.Fatalf("expected E020, got %q", format.Code)
+	}
+	if got := format.Message(issue); got != "unknown parameterset 'p' in with clause" {
+		t.Fatalf("unexpected message: %q", got)
+	}
+	if got := format.Hint(issue); got != "custom source hint" {
+		t.Fatalf("unexpected hint: %q", got)
+	}
+}
+
+func TestUnknownVarFormat(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	format := unknownVarFormat(func(ResolveIssue) string { return "custom var hint" })
+	issue := ResolveIssue{Source: "p", Variable: "x", Span: span}
+	if format.Code != diag.CodeE021 {
+		t.Fatalf("expected E021, got %q", format.Code)
+	}
+	if got := format.Message(issue); got != "unknown variable 'x' in source 'p'" {
+		t.Fatalf("unexpected message: %q", got)
+	}
+	if got := format.Hint(issue); got != "custom var hint" {
+		t.Fatalf("unexpected hint: %q", got)
+	}
+}
+
+func TestAmbiguousSourceFormat(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	format := ambiguousSourceFormat()
+	issue := ResolveIssue{Source: "same", Span: span}
+	if format.Code != diag.CodeE218 {
+		t.Fatalf("expected E218, got %q", format.Code)
+	}
+	if got := format.Message(issue); got != "ambiguous with source 'same': matches both param and let namespace" {
+		t.Fatalf("unexpected message: %q", got)
+	}
+	if got := format.Hint(issue); got != "disambiguate by renaming the param or let namespace" {
+		t.Fatalf("unexpected hint: %q", got)
+	}
+}
+
+func TestAnalyseDisallowedKindFormat(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	format := analyseDisallowedKindFormat()
+	issue := ResolveIssue{Source: "p", Span: span}
+	if format.Code != diag.CodeE420 {
+		t.Fatalf("expected E420, got %q", format.Code)
+	}
+	if got := format.Message(issue); got != "analyse with-clause can only import from let namespaces; 'p' is not a let namespace" {
+		t.Fatalf("unexpected message: %q", got)
+	}
+	if got := format.Hint(issue); got != "use `with <let_namespace>` or `with <variable> from <let_namespace>`" {
+		t.Fatalf("unexpected hint: %q", got)
+	}
+}
+
+func TestBaseWithDiagPolicyDefaults(t *testing.T) {
+	policy := baseWithDiagPolicy()
+	if policy.UnknownVar.Code != diag.CodeE021 {
+		t.Fatalf("expected unknown-var code E021, got %q", policy.UnknownVar.Code)
+	}
+	if policy.Ambiguous.Code != diag.CodeE218 {
+		t.Fatalf("expected ambiguous code E218, got %q", policy.Ambiguous.Code)
+	}
+	if policy.DisallowedKind.Code != "" || policy.DisallowedKind.Message != nil || policy.DisallowedKind.Hint != nil {
+		t.Fatalf("expected base policy to leave disallowed-kind unset, got %#v", policy.DisallowedKind)
+	}
+}
+
+func TestStepValidateUnknownSourceHintWithoutFrom(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	diags := &diag.Diagnostics{}
+	emitWithIssues(diags, stepValidateWithDiagPolicy(), []ResolveIssue{
+		{
+			Kind:   IssueUnknownSource,
+			Item:   ast.WithItem{Name: "missing", Span: span},
+			Source: "missing",
+			Span:   span,
+		},
+	})
+	if len(diags.Items) != 1 {
+		t.Fatalf("expected one diagnostic, got %d", len(diags.Items))
+	}
+	if got := diags.Items[0].Hint; got != "import an existing parameterset or let namespace" {
+		t.Fatalf("unexpected hint for with unknown source: %q", got)
+	}
+}
