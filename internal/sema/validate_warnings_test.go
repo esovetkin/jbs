@@ -78,6 +78,104 @@ param derived with base {
 	}
 }
 
+func TestW312ImportedShadowedByLocalStillWarns(t *testing.T) {
+	src := `
+param base {
+  x = (1,2)
+  x
+}
+param derived with base {
+  x = 1
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 1 {
+		t.Fatalf("expected one W312 warning, got %d: %s", got, diags.String())
+	}
+	if !hasW312ImportedFor(diags, "base", "x") {
+		t.Fatalf("expected W312 for imported base.x, got: %s", diags.String())
+	}
+	if hasW312For(diags, "x") {
+		t.Fatalf("did not expect local W312 for x, got: %s", diags.String())
+	}
+}
+
+func TestW312ImportedSelfRebindCountsAsUsed(t *testing.T) {
+	src := `
+param base {
+  x = (1,2)
+  x
+}
+param derived with base {
+  x = x + 1
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 0 {
+		t.Fatalf("did not expect W312 for self-rebind from imported x, got %d: %s", got, diags.String())
+	}
+}
+
+func TestW312ImportedShadowedTransitiveLocalStillUnused(t *testing.T) {
+	src := `
+param base {
+  x = (1,2)
+  x
+}
+param derived with base {
+  y = x
+  x = 1
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if !hasW312ImportedFor(diags, "base", "x") {
+		t.Fatalf("expected W312 for imported base.x, got: %s", diags.String())
+	}
+	if !hasW312For(diags, "y") {
+		t.Fatalf("expected local W312 for y, got: %s", diags.String())
+	}
+}
+
+func TestW312ImportedUsedViaIntermediateLocalNoWarn(t *testing.T) {
+	src := `
+param base {
+  x = (1,2)
+  x
+}
+param derived with base {
+  y = x
+  y
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := diagCount(diags, "W312"); got != 0 {
+		t.Fatalf("did not expect W312 when imported x contributes via y, got %d: %s", got, diags.String())
+	}
+}
+
 func TestDuplicateParamAssignmentEmitsSingleW312ForName(t *testing.T) {
 	src := `
 param p {

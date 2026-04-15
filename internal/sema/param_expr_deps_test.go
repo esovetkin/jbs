@@ -135,3 +135,51 @@ func containsWarningForVar(diags *diag.Diagnostics, name string) bool {
 	}
 	return false
 }
+
+func TestWarnUnusedParamContributors_ShadowedImportedStillWarns(t *testing.T) {
+	sp := func(off int) diag.Span {
+		return diag.NewSpan("in.jbs", diag.NewPos(off, 1, off+1), diag.NewPos(off+1, 1, off+2))
+	}
+	assigns := map[string]localAssignMeta{
+		"x": {
+			Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: sp(1)},
+			Span: sp(1),
+		},
+	}
+	imported := map[string]importedContribution{
+		"x": {Source: "base", SourceVar: "x", Span: sp(2)},
+	}
+	diags := &diag.Diagnostics{}
+	warnUnusedParamContributors(assigns, []string{"x"}, imported, []string{"x"}, []string{"x"}, diags)
+	if countDiagCode(diags, "W312") != 1 {
+		t.Fatalf("expected one W312, got %d: %s", countDiagCode(diags, "W312"), diags.String())
+	}
+	if !strings.Contains(diags.String(), "imported variable 'x' from source 'base'") {
+		t.Fatalf("expected imported warning for base.x, got: %s", diags.String())
+	}
+}
+
+func TestWarnUnusedParamContributors_SelfRebindMarksImportedUsed(t *testing.T) {
+	sp := func(off int) diag.Span {
+		return diag.NewSpan("in.jbs", diag.NewPos(off, 1, off+1), diag.NewPos(off+1, 1, off+2))
+	}
+	assigns := map[string]localAssignMeta{
+		"x": {
+			Expr: ast.BinaryExpr{
+				Left:  ast.IdentExpr{Name: "x", Span: sp(1)},
+				Op:    "+",
+				Right: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: sp(1)},
+				Span:  sp(1),
+			},
+			Span: sp(1),
+		},
+	}
+	imported := map[string]importedContribution{
+		"x": {Source: "base", SourceVar: "x", Span: sp(2)},
+	}
+	diags := &diag.Diagnostics{}
+	warnUnusedParamContributors(assigns, []string{"x"}, imported, []string{"x"}, []string{"x"}, diags)
+	if countDiagCode(diags, "W312") != 0 {
+		t.Fatalf("did not expect W312 for self-rebind, got: %s", diags.String())
+	}
+}

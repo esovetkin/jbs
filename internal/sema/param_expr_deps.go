@@ -63,43 +63,145 @@ func warnUnusedParamLocals(assigns map[string]localAssignMeta, order []string, s
 	warnUnusedParamContributors(assigns, order, nil, nil, seed, diags)
 }
 
+type contributorKind uint8
+
+const (
+	contributorLocal contributorKind = iota
+	contributorImported
+)
+
+type contributorID struct {
+	Kind      contributorKind
+	Visible   string
+	Source    string
+	SourceVar string
+}
+
+func makeLocalContributorID(name string) contributorID {
+	return contributorID{
+		Kind:    contributorLocal,
+		Visible: name,
+	}
+}
+
+func makeImportedContributorID(visible, source, sourceVar string) contributorID {
+	return contributorID{
+		Kind:      contributorImported,
+		Visible:   visible,
+		Source:    source,
+		SourceVar: sourceVar,
+	}
+}
+
+func compareContributorID(a, b contributorID) int {
+	if a.Kind != b.Kind {
+		if a.Kind < b.Kind {
+			return -1
+		}
+		return 1
+	}
+	if a.Visible != b.Visible {
+		if a.Visible < b.Visible {
+			return -1
+		}
+		return 1
+	}
+	if a.Source != b.Source {
+		if a.Source < b.Source {
+			return -1
+		}
+		return 1
+	}
+	if a.SourceVar != b.SourceVar {
+		if a.SourceVar < b.SourceVar {
+			return -1
+		}
+		return 1
+	}
+	return 0
+}
+
 func warnUnusedParamContributors(assigns map[string]localAssignMeta, order []string, imported map[string]importedContribution, importedOrder []string, seed []string, diags *diag.Diagnostics) {
 	if len(assigns) == 0 && len(imported) == 0 {
 		return
 	}
 
-	depsByVar := make(map[string][]string, len(assigns))
-	for name, meta := range assigns {
-		depsSet := make(map[string]struct{}, 4)
-		collectExprLocalIdentDeps(meta.Expr, depsSet)
-		deps := make([]string, 0, len(depsSet))
-		for dep := range depsSet {
-			if dep == name {
-				continue
-			}
-			if _, ok := assigns[dep]; ok {
-				deps = append(deps, dep)
-				continue
-			}
-			if _, ok := imported[dep]; ok {
-				deps = append(deps, dep)
-			}
+	localByVisible := make(map[string]contributorID, len(assigns))
+	for _, name := range order {
+		if _, ok := assigns[name]; !ok {
+			continue
 		}
-		slices.Sort(deps)
-		depsByVar[name] = deps
+		if _, exists := localByVisible[name]; exists {
+			continue
+		}
+		localByVisible[name] = makeLocalContributorID(name)
+	}
+	for name := range assigns {
+		if _, exists := localByVisible[name]; !exists {
+			localByVisible[name] = makeLocalContributorID(name)
+		}
 	}
 
-	reachable := make(map[string]bool, len(assigns)+len(imported))
-	var markReachable func(string)
-	markReachable = func(name string) {
-		if reachable[name] {
+	importedByVisible := make(map[string][]contributorID, len(imported))
+	for _, name := range importedOrder {
+		meta, ok := imported[name]
+		if !ok {
+			continue
+		}
+		id := makeImportedContributorID(name, meta.Source, meta.SourceVar)
+		importedByVisible[name] = append(importedByVisible[name], id)
+	}
+	for name, meta := range imported {
+		if _, exists := importedByVisible[name]; exists {
+			continue
+		}
+		id := makeImportedContributorID(name, meta.Source, meta.SourceVar)
+		importedByVisible[name] = []contributorID{id}
+	}
+
+	depsByNode := make(map[contributorID][]contributorID, len(assigns))
+	for name, meta := range assigns {
+		node, ok := localByVisible[name]
+		if !ok {
+			continue
+		}
+		depsSet := make(map[string]struct{}, 4)
+		collectExprLocalIdentDeps(meta.Expr, depsSet)
+		nodeDeps := make(map[contributorID]struct{}, len(depsSet))
+		for depName := range depsSet {
+			if depName == name {
+				for _, importedNode := range importedByVisible[depName] {
+					nodeDeps[importedNode] = struct{}{}
+				}
+				continue
+			}
+			if localNode, exists := localByVisible[depName]; exists {
+				nodeDeps[localNode] = struct{}{}
+				continue
+			}
+			for _, importedNode := range importedByVisible[depName] {
+				nodeDeps[importedNode] = struct{}{}
+			}
+		}
+		deps := make([]contributorID, 0, len(nodeDeps))
+		for depNode := range nodeDeps {
+			deps = append(deps, depNode)
+		}
+		slices.SortFunc(deps, compareContributorID)
+		depsByNode[node] = deps
+	}
+
+	reachable := make(map[contributorID]bool, len(assigns)+len(imported))
+	var markReachable func(contributorID)
+	markReachable = func(node contributorID) {
+		if reachable[node] {
 			return
 		}
-		reachable[name] = true
-		if _, ok := imported[name]; ok {
+		reachable[node] = true
+		if node.Kind == contributorImported {
 			return
 		}
-		for _, dep := range depsByVar[name] {
+		for _, dep := range depsByNode[node] {
 			markReachable(dep)
 		}
 	}
@@ -108,15 +210,22 @@ func warnUnusedParamContributors(assigns map[string]localAssignMeta, order []str
 		if root == "" {
 			continue
 		}
-		markReachable(root)
+		if localNode, ok := localByVisible[root]; ok {
+			markReachable(localNode)
+			continue
+		}
+		for _, importedNode := range importedByVisible[root] {
+			markReachable(importedNode)
+		}
 	}
 
 	for _, name := range order {
-		meta, ok := assigns[name]
+		localNode, ok := localByVisible[name]
 		if !ok {
 			continue
 		}
-		if reachable[name] {
+		meta := assigns[name]
+		if reachable[localNode] {
 			continue
 		}
 		diags.AddWarning(
@@ -131,7 +240,8 @@ func warnUnusedParamContributors(assigns map[string]localAssignMeta, order []str
 		if !ok {
 			continue
 		}
-		if reachable[name] {
+		importedNode := makeImportedContributorID(name, meta.Source, meta.SourceVar)
+		if reachable[importedNode] {
 			continue
 		}
 		diags.AddWarning(
