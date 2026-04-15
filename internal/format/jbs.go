@@ -175,9 +175,6 @@ func extractTopLevelTrivia(segment string, allowInline bool) topLevelTrivia {
 			hasComment = true
 			continue
 		}
-		if isSeparatorOnly(line) {
-			continue
-		}
 	}
 	if !hasComment {
 		return topLevelTrivia{}
@@ -212,11 +209,6 @@ func parseCommentFragment(line string, allowSemicolonPrefix bool) (string, bool)
 		return "", false
 	}
 	return strings.TrimRight(line, " \t"), true
-}
-
-func isSeparatorOnly(line string) bool {
-	trimmed := strings.TrimLeft(line, " \t;")
-	return trimmed == ""
 }
 
 func isWhitespace(text string) bool {

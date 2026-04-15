@@ -14,16 +14,6 @@ import (
 	"jbs/internal/diag"
 )
 
-func (p *Parser) parseOptionalWithClause() []ast.WithItem {
-	p.skipTriviaInline()
-	word, ok := p.peekWord()
-	if !ok || word != "with" {
-		return nil
-	}
-	p.consumeWord()
-	return p.parseWithItems()
-}
-
 func (p *Parser) parseOptionalParamWithClauses() []ast.WithItem {
 	withItems := make([]ast.WithItem, 0)
 	for {

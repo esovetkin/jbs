@@ -584,27 +584,3 @@ func combHasOp(expr ast.CombExpr, op string) bool {
 		return false
 	}
 }
-
-func combIdentOrder(expr ast.CombExpr) []string {
-	seen := make(map[string]struct{})
-	out := make([]string, 0)
-	var walk func(ast.CombExpr)
-	walk = func(node ast.CombExpr) {
-		switch n := node.(type) {
-		case ast.CombIdent:
-			if n.Name == "" {
-				return
-			}
-			if _, ok := seen[n.Name]; ok {
-				return
-			}
-			seen[n.Name] = struct{}{}
-			out = append(out, n.Name)
-		case ast.CombBinary:
-			walk(n.Left)
-			walk(n.Right)
-		}
-	}
-	walk(expr)
-	return out
-}
