@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	helpdocs "jbs/docs"
+)
 
 func mustParseFlags(t *testing.T, args []string) Flags {
 	t.Helper()
@@ -68,33 +72,93 @@ func TestParseFlagsCompileModeCases(t *testing.T) {
 
 func TestParseFlagsNoArgMode(t *testing.T) {
 	f := mustParseFlags(t, nil)
-	if !f.Help || f.HelpGlobals {
+	if !f.Help || f.HelpTopic != "" {
 		t.Fatalf("expected no-arg mode to select general help")
 	}
 }
 
 func TestParseFlagsHelpTopics(t *testing.T) {
+	for _, topic := range knownHelpTopics {
+		topic := topic
+		t.Run(topic, func(t *testing.T) {
+			f := mustParseFlags(t, []string{"help", topic})
+			if !f.Help {
+				t.Fatalf("expected help mode for topic %q", topic)
+			}
+			if f.HelpTopic != topic {
+				t.Fatalf("unexpected help topic: got=%q want=%q", f.HelpTopic, topic)
+			}
+		})
+	}
+}
+
+func TestParseFlagsHelpCommandForms(t *testing.T) {
 	cases := []struct {
-		topic string
-		check func(Flags) bool
+		name      string
+		args      []string
+		wantHelp  bool
+		wantTopic string
+		wantErr   bool
 	}{
-		{topic: "globals", check: func(f Flags) bool { return f.HelpGlobals }},
-		{topic: "do", check: func(f Flags) bool { return f.HelpDo }},
-		{topic: "analyse", check: func(f Flags) bool { return f.HelpAnalyse }},
-		{topic: "let", check: func(f Flags) bool { return f.HelpLet }},
-		{topic: "submit", check: func(f Flags) bool { return f.HelpSubmit }},
-		{topic: "use", check: func(f Flags) bool { return f.HelpUse }},
-		{topic: "param", check: func(f Flags) bool { return f.HelpParam }},
+		{
+			name:      "help_without_topic",
+			args:      []string{"help"},
+			wantHelp:  true,
+			wantTopic: "",
+		},
+		{
+			name:      "help_with_valid_topic",
+			args:      []string{"help", "do"},
+			wantHelp:  true,
+			wantTopic: "do",
+		},
+		{
+			name:    "help_with_unknown_topic",
+			args:    []string{"help", "bad"},
+			wantErr: true,
+		},
+		{
+			name:    "help_with_extra_argument",
+			args:    []string{"help", "do", "extra"},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
 		tc := tc
-		t.Run(tc.topic, func(t *testing.T) {
-			f := mustParseFlags(t, []string{"help", tc.topic})
-			if !f.Help || !tc.check(f) {
-				t.Fatalf("expected help mode for topic %q", tc.topic)
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := ParseFlags(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected usage error for args=%v", tc.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if f.Help != tc.wantHelp {
+				t.Fatalf("unexpected help flag: got=%v want=%v", f.Help, tc.wantHelp)
+			}
+			if f.HelpTopic != tc.wantTopic {
+				t.Fatalf("unexpected help topic: got=%q want=%q", f.HelpTopic, tc.wantTopic)
 			}
 		})
+	}
+}
+
+func TestKnownHelpTopicsExistInDocs(t *testing.T) {
+	for _, topic := range knownHelpTopics {
+		if _, err := helpdocs.Page(topic); err != nil {
+			t.Fatalf("help topic %q has no docs page: %v", topic, err)
+		}
+	}
+}
+
+func TestHelpUsageTextMatchesTopicRegistry(t *testing.T) {
+	want := "usage: jbs help [" + helpUsageTopics() + "]"
+	if got := helpUsageMessage(); got != want {
+		t.Fatalf("unexpected help usage message: got=%q want=%q", got, want)
 	}
 }
 

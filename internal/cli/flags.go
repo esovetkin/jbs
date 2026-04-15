@@ -5,24 +5,36 @@ import (
 	"strings"
 )
 
+var knownHelpTopics = []string{
+	"analyse",
+	"do",
+	"globals",
+	"let",
+	"param",
+	"submit",
+	"use",
+}
+
+var knownHelpTopicSet = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(knownHelpTopics))
+	for _, topic := range knownHelpTopics {
+		set[topic] = struct{}{}
+	}
+	return set
+}()
+
 type Flags struct {
-	Input       string
-	Output      string
-	Check       bool
-	Fmt         bool
-	FmtStrict   bool
-	Embed       bool
-	EmbedName   string
-	PrintParam  bool
-	PrintType   string
-	Help        bool
-	HelpAnalyse bool
-	HelpDo      bool
-	HelpLet     bool
-	HelpParam   bool
-	HelpSubmit  bool
-	HelpUse     bool
-	HelpGlobals bool
+	Input      string
+	Output     string
+	Check      bool
+	Fmt        bool
+	FmtStrict  bool
+	Embed      bool
+	EmbedName  string
+	PrintParam bool
+	PrintType  string
+	Help       bool
+	HelpTopic  string
 }
 
 type UsageError struct {
@@ -40,46 +52,17 @@ func ParseFlags(args []string) (Flags, error) {
 		return cfg, nil
 	}
 	if args[0] == "help" {
-		if len(args) == 1 {
-			cfg.Help = true
+		cfg.Help = true
+		switch len(args) {
+		case 1:
 			return cfg, nil
+		case 2:
+			if isKnownHelpTopic(args[1]) {
+				cfg.HelpTopic = args[1]
+				return cfg, nil
+			}
 		}
-		if len(args) == 2 && args[1] == "globals" {
-			cfg.Help = true
-			cfg.HelpGlobals = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "do" {
-			cfg.Help = true
-			cfg.HelpDo = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "analyse" {
-			cfg.Help = true
-			cfg.HelpAnalyse = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "let" {
-			cfg.Help = true
-			cfg.HelpLet = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "param" {
-			cfg.Help = true
-			cfg.HelpParam = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "submit" {
-			cfg.Help = true
-			cfg.HelpSubmit = true
-			return cfg, nil
-		}
-		if len(args) == 2 && args[1] == "use" {
-			cfg.Help = true
-			cfg.HelpUse = true
-			return cfg, nil
-		}
-		return Flags{}, UsageError{Message: "usage: jbs help [analyse|do|globals|let|param|submit|use]"}
+		return Flags{}, UsageError{Message: helpUsageMessage()}
 	}
 	if args[0] == "embed" {
 		cfg.Embed = true
@@ -182,7 +165,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|param|do|submit|let|analyse|use]
+  jbs help [analyse|do|globals|let|param|submit|use]
 
 Inspect embedded shared scripts:
   jbs embed [filename]
@@ -193,6 +176,19 @@ Inspect step parameter expansion:
 
 Format jbs in place:
   jbs fmt [-s|--strict] script.jbs`
+}
+
+func isKnownHelpTopic(topic string) bool {
+	_, ok := knownHelpTopicSet[topic]
+	return ok
+}
+
+func helpUsageTopics() string {
+	return strings.Join(knownHelpTopics, "|")
+}
+
+func helpUsageMessage() string {
+	return fmt.Sprintf("usage: jbs help [%s]", helpUsageTopics())
 }
 
 func parseFmtArgs(args []string) (Flags, error) {

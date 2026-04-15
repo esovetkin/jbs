@@ -35,13 +35,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if flags.Help {
-		topic := helpTopic(flags)
-		if topic == "" {
+		if flags.HelpTopic == "" {
 			fmt.Fprintln(stdout, UsageText())
 			return 0
 		}
-		if err := printHelpTopic(stdout, topic); err != nil {
-			fmt.Fprintf(stderr, "failed to print help for %q: %v\n", topic, err)
+		if err := printHelpTopic(stdout, flags.HelpTopic); err != nil {
+			fmt.Fprintf(stderr, "failed to print help for %q: %v\n", flags.HelpTopic, err)
 			return 1
 		}
 		return 0
@@ -343,27 +342,6 @@ func sourceExcerpt(lines []string, span diag.Span) string {
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
-}
-
-func helpTopic(flags Flags) string {
-	switch {
-	case flags.HelpGlobals:
-		return "globals"
-	case flags.HelpAnalyse:
-		return "analyse"
-	case flags.HelpDo:
-		return "do"
-	case flags.HelpLet:
-		return "let"
-	case flags.HelpParam:
-		return "param"
-	case flags.HelpSubmit:
-		return "submit"
-	case flags.HelpUse:
-		return "use"
-	default:
-		return ""
-	}
 }
 
 func printHelpTopic(out io.Writer, topic string) error {
