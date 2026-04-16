@@ -17,16 +17,56 @@ param <name> [with ...]
 }
 ```
 
-Inside a `param` block:
+Inside a `param` block, one creates variables and writes expressions using them. The final expression defines the return value which should be a combination object or is treated as a combination expression. This defines the combinations of variables that become available to `do`, `submit` (when imported with `with`) and `analyse` sections.
 
-- assignments define variable values
-- the final expression must evaluate to a comb value
-- legacy final form uses `+` and `*` to define the parameter-space combination
-- expression final form is also allowed, for example `comb(...)`
-- using the same variable multiple times in the final expression is not allowed
-- variables used in the final expression become available to `do` and `submit` (when imported with `with`)
+### Variable Types
+
+Supported value types:
+
+- scalar
+  - string, for example `"hello"`
+  - int, for example `9007199254740993`
+  - float, for example `0.1`, `.1`, `1e-5`, `1E4`
+  - bool, for example `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
+- tuples, for example `(0,1,2,"a")`
+- lists, for example `[0,1,2,"a"]`
+- comb or a combination objects, for example `x=(0,1); y=("a","b"); comb(x+y)`
+- mode declarations with `shell(...)` and `python(...)`
+
+Example:
+
+```jbs
+queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
+# Removing the trailing newline is important for JUBE
+host = shell("hostname | tr -d '\n'")
+```
+
+`shell` and `python` lower to JUBE `mode` fields. They should be used as standalone assignment values, not inside tuple/list literals.
+
+### Tuple vs List Behavior
+
+In legacy final combination algebra, tuples and lists behave the same.
+
+They differ in assignment-level arithmetic:
+
+- `[0,1,2] * 2` -> `[0,2,4]` (vector-style arithmetic)
+- `(0,1,2) * 2` -> `(0,1,2,0,1,2)` (tuple repetition)
+
+Use `tuple()` and `list()` to convert between representations.
+
+`rev()` preserves container type:
+
+- `rev([0,1,2])` -> `[2,1,0]`
+- `rev((0,1,2))` -> `(2,1,0)`
+
+Supported operators:
+
+- assignment: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
+- expression: `+`, `-`, `*`, `/`, `%`
 
 ### First-Class `comb` Values
+
+using the same variable multiple times in the final expression is not allowed
 
 `comb` values are row/column parameter-space objects built from combination algebra.
 
@@ -75,48 +115,6 @@ Rules:
 - `comb(a * range(2))` is invalid (unnamed non-identifier leaf)
 - `comb(a * range(2) as b)` is valid
 - alias on a comb-valued operand is invalid, for example `(a as t)` when `a` is comb
-
-### Variable Types
-
-Supported value types:
-
-- scalar
-  - string, for example `"hello"`
-  - int, for example `9007199254740993`
-  - float, for example `0.1`, `.1`, `1e-5`, `1E4`
-  - bool, for example `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
-- tuples, for example `(0,1,2)`
-- lists, for example `[0,1,2]`
-- kernel functions used in `param` assignments, for example:
-  - `range(...)`, `rev(...)`
-  - `comb(...)`, `len(...)`, `filter(...)`, `all(...)`, `any(...)`
-- mode declarations with `shell(...)` and `python(...)`
-
-Example:
-
-```jbs
-queue = python("__import__('os').environ.get('JUBE_QUEUE', 'devel')")
-# Removing the trailing newline is important for JUBE
-host = shell("hostname | tr -d '\n'")
-```
-
-`shell` and `python` lower to JUBE `mode` fields. They should be used as standalone assignment values, not inside tuple/list literals.
-
-### Tuple vs List Behavior
-
-In legacy final combination algebra, tuples and lists behave the same.
-
-They differ in assignment-level arithmetic:
-
-- `[0,1,2] * 2` -> `[0,2,4]` (vector-style arithmetic)
-- `(0,1,2) * 2` -> `(0,1,2,0,1,2)` (tuple repetition)
-
-Use `tuple()` and `list()` to convert between representations.
-
-Supported operators:
-
-- assignment: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
-- expression: `+`, `-`, `*`, `/`, `%`
 
 ## Example
 

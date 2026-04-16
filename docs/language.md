@@ -234,7 +234,7 @@ Logical operator behavior:
 - `!` applies boolean negation
 - `&` and `|` apply boolean conjunction/disjunction
 - non-boolean operands are cast via truthiness (warning `W101`)
-- list/tuple operands use cyclic broadcasting when lengths differ (warning `W101`)
+- list/tuple operands use cyclic broadcasting when lengths differ; warning `W101` is emitted only when the shorter length does not divide the longer one
 - repetition count must be non-negative
 
 ```jbs
@@ -331,10 +331,15 @@ Kernel list helpers in `param` assignments:
 - `range(5)` -> `[0,1,2,3,4]`
 - `range(1,4)` -> `[1,2,3]`
 - `range(0,10,2)` -> `[0,2,4,6,8]`
+- `range(0,1.5,0.5)` -> `[0.0,0.5,1.0]`
 - `range(0)` -> `[]`
 - `range(-1)` -> `[]`
 - `range(10,1)` -> `[]`
 - `rev([0,1,2,3,4])` -> `[4,3,2,1,0]`
+- `rev((0,1,2,3,4))` -> `(4,3,2,1,0)`
+
+`range(stop)` and `range(start, stop)` are integer forms.
+`range(start, stop, step)` accepts int/float numeric arguments.
 
 ```jbs
 param p_convert {
