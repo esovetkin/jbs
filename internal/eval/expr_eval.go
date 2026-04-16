@@ -295,6 +295,9 @@ func evalTupleCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	}
 	value := args[0]
 	switch value.Kind {
+	case KindComb:
+		diags.AddError(diag.CodeE106, "tuple() does not accept comb values", at, "project comb columns before tuple() conversion")
+		return Null()
 	case KindList, KindTuple:
 		return Tuple(slicesCloneValues(value.L))
 	default:
@@ -309,6 +312,9 @@ func evalListCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	}
 	value := args[0]
 	switch value.Kind {
+	case KindComb:
+		diags.AddError(diag.CodeE106, "list() does not accept comb values", at, "project comb columns before list() conversion")
+		return Null()
 	case KindList, KindTuple:
 		return List(slicesCloneValues(value.L))
 	default:

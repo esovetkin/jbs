@@ -986,6 +986,100 @@ func TestEvalTupleAndListConversions(t *testing.T) {
 	if singletonTuple.Kind != KindTuple || len(singletonTuple.L) != 1 || singletonTuple.L[0].I != 9 {
 		t.Fatalf("expected singleton tuple conversion, got %#v", singletonTuple)
 	}
+
+	singletonList := EvalExpr(ast.ConvertExpr{
+		Target: "list",
+		Expr:   ast.StringExpr{Value: "x"},
+	}, map[string]Value{}, diags)
+	if singletonList.Kind != KindList || len(singletonList.L) != 1 || singletonList.L[0].S != "x" {
+		t.Fatalf("expected singleton list conversion, got %#v", singletonList)
+	}
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestEvalTupleAndListRejectComb(t *testing.T) {
+	comb := CombValue(&Comb{
+		Order: []string{"x"},
+		Rows: []Row{
+			{Values: map[string]Cell{"x": {Value: Int(1), Origin: spanAt(200, 1)}}},
+		},
+	})
+	env := map[string]Value{"m": comb}
+
+	t.Run("tuple call rejects comb", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExpr(ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "tuple"},
+			Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+			Span:   spanAt(201, 1),
+		}, env, diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null value for tuple(comb), got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected one E106, got: %s", diags.String())
+		}
+		if !strings.Contains(diags.String(), "tuple() does not accept comb values") {
+			t.Fatalf("expected tuple comb rejection message, got: %s", diags.String())
+		}
+	})
+
+	t.Run("list call rejects comb", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExpr(ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "list"},
+			Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+			Span:   spanAt(202, 1),
+		}, env, diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null value for list(comb), got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected one E106, got: %s", diags.String())
+		}
+		if !strings.Contains(diags.String(), "list() does not accept comb values") {
+			t.Fatalf("expected list comb rejection message, got: %s", diags.String())
+		}
+	})
+
+	t.Run("convert tuple rejects comb", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExpr(ast.ConvertExpr{
+			Target: "tuple",
+			Expr:   ast.IdentExpr{Name: "m"},
+			Span:   spanAt(203, 1),
+		}, env, diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null value for tuple(comb) conversion, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected one E106, got: %s", diags.String())
+		}
+		if !strings.Contains(diags.String(), "tuple() does not accept comb values") {
+			t.Fatalf("expected tuple convert comb rejection message, got: %s", diags.String())
+		}
+	})
+
+	t.Run("convert list rejects comb", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExpr(ast.ConvertExpr{
+			Target: "list",
+			Expr:   ast.IdentExpr{Name: "m"},
+			Span:   spanAt(204, 1),
+		}, env, diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null value for list(comb) conversion, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected one E106, got: %s", diags.String())
+		}
+		if !strings.Contains(diags.String(), "list() does not accept comb values") {
+			t.Fatalf("expected list convert comb rejection message, got: %s", diags.String())
+		}
+	})
 }
 
 func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {

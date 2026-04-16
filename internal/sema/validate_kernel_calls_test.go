@@ -331,6 +331,30 @@ param p {
 	}
 }
 
+func TestTupleListRejectCombInParamAssignments(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  a = list(comb(x * x as b))
+  b = tuple(comb(x + x as y))
+  x
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("tuple_list_reject_comb.jbs", src, diags)
+	_ = sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+
+	if !hasDiagCode(diags, "E106") {
+		t.Fatalf("expected E106 for list/tuple comb rejection, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "list() does not accept comb values") {
+		t.Fatalf("expected list() comb rejection diagnostic message, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "tuple() does not accept comb values") {
+		t.Fatalf("expected tuple() comb rejection diagnostic message, got: %s", diags.String())
+	}
+}
+
 func hasUnusedWarningForVar(diags *diag.Diagnostics, name string) bool {
 	target := "param variable '" + name + "'"
 	for _, item := range diags.Items {
