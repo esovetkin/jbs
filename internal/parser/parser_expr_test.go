@@ -148,16 +148,30 @@ func TestParseExprPrecedenceAndAssociativity(t *testing.T) {
 			},
 		},
 		{
-			name: "and binds tighter than or",
-			src:  "a and b or c",
+			name: "amp binds tighter than pipe",
+			src:  "a | b & c",
 			check: func(t *testing.T, expr ast.Expr) {
 				top, ok := expr.(ast.BinaryExpr)
-				if !ok || top.Op != "or" {
-					t.Fatalf("expected top 'or' binary, got %#v", expr)
+				if !ok || top.Op != "|" {
+					t.Fatalf("expected top '|' binary, got %#v", expr)
 				}
-				left, ok := top.Left.(ast.BinaryExpr)
-				if !ok || left.Op != "and" {
-					t.Fatalf("expected left 'and' binary, got %#v", top.Left)
+				right, ok := top.Right.(ast.BinaryExpr)
+				if !ok || right.Op != "&" {
+					t.Fatalf("expected right '&' binary, got %#v", top.Right)
+				}
+			},
+		},
+		{
+			name: "unary bang binds tighter than amp",
+			src:  "!a & b",
+			check: func(t *testing.T, expr ast.Expr) {
+				top, ok := expr.(ast.BinaryExpr)
+				if !ok || top.Op != "&" {
+					t.Fatalf("expected top '&' binary, got %#v", expr)
+				}
+				left, ok := top.Left.(ast.UnaryExpr)
+				if !ok || left.Op != "!" {
+					t.Fatalf("expected unary '!' on left side, got %#v", top.Left)
 				}
 			},
 		},
@@ -186,6 +200,37 @@ func TestParseExprPrecedenceAndAssociativity(t *testing.T) {
 			}
 			tc.check(t, expr)
 		})
+	}
+}
+
+func TestParseUnaryBangGroupedCompare(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("!(a == b)", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	unary, ok := expr.(ast.UnaryExpr)
+	if !ok || unary.Op != "!" {
+		t.Fatalf("expected unary '!' expression, got %#v", expr)
+	}
+	if _, ok := unary.Expr.(ast.CompareExpr); !ok {
+		t.Fatalf("expected compare expression under unary '!', got %#v", unary.Expr)
+	}
+}
+
+func TestParseKeywordLogicalOperatorsRejected(t *testing.T) {
+	tests := []string{
+		"a and b",
+		"a or b",
+	}
+	for _, src := range tests {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP(src, diags)
+		_ = tp.parseExpr()
+		if !hasCode(diags, "E058") {
+			t.Fatalf("expected E058 for %q, got: %s", src, diags.String())
+		}
 	}
 }
 

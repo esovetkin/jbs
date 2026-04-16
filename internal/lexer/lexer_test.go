@@ -357,6 +357,9 @@ func TestLexSymbolTokens(t *testing.T) {
 		{name: "equal", src: "=", tt: TokenEqual, text: "=", value: "="},
 		{name: "eqeq", src: "==", tt: TokenEqEq, text: "==", value: "=="},
 		{name: "neq", src: "!=", tt: TokenNeq, text: "!=", value: "!="},
+		{name: "bang", src: "!", tt: TokenBang, text: "!", value: "!"},
+		{name: "amp", src: "&", tt: TokenAmp, text: "&", value: "&"},
+		{name: "pipe", src: "|", tt: TokenPipe, text: "|", value: "|"},
 		{name: "lt", src: "<", tt: TokenLT, text: "<", value: "<"},
 		{name: "le", src: "<=", tt: TokenLE, text: "<=", value: "<="},
 		{name: "gt", src: ">", tt: TokenGT, text: ">", value: ">"},
@@ -402,23 +405,51 @@ func TestLexSymbolTokens(t *testing.T) {
 	}
 }
 
-func TestLexBangWithoutEqualReportsE002(t *testing.T) {
-	diags := &diag.Diagnostics{}
-	tokens := Lex("in.jbs", "!\n", diags)
-
-	found := false
-	for _, d := range diags.Items {
-		if d.Code == "E002" {
-			found = true
-			break
+func TestLexDoubleLogicalSymbolsReportE002(t *testing.T) {
+	tests := []struct {
+		src string
+	}{
+		{src: "&&\n"},
+		{src: "||\n"},
+	}
+	for _, tc := range tests {
+		diags := &diag.Diagnostics{}
+		tokens := Lex("in.jbs", tc.src, diags)
+		found := false
+		for _, d := range diags.Items {
+			if d.Code == "E002" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected E002 for %q, got: %s", tc.src, diags.String())
+		}
+		if len(tokens) < 2 || tokens[0].Type != TokenNewline || tokens[1].Type != TokenEOF {
+			t.Fatalf("expected only NEWLINE and EOF tokens after invalid %q, got %#v", tc.src, tokens)
 		}
 	}
-	if !found {
-		t.Fatalf("expected E002 for '!' without '=', got: %s", diags.String())
-	}
+}
 
-	if len(tokens) < 2 || tokens[0].Type != TokenNewline || tokens[1].Type != TokenEOF {
-		t.Fatalf("expected only NEWLINE and EOF tokens after invalid '!', got %#v", tokens)
+func TestLexLogicalSymbolsInExpression(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", "!a | b & c\n", diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	got := []TokenType{
+		tokens[0].Type,
+		tokens[1].Type,
+		tokens[2].Type,
+		tokens[3].Type,
+		tokens[4].Type,
+		tokens[5].Type,
+	}
+	want := []TokenType{TokenBang, TokenIdent, TokenPipe, TokenIdent, TokenAmp, TokenIdent}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected token sequence at %d: got=%v want=%v", i, got, want)
+		}
 	}
 }
 

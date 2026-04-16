@@ -184,10 +184,10 @@ Supported assignment expressions:
 - scalar literals: string/int/float/bool
 - tuples/lists
 - identifiers
-- unary `+`, `-`
+- unary `+`, `-`, `!`
 - binary `+`, `-`, `*`, `/`, `%`
+- logical `&`, `|`
 - comparison operators
-- `and`, `or`
 - conditional expression: `a if cond else b`
 - mode declarations:
   - `shell("...")`
@@ -228,6 +228,13 @@ String arithmetic in assignment expressions:
 - `string + value` concatenates (`value` is stringified)
 - `string * int` repeats the string
 - `int * string` repeats the string
+
+Logical operator behavior:
+
+- `!` applies boolean negation
+- `&` and `|` apply boolean conjunction/disjunction
+- non-boolean operands are cast via truthiness (warning `W101`)
+- list/tuple operands use cyclic broadcasting when lengths differ (warning `W101`)
 - repetition count must be non-negative
 
 ```jbs

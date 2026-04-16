@@ -523,6 +523,8 @@ func TestEvalUnaryScalarOperators(t *testing.T) {
 		{name: "minus int", op: "-", in: Int(5), want: Int(-5)},
 		{name: "plus float", op: "+", in: Float(1.25), want: Float(1.25)},
 		{name: "minus float", op: "-", in: Float(1.25), want: Float(-1.25)},
+		{name: "bang true", op: "!", in: Bool(true), want: Bool(false)},
+		{name: "bang false", op: "!", in: Bool(false), want: Bool(true)},
 	}
 
 	for _, tc := range tests {
@@ -536,6 +538,23 @@ func TestEvalUnaryScalarOperators(t *testing.T) {
 				t.Fatalf("expected %#v, got %#v", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestEvalUnaryLogicalNotCastsAndVectorizes(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := evalUnary("!", List([]Value{Int(1), Int(0), String("")}), spanAt(4, 25), diags, &evalCtx{overflowWarned: map[string]struct{}{}})
+	if got.Kind != KindList || len(got.L) != 3 {
+		t.Fatalf("expected list result, got %#v", got)
+	}
+	want := []bool{false, true, true}
+	for i, v := range want {
+		if got.L[i].Kind != KindBool || got.L[i].B != v {
+			t.Fatalf("unexpected vectorized ! result at %d: got=%#v want=%v", i, got.L[i], v)
+		}
+	}
+	if count := diagCount(diags, "W101"); count != 1 {
+		t.Fatalf("expected one W101 cast warning, got %d: %s", count, diags.String())
 	}
 }
 
@@ -1741,10 +1760,10 @@ func TestEvalBinaryLogicalOperators(t *testing.T) {
 		r    Value
 		want bool
 	}{
-		{name: "and true true", op: "and", l: Bool(true), r: Bool(true), want: true},
-		{name: "and true false", op: "and", l: Bool(true), r: Bool(false), want: false},
-		{name: "or false false", op: "or", l: Bool(false), r: Bool(false), want: false},
-		{name: "or false true", op: "or", l: Bool(false), r: Bool(true), want: true},
+		{name: "amp true true", op: "&", l: Bool(true), r: Bool(true), want: true},
+		{name: "amp true false", op: "&", l: Bool(true), r: Bool(false), want: false},
+		{name: "pipe false false", op: "|", l: Bool(false), r: Bool(false), want: false},
+		{name: "pipe false true", op: "|", l: Bool(false), r: Bool(true), want: true},
 	}
 
 	for _, tc := range tests {
@@ -1761,14 +1780,46 @@ func TestEvalBinaryLogicalOperators(t *testing.T) {
 	}
 }
 
-func TestEvalBinaryLogicalOperatorTypeError(t *testing.T) {
+func TestEvalBinaryLogicalOperatorsCastAndBroadcast(t *testing.T) {
+	t.Run("scalar cast", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalBinary("&", Int(1), String("x"), spanAt(61, 1), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
+		if got.Kind != KindBool || !got.B {
+			t.Fatalf("expected true bool, got %#v", got)
+		}
+		if count := diagCount(diags, "W101"); count != 1 {
+			t.Fatalf("expected one W101 cast warning, got %d: %s", count, diags.String())
+		}
+	})
+
+	t.Run("vector cast and broadcast", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		left := Tuple([]Value{Int(1), Int(0), Int(2)})
+		right := List([]Value{Bool(false)})
+		got := evalBinary("|", left, right, spanAt(61, 8), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
+		if got.Kind != KindList || len(got.L) != 3 {
+			t.Fatalf("expected list of length 3, got %#v", got)
+		}
+		want := []bool{true, false, true}
+		for i, v := range want {
+			if got.L[i].Kind != KindBool || got.L[i].B != v {
+				t.Fatalf("unexpected bool at %d: got=%#v want=%v", i, got.L[i], v)
+			}
+		}
+		if count := diagCount(diags, "W101"); count != 2 {
+			t.Fatalf("expected two W101 warnings (broadcast+cast), got %d: %s", count, diags.String())
+		}
+	})
+}
+
+func TestEvalBinaryLogicalNoWarningForPureBoolNoBroadcast(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	got := evalBinary("and", Bool(true), Int(1), spanAt(61, 1), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
-	if got.Kind != KindNull {
-		t.Fatalf("expected null result on logical type error, got %#v", got)
+	got := evalBinary("&", Bool(true), Bool(false), spanAt(61, 20), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
+	if got.Kind != KindBool || got.B {
+		t.Fatalf("unexpected bool result: %#v", got)
 	}
-	if count := diagCount(diags, "E104"); count != 1 {
-		t.Fatalf("expected one E104, got %d: %s", count, diags.String())
+	if len(diags.Items) != 0 {
+		t.Fatalf("expected no diagnostics, got: %s", diags.String())
 	}
 }
 

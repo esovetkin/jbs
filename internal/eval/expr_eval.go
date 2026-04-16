@@ -837,6 +837,9 @@ func evalRevCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 }
 
 func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) Value {
+	if op == "!" {
+		return evalLogicalNot(v, at, diags)
+	}
 	if isSequence(v) {
 		out := make([]Value, len(v.L))
 		for i, it := range v.L {
@@ -861,16 +864,78 @@ func evalUnary(op string, v Value, at diag.Span, diags *diag.Diagnostics, ctx *e
 	return Int(result)
 }
 
+func evalLogicalNot(v Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if isSequence(v) {
+		out := make([]Value, 0, len(v.L))
+		castWarned := false
+		for _, item := range v.L {
+			b, casted := truthy(item)
+			if casted && !castWarned {
+				castWarned = true
+				diags.AddWarning(diag.CodeW101, "logical '!' cast non-boolean values via truthiness", at, "use explicit boolean expressions to avoid implicit casts")
+			}
+			out = append(out, Bool(!b))
+		}
+		return List(out)
+	}
+	b, casted := truthy(v)
+	if casted {
+		diags.AddWarning(diag.CodeW101, "logical '!' cast non-boolean value via truthiness", at, "use explicit boolean expressions to avoid implicit casts")
+	}
+	return Bool(!b)
+}
+
+func evalLogicalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if !isSequence(l) && !isSequence(r) {
+		lb, lcast := truthy(l)
+		rb, rcast := truthy(r)
+		if lcast || rcast {
+			diags.AddWarning(diag.CodeW101, fmt.Sprintf("logical '%s' cast non-boolean values via truthiness", op), at, "use explicit boolean expressions to avoid implicit casts")
+		}
+		if op == "&" {
+			return Bool(lb && rb)
+		}
+		return Bool(lb || rb)
+	}
+
+	ls := ToSeries(l)
+	rs := ToSeries(r)
+	if len(ls) == 0 || len(rs) == 0 {
+		return List(nil)
+	}
+	n := len(ls)
+	if len(rs) > n {
+		n = len(rs)
+	}
+	if len(ls) != len(rs) {
+		diags.AddWarning(
+			diag.CodeW101,
+			fmt.Sprintf("length mismatch in logical '%s': left=%d right=%d; cyclic broadcast to length %d", op, len(ls), len(rs), n),
+			at,
+			"align lengths to avoid cyclic broadcast",
+		)
+	}
+	out := make([]Value, 0, n)
+	castWarned := false
+	for i := 0; i < n; i++ {
+		lb, lcast := truthy(ls[i%len(ls)])
+		rb, rcast := truthy(rs[i%len(rs)])
+		if (lcast || rcast) && !castWarned {
+			castWarned = true
+			diags.AddWarning(diag.CodeW101, fmt.Sprintf("logical '%s' cast non-boolean values via truthiness", op), at, "use explicit boolean expressions to avoid implicit casts")
+		}
+		if op == "&" {
+			out = append(out, Bool(lb && rb))
+		} else {
+			out = append(out, Bool(lb || rb))
+		}
+	}
+	return List(out)
+}
+
 func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if op == "and" || op == "or" {
-		if l.Kind != KindBool || r.Kind != KindBool {
-			diags.AddError(diag.CodeE104, fmt.Sprintf("'%s' requires boolean operands", op), at, "use boolean values with and/or")
-			return Null()
-		}
-		if op == "and" {
-			return Bool(l.B && r.B)
-		}
-		return Bool(l.B || r.B)
+	if op == "&" || op == "|" {
+		return evalLogicalBinary(op, l, r, at, diags)
 	}
 
 	if IsComb(l) || IsComb(r) {

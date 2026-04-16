@@ -392,6 +392,74 @@ func TestEvalBinaryVectorAndCompareCoverage(t *testing.T) {
 		}
 	})
 
+	t.Run("comb plus supported", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		left := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}}},
+			},
+		})
+		right := CombValue(&Comb{
+			Order: []string{"y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"y": {Value: Int(10)}}},
+				{Values: map[string]Cell{"y": {Value: Int(20)}}},
+			},
+		})
+		got := evalBinary("+", left, right, span, diags, ExprOptions{}, ctx)
+		if !IsComb(got) || got.C == nil {
+			t.Fatalf("expected comb result, got %#v", got)
+		}
+		if CombRowCount(got) != 2 {
+			t.Fatalf("expected zipped comb with 2 rows, got %#v", got.C.Rows)
+		}
+		if got.C.Rows[0].Values["x"].Value.I != 1 || got.C.Rows[0].Values["y"].Value.I != 10 {
+			t.Fatalf("unexpected first row values: %#v", got.C.Rows[0].Values)
+		}
+		if got.C.Rows[1].Values["x"].Value.I != 2 || got.C.Rows[1].Values["y"].Value.I != 20 {
+			t.Fatalf("unexpected second row values: %#v", got.C.Rows[1].Values)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("comb product supported", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		left := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}}},
+			},
+		})
+		right := CombValue(&Comb{
+			Order: []string{"y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"y": {Value: Int(10)}}},
+				{Values: map[string]Cell{"y": {Value: Int(20)}}},
+			},
+		})
+		got := evalBinary("*", left, right, span, diags, ExprOptions{}, ctx)
+		if !IsComb(got) || got.C == nil {
+			t.Fatalf("expected comb result, got %#v", got)
+		}
+		if CombRowCount(got) != 4 {
+			t.Fatalf("expected product comb with 4 rows, got %#v", got.C.Rows)
+		}
+		if got.C.Rows[0].Values["x"].Value.I != 1 || got.C.Rows[0].Values["y"].Value.I != 10 {
+			t.Fatalf("unexpected first row values: %#v", got.C.Rows[0].Values)
+		}
+		if got.C.Rows[3].Values["x"].Value.I != 2 || got.C.Rows[3].Values["y"].Value.I != 20 {
+			t.Fatalf("unexpected last row values: %#v", got.C.Rows[3].Values)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
 	t.Run("tuple arithmetic unsupported operator", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := evalParamTupleBinary("-", Tuple([]Value{Int(1)}), Tuple([]Value{Int(2)}), span, diags)

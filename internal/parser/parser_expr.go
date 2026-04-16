@@ -101,10 +101,10 @@ func (p *tokenParser) parseExpr() ast.Expr {
 }
 
 func (p *tokenParser) parseConditional() ast.Expr {
-	thenExpr := p.parseOr()
+	thenExpr := p.parsePipe()
 	if p.peek().Type == lexer.TokenIf {
 		ifTok := p.next()
-		cond := p.parseOr()
+		cond := p.parsePipe()
 		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
 		elseExpr := p.parseConditional()
 		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
@@ -119,14 +119,23 @@ func (p *tokenParser) parseConditional() ast.Expr {
 	return thenExpr
 }
 
-func (p *tokenParser) parseOr() ast.Expr {
-	left := p.parseAnd()
-	for p.peek().Type == lexer.TokenOr {
+func (p *tokenParser) parsePipe() ast.Expr {
+	left := p.parseAmp()
+	for {
+		tt := p.peek().Type
+		if tt != lexer.TokenPipe && tt != lexer.TokenOr {
+			break
+		}
 		op := p.next()
-		right := p.parseAnd()
+		opText := op.Text
+		if tt == lexer.TokenOr {
+			opText = "|"
+			p.diags.AddError(diag.CodeE058, "keyword logical operator 'or' is not supported", op.Span, "use '|' instead of 'or'")
+		}
+		right := p.parseAmp()
 		left = ast.BinaryExpr{
 			Left:  left,
-			Op:    op.Text,
+			Op:    opText,
 			Right: right,
 			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
 		}
@@ -134,14 +143,23 @@ func (p *tokenParser) parseOr() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseAnd() ast.Expr {
+func (p *tokenParser) parseAmp() ast.Expr {
 	left := p.parseCompare()
-	for p.peek().Type == lexer.TokenAnd {
+	for {
+		tt := p.peek().Type
+		if tt != lexer.TokenAmp && tt != lexer.TokenAnd {
+			break
+		}
 		op := p.next()
+		opText := op.Text
+		if tt == lexer.TokenAnd {
+			opText = "&"
+			p.diags.AddError(diag.CodeE058, "keyword logical operator 'and' is not supported", op.Span, "use '&' instead of 'and'")
+		}
 		right := p.parseCompare()
 		left = ast.BinaryExpr{
 			Left:  left,
-			Op:    op.Text,
+			Op:    opText,
 			Right: right,
 			Span:  diag.Merge(left.GetSpan(), right.GetSpan()),
 		}
@@ -205,7 +223,7 @@ func (p *tokenParser) parseMul() ast.Expr {
 
 func (p *tokenParser) parseUnary() ast.Expr {
 	t := p.peek().Type
-	if t == lexer.TokenPlus || t == lexer.TokenMinus {
+	if t == lexer.TokenPlus || t == lexer.TokenMinus || t == lexer.TokenBang {
 		op := p.next()
 		expr := p.parseUnary()
 		return ast.UnaryExpr{
