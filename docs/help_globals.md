@@ -3,8 +3,9 @@
 ```jbs
 # JBS global defaults
 
-# Top-level assignments are allowed only outside `param`, `do`, and `submit` blocks.
-# Unknown globals are compile-time errors.
+# Top-level assignments define all variables used by the script.
+# Variables become visible in do/submit only when imported with `with`.
+# Use comb(...) to create parameter-space objects.
 # jbs_name and jbs_outpath must be plain string literals.
 # Statements can be separated by a newline or ';'.
 # Multiline expressions require explicit backslash-newline continuation.

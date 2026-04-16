@@ -1,18 +1,15 @@
-let submit_defaults
-{
-        systemname = shell("cat /etc/FZJ/systemname | tr -d '\n'")
-        queue = python("__import__('os').environ.get('JUBE_QUEUE', "+\
-            "{"+\
-            " 'juwelsbooster': 'develbooster', "+\
-            " 'jurecadc': 'dc-hwai', "+\
-            " 'jusuf': 'batch'"+\
-            "}['$systemname'])")
-        nodes = 1
-        # this might depend on the system
-        threadspertask = 48
-        gres = "gpu:4"
-        timelimit = "00:15:00"
-        outlogfile = "job.out"
-        outerrfile = "job.err"
-        starter = "srun"
-}
+systemname = shell("cat /etc/FZJ/systemname | tr -d '\n'")
+queue = python("__import__('os').environ.get('JUBE_QUEUE', "+\
+    "{"+\
+    " 'juwelsbooster': 'develbooster', "+\
+    " 'jurecadc': 'dc-hwai', "+\
+    " 'jusuf': 'batch'"+\
+    "}['$systemname'])")
+nodes = 1
+threadspertask = 48
+gres = "gpu:4"
+timelimit = "00:15:00"
+outlogfile = "job.out"
+outerrfile = "job.err"
+starter = "srun"
+submit_defaults = comb(systemname + queue + nodes + threadspertask + gres + timelimit + outlogfile + outerrfile + starter)

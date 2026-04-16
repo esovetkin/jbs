@@ -1,0 +1,15 @@
+x = (1, 2)
+a = ("a", "b", "c")
+
+params = comb(a * x)
+
+do ex_step with params {
+        echo "Number: ${x}"  > ex_ofile
+        echo "Letter: ${a}" >> ex_ofile
+}
+
+analyse ex_step {
+        number = "Number: %d" in "ex_ofile"
+        letter = "Letter: %w" in "ex_ofile"
+        (a as "name of a column", x, number, letter)
+}

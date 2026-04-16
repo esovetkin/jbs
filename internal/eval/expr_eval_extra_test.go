@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -315,6 +316,95 @@ func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
 	}
 	if len(diags.Items) != 0 {
 		t.Fatalf("did not expect diagnostics for n<=0, got: %s", diags.String())
+	}
+}
+
+func TestEvalRangeFloatBranches(t *testing.T) {
+	at := spanAt(340, 1)
+	tests := []struct {
+		name      string
+		start     float64
+		stop      float64
+		step      float64
+		wantKind  Kind
+		wantLen   int
+		wantCode  string
+		wantError bool
+	}{
+		{
+			name:      "reject non-finite input",
+			start:     math.NaN(),
+			stop:      1.0,
+			step:      0.1,
+			wantKind:  KindNull,
+			wantCode:  "E106",
+			wantError: true,
+		},
+		{
+			name:      "reject non-positive step",
+			start:     0.0,
+			stop:      1.0,
+			step:      0.0,
+			wantKind:  KindNull,
+			wantCode:  "E106",
+			wantError: true,
+		},
+		{
+			name:     "start greater or equal stop yields empty list",
+			start:    2.0,
+			stop:     2.0,
+			step:     0.5,
+			wantKind: KindList,
+			wantLen:  0,
+		},
+		{
+			name:      "step too small to make progress",
+			start:     1e308,
+			stop:      math.MaxFloat64,
+			step:      1.0,
+			wantKind:  KindNull,
+			wantCode:  "E106",
+			wantError: true,
+		},
+		{
+			name:      "overflow while generating values",
+			start:     math.MaxFloat64 * 0.75,
+			stop:      math.MaxFloat64,
+			step:      math.MaxFloat64 * 0.75,
+			wantKind:  KindNull,
+			wantCode:  "E106",
+			wantError: true,
+		},
+		{
+			name:     "valid float range",
+			start:    0.0,
+			stop:     1.5,
+			step:     0.5,
+			wantKind: KindList,
+			wantLen:  3,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := evalRangeFloat(tc.start, tc.stop, tc.step, at, diags)
+			if got.Kind != tc.wantKind {
+				t.Fatalf("unexpected kind: got=%s want=%s value=%#v", got.Kind, tc.wantKind, got)
+			}
+			if tc.wantKind == KindList && len(got.L) != tc.wantLen {
+				t.Fatalf("unexpected list length: got=%d want=%d value=%#v", len(got.L), tc.wantLen, got)
+			}
+			if tc.wantError {
+				if diagCount(diags, tc.wantCode) == 0 {
+					t.Fatalf("expected %s, got: %s", tc.wantCode, diags.String())
+				}
+				return
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+		})
 	}
 }
 

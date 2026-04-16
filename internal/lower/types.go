@@ -211,6 +211,7 @@ type lowerContext struct {
 	doc                    Document
 	diags                  *diag.Diagnostics
 	names                  map[string]struct{}
+	sourceParamsetEmitted  map[string]struct{}
 	subsetNames            map[subsetKey]subsetInfo
 	stepSourceRows         map[string]map[string]string
 	patternSetIndexByGroup map[string]int

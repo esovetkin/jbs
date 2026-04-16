@@ -1,7 +1,0 @@
-param p
-{
-        a = (1, 2)
-        c = comb(a * range(2))
-
-        c
-}

@@ -1,19 +1,12 @@
-param p0
-{
-        a = (0, 1, 2, 3, 4, 5)
-        b = ("a", "b", "c")
-        c = ("x", "z")
-        d = (true, false)
+a = (0, 1, 2, 3, 4, 5)
+b = ("a", "b", "c")
+c = ("x", "z")
+d = (true, false)
+p0 = comb(d * (a + b) + c)
 
-        d * (a + b) + c
-}
-
-param p1
-{
-        a = ("a", "b")
-        b = (0, 1, 2, 3)
-        a + b
-}
+a = ("a", "b")
+b = (0, 1, 2, 3)
+p1 = comb(a + b)
 
 do step0
         with a from p0

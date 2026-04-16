@@ -17,6 +17,7 @@ func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 		res:                    res,
 		diags:                  diags,
 		names:                  make(map[string]struct{}),
+		sourceParamsetEmitted:  make(map[string]struct{}),
 		subsetNames:            make(map[subsetKey]subsetInfo),
 		stepSourceRows:         make(map[string]map[string]string),
 		patternSetIndexByGroup: make(map[string]int),
@@ -29,8 +30,12 @@ func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 	}
 
 	for _, param := range res.Paramsets {
+		if param == nil || param.SyntheticGlobal {
+			continue
+		}
 		ctx.names[param.Name] = struct{}{}
 		ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, lowerParamset(param, diags))
+		ctx.sourceParamsetEmitted[param.Name] = struct{}{}
 	}
 
 	for _, stmt := range res.Program.Stmts {

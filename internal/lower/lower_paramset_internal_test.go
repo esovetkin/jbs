@@ -135,6 +135,65 @@ func TestLowerContextualPayloadParameters(t *testing.T) {
 	}
 }
 
+func TestEnsureSourceParamset(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	ps := &sema.Paramset{
+		Name: "p",
+		Block: ast.ParamBlock{
+			Name: "p",
+			Span: span,
+		},
+		Order: []string{"a"},
+		Rows: []eval.Row{
+			{
+				Values: map[string]eval.Cell{
+					"a": {Value: eval.Int(1)},
+				},
+			},
+		},
+		Vars:    map[string][]eval.Value{"a": {eval.Int(1)}},
+		Origins: map[string]diag.Span{"a": span},
+		Modes:   map[string]string{},
+	}
+	ctx := &lowerContext{
+		res: &sema.Result{
+			ParamByName: map[string]*sema.Paramset{
+				"p": ps,
+			},
+		},
+		diags:                 &diag.Diagnostics{},
+		doc:                   Document{},
+		names:                 map[string]struct{}{},
+		sourceParamsetEmitted: map[string]struct{}{},
+	}
+
+	if got := ctx.ensureSourceParamset(""); got {
+		t.Fatalf("expected empty source to be rejected")
+	}
+	if got := ctx.ensureSourceParamset("missing"); got {
+		t.Fatalf("expected missing source to be rejected")
+	}
+	if got := ctx.ensureSourceParamset("p"); !got {
+		t.Fatalf("expected source paramset p to be emitted")
+	}
+	if len(ctx.doc.ParameterSet) != 1 {
+		t.Fatalf("expected one emitted source paramset, got %#v", ctx.doc.ParameterSet)
+	}
+	if _, ok := ctx.names["p"]; !ok {
+		t.Fatalf("expected emitted source name to be reserved")
+	}
+	if _, ok := ctx.sourceParamsetEmitted["p"]; !ok {
+		t.Fatalf("expected emitted source marker to be set")
+	}
+	// Re-emission should be skipped while still reporting success.
+	if got := ctx.ensureSourceParamset("p"); !got {
+		t.Fatalf("expected already-emitted source to return true")
+	}
+	if len(ctx.doc.ParameterSet) != 1 {
+		t.Fatalf("expected source paramset to be emitted only once, got %#v", ctx.doc.ParameterSet)
+	}
+}
+
 func TestValuesForAndOriginFor(t *testing.T) {
 	blockSpan := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(2, 1, 3))
 	nameSpan := diag.NewSpan("in.jbs", diag.NewPos(5, 2, 1), diag.NewPos(6, 2, 2))

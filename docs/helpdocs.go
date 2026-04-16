@@ -15,13 +15,12 @@ import (
 var pageFS embed.FS
 
 var topicToFile = map[string]string{
-	"analyse": "help_analyse.md",
-	"do":      "help_do.md",
-	"globals": "help_globals.md",
-	"let":     "help_let.md",
-	"param":   "help_param.md",
-	"submit":  "help_submit.md",
-	"use":     "help_use.md",
+	"analyse":   "help_analyse.md",
+	"do":        "help_do.md",
+	"functions": "help_functions.md",
+	"globals":   "help_globals.md",
+	"submit":    "help_submit.md",
+	"use":       "help_use.md",
 }
 
 func Page(topic string) (string, error) {

@@ -1,9 +1,11 @@
 package lower
 
 import (
+	"reflect"
 	"testing"
 
 	"jbs/internal/ast"
+	"jbs/internal/diag"
 	"jbs/internal/eval"
 	"jbs/internal/sema"
 )
@@ -220,5 +222,149 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 	}
 	if got, ok := hstr.Value.(string); !ok || got != "$_ja__x" {
 		t.Fatalf("expected scalar helper template rewrite, got %#v (%T)", hstr.Value, hstr.Value)
+	}
+}
+
+func TestLowerDoBuildsStepAndTracksSourceRows(t *testing.T) {
+	maxAsync := 2
+	procs := 3
+	iterations := 4
+	ctx := &lowerContext{
+		res: &sema.Result{
+			StepImportByName: map[string]*sema.StepImportPlan{
+				"run": {
+					InheritedSteps: []string{"prep"},
+					Inherited: map[string]sema.VarOrigin{
+						"a": {},
+						"b": {},
+					},
+					ExplicitDelta: nil,
+					Effective:     map[string]sema.VarOrigin{},
+				},
+			},
+			ImportSourceByName: map[string]*sema.ImportSource{},
+		},
+		diags:          &diag.Diagnostics{},
+		stepSourceRows: map[string]map[string]string{},
+	}
+	block := ast.DoBlock{
+		Name:       "run",
+		After:      []string{"prep"},
+		MaxAsync:   &maxAsync,
+		Procs:      &procs,
+		Iterations: &iterations,
+		Body:       "echo hi\n",
+	}
+
+	got := ctx.lowerDo(block)
+	if got.Name != "run" || got.Depend != "prep" {
+		t.Fatalf("unexpected lowered do step identity: %#v", got)
+	}
+	if got.MaxAsync == nil || *got.MaxAsync != 2 || got.Procs == nil || *got.Procs != 3 || got.Iterations == nil || *got.Iterations != 4 {
+		t.Fatalf("unexpected lowered do options: %#v", got)
+	}
+	if got.Meta.Kind != StepKindDo || got.Meta.Source != "run" {
+		t.Fatalf("unexpected do metadata: %#v", got.Meta)
+	}
+	if !reflect.DeepEqual(got.Meta.InheritsFrom, []string{"prep"}) {
+		t.Fatalf("unexpected inherited steps: %#v", got.Meta.InheritsFrom)
+	}
+	if !reflect.DeepEqual(got.Meta.InheritedVars, []string{"a", "b"}) {
+		t.Fatalf("expected sorted inherited vars [a b], got %#v", got.Meta.InheritedVars)
+	}
+	if len(got.Use) != 0 {
+		t.Fatalf("expected no explicit use entries for empty import plan delta, got %#v", got.Use)
+	}
+	if len(got.Do) != 1 {
+		t.Fatalf("expected one do operation, got %#v", got.Do)
+	}
+	if lit, ok := got.Do[0].(Literal); !ok || string(lit) != "echo hi\n" {
+		t.Fatalf("unexpected lowered do literal: %#v", got.Do[0])
+	}
+	if rows, ok := ctx.stepSourceRows["run"]; !ok || rows == nil {
+		t.Fatalf("expected step source-row tracking for do step, got %#v", ctx.stepSourceRows)
+	}
+}
+
+func TestLowerSubmitBuildsStepUseAndOperations(t *testing.T) {
+	maxAsync := 1
+	procs := 2
+	iterations := 3
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
+	ctx := &lowerContext{
+		res: &sema.Result{
+			StepImportByName: map[string]*sema.StepImportPlan{
+				"run": {
+					InheritedSteps: []string{"prep"},
+					Inherited: map[string]sema.VarOrigin{
+						"queue": {},
+					},
+					ExplicitDelta: nil,
+					Effective:     map[string]sema.VarOrigin{},
+				},
+			},
+			ImportSourceByName: map[string]*sema.ImportSource{},
+			DoBlocks:           []ast.DoBlock{{Name: "prep", Span: span}},
+			Submits:            []ast.SubmitBlock{{Name: "run", Span: span}},
+		},
+		diags:          &diag.Diagnostics{},
+		stepSourceRows: map[string]map[string]string{},
+	}
+	block := ast.SubmitBlock{
+		Name:       "run",
+		After:      []string{"prep"},
+		MaxAsync:   &maxAsync,
+		Procs:      &procs,
+		Iterations: &iterations,
+	}
+
+	got := ctx.lowerSubmit(block, "run__submit_params", map[string]string{})
+	if got.Name != "run" || got.Depend != "prep" {
+		t.Fatalf("unexpected lowered submit identity: %#v", got)
+	}
+	if got.MaxAsync == nil || *got.MaxAsync != 1 || got.Procs == nil || *got.Procs != 2 || got.Iterations == nil || *got.Iterations != 3 {
+		t.Fatalf("unexpected lowered submit options: %#v", got)
+	}
+	if got.Meta.Kind != StepKindSubmit || got.Meta.Source != "run" {
+		t.Fatalf("unexpected submit metadata: %#v", got.Meta)
+	}
+	if !reflect.DeepEqual(got.Meta.InheritsFrom, []string{"prep"}) {
+		t.Fatalf("unexpected submit inherited steps: %#v", got.Meta.InheritsFrom)
+	}
+	if !reflect.DeepEqual(got.Meta.InheritedVars, []string{"queue"}) {
+		t.Fatalf("unexpected submit inherited vars: %#v", got.Meta.InheritedVars)
+	}
+
+	if len(got.Use) != 4 {
+		t.Fatalf("expected submit use entries (submit set + platform entries), got %#v", got.Use)
+	}
+	if setName, ok := got.Use[0].(string); !ok || setName != "run__submit_params" {
+		t.Fatalf("unexpected submit use[0]: %#v", got.Use[0])
+	}
+	if ue, ok := got.Use[1].(UseEntry); !ok || ue.From != "platform.xml" || ue.Value != "jobfiles" {
+		t.Fatalf("unexpected submit use[1]: %#v", got.Use[1])
+	}
+	if ue, ok := got.Use[2].(UseEntry); !ok || ue.From != "platform.xml" || ue.Value != "executesub" {
+		t.Fatalf("unexpected submit use[2]: %#v", got.Use[2])
+	}
+	if ue, ok := got.Use[3].(UseEntry); !ok || ue.From != "platform.xml" || ue.Value != "executeset" {
+		t.Fatalf("unexpected submit use[3]: %#v", got.Use[3])
+	}
+
+	if len(got.Do) != 2 {
+		t.Fatalf("expected two submit operations, got %#v", got.Do)
+	}
+	op, ok := got.Do[0].(SubmitOperation)
+	if !ok {
+		t.Fatalf("expected first submit operation to be SubmitOperation, got %#v", got.Do[0])
+	}
+	if op.DoneFile != "$done_file" || op.ErrorFile != "$error_file" || op.Command != `${submit} --parsable ${submit_script} > run.jobid` {
+		t.Fatalf("unexpected submit operation payload: %#v", op)
+	}
+	if cmd, ok := got.Do[1].(string); !ok || cmd != `echo "true" > success` {
+		t.Fatalf("unexpected second submit operation: %#v", got.Do[1])
+	}
+	if rows, ok := ctx.stepSourceRows["run"]; !ok || rows == nil {
+		t.Fatalf("expected submit source-row tracking, got %#v", ctx.stepSourceRows)
 	}
 }

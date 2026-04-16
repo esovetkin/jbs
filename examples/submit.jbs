@@ -1,11 +1,8 @@
 use submit_defaults from jsc
 
-param jobs
-{
-        id = (1, 2)
-        label = ("alpha", "beta")
-        id + label
-}
+id = (1, 2)
+label = ("alpha", "beta")
+jobs = comb(id + label)
 
 do prep
         with jobs

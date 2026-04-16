@@ -11,7 +11,7 @@ import (
 
 func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
-	if !ok || word == "param" || word == "do" || word == "submit" || word == "let" || word == "analyse" || word == "use" {
+	if !ok || word == "do" || word == "submit" || word == "analyse" || word == "use" {
 		return false
 	}
 	i := p.off

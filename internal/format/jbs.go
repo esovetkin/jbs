@@ -253,14 +253,10 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 		return formatGlobalAssign(s, srcRunes)
 	case ast.UseStmt:
 		return formatUseStmt(s)
-	case ast.ParamBlock:
-		return formatParamBlock(s)
 	case ast.DoBlock:
 		return formatDoBlock(s)
 	case ast.SubmitBlock:
 		return formatSubmitBlock(s, srcRunes)
-	case ast.LetBlock:
-		return formatLetBlock(s)
 	case ast.AnalyseBlock:
 		return formatAnalyseBlock(s)
 	default:
@@ -283,15 +279,6 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 	return []string{g.Name + " " + op + " " + exprText}
 }
 
-func formatParamBlock(p ast.ParamBlock) []string {
-	lines := renderBlockHeader("param", p.Name, nil, nil, p.WithItems, nil, nil, nil, p.Header)
-	lines = append(lines, "{")
-	body := normalizeBody(p.BodyRaw, bodyIndent)
-	lines = append(lines, body...)
-	lines = append(lines, "}")
-	return lines
-}
-
 func formatDoBlock(d ast.DoBlock) []string {
 	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations, d.Header)
 	lines = append(lines, "{")
@@ -308,15 +295,6 @@ func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
 	if len(body) == 0 && len(s.Fields) > 0 {
 		body = renderSubmitFields(s.Fields, srcRunes)
 	}
-	lines = append(lines, body...)
-	lines = append(lines, "}")
-	return lines
-}
-
-func formatLetBlock(l ast.LetBlock) []string {
-	lines := renderBlockHeader("let", l.Name, nil, nil, nil, nil, nil, nil, l.Header)
-	lines = append(lines, "{")
-	body := normalizeBody(l.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
 	lines = append(lines, "}")
 	return lines

@@ -211,12 +211,14 @@ func TestCompileAnalyseBlockSubmitAndSyntheticPattern(t *testing.T) {
 			"p": {
 				Name:  "p",
 				Kind:  SourceKindParam,
-				Order: []string{"a"},
+				Order: []string{"a", "b"},
 				Origins: map[string]diag.Span{
 					"a": sp,
+					"b": sp,
 				},
 				Vars: map[string][]eval.Value{
 					"a": {eval.Int(1)},
+					"b": {eval.Int(2)},
 				},
 			},
 		},
@@ -228,6 +230,13 @@ func TestCompileAnalyseBlockSubmitAndSyntheticPattern(t *testing.T) {
 					"a": {
 						Name:      "a",
 						SourceVar: "a",
+						Paramset:  "p",
+						Kind:      SourceKindParam,
+						Span:      sp,
+					},
+					"b": {
+						Name:      "b",
+						SourceVar: "b",
 						Paramset:  "p",
 						Kind:      SourceKindParam,
 						Span:      sp,
@@ -356,6 +365,194 @@ func TestCompileAnalyseBlockNestedHelperValueError(t *testing.T) {
 	_ = compileAnalyseBlock(block, res, diags)
 	if countDiagCode(diags, "E305") == 0 {
 		t.Fatalf("expected E305 for nested helper list/tuple, got: %s", diags.String())
+	}
+}
+
+func TestCompileAnalyseBlockCoversCollisionAndImportBranches(t *testing.T) {
+	sp := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{},
+		},
+		ImportSourceByName: map[string]*ImportSource{
+			"p": {
+				Name:  "p",
+				Kind:  SourceKindParam,
+				Order: []string{"a"},
+				Origins: map[string]diag.Span{
+					"a": sp,
+				},
+				Vars: map[string][]eval.Value{
+					"a": {eval.Int(1)},
+				},
+			},
+			"l": {
+				Name:  "l",
+				Kind:  SourceKindLet,
+				Order: []string{"rxStr"},
+				Origins: map[string]diag.Span{
+					"rxStr": sp,
+				},
+				Vars: map[string][]eval.Value{
+					"rxStr": {eval.String("R: %d")},
+				},
+			},
+		},
+		LetByName: map[string]*LetNamespace{
+			"l": {
+				Name: "l",
+				Vars: map[string]eval.Value{
+					"rxStr": eval.String("R: %d"),
+				},
+			},
+		},
+		StepImportByName: map[string]*StepImportPlan{
+			"run": {
+				StepName: "run",
+				Effective: map[string]VarOrigin{
+					"a": {
+						Name:      "a",
+						SourceVar: "a",
+						Paramset:  "p",
+						Kind:      SourceKindParam,
+						Span:      sp,
+					},
+				},
+			},
+		},
+		DoBlocks: []ast.DoBlock{{Name: "run"}},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		WithItems: []ast.WithItem{
+			{Name: "rxStr", From: "l", Span: sp},
+		},
+		Assignments: []ast.AnalyseAssign{
+			{Name: "a", Expr: ast.StringExpr{Value: "helper", Span: sp}, File: "", Span: sp},
+			{Name: "dup", Expr: ast.StringExpr{Value: "R: %d", Span: sp}, File: "out.log", Span: sp},
+			{Name: "dup", Expr: ast.StringExpr{Value: "R: %d", Span: sp}, File: "out.log", Span: sp},
+			{Name: "b", Expr: ast.StringExpr{Value: "R: %d", Span: sp}, File: "out.log", Span: sp},
+			{Name: "nonstr", Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: sp}, File: "out.log", Span: sp},
+			{Name: "badph", Expr: ast.StringExpr{Value: "X: %s", Span: sp}, File: "out.log", Span: sp},
+			{Name: "rx", Expr: ast.IdentExpr{Name: "rxStr", Span: sp}, File: "out.log", Span: sp},
+		},
+		Columns: []ast.AnalyseColumn{
+			{Name: "a", Span: sp},
+			{Name: "dup", Span: sp},
+			{Name: "rx", Span: sp},
+			{Name: "unknown", Span: sp},
+		},
+		Span: sp,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, diags)
+	if spec == nil {
+		t.Fatalf("expected non-nil analyse spec")
+	}
+	if countDiagCode(diags, "W320") == 0 {
+		t.Fatalf("expected W320 for helper shadowing step-visible variable, got: %s", diags.String())
+	}
+	if countDiagCode(diags, "E414") == 0 {
+		t.Fatalf("expected E414 for duplicate analyse variable, got: %s", diags.String())
+	}
+	if countDiagCode(diags, "E412") == 0 {
+		t.Fatalf("expected E412 for non-string extraction expression, got: %s", diags.String())
+	}
+	if countDiagCode(diags, "E402") == 0 {
+		t.Fatalf("expected E402 for invalid placeholder in regex pattern, got: %s", diags.String())
+	}
+	if countDiagCode(diags, "E415") == 0 {
+		t.Fatalf("expected E415 for unknown result tuple symbol, got: %s", diags.String())
+	}
+
+	foundImportedPattern := false
+	for _, a := range spec.Assignments {
+		if a.Name == "rx" {
+			foundImportedPattern = true
+			if a.Group != "l" || a.Pattern != "rxStr" {
+				t.Fatalf("expected imported let pattern mapping for rx, got %#v", a)
+			}
+		}
+	}
+	if !foundImportedPattern {
+		t.Fatalf("expected rx assignment to be retained in compiled analyse spec, got %#v", spec.Assignments)
+	}
+}
+
+func TestCompileAnalyseBlockUnknownStep(t *testing.T) {
+	sp := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	res := &Result{
+		Globals:            GlobalState{Values: map[string]eval.Value{}},
+		ImportSourceByName: map[string]*ImportSource{},
+		LetByName:          map[string]*LetNamespace{},
+		StepImportByName:   map[string]*StepImportPlan{},
+		DoBlocks:           []ast.DoBlock{},
+		Submits:            []ast.SubmitBlock{},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "missing",
+		Columns:  []ast.AnalyseColumn{{Name: "x", Span: sp}},
+		Span:     sp,
+	}
+	diags := &diag.Diagnostics{}
+	_ = compileAnalyseBlock(block, res, diags)
+	if countDiagCode(diags, "E410") == 0 {
+		t.Fatalf("expected E410 for unknown analyse target step, got: %s", diags.String())
+	}
+	if countDiagCode(diags, "E415") == 0 {
+		t.Fatalf("expected E415 for unknown result symbol on missing step context, got: %s", diags.String())
+	}
+}
+
+func TestCompileAnalyseBlockExtractionCollisionWithStepVar(t *testing.T) {
+	sp := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{},
+		},
+		ImportSourceByName: map[string]*ImportSource{
+			"p": {
+				Name:  "p",
+				Kind:  SourceKindParam,
+				Order: []string{"a"},
+				Origins: map[string]diag.Span{
+					"a": sp,
+				},
+				Vars: map[string][]eval.Value{
+					"a": {eval.Int(1)},
+				},
+			},
+		},
+		LetByName: map[string]*LetNamespace{},
+		StepImportByName: map[string]*StepImportPlan{
+			"run": {
+				StepName: "run",
+				Effective: map[string]VarOrigin{
+					"a": {
+						Name:      "a",
+						SourceVar: "a",
+						Paramset:  "p",
+						Kind:      SourceKindParam,
+						Span:      sp,
+					},
+				},
+			},
+		},
+		DoBlocks: []ast.DoBlock{{Name: "run"}},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{Name: "a", Expr: ast.StringExpr{Value: "R: %d", Span: sp}, File: "out.log", Span: sp},
+		},
+		Span: sp,
+	}
+
+	diags := &diag.Diagnostics{}
+	_ = compileAnalyseBlock(block, res, diags)
+	if countDiagCode(diags, "E413") == 0 {
+		t.Fatalf("expected E413 for extraction variable collision with step-visible variable, got: %s", diags.String())
 	}
 }
 

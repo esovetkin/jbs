@@ -2,7 +2,7 @@
 //
 // take lexer output/source, parse a full JBS file into an abstract
 // syntax tree `ast.Program`, dispatch top-level statements
-// (let/param/do/submit/analyse/...) and do syntax diagnostics
+// (do/submit/analyse/use/global assignment) and do syntax diagnostics
 package parser
 
 import (
@@ -47,27 +47,21 @@ func (p *Parser) parseProgram() ast.Program {
 		word, ok := p.peekWord()
 		if !ok {
 			p.diags.AddError(diag.CodeE010,
-				"expected block keyword (param/do/submit/let/analyse/use)",
+				"expected block keyword (do/submit/analyse/use)",
 				diag.NewSpan(p.file, start, start),
-				"start a block with param, do, submit, let, analyse, or use",
+				"start a block with do, submit, analyse, or use",
 			)
 			p.advance()
 			continue
 		}
 
 		switch word {
-		case "param":
-			p.consumeWord()
-			stmts = append(stmts, p.parseParamBlock(start))
 		case "do":
 			p.consumeWord()
 			stmts = append(stmts, p.parseDoBlock(start))
 		case "submit":
 			p.consumeWord()
 			stmts = append(stmts, p.parseSubmitBlock(start))
-		case "let":
-			p.consumeWord()
-			stmts = append(stmts, p.parseLetBlock(start))
 		case "analyse":
 			p.consumeWord()
 			stmts = append(stmts, p.parseAnalyseBlock(start))
@@ -79,7 +73,7 @@ func (p *Parser) parseProgram() ast.Program {
 			p.diags.AddError(diag.CodeE011,
 				fmt.Sprintf("unknown block keyword '%s'", word),
 				diag.NewSpan(p.file, start, end),
-				"valid keywords are param, do, submit, let, analyse, use",
+				"valid keywords are do, submit, analyse, use",
 			)
 		}
 	}

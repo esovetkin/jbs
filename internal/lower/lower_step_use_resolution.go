@@ -46,6 +46,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 		if item.Full {
 			if src := sources[item.Source]; src != nil {
 				if item.Kind == sema.SourceKindParam && sourceRows[item.Source] == "" && !sourceNeedsAlias(src, aliases) {
+					ctx.ensureSourceParamset(item.Source)
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
 						uses = append(uses, item.Source)

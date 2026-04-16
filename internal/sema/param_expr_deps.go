@@ -14,6 +14,12 @@ type localAssignMeta struct {
 	Span diag.Span
 }
 
+type importedContribution struct {
+	Source    string
+	SourceVar string
+	Span      diag.Span
+}
+
 func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 	if expr == nil {
 		return

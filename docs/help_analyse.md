@@ -8,69 +8,55 @@ In JUBE terms, JBS lowers `analyse` into JUBE `patternset`, `analyser` and `resu
 
 ```jbs
 analyse <step_name>
-        [with <let_ns>, <var> from <let_ns2>, ...]
+        [with <scalar0>, <scalar1>, ...]
 {
         # helper assignment (compile-time expression binding)
         helper = <expr>
 
-        # extraction assignment
-        alias0 = <expr> in "<file>"
-        alias1 = <expr> in "<file>"
+        p0 = <pattern_expr> in "<file>"
+        p1 = <pattern_expr> in "<file>"
+        ...
 
-        (<col0>, <col1> as "Custom Name", ...)
+        (p0, p1 as "Title",  ...)
 }
 ```
 
-Rules:
 - `<step_name>` must be a declared `do` or `submit` block.
-- `with` in `analyse` can import only from `let` namespaces (useful for reusable pattern strings).
 - Extraction expressions must evaluate to a string.
-- Left-hand extraction aliases become available as variables in the final tuple.
+- Extraction variable become available as variables in the final tuple.
 - The tuple in the final line is required and defines the columns in the result table.
 - `as "..."` sets a custom column heading. If it is omitted, the variable name is used as the column heading.
+- `%d`, `%f`, `%w`, `%%` are supported in pattern strings.
+- `with` in `analyse` is scalar-only.
 
 ## Example
 
 ```jbs
-param p
+a = ("a", ) * 3
+i = [1,2,3]
+x = i / 2
+cases = comb(a + i + x)
+
+do s with cases
 {
-        a = ("a", ) * 3
-        i = [1,2,3]
-        x = i / 2
-        a + i + x
+    echo "Word: ${a}" > en
+    echo "Number: ${i}" >> en
+    echo "Zahl: ${x}" > de
 }
 
-do write_number
-        with p
-{
-        echo "Word: ${a}" > en
-        echo "Number: ${i}" >> en
-        echo "Zahl: ${x}" > de
-}
+pat_number = "Number: %d"
 
-analyse write_number
-{
-        alpha = "Word: %w" in "en"
-        en = "Number: %d" in "en"
-        de = "Zahl: %f" in "de"
-
-        (a, i, x, en as "Number", de as "Zahl", alpha as "Letter")
+analyse s with pat_number {
+        n = pat_number in "out.log"
+        (a, x, i, n as "parsed_number")
 }
 ```
 
 Running JUBE on that example produces:
 ```bash
 % jbs printparam example.jbs
-| p.a | p.i | p.x | step             |
-|-----|-----|-----|------------------|
-| a   | 1   | 0.5 | do: write_number |
-| a   | 2   | 1.0 | do: write_number |
-| a   | 3   | 1.5 | do: write_number |
+XXX
 % jbs example.jbs -o example.yaml
-% jube-autorun example.yaml
-...
-a,i,x,Number,Zahl,Letter
-a,1,0.5,1,0.5,a
-a,2,1,2,1.0,a
-a,3,1.5,3,1.5,a
+% jbs example.jbs -o example.yaml
+XXX
 ```

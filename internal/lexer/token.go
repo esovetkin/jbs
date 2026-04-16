@@ -45,10 +45,8 @@ const (
 	TokenElse         TokenType = "else"
 	TokenAnd          TokenType = "and"
 	TokenOr           TokenType = "or"
-	TokenParam        TokenType = "param"
 	TokenDo           TokenType = "do"
 	TokenSubmit       TokenType = "submit"
-	TokenLet          TokenType = "let"
 	TokenAnalyse      TokenType = "analyse"
 	TokenWith         TokenType = "with"
 	TokenFrom         TokenType = "from"
@@ -74,10 +72,8 @@ var keywords = map[string]TokenType{
 	"else":    TokenElse,
 	"and":     TokenAnd,
 	"or":      TokenOr,
-	"param":   TokenParam,
 	"do":      TokenDo,
 	"submit":  TokenSubmit,
-	"let":     TokenLet,
 	"analyse": TokenAnalyse,
 	"with":    TokenWith,
 	"from":    TokenFrom,

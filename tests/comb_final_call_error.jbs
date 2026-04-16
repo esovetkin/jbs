@@ -1,5 +1,0 @@
-param p
-{
-        a = (1, 2)
-        a * range(2)
-}

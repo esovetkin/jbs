@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
 	"jbs/internal/sema"
@@ -325,5 +326,153 @@ func TestValueKeyAndUniqueStrings(t *testing.T) {
 	}
 	if got := uniqueStrings([]string{"a", "b", "a", "c", "b"}); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
 		t.Fatalf("uniqueStrings did not preserve first-appearance order: %#v", got)
+	}
+}
+
+func TestPruneHeaderOnlyColumns(t *testing.T) {
+	cols := []string{"p.a", "p.b", "p.c"}
+	rows := []Row{
+		{Values: map[string]string{"p.a": "1"}},
+		{Values: map[string]string{"p.b": ""}}, // empty string must still count as present
+	}
+	got := pruneHeaderOnlyColumns(cols, rows)
+	want := []string{"p.a", "p.b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pruneHeaderOnlyColumns mismatch: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestCollectStepsInProgramOrderAndDeps(t *testing.T) {
+	s0 := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	s1 := diag.NewSpan("in.jbs", diag.NewPos(1, 2, 1), diag.NewPos(2, 2, 2))
+	s2 := diag.NewSpan("in.jbs", diag.NewPos(2, 3, 1), diag.NewPos(3, 3, 2))
+	prog := ast.Program{
+		Stmts: []ast.Stmt{
+			ast.GlobalAssign{Name: "x", Span: s0},
+			ast.DoBlock{Name: "step0", Span: s0},
+			ast.SubmitBlock{Name: "step1", After: []string{"step0"}, Span: s1},
+			ast.DoBlock{Name: "step2", After: []string{"step0", "step1"}, Span: s2},
+		},
+	}
+	got := collectStepsInProgramOrder(prog)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(got))
+	}
+	if got[0].Name != "step0" || got[0].Kind != "do" || len(got[0].After) != 0 {
+		t.Fatalf("unexpected step0 def: %#v", got[0])
+	}
+	if got[1].Name != "step1" || got[1].Kind != "submit" || !reflect.DeepEqual(got[1].After, []string{"step0"}) {
+		t.Fatalf("unexpected step1 def: %#v", got[1])
+	}
+	if got[2].Name != "step2" || got[2].Kind != "do" || !reflect.DeepEqual(got[2].After, []string{"step0", "step1"}) {
+		t.Fatalf("unexpected step2 def: %#v", got[2])
+	}
+
+	deps := stepDeps(map[string]stepDef{
+		"step0": got[0],
+		"step1": got[1],
+		"step2": got[2],
+	})
+	if len(deps["step0"]) != 0 {
+		t.Fatalf("unexpected deps for step0: %#v", deps["step0"])
+	}
+	if !reflect.DeepEqual(deps["step1"], []string{"step0"}) {
+		t.Fatalf("unexpected deps for step1: %#v", deps["step1"])
+	}
+	if !reflect.DeepEqual(deps["step2"], []string{"step0", "step1"}) {
+		t.Fatalf("unexpected deps for step2: %#v", deps["step2"])
+	}
+}
+
+func TestBuildEndToEnd(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	prog := ast.Program{
+		Stmts: []ast.Stmt{
+			ast.DoBlock{Name: "s0", Span: span},
+			ast.DoBlock{Name: "s1", After: []string{"s0"}, Span: span},
+			ast.SubmitBlock{Name: "s2", After: []string{"s1"}, Span: span},
+		},
+	}
+	res := &sema.Result{
+		Program: prog,
+		ImportSourceByName: map[string]*sema.ImportSource{
+			"p": {
+				Name:  "p",
+				Kind:  sema.SourceKindParam,
+				Order: []string{"x", "y"},
+				Vars: map[string][]eval.Value{
+					"x": {eval.Int(1), eval.Int(2)},
+					"y": {eval.String("a"), eval.String("b")},
+				},
+			},
+			"q": {
+				Name:  "q",
+				Kind:  sema.SourceKindParam,
+				Order: []string{"z"},
+				Vars: map[string][]eval.Value{
+					"z": {eval.Int(9), eval.Int(9)},
+				},
+			},
+		},
+		StepImportByName: map[string]*sema.StepImportPlan{
+			"s0": {
+				StepName: "s0",
+				ExplicitDelta: []sema.PlannedImport{
+					{Source: "p", Kind: sema.SourceKindParam, Visible: "x", SourceVar: "x", Span: span},
+					{Source: "p", Kind: sema.SourceKindParam, Visible: "yy", SourceVar: "y", Span: span},
+				},
+				Effective: map[string]sema.VarOrigin{
+					"x":  {Name: "x", Paramset: "p", SourceVar: "x", Kind: sema.SourceKindParam, Span: span},
+					"yy": {Name: "yy", Paramset: "p", SourceVar: "y", Kind: sema.SourceKindParam, Span: span},
+				},
+			},
+			"s1": {
+				StepName: "s1",
+				ExplicitDelta: []sema.PlannedImport{
+					{Source: "q", Kind: sema.SourceKindParam, Visible: "z", SourceVar: "z", Span: span},
+				},
+				Effective: map[string]sema.VarOrigin{
+					"x":  {Name: "x", Paramset: "p", SourceVar: "x", Kind: sema.SourceKindParam, Span: span},
+					"yy": {Name: "yy", Paramset: "p", SourceVar: "y", Kind: sema.SourceKindParam, Span: span},
+					"z":  {Name: "z", Paramset: "q", SourceVar: "z", Kind: sema.SourceKindParam, Span: span},
+				},
+			},
+			// s2 deliberately omitted to cover plan == nil path in Build.
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	wantCols := []string{"p.x", "p.y", "q.z"}
+	if !reflect.DeepEqual(table.Columns, wantCols) {
+		t.Fatalf("unexpected columns: got=%#v want=%#v", table.Columns, wantCols)
+	}
+	if len(table.Rows) != 6 {
+		t.Fatalf("expected 6 rows, got %d: %#v", len(table.Rows), table.Rows)
+	}
+
+	if table.Rows[0].StepKind != "do" || table.Rows[0].StepName != "s0" {
+		t.Fatalf("unexpected first row step label: %#v", table.Rows[0])
+	}
+	if table.Rows[0].Values["p.x"] != "1" || table.Rows[0].Values["p.y"] != "a" {
+		t.Fatalf("unexpected first row values: %#v", table.Rows[0].Values)
+	}
+	if table.Rows[1].Values["p.x"] != "2" || table.Rows[1].Values["p.y"] != "b" {
+		t.Fatalf("unexpected second row values: %#v", table.Rows[1].Values)
+	}
+
+	if table.Rows[2].StepName != "s1" || table.Rows[2].Values["q.z"] != "9" {
+		t.Fatalf("unexpected third row values: %#v", table.Rows[2])
+	}
+
+	// submit step with nil plan should still exist, but without parameter columns.
+	if table.Rows[4].StepKind != "submit" || table.Rows[4].StepName != "s2" {
+		t.Fatalf("unexpected submit row: %#v", table.Rows[4])
+	}
+	if len(table.Rows[4].Values) != 0 || len(table.Rows[5].Values) != 0 {
+		t.Fatalf("expected empty values for nil-plan submit rows, got %#v %#v", table.Rows[4].Values, table.Rows[5].Values)
 	}
 }

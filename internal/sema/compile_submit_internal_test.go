@@ -165,6 +165,74 @@ func TestCompileSubmitHelpers(t *testing.T) {
 	})
 }
 
+func TestSubmitSeriesRowCount(t *testing.T) {
+	if n, ok := submitSeriesRowCount(eval.List([]eval.Value{eval.Int(1)})); ok || n != 0 {
+		t.Fatalf("expected single-item list to be non-series, got n=%d ok=%v", n, ok)
+	}
+	if n, ok := submitSeriesRowCount(eval.Tuple([]eval.Value{eval.Int(1), eval.Int(2)})); !ok || n != 2 {
+		t.Fatalf("expected tuple series row count 2, got n=%d ok=%v", n, ok)
+	}
+	if n, ok := submitSeriesRowCount(eval.String("x")); ok || n != 0 {
+		t.Fatalf("expected non-list/tuple to be non-series, got n=%d ok=%v", n, ok)
+	}
+}
+
+func TestCompileSubmitBlockEffectiveEnvAndSeriesWarning(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(10, 1, 11))
+	block := ast.SubmitBlock{
+		Name: "run",
+		Span: span,
+		Fields: []ast.SubmitField{
+			{Name: "account", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "a", Span: span}, Span: span},
+			{Name: "queue", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "q", Span: span}, Span: span},
+			{Name: "starter", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "srun", Span: span}, Span: span},
+			{Name: "nodes", Op: ast.AssignEq, Expr: ast.IdentExpr{Name: "nodes", Span: span}, Span: span},
+			{Name: "args_exec", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "-lc hostname", Span: span}, Span: span},
+		},
+	}
+	sources := map[string]*ImportSource{
+		"p": {
+			Name:  "p",
+			Kind:  SourceKindParam,
+			Order: []string{"nodes"},
+			Vars: map[string][]eval.Value{
+				"nodes": {eval.Int(1), eval.Int(2)},
+			},
+			Origins: map[string]diag.Span{
+				"nodes": span,
+			},
+		},
+	}
+	effective := map[string]VarOrigin{
+		// sourceVar empty branch uses visible name fallback
+		"nodes": {Name: "nodes", SourceVar: "", Paramset: "p", Kind: SourceKindParam, Span: span},
+		// missing source branch should be ignored safely
+		"ghost": {Name: "ghost", SourceVar: "ghost", Paramset: "missing", Kind: SourceKindParam, Span: span},
+	}
+	diags := &diag.Diagnostics{}
+	spec := compileSubmitBlock(block, sources, map[string]eval.Value{}, effective, diags)
+	if spec == nil {
+		t.Fatalf("expected compiled submit spec")
+	}
+	if countDiagCode(diags, "W075") == 0 {
+		t.Fatalf("expected W075 for series direct-identifier submit assignment, got: %s", diags.String())
+	}
+	nodes, ok := submitValueByNameForInternal(spec, "nodes")
+	if !ok {
+		t.Fatalf("expected resolved nodes submit value")
+	}
+	if nodes.Value.Kind != eval.KindList || len(nodes.Value.L) != 2 {
+		t.Fatalf("expected nodes to evaluate to series list with two rows, got %#v", nodes.Value)
+	}
+	tasks, ok := submitValueByNameForInternal(spec, "tasks")
+	if !ok {
+		t.Fatalf("expected tasks key to be auto-populated when missing")
+	}
+	if tasks.Value.Kind != eval.KindList || len(tasks.Value.L) != 2 {
+		t.Fatalf("expected tasks to inherit nodes series, got %#v", tasks.Value)
+	}
+}
+
 func submitValueByNameForInternal(spec *SubmitSpec, name string) (SubmitValue, bool) {
 	for _, value := range spec.Values {
 		if value.Name == name {

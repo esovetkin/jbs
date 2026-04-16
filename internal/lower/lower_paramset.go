@@ -16,6 +16,23 @@ import (
 	"jbs/internal/sema"
 )
 
+func (ctx *lowerContext) ensureSourceParamset(source string) bool {
+	if source == "" {
+		return false
+	}
+	if _, emitted := ctx.sourceParamsetEmitted[source]; emitted {
+		return true
+	}
+	ps := ctx.res.ParamByName[source]
+	if ps == nil {
+		return false
+	}
+	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, lowerParamset(ps, ctx.diags))
+	ctx.sourceParamsetEmitted[source] = struct{}{}
+	ctx.names[source] = struct{}{}
+	return true
+}
+
 func lowerParamset(ps *sema.Paramset, diags *diag.Diagnostics) ParameterSet {
 	out := ParameterSet{
 		Name:      ps.Name,

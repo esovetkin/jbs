@@ -9,7 +9,7 @@ In JUBE terms, JBS lowers `do` into JUBE [`step` sections](https://apps.fz-jueli
 ```jbs
 do <name>
         [after <step0>, <step1>, ...]
-        [with <paramset>, <var> from <paramset2>, ...]
+        [with <source>, <var> from <source2>, ...]
         [<key>=<int> ...]
 {
         # shell commands
@@ -17,6 +17,11 @@ do <name>
         # variables can be used as $<var> or ${<var>} as usual
 }
 ```
+
+`[<key>=<int> ...]` lets you set JUBE options for the [step_tag](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-step_tag). The currently allowed keys are:
+- `max_async` must be an integer `>= 0`
+- `procs` must be an integer `>= 0`
+- `iterations` must be an integer `>= 1`
 
 ### `after`: step dependency declarations
 
@@ -30,12 +35,10 @@ The `with` keyword lets you import entire parameter sets, slices of parameter se
 
 Any name collision results in an error. JBS raises warnings for forgotten imports (a variable is used in the shell body but its namespace was not imported in the step or inherited via dependencies) and for unused imports (a variable is imported but not used in the shell body).
 
-### `[<key>=<int> ...]`: optional key-value arguments
-
-`[<key>=<int> ...]` lets you set JUBE options for the [step_tag](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-step_tag). The currently allowed keys are:
-- `max_async` must be an integer `>= 0`
-- `procs` must be an integer `>= 0`
-- `iterations` must be an integer `>= 1`
+- Variables are not visible unless imported through `with`.
+- Importing a comb source (`with cases`) exposes all its columns.
+- `with a, b` imports named global sources and combines them for the step.
+- `after` keeps step dependency/inheritance behavior.
 
 ### `${jube_...}`: useful JUBE variables inside `do`
 
@@ -53,22 +56,18 @@ do inspect
 }
 ```
 
+Each workpackage runs in its own directory (`$jube_wp_abspath`).
+Use `$jube_benchmark_home` for files near your benchmark definition.
+
 ## Example
 
 ```jbs
-param p0
-{
-        a = (1, 2)
-        b = ("a", "b")
-        c = (true, false)
-        (a + b) * c
-}
+a = (1, 2)
+b = ("a", "b")
+c = (true, false)
+p0 = comb((a + b) * c)
 
-param p1
-{
-        d = ("x", "y")
-        d
-}
+d = ("x", "y")
 
 do step0
         with (a, c) from p0
@@ -92,67 +91,16 @@ do step1
 Running JUBE on that example produces:
 ```bash
 % jbs printparam example.jbs
-| p0.a | p0.b | p0.c  | p1.d | step      |
-|------|------|-------|------|-----------|
-| 1    |      | true  |      | do: step0 |
-| 1    |      | false |      | do: step0 |
-| 2    |      | true  |      | do: step0 |
-| 2    |      | false |      | do: step0 |
-| 1    | a    | true  | x    | do: step1 |
-| 1    | a    | true  | y    | do: step1 |
-| 1    | a    | false | x    | do: step1 |
-| 1    | a    | false | y    | do: step1 |
-| 2    | b    | true  | x    | do: step1 |
-| 2    | b    | true  | y    | do: step1 |
-| 2    | b    | false | x    | do: step1 |
-| 2    | b    | false | y    | do: step1 |
+XXX
 % jbs example.jbs -o example.yaml
 % jube-autorun example.yaml
 ...
+XXX
   | stepname | all | open | wait | error | done |
   |----------|-----|------|------|-------|------|
   |    step0 |   4 |    0 |    0 |     0 |    4 |
   |    step1 |   8 |    0 |    0 |     0 |    8 |
 ...
-```
-
-### Imports from multiple parameter spaces
-
-```jbs
-param p0 { a = (1, 2); a }
-param p1 { b = ("a", "b"); b }
-
-do s0
-        # importing variables from two different
-        # parameter spaces results in the Cartesian product:
-        with a from p0, b from p1
-{
-        echo $a $b
-}
-
-#
-# | p0.a | p1.b | step   |
-# |------|------|--------|
-# | 1    | a    | do: s0 |
-# | 1    | b    | do: s0 |
-# | 2    | a    | do: s0 |
-# | 2    | b    | do: s0 |
-
-param p2 with p0, p1
-{
-        # one can apply combination algebra on entire namespaces
-        p0 + p1
-}
-
-do s1 with p2
-{
-        echo $a $b
-}
-
-# | p2.a | p2.b | step   |
-# |------|------|--------|
-# | 1    | a    | do: s1 |
-# | 2    | b    | do: s1 |
 ```
 
 ### XXX `sbatch` jobs submission with `do`
@@ -161,16 +109,16 @@ The `-W` or `--wait` options make `sbatch` wait until the job terminates and ret
 
 ```jbs
 # XXX write a self-contained example
-do step0
+do step0 {
         ...
         procs = 4
-{
         sbatch -W \
             --output=job.out --error=job.err \
             --account=... --nodes=1
             XXX
 }
 ```
+
 
 Keep in mind that JUBE `do` steps run [sequentially](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#parallel-workpackages), so you need to use `procs` to allow multiple jobs to be submitted.
 
@@ -179,4 +127,3 @@ XXX what happens when `sbatch -W` is killed. The job continues to run, but how s
 ### XXX `sbatch` jobs submission with `do` and `donefile`
 
 XXX might require another keyword option for `do`
-

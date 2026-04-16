@@ -8,9 +8,8 @@ import (
 var knownHelpTopics = []string{
 	"analyse",
 	"do",
+	"functions",
 	"globals",
-	"let",
-	"param",
 	"submit",
 	"use",
 }
@@ -165,7 +164,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|do|globals|let|param|submit|use]
+  jbs help [analyse|do|functions|globals|submit|use]
 
 Inspect embedded shared scripts:
   jbs embed [filename]

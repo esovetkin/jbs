@@ -7,21 +7,35 @@ import (
 )
 
 type Paramset struct {
-	Name     string
-	Block    ast.ParamBlock
-	Rows     []eval.Row
-	Vars     map[string][]eval.Value
-	BaseVars map[string][]eval.Value
-	Origins  map[string]diag.Span
-	Modes    map[string]string
-	Order    []string
-	HasPlus  bool
+	Name            string
+	Block           ast.ParamBlock
+	Rows            []eval.Row
+	Vars            map[string][]eval.Value
+	BaseVars        map[string][]eval.Value
+	Origins         map[string]diag.Span
+	Modes           map[string]string
+	Order           []string
+	HasPlus         bool
+	SyntheticGlobal bool
 }
 
 type GlobalState struct {
 	Values map[string]eval.Value
 	Modes  map[string]string
 	Spans  map[string]diag.Span
+}
+
+type GlobalVar struct {
+	Name      string
+	Value     eval.Value
+	Mode      string
+	Span      diag.Span
+	Order     []string
+	Vars      map[string][]eval.Value
+	Namespace string
+	// Direct global variable dependencies collected from the effective
+	// assignment expression for this symbol.
+	DependsOn []string
 }
 
 type SourceKind string
@@ -44,6 +58,8 @@ type ImportSource struct {
 type Result struct {
 	Program            ast.Program
 	Globals            GlobalState
+	GlobalVarByName    map[string]*GlobalVar
+	GlobalVarOrder     []string
 	LetNamespaces      []*LetNamespace
 	LetByName          map[string]*LetNamespace
 	ImportSourceByName map[string]*ImportSource

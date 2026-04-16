@@ -39,7 +39,7 @@ func TestReadSupportsNameWithAndWithoutExtension(t *testing.T) {
 	if a != b {
 		t.Fatalf("expected same content with/without extension")
 	}
-	if !strings.Contains(a, "let submit_defaults") {
+	if !strings.Contains(a, "submit_defaults = comb(") {
 		t.Fatalf("unexpected jsc content: %q", a)
 	}
 }

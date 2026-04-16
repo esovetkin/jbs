@@ -362,3 +362,36 @@ args_exec = "-lc hostname"
 		t.Fatalf("expected E077 for trailing text after raw block, got: %s", diags.String())
 	}
 }
+
+func TestParseSubmitFieldsMalformedAndRawOperatorBranches(t *testing.T) {
+	body := `
+123
+key 1
+preprocess += {
+  echo hi
+}
+args_exec = "-lc hostname"
+`
+	diags := &diag.Diagnostics{}
+	fields := parseSubmitFields("in.jbs", body, diag.NewPos(0, 1, 1), diags)
+	if len(fields) != 1 {
+		t.Fatalf("expected only args_exec field to survive malformed statements, got %#v", fields)
+	}
+	if fields[0].Name != "args_exec" || fields[0].Expr == nil {
+		t.Fatalf("unexpected surviving field parse result: %#v", fields[0])
+	}
+	if countDiagCodeSubmit(diags, "E077") < 3 {
+		t.Fatalf("expected at least three E077 diagnostics for malformed statements, got: %s", diags.String())
+	}
+}
+
+func TestSubmitFieldParserAdvanceAndAssignOpEOF(t *testing.T) {
+	p := newSubmitParser("", &diag.Diagnostics{})
+	if got := p.advance(); got != 0 {
+		t.Fatalf("expected advance at EOF to return 0, got %q", got)
+	}
+	op, _, ok := p.parseAssignOp()
+	if ok || op != ast.AssignEq {
+		t.Fatalf("expected parseAssignOp on EOF to fail with default op, got op=%q ok=%v", op, ok)
+	}
+}

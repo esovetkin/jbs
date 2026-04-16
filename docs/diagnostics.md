@@ -12,4 +12,4 @@
 | error | printparam | printparam diagnostic | E500, E501, E502 |
 | error | sema | semantic analysis diagnostic | E020, E021, E071, E072, E073, E074, E075, E076, E078, E210, E211, E212, E213, E214, E215, E216, E217, E218, E219, E220, E221, E300, E301, E302, E303, E304, E305, E400, E401, E402, E403, E410, E412, E413, E414, E415, E420, E422, E430 |
 | warning | eval | expression or combination evaluation warning | W101, W102 |
-| warning | sema | semantic analysis warning | W070, W071, W072, W073, W074, W075, W300, W301, W310, W311, W312, W313, W320 |
+| warning | sema | semantic analysis warning | W070, W071, W072, W073, W074, W075, W301, W310, W311, W312, W313, W320 |

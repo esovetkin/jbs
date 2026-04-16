@@ -2,6 +2,7 @@ package sema
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
@@ -614,4 +615,184 @@ func TestValidateStepVarReferencesW313ImportSpanFallback(t *testing.T) {
 		return
 	}
 	t.Fatalf("expected W313 diagnostic, got: %s", diags.String())
+}
+
+func TestCompareSourceKeyOrdering(t *testing.T) {
+	paramA := sourceKey{Kind: SourceKindParam, Name: "a"}
+	paramB := sourceKey{Kind: SourceKindParam, Name: "b"}
+	letA := sourceKey{Kind: SourceKindLet, Name: "a"}
+
+	if got := compareSourceKey(paramA, paramA); got != 0 {
+		t.Fatalf("expected equal comparison result 0, got %d", got)
+	}
+	if got := compareSourceKey(paramA, paramB); got >= 0 {
+		t.Fatalf("expected paramA < paramB, got %d", got)
+	}
+	if got := compareSourceKey(paramB, paramA); got <= 0 {
+		t.Fatalf("expected paramB > paramA, got %d", got)
+	}
+	forward := compareSourceKey(letA, paramA)
+	reverse := compareSourceKey(paramA, letA)
+	if forward == 0 || reverse == 0 || forward != -reverse {
+		t.Fatalf("expected strict, symmetric ordering between kinds; forward=%d reverse=%d", forward, reverse)
+	}
+}
+
+func TestCloneUsedBySourceDeepCopyAndEmptyMap(t *testing.T) {
+	keyA := sourceKey{Kind: SourceKindParam, Name: "a"}
+	keyB := sourceKey{Kind: SourceKindLet, Name: "b"}
+	original := map[sourceKey]map[string]bool{
+		keyA: {"x": true},
+		keyB: {},
+	}
+
+	cloned := cloneUsedBySource(original)
+	if len(cloned) != len(original) {
+		t.Fatalf("expected clone size %d, got %d", len(original), len(cloned))
+	}
+	if _, ok := cloned[keyB]; !ok {
+		t.Fatalf("expected clone to include empty key %v", keyB)
+	}
+	cloned[keyA]["x"] = false
+	cloned[keyA]["y"] = true
+	if original[keyA]["x"] != true {
+		t.Fatalf("expected original map to stay unchanged, got %#v", original[keyA])
+	}
+	if _, ok := original[keyA]["y"]; ok {
+		t.Fatalf("expected original map not to receive cloned mutation, got %#v", original[keyA])
+	}
+}
+
+func TestValidateStepVarReferencesSubmitUseMarksAllowedKeyAsUsed(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	let := &LetNamespace{
+		Name: "defaults",
+		Vars: map[string]eval.Value{
+			"queue":      eval.String("batch"),
+			"preprocess": eval.String("echo setup"),
+		},
+		Origins: map[string]diag.Span{
+			"queue":      span,
+			"preprocess": span,
+		},
+		Span: span,
+	}
+	res := &Result{
+		Program: ast.Program{},
+		LetNamespaces: []*LetNamespace{
+			let,
+		},
+		ImportSourceByName: map[string]*ImportSource{
+			"defaults": {
+				Name:  "defaults",
+				Kind:  SourceKindLet,
+				Vars:  map[string][]eval.Value{"queue": {eval.String("batch")}, "preprocess": {eval.String("echo setup")}},
+				Order: []string{"queue", "preprocess"},
+				Span:  span,
+			},
+		},
+		Submits: []ast.SubmitBlock{
+			{
+				Name:     "run",
+				UseNames: []string{"defaults"},
+				Span:     span,
+			},
+		},
+		StepImportByName: map[string]*StepImportPlan{
+			"run": {StepName: "run"},
+		},
+	}
+	diags := &diag.Diagnostics{}
+	validateStepVarReferences(res, diags)
+
+	hasQueueW310 := false
+	hasPreprocessW310 := false
+	for _, item := range diags.Items {
+		if item.Code != string(diag.CodeW310) {
+			continue
+		}
+		if reflect.DeepEqual(item.Span, span) && strings.Contains(item.Message, "queue") && strings.Contains(item.Message, "defaults") {
+			hasQueueW310 = true
+		}
+		if reflect.DeepEqual(item.Span, span) && strings.Contains(item.Message, "preprocess") && strings.Contains(item.Message, "defaults") {
+			hasPreprocessW310 = true
+		}
+	}
+	if hasQueueW310 {
+		t.Fatalf("did not expect W310 for queue imported via submit use defaults: %s", diags.String())
+	}
+	if !hasPreprocessW310 {
+		t.Fatalf("expected W310 for raw submit key preprocess (not auto-marked used), got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesSubmitHelperRefCountsAsImportedUsage(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(10, 4, 1), diag.NewPos(20, 4, 11))
+	let := &LetNamespace{
+		Name: "defs",
+		Vars: map[string]eval.Value{
+			"helper_var": eval.String("x"),
+		},
+		Origins: map[string]diag.Span{
+			"helper_var": span,
+		},
+		Span: span,
+	}
+	res := &Result{
+		Program: ast.Program{},
+		LetNamespaces: []*LetNamespace{
+			let,
+		},
+		ImportSourceByName: map[string]*ImportSource{
+			"defs": {
+				Name:  "defs",
+				Kind:  SourceKindLet,
+				Vars:  map[string][]eval.Value{"helper_var": {eval.String("x")}},
+				Order: []string{"helper_var"},
+				Span:  span,
+			},
+		},
+		Submits: []ast.SubmitBlock{
+			{
+				Name: "run",
+				Fields: []ast.SubmitField{
+					{
+						Name: "args_exec",
+						Expr: ast.StringExpr{
+							Value: "-lc 'echo ${helper_var}'",
+							Span:  span,
+						},
+						Span: span,
+					},
+				},
+				Span: span,
+			},
+		},
+		SubmitByName: map[string]*SubmitSpec{
+			"run": {
+				Name: "run",
+				Helpers: []SubmitHelper{
+					{
+						Original: "helper_var",
+						UseName:  "defs",
+						Span:     span,
+					},
+				},
+			},
+		},
+		StepImportByName: map[string]*StepImportPlan{
+			"run": {StepName: "run"},
+		},
+	}
+	diags := &diag.Diagnostics{}
+	validateStepVarReferences(res, diags)
+
+	for _, item := range diags.Items {
+		if item.Code == string(diag.CodeW311) && strings.Contains(item.Message, "helper_var") {
+			t.Fatalf("did not expect W311 for helper_var when submit helper import exists: %s", diags.String())
+		}
+		if item.Code == string(diag.CodeW310) && strings.Contains(item.Message, "helper_var") && strings.Contains(item.Message, "defs") {
+			t.Fatalf("did not expect W310 for helper_var when referenced via helper import: %s", diags.String())
+		}
+	}
 }

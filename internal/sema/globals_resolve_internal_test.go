@@ -82,9 +82,6 @@ func TestResolveTopLevelGlobalsMixedValidationAndState(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	got := resolveTopLevelGlobals(prog, defaults, diags)
 
-	if countDiagCode(diags, "E300") != 1 {
-		t.Fatalf("expected 1 E300, got %d: %s", countDiagCode(diags, "E300"), diags.String())
-	}
 	if countDiagCode(diags, "E303") != 1 {
 		t.Fatalf("expected 1 E303, got %d: %s", countDiagCode(diags, "E303"), diags.String())
 	}
@@ -97,8 +94,8 @@ func TestResolveTopLevelGlobalsMixedValidationAndState(t *testing.T) {
 	if countDiagCode(diags, "E215") != 1 {
 		t.Fatalf("expected 1 E215 from shell(number), got %d: %s", countDiagCode(diags, "E215"), diags.String())
 	}
-	if countDiagCode(diags, "W300") != 1 {
-		t.Fatalf("expected 1 W300 for reassignment, got %d: %s", countDiagCode(diags, "W300"), diags.String())
+	if countDiagCode(diags, "W300") != 0 {
+		t.Fatalf("did not expect W300 for reassignment, got %d: %s", countDiagCode(diags, "W300"), diags.String())
 	}
 
 	if got.Values["jbs_name"].Kind != eval.KindString || got.Values["jbs_name"].S != "bench" {

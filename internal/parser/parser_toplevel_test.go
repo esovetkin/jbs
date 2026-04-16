@@ -79,6 +79,25 @@ func TestParseGlobalAssignMalformedStart(t *testing.T) {
 	}
 }
 
+func TestParseGlobalAssignSuccess(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`jbs_name = "bench"`+"\n", diags)
+	start := p.pos()
+	got := p.parseGlobalAssign(start)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Name != "jbs_name" {
+		t.Fatalf("unexpected assignment name: %#v", got)
+	}
+	if got.Op != ast.AssignEq {
+		t.Fatalf("unexpected assignment op: %#v", got.Op)
+	}
+	if _, ok := got.Expr.(ast.StringExpr); !ok {
+		t.Fatalf("expected string expression, got %#v", got.Expr)
+	}
+}
+
 func TestParseUseStmtErrorBranches(t *testing.T) {
 	tests := []struct {
 		name string
@@ -183,6 +202,20 @@ func TestReadTopLevelStatementStopsAtHashEvenWithoutBoundary(t *testing.T) {
 	}
 }
 
+func TestReadTopLevelStatementAtEOF(t *testing.T) {
+	p := newTopLevelParser("x = 1", &diag.Diagnostics{})
+	stmt, start := p.readTopLevelStatement()
+	if start.Line != 1 || start.Column != 1 || start.Offset != 0 {
+		t.Fatalf("unexpected start position: %+v", start)
+	}
+	if stmt != "x = 1" {
+		t.Fatalf("unexpected statement at EOF: %q", stmt)
+	}
+	if !p.eof() {
+		t.Fatalf("expected parser at EOF after reading statement")
+	}
+}
+
 func TestParseUseStmtSelectiveFromPath(t *testing.T) {
 	stmt, diags := parseUseDirect(`use helper, tool from "./lib.jbs"` + "\n")
 	if diags.HasErrors() {
@@ -193,6 +226,55 @@ func TestParseUseStmtSelectiveFromPath(t *testing.T) {
 	}
 	if stmt.Source.Kind != ast.UseSourcePath || stmt.Source.Value != "./lib.jbs" {
 		t.Fatalf("unexpected selective path source: %#v", stmt.Source)
+	}
+}
+
+func TestParseUseStmtSelectiveFromBareModule(t *testing.T) {
+	stmt, diags := parseUseDirect("use helper, tool from jsc\n")
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(stmt.Names) != 2 || stmt.Names[0] != "helper" || stmt.Names[1] != "tool" {
+		t.Fatalf("unexpected selective names: %#v", stmt.Names)
+	}
+	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "jsc" {
+		t.Fatalf("unexpected selective source: %#v", stmt.Source)
+	}
+}
+
+func TestParseUseStmtPathAliasSuccess(t *testing.T) {
+	stmt, diags := parseUseDirect(`use "./x.jbs" as util` + "\n")
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if stmt.Source.Kind != ast.UseSourcePath || stmt.Source.Value != "./x.jbs" {
+		t.Fatalf("unexpected source: %#v", stmt.Source)
+	}
+	if stmt.Alias != "util" {
+		t.Fatalf("unexpected alias: %#v", stmt.Alias)
+	}
+}
+
+func TestParseUseStmtNamespaceImportSuccess(t *testing.T) {
+	stmt, diags := parseUseDirect("use jsc\n")
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "jsc" {
+		t.Fatalf("unexpected source: %#v", stmt.Source)
+	}
+	if stmt.Alias != "jsc" {
+		t.Fatalf("unexpected alias: %#v", stmt.Alias)
+	}
+}
+
+func TestParseUseStmtMissingIdentifierAfterComma(t *testing.T) {
+	_, diags := parseUseDirect("use a, from jsc\n")
+	if !hasDiag(diags, "E430") {
+		t.Fatalf("expected E430, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "expected identifier in use statement") {
+		t.Fatalf("expected missing-identifier message, got: %s", diags.String())
 	}
 }
 

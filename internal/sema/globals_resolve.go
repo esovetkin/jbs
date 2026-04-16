@@ -27,25 +27,10 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			continue
 		}
 		if _, ok := known[assign.Name]; !ok {
-			diags.AddError(
-				diag.CodeE300,
-				fmt.Sprintf("unknown global variable '%s'", assign.Name),
-				assign.Span,
-				"use `jbs help globals` to list supported globals",
-			)
 			continue
 		}
 		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
 		warnModeExprInCollections(effectiveExpr, diags)
-		if prev, exists := spans[assign.Name]; exists {
-			diags.AddWarning(
-				diag.CodeW300,
-				fmt.Sprintf("global variable '%s' reassigned; last value wins", assign.Name),
-				assign.Span,
-				"remove duplicate assignments to avoid ambiguity",
-				diag.RelatedSpan{Message: "previous assignment", Span: prev},
-			)
-		}
 		if assign.Name == "jbs_name" || assign.Name == "jbs_outpath" {
 			if _, isMode := assign.Expr.(ast.ModeExpr); isMode {
 				diags.AddError(
