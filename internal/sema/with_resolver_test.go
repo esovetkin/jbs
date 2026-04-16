@@ -389,3 +389,185 @@ func TestSourceKindAllowedDefault(t *testing.T) {
 		t.Fatalf("expected custom source kind to be disallowed")
 	}
 }
+
+func TestWithResolverSourceSliceExpansionSuccess(t *testing.T) {
+	span := diag.NewSpan("slice.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	p := &Paramset{
+		Name:  "p",
+		Vars:  map[string][]eval.Value{"a": {eval.Int(1)}, "b": {eval.Int(2)}, "c": {eval.Int(3)}},
+		Order: []string{"a", "b", "c"},
+	}
+	resolver := WithResolver{
+		Params: map[string]*Paramset{"p": p},
+		Lets:   map[string]*LetNamespace{},
+		Sources: map[string]*ImportSource{
+			"p": importSourceFromParam(p),
+		},
+	}
+
+	items := []ast.WithItem{
+		{
+			SourceExpr: "p",
+			SourceSlice: []string{
+				"b",
+				"a",
+			},
+			CombAlias: "slice_alias",
+			Span:      span,
+		},
+	}
+	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
+		AllowParam:                true,
+		AllowLet:                  false,
+		EnableMixedSourceFallback: false,
+		DetectAmbiguousSource:     true,
+	})
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %#v", issues)
+	}
+	if len(expanded) != 1 {
+		t.Fatalf("expected one expanded item, got %#v", expanded)
+	}
+	got := expanded[0]
+	if got.Source != "p" || got.Kind != SourceKindParam {
+		t.Fatalf("unexpected expanded source/kind: %#v", got)
+	}
+	if got.Full {
+		t.Fatalf("expected source-slice expansion to be non-full import")
+	}
+	if got.CombAlias != "slice_alias" {
+		t.Fatalf("expected comb alias to propagate, got %#v", got.CombAlias)
+	}
+	if got.SourceExpr != "p" {
+		t.Fatalf("expected source expression p, got %q", got.SourceExpr)
+	}
+	if len(got.SliceOrder) != 2 || got.SliceOrder[0] != "b" || got.SliceOrder[1] != "a" {
+		t.Fatalf("unexpected slice order: %#v", got.SliceOrder)
+	}
+	if len(got.Vars) != 2 {
+		t.Fatalf("expected 2 mapped vars, got %#v", got.Vars)
+	}
+	if got.Vars[0].Visible != "b" || got.Vars[0].SourceVar != "b" || got.Vars[1].Visible != "a" || got.Vars[1].SourceVar != "a" {
+		t.Fatalf("unexpected source-slice var mapping: %#v", got.Vars)
+	}
+}
+
+func TestWithResolverSourceSliceIssues(t *testing.T) {
+	span := diag.NewSpan("slice_issues.jbs", diag.NewPos(0, 2, 1), diag.NewPos(1, 2, 2))
+	paramSame := &Paramset{
+		Name:  "same",
+		Vars:  map[string][]eval.Value{"x": {eval.Int(1)}},
+		Order: []string{"x"},
+	}
+	letSame := &LetNamespace{
+		Name: "same",
+		Vars: map[string]eval.Value{"x": eval.String("x")},
+	}
+	letOnly := &LetNamespace{
+		Name: "l",
+		Vars: map[string]eval.Value{"s": eval.String("v")},
+	}
+	p := &Paramset{
+		Name:  "p",
+		Vars:  map[string][]eval.Value{"a": {eval.Int(1)}},
+		Order: []string{"a"},
+	}
+	resolver := WithResolver{
+		Params: map[string]*Paramset{
+			"p":    p,
+			"same": paramSame,
+		},
+		Lets: map[string]*LetNamespace{
+			"same": letSame,
+			"l":    letOnly,
+		},
+		Sources: map[string]*ImportSource{
+			"p":    importSourceFromParam(p),
+			"same": importSourceFromParam(paramSame),
+			"l":    importSourceFromLet(letOnly),
+		},
+	}
+
+	tests := []struct {
+		name     string
+		item     ast.WithItem
+		opts     WithResolveOptions
+		wantKind ResolveIssueKind
+	}{
+		{
+			name: "unknown source",
+			item: ast.WithItem{
+				SourceExpr:  "missing",
+				SourceSlice: []string{"a"},
+				Span:        span,
+			},
+			opts: WithResolveOptions{
+				AllowParam:                true,
+				AllowLet:                  false,
+				EnableMixedSourceFallback: false,
+				DetectAmbiguousSource:     true,
+			},
+			wantKind: IssueUnknownSource,
+		},
+		{
+			name: "unknown projected var",
+			item: ast.WithItem{
+				SourceExpr:  "p",
+				SourceSlice: []string{"missing"},
+				Span:        span,
+			},
+			opts: WithResolveOptions{
+				AllowParam:                true,
+				AllowLet:                  false,
+				EnableMixedSourceFallback: false,
+				DetectAmbiguousSource:     true,
+			},
+			wantKind: IssueUnknownVar,
+		},
+		{
+			name: "disallowed source kind",
+			item: ast.WithItem{
+				SourceExpr:  "l",
+				SourceSlice: []string{"s"},
+				Span:        span,
+			},
+			opts: WithResolveOptions{
+				AllowParam:                true,
+				AllowLet:                  false,
+				EnableMixedSourceFallback: false,
+				DetectAmbiguousSource:     true,
+			},
+			wantKind: IssueDisallowedKind,
+		},
+		{
+			name: "ambiguous source",
+			item: ast.WithItem{
+				SourceExpr:  "same",
+				SourceSlice: []string{"x"},
+				Span:        span,
+			},
+			opts: WithResolveOptions{
+				AllowParam:                true,
+				AllowLet:                  true,
+				EnableMixedSourceFallback: false,
+				DetectAmbiguousSource:     true,
+			},
+			wantKind: IssueAmbiguousSource,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expanded, issues := resolver.ExpandWithItems([]ast.WithItem{tt.item}, tt.opts)
+			if len(expanded) != 0 {
+				t.Fatalf("expected no expanded items on error, got %#v", expanded)
+			}
+			if len(issues) != 1 {
+				t.Fatalf("expected one issue, got %#v", issues)
+			}
+			if issues[0].Kind != tt.wantKind {
+				t.Fatalf("expected issue %v, got %#v", tt.wantKind, issues[0])
+			}
+		})
+	}
+}

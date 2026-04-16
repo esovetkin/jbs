@@ -138,3 +138,75 @@ func TestParseCombPrimaryFunctionCallReportsE060AndConsumesTail(t *testing.T) {
 		t.Fatalf("expected parser to consume full function-call tail, got %s", tp.peek().Type)
 	}
 }
+
+func TestParseCombPrimaryQualifiedFunctionCallReportsE060AndConsumesTail(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, tp := parseCombPrimaryFrom("ns.value(2)", diags)
+	id, ok := expr.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected fallback CombIdent, got %T", expr)
+	}
+	if id.Name != "" {
+		t.Fatalf("expected empty fallback identifier name, got %q", id.Name)
+	}
+	if !hasCode(diags, "E060") {
+		t.Fatalf("expected E060 for qualified function call in comb expression, got: %s", diags.String())
+	}
+	if tp.peek().Type != lexer.TokenEOF {
+		t.Fatalf("expected parser to consume full qualified function-call tail, got %s", tp.peek().Type)
+	}
+}
+
+func TestParseCombPrimaryFunctionCallTailMissingClosingParenReportsE059(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, tp := parseCombPrimaryFrom("range(", diags)
+	id, ok := expr.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected fallback CombIdent, got %T", expr)
+	}
+	if id.Name != "" {
+		t.Fatalf("expected empty fallback identifier name, got %q", id.Name)
+	}
+	if !hasCode(diags, "E060") {
+		t.Fatalf("expected E060 for function call in comb expression, got: %s", diags.String())
+	}
+	if !hasCode(diags, "E059") {
+		t.Fatalf("expected E059 for missing ')' in call tail, got: %s", diags.String())
+	}
+	if tp.peek().Type != lexer.TokenEOF {
+		t.Fatalf("expected parser to stop at EOF after unterminated call, got %s", tp.peek().Type)
+	}
+}
+
+func TestParseCombPrimaryFunctionCallTailNestedParentheses(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, tp := parseCombPrimaryFrom("range((2))", diags)
+	id, ok := expr.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected fallback CombIdent, got %T", expr)
+	}
+	if id.Name != "" {
+		t.Fatalf("expected empty fallback identifier name, got %q", id.Name)
+	}
+	if !hasCode(diags, "E060") {
+		t.Fatalf("expected E060 for function call in comb expression, got: %s", diags.String())
+	}
+	if hasCode(diags, "E059") {
+		t.Fatalf("did not expect E059 for balanced nested call tail, got: %s", diags.String())
+	}
+	if tp.peek().Type != lexer.TokenEOF {
+		t.Fatalf("expected parser to consume nested call tail, got %s", tp.peek().Type)
+	}
+}
+
+func TestConsumeCombCallTailZeroOpenSpanReturnsZeroSpan(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := &tokenParser{tokens: nil, diags: diags}
+	span := tp.consumeCombCallTail()
+	if !span.IsZero() {
+		t.Fatalf("expected zero span when call tail starts without any tokens, got %+v", span)
+	}
+	if !hasCode(diags, "E062") {
+		t.Fatalf("expected E062 for missing '(', got: %s", diags.String())
+	}
+}

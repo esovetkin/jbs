@@ -513,6 +513,25 @@ func TestEvalCombUnsupportedOperator(t *testing.T) {
 	}
 }
 
+func TestEvalCombPointerNodeReportsUnsupportedCombinationNode(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(90, 15, 3), diag.NewPos(94, 15, 7))
+	ptrIdent := &ast.CombIdent{Name: "a", Span: span}
+	diags := &diag.Diagnostics{}
+
+	rows := evalComb(ptrIdent, map[string][]Value{"a": {Int(1)}}, map[string]diag.Span{}, CombEvalOptions{}, diags)
+	if rows != nil {
+		t.Fatalf("expected nil rows for pointer comb node, got %#v", rows)
+	}
+	if diagCount(diags, "E113") != 1 {
+		t.Fatalf("expected exactly one E113 for unsupported node, got: %s", diags.String())
+	}
+	for _, item := range diags.Items {
+		if item.Code == "E113" && item.Span != span {
+			t.Fatalf("expected E113 span %v, got %v", span, item.Span)
+		}
+	}
+}
+
 func TestRowVariableNames(t *testing.T) {
 	if got := RowVariableNames(nil); got != nil {
 		t.Fatalf("expected nil for empty rows, got %#v", got)

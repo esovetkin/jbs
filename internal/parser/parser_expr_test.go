@@ -599,3 +599,140 @@ func TestParsePrimaryTupleAndListBranches(t *testing.T) {
 		}
 	})
 }
+
+func TestParsePostfixChainedQualifiedIdentifier(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("a.b.c", diags)
+	expr := tp.parseExpr()
+	q, ok := expr.(ast.QualifiedIdentExpr)
+	if !ok {
+		t.Fatalf("expected qualified identifier, got %#v", expr)
+	}
+	if q.Namespace != "a.b" || q.Name != "c" {
+		t.Fatalf("expected qualified identifier a.b.c, got namespace=%q name=%q", q.Namespace, q.Name)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+}
+
+func TestParsePostfixDotOnNonNamespaceReportsE064(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("(1).x", diags)
+	expr := tp.parseExpr()
+	q, ok := expr.(ast.QualifiedIdentExpr)
+	if !ok {
+		t.Fatalf("expected qualified identifier fallback, got %#v", expr)
+	}
+	if q.Namespace != "" || q.Name != "x" {
+		t.Fatalf("expected fallback qualified identifier .x, got namespace=%q name=%q", q.Namespace, q.Name)
+	}
+	if !hasCode(diags, "E064") {
+		t.Fatalf("expected E064, got: %s", diags.String())
+	}
+}
+
+func TestParseIndexExprBranches(t *testing.T) {
+	t.Run("index with items and trailing comma", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("a[1,2,]", diags)
+		expr := tp.parseExpr()
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index expression, got %#v", expr)
+		}
+		if _, ok := idx.Base.(ast.IdentExpr); !ok {
+			t.Fatalf("expected ident base, got %#v", idx.Base)
+		}
+		if len(idx.Items) != 2 {
+			t.Fatalf("expected 2 index items, got %#v", idx.Items)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("empty index selector list", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("a[]", diags)
+		expr := tp.parseExpr()
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index expression, got %#v", expr)
+		}
+		if len(idx.Items) != 0 {
+			t.Fatalf("expected empty index items, got %#v", idx.Items)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("missing closing bracket reports E055", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("a[1,2", diags)
+		expr := tp.parseExpr()
+		if _, ok := expr.(ast.IndexExpr); !ok {
+			t.Fatalf("expected index expression fallback, got %#v", expr)
+		}
+		if !hasCode(diags, "E055") {
+			t.Fatalf("expected E055, got: %s", diags.String())
+		}
+	})
+}
+
+func TestParseCallArgsBranches(t *testing.T) {
+	t.Run("empty call args", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("f()", diags)
+		expr := tp.parseExpr()
+		call, ok := expr.(ast.CallExpr)
+		if !ok {
+			t.Fatalf("expected call expression, got %#v", expr)
+		}
+		if len(call.Args) != 0 {
+			t.Fatalf("expected no args, got %#v", call.Args)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("trailing comma call args", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("f(1,)", diags)
+		expr := tp.parseExpr()
+		call, ok := expr.(ast.CallExpr)
+		if !ok {
+			t.Fatalf("expected call expression, got %#v", expr)
+		}
+		if len(call.Args) != 1 {
+			t.Fatalf("expected one arg, got %#v", call.Args)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+}
+
+func TestParseAliasMissingIdentifierAtEOFReportsE058(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("a as", diags)
+	expr := tp.parseExpr()
+	alias, ok := expr.(ast.AliasExpr)
+	if !ok {
+		t.Fatalf("expected alias expression fallback, got %#v", expr)
+	}
+	if alias.Alias != "" {
+		t.Fatalf("expected empty alias name fallback, got %q", alias.Alias)
+	}
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for missing alias identifier at EOF, got: %s", diags.String())
+	}
+}
+
+func TestIsDecimalIntegerLiteralEmptyString(t *testing.T) {
+	if isDecimalIntegerLiteral("") {
+		t.Fatalf("expected empty string to be non-integer literal")
+	}
+}

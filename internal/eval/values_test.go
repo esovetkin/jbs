@@ -169,3 +169,196 @@ func TestValueString(t *testing.T) {
 		}
 	}
 }
+
+func TestValueStringComb(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Value
+		want string
+	}{
+		{
+			name: "comb nil payload",
+			in:   CombValue(nil),
+			want: "comb()",
+		},
+		{
+			name: "comb with rows and cols",
+			in: CombValue(&Comb{
+				Order: []string{"a", "b"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+					{Values: map[string]Cell{"a": {Value: Int(3)}, "b": {Value: String("z")}}},
+				},
+			}),
+			want: "comb(rows=3,cols=2)",
+		},
+	}
+	for _, tt := range tests {
+		if got := tt.in.String(); got != tt.want {
+			t.Fatalf("%s: expected %q, got %q", tt.name, tt.want, got)
+		}
+	}
+}
+
+func TestIsScalar(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Value
+		want bool
+	}{
+		{name: "int", in: Int(1), want: true},
+		{name: "float", in: Float(1.5), want: true},
+		{name: "string", in: String("x"), want: true},
+		{name: "bool", in: Bool(true), want: true},
+		{name: "null", in: Null(), want: false},
+		{name: "list", in: List([]Value{Int(1)}), want: false},
+		{name: "tuple", in: Tuple([]Value{Int(1)}), want: false},
+		{name: "comb", in: CombValue(&Comb{}), want: false},
+	}
+	for _, tt := range tests {
+		if got := tt.in.IsScalar(); got != tt.want {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.want, got)
+		}
+	}
+}
+
+func TestToFloat(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Value
+		want float64
+	}{
+		{name: "float", in: Float(2.5), want: 2.5},
+		{name: "int", in: Int(7), want: 7.0},
+		{name: "default non numeric", in: String("x"), want: 0.0},
+	}
+	for _, tt := range tests {
+		if got := toFloat(tt.in); got != tt.want {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.want, got)
+		}
+	}
+}
+
+func TestEqualComb(t *testing.T) {
+	baseA := CombValue(&Comb{
+		Order: []string{"a", "b"},
+		Rows: []Row{
+			{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+			{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+		},
+	})
+	baseB := CombValue(&Comb{
+		Order: []string{"a", "b"},
+		Rows: []Row{
+			{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+			{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+		},
+	})
+
+	tests := []struct {
+		name string
+		a    Value
+		b    Value
+		want bool
+	}{
+		{
+			name: "both nil comb payloads equal",
+			a:    CombValue(nil),
+			b:    CombValue(nil),
+			want: true,
+		},
+		{
+			name: "one nil comb payload differs",
+			a:    CombValue(nil),
+			b:    baseA,
+			want: false,
+		},
+		{
+			name: "equal comb values",
+			a:    baseA,
+			b:    baseB,
+			want: true,
+		},
+		{
+			name: "order length mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}}},
+				},
+			}),
+			want: false,
+		},
+		{
+			name: "order value mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a", "c"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}, "c": {Value: String("x")}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}, "c": {Value: String("y")}}},
+				},
+			}),
+			want: false,
+		},
+		{
+			name: "row count mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a", "b"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+				},
+			}),
+			want: false,
+		},
+		{
+			name: "row value count mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a", "b"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+				},
+			}),
+			want: false,
+		},
+		{
+			name: "row missing key mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a", "b"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}, "b0": {Value: String("x")}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+				},
+			}),
+			want: false,
+		},
+		{
+			name: "row cell value mismatch",
+			a:    baseA,
+			b: CombValue(&Comb{
+				Order: []string{"a", "b"},
+				Rows: []Row{
+					{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+					{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("z")}}},
+				},
+			}),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		if got := Equal(tt.a, tt.b); got != tt.want {
+			t.Fatalf("%s: expected %v, got %v", tt.name, tt.want, got)
+		}
+		if got := Equal(tt.b, tt.a); got != tt.want {
+			t.Fatalf("%s (symmetric): expected %v, got %v", tt.name, tt.want, got)
+		}
+	}
+}
