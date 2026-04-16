@@ -1023,6 +1023,26 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 			t.Fatalf("unexpected rev value at %d: %#v", i, revList.L[i])
 		}
 	}
+	revTuple := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "rev"},
+		Args: []ast.Expr{
+			ast.TupleExpr{
+				Items: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 0},
+					ast.NumberExpr{Int: true, IntValue: 1},
+					ast.NumberExpr{Int: true, IntValue: 2},
+				},
+			},
+		},
+	}, map[string]Value{}, diags, opts)
+	if revTuple.Kind != KindTuple || len(revTuple.L) != 3 {
+		t.Fatalf("expected rev tuple len 3, got %#v", revTuple)
+	}
+	for i, want := range []int64{2, 1, 0} {
+		if revTuple.L[i].I != want {
+			t.Fatalf("unexpected rev tuple value at %d: %#v", i, revTuple.L[i])
+		}
+	}
 
 	tupleVal := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "tuple"},
@@ -1099,10 +1119,10 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			wantCode: "E106",
 		},
 		{
-			name: "rev list type error",
+			name: "rev non-sequence type error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "rev"},
-				Args:   []ast.Expr{ast.TupleExpr{}},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
 			},
 			opts:     ExprOptions{Context: EvalCtxParamAssign},
 			wantCode: "E106",

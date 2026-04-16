@@ -43,6 +43,36 @@ param p {
 	}
 }
 
+func TestKernelRevTupleAllowedInParamAssignments(t *testing.T) {
+	src := `
+param p {
+  a = (1,2,3)
+  b = rev(a)
+  b
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("rev_tuple_param.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	p := res.ParamByName["p"]
+	if p == nil {
+		t.Fatalf("missing param p")
+	}
+	b := p.Vars["b"]
+	if len(b) != 3 {
+		t.Fatalf("expected len(b)=3, got %d", len(b))
+	}
+	want := []int64{3, 2, 1}
+	for i, w := range want {
+		if b[i].I != w {
+			t.Fatalf("unexpected b[%d]=%d", i, b[i].I)
+		}
+	}
+}
+
 func TestKernelRangeRevRejectedOutsideParamAssignments(t *testing.T) {
 	tests := []struct {
 		name string

@@ -203,7 +203,7 @@ Supported assignment expressions:
   - `range(stop)`
   - `range(start, stop)`
   - `range(start, stop, step)`
-  - `rev(list_expr)`
+  - `rev(list_or_tuple_expr)`
   - `comb(expr)`
   - `len(value)`
   - `filter(values, mask)`

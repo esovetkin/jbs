@@ -760,20 +760,23 @@ func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 
 func evalRevCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(args) != 1 {
-		diags.AddError(diag.CodeE106, "rev() expects exactly one list argument", at, "use rev(list_expr)")
+		diags.AddError(diag.CodeE106, "rev() expects exactly one list/tuple argument", at, "use rev(list_or_tuple_expr)")
 		return Null()
 	}
 	value := args[0]
 	if value.Kind == KindNull {
 		return Null()
 	}
-	if value.Kind != KindList {
-		diags.AddError(diag.CodeE106, "rev() expects a list argument", at, "use rev(list_expr)")
+	if value.Kind != KindList && value.Kind != KindTuple {
+		diags.AddError(diag.CodeE106, "rev() expects a list or tuple argument", at, "use rev(list_or_tuple_expr)")
 		return Null()
 	}
 	out := slicesCloneValues(value.L)
 	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
 		out[left], out[right] = out[right], out[left]
+	}
+	if value.Kind == KindTuple {
+		return Tuple(out)
 	}
 	return List(out)
 }
