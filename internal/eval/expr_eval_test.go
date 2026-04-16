@@ -2,6 +2,8 @@ package eval
 
 import (
 	"math"
+	"slices"
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
@@ -71,6 +73,137 @@ func TestEvalExprWithCtxIdentifierResolution(t *testing.T) {
 			}
 			if count := diagCount(diags, tc.diagCode); count != 1 {
 				t.Fatalf("expected one %s, got %d: %s", tc.diagCode, count, diags.String())
+			}
+		})
+	}
+}
+
+func TestQualifiedCombNamespaceDispatch(t *testing.T) {
+	comb := CombValue(&Comb{
+		Order: []string{"x"},
+		Rows: []Row{
+			{Values: map[string]Cell{"x": {Value: Int(1)}}},
+			{Values: map[string]Cell{"x": {Value: Int(2)}}},
+		},
+	})
+	tests := []struct {
+		name     string
+		env      map[string]Value
+		expr     ast.Expr
+		wantKind Kind
+		wantLen  int
+		diagCode string
+	}{
+		{
+			name: "comb namespace column lookup",
+			env:  map[string]Value{"m": comb},
+			expr: ast.QualifiedIdentExpr{Namespace: "m", Name: "x", Span: spanAt(88, 1)},
+			// multi-row column lookup returns list
+			wantKind: KindList,
+			wantLen:  2,
+		},
+		{
+			name:     "comb namespace unknown column",
+			env:      map[string]Value{"m": comb},
+			expr:     ast.QualifiedIdentExpr{Namespace: "m", Name: "y", Span: spanAt(89, 1)},
+			wantKind: KindNull,
+			diagCode: "E100",
+		},
+		{
+			name:     "non-comb namespace",
+			env:      map[string]Value{"m": Int(1)},
+			expr:     ast.QualifiedIdentExpr{Namespace: "m", Name: "x", Span: spanAt(90, 1)},
+			wantKind: KindNull,
+			diagCode: "E106",
+		},
+		{
+			name:     "legacy dotted fallback",
+			env:      map[string]Value{"m.x": String("ok")},
+			expr:     ast.QualifiedIdentExpr{Namespace: "m", Name: "x", Span: spanAt(91, 1)},
+			wantKind: KindString,
+			diagCode: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxParamAssign})
+			if got.Kind != tc.wantKind {
+				t.Fatalf("unexpected kind: got=%s want=%s value=%#v", got.Kind, tc.wantKind, got)
+			}
+			if tc.wantLen > 0 && len(got.L) != tc.wantLen {
+				t.Fatalf("unexpected list length: got=%d want=%d", len(got.L), tc.wantLen)
+			}
+			if tc.diagCode != "" && diagCount(diags, tc.diagCode) == 0 {
+				t.Fatalf("expected %s, got: %s", tc.diagCode, diags.String())
+			}
+		})
+	}
+}
+
+func TestIndexExprCombProjectionErrors(t *testing.T) {
+	comb := CombValue(&Comb{
+		Order: []string{"x"},
+		Rows: []Row{
+			{Values: map[string]Cell{"x": {Value: Int(1)}}},
+		},
+	})
+	tests := []struct {
+		name     string
+		env      map[string]Value
+		expr     ast.Expr
+		diagCode string
+	}{
+		{
+			name: "non comb base",
+			env:  map[string]Value{"m": Int(1)},
+			expr: ast.IndexExpr{
+				Base:  ast.IdentExpr{Name: "m", Span: spanAt(92, 1)},
+				Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(92, 3)}},
+				Span:  spanAt(92, 1),
+			},
+			diagCode: "E106",
+		},
+		{
+			name: "empty selectors",
+			env:  map[string]Value{"m": comb},
+			expr: ast.IndexExpr{
+				Base:  ast.IdentExpr{Name: "m", Span: spanAt(93, 1)},
+				Items: nil,
+				Span:  spanAt(93, 1),
+			},
+			diagCode: "E106",
+		},
+		{
+			name: "invalid selector expression kind",
+			env:  map[string]Value{"m": comb},
+			expr: ast.IndexExpr{
+				Base:  ast.IdentExpr{Name: "m", Span: spanAt(94, 1)},
+				Items: []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(94, 3)}},
+				Span:  spanAt(94, 1),
+			},
+			diagCode: "E106",
+		},
+		{
+			name: "unknown projected column",
+			env:  map[string]Value{"m": comb},
+			expr: ast.IndexExpr{
+				Base:  ast.IdentExpr{Name: "m", Span: spanAt(95, 1)},
+				Items: []ast.Expr{ast.IdentExpr{Name: "y", Span: spanAt(95, 3)}},
+				Span:  spanAt(95, 1),
+			},
+			diagCode: "E106",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxParamAssign})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if diagCount(diags, tc.diagCode) == 0 {
+				t.Fatalf("expected %s, got: %s", tc.diagCode, diags.String())
 			}
 		})
 	}
@@ -529,43 +662,48 @@ func TestEvalIntOverflowVectorWarnDedup(t *testing.T) {
 
 func TestEvalCompareSupportedOps(t *testing.T) {
 	tests := []struct {
-		name string
-		op   string
-		l    Value
-		r    Value
-		want bool
+		name        string
+		op          string
+		l           Value
+		r           Value
+		wantBool    bool
+		want        Value
+		wantIsValue bool
 	}{
-		{name: "eq-int-float", op: "==", l: Int(2), r: Float(2.0), want: true},
-		{name: "ne-string", op: "!=", l: String("a"), r: String("b"), want: true},
-		{name: "lt-string", op: "<", l: String("alpha"), r: String("beta"), want: true},
-		{name: "le-string", op: "<=", l: String("beta"), r: String("beta"), want: true},
-		{name: "ge-string", op: ">=", l: String("beta"), r: String("alpha"), want: true},
-		{name: "gt-float-int", op: ">", l: Float(2.5), r: Int(2), want: true},
-		{name: "ge-int-float", op: ">=", l: Int(3), r: Float(3.0), want: true},
-		{name: "le-int-float", op: "<=", l: Int(3), r: Float(3.0), want: true},
-		{name: "lt-int-int-false", op: "<", l: Int(7), r: Int(5), want: false},
-		{name: "eq-bool", op: "==", l: Bool(true), r: Bool(true), want: true},
-		{name: "ne-bool", op: "!=", l: Bool(true), r: Bool(false), want: true},
+		{name: "eq-int-float", op: "==", l: Int(2), r: Float(2.0), wantBool: true},
+		{name: "ne-string", op: "!=", l: String("a"), r: String("b"), wantBool: true},
+		{name: "lt-string", op: "<", l: String("alpha"), r: String("beta"), wantBool: true},
+		{name: "le-string", op: "<=", l: String("beta"), r: String("beta"), wantBool: true},
+		{name: "ge-string", op: ">=", l: String("beta"), r: String("alpha"), wantBool: true},
+		{name: "gt-float-int", op: ">", l: Float(2.5), r: Int(2), wantBool: true},
+		{name: "ge-int-float", op: ">=", l: Int(3), r: Float(3.0), wantBool: true},
+		{name: "le-int-float", op: "<=", l: Int(3), r: Float(3.0), wantBool: true},
+		{name: "lt-int-int-false", op: "<", l: Int(7), r: Int(5), wantBool: false},
+		{name: "eq-bool", op: "==", l: Bool(true), r: Bool(true), wantBool: true},
+		{name: "ne-bool", op: "!=", l: Bool(true), r: Bool(false), wantBool: true},
 		{
-			name: "eq-list",
-			op:   "==",
-			l:    List([]Value{Int(1), String("x")}),
-			r:    List([]Value{Int(1), String("x")}),
-			want: true,
+			name:        "eq-list",
+			op:          "==",
+			l:           List([]Value{Int(1), String("x")}),
+			r:           List([]Value{Int(1), String("x")}),
+			want:        List([]Value{Bool(true), Bool(true)}),
+			wantIsValue: true,
 		},
 		{
-			name: "ne-tuple",
-			op:   "!=",
-			l:    Tuple([]Value{Int(1), Int(2)}),
-			r:    Tuple([]Value{Int(1), Int(3)}),
-			want: true,
+			name:        "ne-tuple",
+			op:          "!=",
+			l:           Tuple([]Value{Int(1), Int(2)}),
+			r:           Tuple([]Value{Int(1), Int(3)}),
+			want:        List([]Value{Bool(false), Bool(true)}),
+			wantIsValue: true,
 		},
 		{
-			name: "eq-list-vs-tuple-false",
-			op:   "==",
-			l:    List([]Value{Int(1), Int(2)}),
-			r:    Tuple([]Value{Int(1), Int(2)}),
-			want: false,
+			name:        "eq-list-vs-tuple-false",
+			op:          "==",
+			l:           List([]Value{Int(1), Int(2)}),
+			r:           Tuple([]Value{Int(1), Int(2)}),
+			want:        List([]Value{Bool(true), Bool(true)}),
+			wantIsValue: true,
 		},
 	}
 
@@ -576,8 +714,14 @@ func TestEvalCompareSupportedOps(t *testing.T) {
 			if diags.HasErrors() {
 				t.Fatalf("unexpected errors: %s", diags.String())
 			}
-			if got.Kind != KindBool || got.B != tc.want {
-				t.Fatalf("unexpected compare result: %#v (want bool=%v)", got, tc.want)
+			if tc.wantIsValue {
+				if !Equal(got, tc.want) {
+					t.Fatalf("unexpected compare result: %#v (want %#v)", got, tc.want)
+				}
+				return
+			}
+			if got.Kind != KindBool || got.B != tc.wantBool {
+				t.Fatalf("unexpected compare result: %#v (want bool=%v)", got, tc.wantBool)
 			}
 		})
 	}
@@ -1080,12 +1224,248 @@ func TestCallNameBranches(t *testing.T) {
 
 func TestEvalCallUnsupportedCallee(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	got := evalCall(ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(73, 1)}, nil, spanAt(73, 1), diags, ExprOptions{Context: EvalCtxParamAssign})
+	got := evalCall(
+		ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(73, 1)},
+		nil,
+		nil,
+		nil,
+		spanAt(73, 1),
+		diags,
+		ExprOptions{Context: EvalCtxParamAssign},
+		&evalCtx{overflowWarned: map[string]struct{}{}},
+	)
 	if got.Kind != KindNull {
 		t.Fatalf("expected null for unsupported callee, got %#v", got)
 	}
 	if diagCount(diags, "E199") != 1 {
 		t.Fatalf("expected one E199, got: %s", diags.String())
+	}
+}
+
+func TestCombCallUsesCombAlgebraAndSkipsEagerArgEval(t *testing.T) {
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
+		Args: []ast.Expr{
+			ast.BinaryExpr{
+				Left:  ast.IdentExpr{Name: "x", Span: spanAt(82, 7)},
+				Op:    "*",
+				Right: ast.IdentExpr{Name: "y", Span: spanAt(82, 11)},
+				Span:  spanAt(82, 7),
+			},
+		},
+		Span: spanAt(82, 1),
+	}
+	env := map[string]Value{
+		"x": Tuple([]Value{Int(1), Int(2)}),
+		"y": Tuple([]Value{Int(3), Int(4)}),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindComb || got.C == nil {
+		t.Fatalf("expected comb value, got %#v", got)
+	}
+	if len(got.C.Rows) != 4 {
+		t.Fatalf("expected 4 rows for comb(x*y), got %d", len(got.C.Rows))
+	}
+	if len(got.C.Order) != 2 || got.C.Order[0] != "x" || got.C.Order[1] != "y" {
+		t.Fatalf("unexpected comb order: %#v", got.C.Order)
+	}
+}
+
+func TestCombCallRequiresNamedLeafsOrAlias(t *testing.T) {
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
+		Args: []ast.Expr{
+			ast.BinaryExpr{
+				Left: ast.IdentExpr{Name: "a", Span: spanAt(82, 7)},
+				Op:   "*",
+				Right: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "range", Span: spanAt(82, 11)},
+					Args: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(82, 17)},
+					},
+					Span: spanAt(82, 11),
+				},
+				Span: spanAt(82, 7),
+			},
+		},
+		Span: spanAt(82, 1),
+	}
+	env := map[string]Value{
+		"a": Tuple([]Value{Int(1), Int(2)}),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if got.Kind != KindComb {
+		t.Fatalf("expected comb result placeholder, got %#v", got)
+	}
+	if diagCount(diags, "E106") == 0 {
+		t.Fatalf("expected E106 for unnamed comb leaf, got: %s", diags.String())
+	}
+}
+
+func TestCombCallSupportsAliasForNonCombLeafs(t *testing.T) {
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(84, 1)},
+		Args: []ast.Expr{
+			ast.BinaryExpr{
+				Left: ast.IdentExpr{Name: "a", Span: spanAt(84, 7)},
+				Op:   "*",
+				Right: ast.AliasExpr{
+					Expr: ast.CallExpr{
+						Callee: ast.IdentExpr{Name: "range", Span: spanAt(84, 11)},
+						Args: []ast.Expr{
+							ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(84, 17)},
+						},
+						Span: spanAt(84, 11),
+					},
+					Alias: "b",
+					Span:  spanAt(84, 11),
+				},
+				Span: spanAt(84, 7),
+			},
+		},
+		Span: spanAt(84, 1),
+	}
+	env := map[string]Value{
+		"a": Tuple([]Value{Int(1), Int(2)}),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindComb || got.C == nil {
+		t.Fatalf("expected comb value, got %#v", got)
+	}
+	if len(got.C.Rows) != 4 {
+		t.Fatalf("expected 4 rows, got %d", len(got.C.Rows))
+	}
+	if !slices.Equal(got.C.Order, []string{"a", "b"}) {
+		t.Fatalf("expected comb columns [a b], got %#v", got.C.Order)
+	}
+}
+
+func TestCombCallRejectsAliasOnCombOperand(t *testing.T) {
+	env := map[string]Value{
+		"a": CombValue(&Comb{
+			Order: []string{"x"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}}},
+			},
+		}),
+	}
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(85, 1)},
+		Args: []ast.Expr{
+			ast.AliasExpr{
+				Expr:  ast.IdentExpr{Name: "a", Span: spanAt(85, 7)},
+				Alias: "t",
+				Span:  spanAt(85, 7),
+			},
+		},
+		Span: spanAt(85, 1),
+	}
+	diags := &diag.Diagnostics{}
+	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if diagCount(diags, "E106") == 0 {
+		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
+	}
+}
+
+func TestParamAssignCombBinarySupportsAliasOutsideCombCall(t *testing.T) {
+	env := map[string]Value{
+		"x": Tuple([]Value{Int(1), Int(2)}),
+		"a": CombValue(&Comb{
+			Order: []string{"y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"y": {Value: Int(3)}}},
+				{Values: map[string]Cell{"y": {Value: Int(4)}}},
+			},
+		}),
+	}
+	expr := ast.BinaryExpr{
+		Left: ast.AliasExpr{
+			Expr:  ast.IdentExpr{Name: "x", Span: spanAt(86, 1)},
+			Alias: "z",
+			Span:  spanAt(86, 1),
+		},
+		Op:    "+",
+		Right: ast.IdentExpr{Name: "a", Span: spanAt(86, 10)},
+		Span:  spanAt(86, 1),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got.Kind != KindComb || got.C == nil {
+		t.Fatalf("expected comb result, got %#v", got)
+	}
+	if !slices.Equal(got.C.Order, []string{"y", "z"}) {
+		t.Fatalf("expected columns [y z], got %#v", got.C.Order)
+	}
+}
+
+func TestParamAssignCombBinaryRejectsAliasOnCombOperand(t *testing.T) {
+	env := map[string]Value{
+		"x": Tuple([]Value{Int(1), Int(2)}),
+		"a": CombValue(&Comb{
+			Order: []string{"y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"y": {Value: Int(3)}}},
+				{Values: map[string]Cell{"y": {Value: Int(4)}}},
+			},
+		}),
+	}
+	expr := ast.BinaryExpr{
+		Left: ast.AliasExpr{
+			Expr:  ast.IdentExpr{Name: "a", Span: spanAt(87, 1)},
+			Alias: "t",
+			Span:  spanAt(87, 1),
+		},
+		Op:    "+",
+		Right: ast.IdentExpr{Name: "x", Span: spanAt(87, 10)},
+		Span:  spanAt(87, 1),
+	}
+	diags := &diag.Diagnostics{}
+	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	if diagCount(diags, "E106") == 0 {
+		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
+	}
+}
+
+func TestCombCallOutsideParamAssignDoesNotEvaluateArgsEagerly(t *testing.T) {
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(83, 1)},
+		Args: []ast.Expr{
+			ast.BinaryExpr{
+				Left:  ast.IdentExpr{Name: "x", Span: spanAt(83, 7)},
+				Op:    "*",
+				Right: ast.IdentExpr{Name: "y", Span: spanAt(83, 11)},
+				Span:  spanAt(83, 7),
+			},
+		},
+		Span: spanAt(83, 1),
+	}
+	env := map[string]Value{
+		"x": Tuple([]Value{Int(1), Int(2)}),
+		"y": Tuple([]Value{Int(3), Int(4)}),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{})
+	if got.Kind != KindNull {
+		t.Fatalf("expected null for comb() outside param assign, got %#v", got)
+	}
+	if diagCount(diags, "E199") != 1 {
+		t.Fatalf("expected one E199, got: %s", diags.String())
+	}
+	if strings.Contains(diags.String(), "tuple '*' requires tuple * integer") {
+		t.Fatalf("unexpected eager argument evaluation diagnostic: %s", diags.String())
 	}
 }
 

@@ -67,6 +67,42 @@ param p {
 	}
 }
 
+func TestFinalCombCallExpressionLowersExposedColumns(t *testing.T) {
+	src := `
+param p {
+  x = (1,2)
+  comb(x*x as b)
+}
+`
+	doc, diags := compileDoc(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(doc.ParameterSet) != 1 {
+		t.Fatalf("expected one parameterset, got %d", len(doc.ParameterSet))
+	}
+	ps := doc.ParameterSet[0]
+	if ps.Name != "p" {
+		t.Fatalf("unexpected parameterset name: %s", ps.Name)
+	}
+	if len(ps.Parameter) != 3 {
+		t.Fatalf("expected index + 2 exposed columns, got %#v", ps.Parameter)
+	}
+	if ps.Parameter[0].Name != "_ji_p" {
+		t.Fatalf("expected context index parameter first, got %#v", ps.Parameter[0])
+	}
+	seen := map[string]bool{}
+	for _, param := range ps.Parameter[1:] {
+		seen[param.Name] = true
+	}
+	if !seen["x"] {
+		t.Fatalf("expected exposed column x in lowered parameterset")
+	}
+	if !seen["b"] {
+		t.Fatalf("expected exposed column b in lowered parameterset")
+	}
+}
+
 func TestSubsetSingleVarUsesIndexMask(t *testing.T) {
 	src := `
 param param {

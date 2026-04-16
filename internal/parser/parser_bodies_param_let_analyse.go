@@ -11,11 +11,12 @@ import (
 	"jbs/internal/lexer"
 )
 
-func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnostics) ([]ast.Assignment, ast.CombExpr) {
+func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnostics) ([]ast.Assignment, ast.CombExpr, ast.Expr) {
 	tokens := lexer.LexFrom(file, body, start, diags)
 	tp := &tokenParser{tokens: tokens, diags: diags}
 	assignments := make([]ast.Assignment, 0)
 	var final ast.CombExpr
+	var finalExpr ast.Expr
 
 	for {
 		tp.skipStmtSeparators()
@@ -26,7 +27,7 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 			assignments = append(assignments, tp.parseAssignment())
 			continue
 		}
-		final = tp.parseCombExpr()
+		final, finalExpr = parseParamFinalExpr(tp)
 		tp.skipStmtSeparators()
 		if tp.peek().Type != lexer.TokenEOF {
 			tok := tp.peek()
@@ -39,14 +40,61 @@ func parseParamBody(file, body string, start diag.Position, diags *diag.Diagnost
 		break
 	}
 
-	if final == nil {
+	if final == nil && finalExpr == nil {
 		diags.AddError(diag.CodeE027,
 			"param block missing final combination expression",
 			diag.NewSpan(file, start, start),
 			"add a final expression like '(a+b)*c'",
 		)
 	}
-	return assignments, final
+	return assignments, final, finalExpr
+}
+
+func parseParamFinalExpr(tp *tokenParser) (ast.CombExpr, ast.Expr) {
+	expr := tp.parseExpr()
+	if expr == nil {
+		return nil, nil
+	}
+	if comb, ok := combExprFromExpr(expr); ok {
+		return comb, nil
+	}
+	return nil, expr
+}
+
+func combExprFromExpr(expr ast.Expr) (ast.CombExpr, bool) {
+	switch e := expr.(type) {
+	case ast.IdentExpr:
+		if e.Name == "" {
+			return nil, false
+		}
+		return ast.CombIdent{Name: e.Name, Span: e.Span}, true
+	case ast.QualifiedIdentExpr:
+		if e.Namespace == "" || e.Name == "" {
+			return nil, false
+		}
+		return ast.CombIdent{Name: e.Namespace + "." + e.Name, Span: e.Span}, true
+	case ast.BinaryExpr:
+		if e.Op != "+" && e.Op != "*" {
+			return nil, false
+		}
+		left, ok := combExprFromExpr(e.Left)
+		if !ok {
+			return nil, false
+		}
+		right, ok := combExprFromExpr(e.Right)
+		if !ok {
+			return nil, false
+		}
+		return ast.CombBinary{
+			Left:   left,
+			Op:     e.Op,
+			OpSpan: e.Span,
+			Right:  right,
+			Span:   e.Span,
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 func parseLetBody(file, body string, start diag.Position, diags *diag.Diagnostics) []ast.Assignment {

@@ -1,0 +1,77 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'p'
+  - name: p
+    parameter:
+      - name: _ji_p
+        type: int
+        mode: text
+        _: 0,1,2,3
+      - name: x
+        mode: python
+        _: '[1,1,2,2][$_ji_p]'
+      - name: "y"
+        mode: python
+        _: '["left","right","left","right"][$_ji_p]'
+
+  # Synthetic subset parameterset for step 'run_in' derived from 'p' for variable-only imports
+  - name: _js__run_in__p__x_y
+    parameter:
+      - name: _ji__run_in__p__x_y
+        type: int
+        mode: text
+        _: 0,1,2,3
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
+      - name: _jr__run_in__p__x_y
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1","2":"2","3":"3"}["${_ji__run_in__p__x_y}"]'
+      - name: x
+        mode: python
+        _: '[1,1,2,2][$_ji__run_in__p__x_y]'
+      - name: "y"
+        mode: python
+        _: '["left","right","left","right"][$_ji__run_in__p__x_y]'
+
+  # Synthetic subset parameterset for step 'run_slice' derived from 'p' for variable-only imports
+  - name: _js__run_slice__p__x_y
+    parameter:
+      - name: _ji__run_slice__p__x_y
+        type: int
+        mode: text
+        _: 0,1,2,3
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
+      - name: _jr__run_slice__p__x_y
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1","2":"2","3":"3"}["${_ji__run_slice__p__x_y}"]'
+      - name: x
+        mode: python
+        _: '[1,1,2,2][$_ji__run_slice__p__x_y]'
+      - name: "y"
+        mode: python
+        _: '["left","right","left","right"][$_ji__run_slice__p__x_y]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'run_in'
+  - name: run_in
+    use:
+      - _js__run_in__p__x_y
+    do:
+      - |
+        echo ${x} ${y}
+
+  # Step generated from do block 'run_slice'
+  - name: run_slice
+    use:
+      - _js__run_slice__p__x_y
+    do:
+      - |
+        echo ${x} ${y}

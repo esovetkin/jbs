@@ -19,7 +19,13 @@ const (
 	KindBool   Kind = "bool"
 	KindList   Kind = "list"
 	KindTuple  Kind = "tuple"
+	KindComb   Kind = "comb"
 )
+
+type Comb struct {
+	Order []string
+	Rows  []Row
+}
 
 type Value struct {
 	Kind Kind
@@ -28,6 +34,7 @@ type Value struct {
 	S    string
 	B    bool
 	L    []Value
+	C    *Comb
 }
 
 func Null() Value           { return Value{Kind: KindNull} }
@@ -37,6 +44,9 @@ func String(v string) Value { return Value{Kind: KindString, S: v} }
 func Bool(v bool) Value     { return Value{Kind: KindBool, B: v} }
 func List(v []Value) Value  { return Value{Kind: KindList, L: v} }
 func Tuple(v []Value) Value { return Value{Kind: KindTuple, L: v} }
+func CombValue(v *Comb) Value {
+	return Value{Kind: KindComb, C: v}
+}
 
 func IsTuple(v Value) bool {
 	return v.Kind == KindTuple
@@ -71,6 +81,11 @@ func (v Value) String() string {
 			parts = append(parts, x.String())
 		}
 		return "(" + strings.Join(parts, ",") + ")"
+	case KindComb:
+		if v.C == nil {
+			return "comb()"
+		}
+		return fmt.Sprintf("comb(rows=%d,cols=%d)", len(v.C.Rows), len(v.C.Order))
 	default:
 		return ""
 	}
@@ -106,6 +121,41 @@ func Equal(a, b Value) bool {
 		for i := range a.L {
 			if !Equal(a.L[i], b.L[i]) {
 				return false
+			}
+		}
+		return true
+	case KindComb:
+		if (a.C == nil) != (b.C == nil) {
+			return false
+		}
+		if a.C == nil && b.C == nil {
+			return true
+		}
+		if len(a.C.Order) != len(b.C.Order) {
+			return false
+		}
+		for i := range a.C.Order {
+			if a.C.Order[i] != b.C.Order[i] {
+				return false
+			}
+		}
+		if len(a.C.Rows) != len(b.C.Rows) {
+			return false
+		}
+		for i := range a.C.Rows {
+			ar := a.C.Rows[i]
+			br := b.C.Rows[i]
+			if len(ar.Values) != len(br.Values) {
+				return false
+			}
+			for k, ac := range ar.Values {
+				bc, ok := br.Values[k]
+				if !ok {
+					return false
+				}
+				if !Equal(ac.Value, bc.Value) {
+					return false
+				}
 			}
 		}
 		return true

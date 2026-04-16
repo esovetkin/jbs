@@ -33,6 +33,13 @@ func TestGolden(t *testing.T) {
 		{name: "use_embed_defaults"},
 		{name: "use_import_step_chain"},
 		{name: "step_options"},
+		{name: "comb_basic"},
+		{name: "comb_alias_self_sum"},
+		{name: "comb_alias_range_leaf"},
+		{name: "comb_slice_with_alias"},
+		{name: "comb_filter_len"},
+		{name: "comb_with_in_equiv"},
+		{name: "comb_all_any"},
 	}
 
 	for _, tc := range cases {

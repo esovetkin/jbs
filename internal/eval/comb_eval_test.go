@@ -320,6 +320,19 @@ func TestEvalCombIdentFallsBackToExpressionSpan(t *testing.T) {
 	}
 }
 
+func TestEvalCombPlaceholderIdentifierDoesNotEmitE111(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	rows := evalComb(ast.CombIdent{Name: "", Span: diag.NewSpan("x.jbs", diag.NewPos(1, 1, 1), diag.NewPos(1, 2, 2))}, map[string][]Value{
+		"a": {Int(1)},
+	}, map[string]diag.Span{}, CombEvalOptions{}, diags)
+	if rows != nil {
+		t.Fatalf("expected nil rows for placeholder comb identifier, got %#v", rows)
+	}
+	if diagCount(diags, "E111") != 0 {
+		t.Fatalf("did not expect E111 for parser placeholder identifier, got: %s", diags.String())
+	}
+}
+
 func TestEvalCombUnknownIdentifier(t *testing.T) {
 	exprSpan := diag.NewSpan("in.jbs", diag.NewPos(50, 8, 3), diag.NewPos(51, 8, 4))
 	expr := ast.CombIdent{Name: "missing", Span: exprSpan}

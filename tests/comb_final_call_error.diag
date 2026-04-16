@@ -1,0 +1,10 @@
+ERROR E060 /home/jackson/jbs/tests/comb_final_call_error.jbs:4:13
+function call is not allowed in final combination expression
+     4 |         a * range(2)
+       |             ^^^^^^^^
+Hint: assign the call result to a variable, then use the variable in the final expression
+WARNING W310 /home/jackson/jbs/tests/comb_final_call_error.jbs:3:9
+exposed variable 'a' from param 'p' is never used in any do/submit block
+     3 |         a = (1, 2)
+       |         ^^^^^^^^^^
+Hint: remove it from the final expression or reference it with $a/${a} in a step

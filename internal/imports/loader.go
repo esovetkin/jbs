@@ -383,11 +383,15 @@ func (r *resolver) normalizeWithRefs(mod *expandedModule, stmt ast.Stmt, inserte
 			n := item
 			nameRejected := false
 			fromRejected := false
+			sourceExprRejected := false
 			n.Name, nameRejected = r.normalizeWithRef(mod, item.Name, item.Span, inserted)
 			if item.From != "" {
 				n.From, fromRejected = r.normalizeWithRef(mod, item.From, item.Span, inserted)
 			}
-			n.Rejected = nameRejected || fromRejected
+			if item.SourceExpr != "" {
+				n.SourceExpr, sourceExprRejected = r.normalizeWithRef(mod, item.SourceExpr, item.Span, inserted)
+			}
+			n.Rejected = nameRejected || fromRejected || sourceExprRejected
 			out[i] = n
 		}
 		return out
@@ -562,6 +566,24 @@ func (r *resolver) symbolDependencies(mod *expandedModule, stmt ast.Stmt) []depR
 
 	importWithItems := func(items []ast.WithItem) {
 		for _, item := range items {
+			if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
+				if aliasRef, ok := mod.Aliases[item.SourceExpr]; ok {
+					for _, sel := range item.SourceSlice {
+						add(aliasRef, sel, item.Span)
+					}
+					continue
+				}
+				if ref, depName, ok := resolveLocal(item.SourceExpr); ok {
+					add(ref, depName, item.Span)
+					continue
+				}
+				for _, sel := range item.SourceSlice {
+					if ref, depName, ok := resolveLocal(sel); ok {
+						add(ref, depName, item.Span)
+					}
+				}
+				continue
+			}
 			if item.From == "" {
 				if ref, depName, ok := resolveLocal(item.Name); ok {
 					add(ref, depName, item.Span)

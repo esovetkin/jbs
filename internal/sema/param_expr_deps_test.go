@@ -75,7 +75,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 
 	collectExprLocalIdentDeps(expr, deps)
 
-	want := []string{"a", "b", "c", "d", "e", "f"}
+	want := []string{"a", "b", "c", "d", "e", "f", "list", "ns"}
 	if len(deps) != len(want) {
 		t.Fatalf("unexpected dep count: got=%d want=%d deps=%#v", len(deps), len(want), deps)
 	}
@@ -85,7 +85,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 		}
 	}
 	if _, ok := deps["ns.skip"]; ok {
-		t.Fatalf("qualified identifier should not be collected: %#v", deps)
+		t.Fatalf("qualified member name should not be collected as one symbol: %#v", deps)
 	}
 }
 

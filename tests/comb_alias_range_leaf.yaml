@@ -1,0 +1,31 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'p'
+  - name: p
+    parameter:
+      - name: _ji_p
+        type: int
+        mode: text
+        _: 0,1,2,3
+      - name: a
+        mode: python
+        _: '[1,1,2,2][$_ji_p]'
+      - name: b
+        mode: python
+        _: '[0,1,0,1][$_ji_p]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'run'
+  - name: run
+    use:
+      - p
+    do:
+      - |
+        echo $a $b

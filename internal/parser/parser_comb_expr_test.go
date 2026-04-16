@@ -120,3 +120,21 @@ func TestParseCombPrimaryUnexpectedTokenReportsE060(t *testing.T) {
 		t.Fatalf("expected parser to advance past invalid token, got %s", tp.peek().Type)
 	}
 }
+
+func TestParseCombPrimaryFunctionCallReportsE060AndConsumesTail(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, tp := parseCombPrimaryFrom("range(2)", diags)
+	id, ok := expr.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected fallback CombIdent, got %T", expr)
+	}
+	if id.Name != "" {
+		t.Fatalf("expected empty fallback identifier name, got %q", id.Name)
+	}
+	if !hasCode(diags, "E060") {
+		t.Fatalf("expected E060 for function call in comb expression, got: %s", diags.String())
+	}
+	if tp.peek().Type != lexer.TokenEOF {
+		t.Fatalf("expected parser to consume full function-call tail, got %s", tp.peek().Type)
+	}
+}

@@ -8,6 +8,7 @@ package sema
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -158,11 +159,24 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 							VarOrder: planutil.SourceVarNames(src.Order, src.Vars),
 						}
 						sourceRows[sourceSymbol] = cloneEvalRows(src.Rows)
+						if src != nil {
+							env[sourceSymbol] = eval.CombValue(&eval.Comb{
+								Order: append([]string(nil), sourceSymbols[sourceSymbol].VarOrder...),
+								Rows:  cloneEvalRows(src.Rows),
+							})
+							origins[sourceSymbol] = item.Span
+						}
 					}
 				}
 			}
 			for _, v := range item.Vars {
 				importParamVar(v.Visible, v.SourceVar, src, item.Span)
+			}
+			if item.CombAlias != "" && src != nil {
+				if combValue, ok := combValueFromParamsetSlice(src, item.SliceOrder, item.Span); ok {
+					env[item.CombAlias] = combValue
+					origins[item.CombAlias] = item.Span
+				}
 			}
 		case SourceKindLet:
 			src := lets[item.Source]
@@ -215,11 +229,19 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 	}
 
 	series := make(map[string][]eval.Value, len(env))
+	combSourceRows := make(map[string][]eval.Row, len(sourceRows)+8)
+	for name, rows := range sourceRows {
+		combSourceRows[name] = cloneEvalRows(rows)
+	}
 	for name, value := range env {
+		if eval.IsComb(value) {
+			combSourceRows[name] = cloneEvalRows(value.C.Rows)
+			continue
+		}
 		series[name] = eval.ToSeries(value)
 	}
 
-	if block.Final == nil {
+	if block.Final == nil && block.FinalExpr == nil {
 		return &Paramset{
 			Name:     block.Name,
 			Block:    block,
@@ -233,9 +255,10 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 	}
 
-	refs := combIdentRefs(block.Final)
+	refs := finalParamRefs(block)
 	ambiguousIdentifierSpans := make(map[string][]diag.Span)
 	sourceReferenced := make(map[string]bool)
+	combReferenced := make(map[string]bool)
 	for _, ref := range refs {
 		_, hasSourceSymbol := sourceSymbols[ref.Name]
 		if ambiguousSourceSymbols[ref.Name] {
@@ -248,6 +271,10 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		}
 		if hasSourceSymbol {
 			sourceReferenced[ref.Name] = true
+			continue
+		}
+		if value, ok := env[ref.Name]; ok && eval.IsComb(value) {
+			combReferenced[ref.Name] = true
 		}
 	}
 	for name, spans := range ambiguousIdentifierSpans {
@@ -320,22 +347,67 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 			}
 			continue
 		}
+		if combReferenced[name] {
+			addSeed(name)
+			if combValue, ok := env[name]; ok && eval.IsComb(combValue) && combValue.C != nil {
+				for _, sourceVar := range combValue.C.Order {
+					addSeed(sourceVar)
+				}
+			}
+			continue
+		}
 		addSeed(name)
 	}
 	warnUnusedParamContributors(localAssigns, localAssignOrder, importedVars, importedVarOrder, seed, diags)
 
-	rows := eval.EvalCombinationWithOptions(block.Final, series, origins, eval.CombEvalOptions{
-		SourceRows: sourceRows,
-	}, diags)
-	if rows == nil {
-		rows = make([]eval.Row, 0)
-	}
+	var rows []eval.Row
+	var order []string
+	hasPlus := false
+	if block.Final != nil {
+		rows = eval.EvalCombinationWithOptions(block.Final, series, origins, eval.CombEvalOptions{
+			SourceRows: combSourceRows,
+		}, diags)
+		if rows == nil {
+			rows = make([]eval.Row, 0)
+		}
 
-	ambiguousRefNames := make(map[string]bool, len(ambiguousIdentifierSpans))
-	for name := range ambiguousIdentifierSpans {
-		ambiguousRefNames[name] = true
+		ambiguousRefNames := make(map[string]bool, len(ambiguousIdentifierSpans))
+		for name := range ambiguousIdentifierSpans {
+			ambiguousRefNames[name] = true
+		}
+		combOrders := make(map[string][]string, len(combReferenced))
+		for name := range combReferenced {
+			value := env[name]
+			if !eval.IsComb(value) || value.C == nil {
+				continue
+			}
+			combOrders[name] = append([]string(nil), value.C.Order...)
+		}
+		order = resolveFinalExposeOrder(refs, sourceSymbols, combOrders, ambiguousRefNames)
+		hasPlus = combHasOp(block.Final, "+")
+	} else {
+		startDiag := len(diags.Items)
+		finalValue := eval.EvalExprWithOptions(block.FinalExpr, env, diags, eval.ExprOptions{
+			ParamAssignmentTupleArithmetic: true,
+			Context:                        eval.EvalCtxParamAssign,
+		})
+		if eval.IsComb(finalValue) && finalValue.C != nil {
+			rows = cloneEvalRows(finalValue.C.Rows)
+			order = append([]string(nil), finalValue.C.Order...)
+		} else {
+			if !hasErrorSince(diags, startDiag) {
+				diags.AddError(
+					diag.CodeE106,
+					"final param expression must evaluate to a comb value",
+					block.FinalExpr.GetSpan(),
+					"use comb(...) or a comb-valued variable as the final expression",
+				)
+			}
+			rows = make([]eval.Row, 0)
+			order = make([]string, 0)
+		}
+		hasPlus = exprHasBinaryOp(block.FinalExpr, "+")
 	}
-	order := resolveFinalExposeOrder(refs, sourceSymbols, ambiguousRefNames)
 
 	vars := make(map[string][]eval.Value, len(order))
 	varOrigins := make(map[string]diag.Span, len(order))
@@ -378,7 +450,7 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		Origins:  varOrigins,
 		Modes:    modes,
 		Order:    order,
-		HasPlus:  combHasOp(block.Final, "+"),
+		HasPlus:  hasPlus,
 	}
 }
 
@@ -413,6 +485,16 @@ type combIdentRef struct {
 	Span diag.Span
 }
 
+func finalParamRefs(block ast.ParamBlock) []combIdentRef {
+	if block.Final != nil {
+		return combIdentRefs(block.Final)
+	}
+	if block.FinalExpr != nil {
+		return exprIdentRefs(block.FinalExpr)
+	}
+	return nil
+}
+
 func combIdentRefs(expr ast.CombExpr) []combIdentRef {
 	out := make([]combIdentRef, 0)
 	var walk func(ast.CombExpr)
@@ -431,7 +513,137 @@ func combIdentRefs(expr ast.CombExpr) []combIdentRef {
 	return out
 }
 
-func resolveFinalExposeOrder(refs []combIdentRef, sourceSymbols map[string]sourceSymbolInfo, ambiguous map[string]bool) []string {
+func exprIdentRefs(expr ast.Expr) []combIdentRef {
+	out := make([]combIdentRef, 0)
+	var walk func(ast.Expr)
+	walk = func(node ast.Expr) {
+		if node == nil {
+			return
+		}
+		switch n := node.(type) {
+		case ast.IdentExpr:
+			if n.Name != "" {
+				out = append(out, combIdentRef{Name: n.Name, Span: n.Span})
+			}
+		case ast.QualifiedIdentExpr:
+			if n.Namespace != "" {
+				out = append(out, combIdentRef{Name: n.Namespace, Span: n.Span})
+			}
+		case ast.ListExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.TupleExpr:
+			for _, it := range n.Items {
+				walk(it)
+			}
+		case ast.ConvertExpr:
+			walk(n.Expr)
+		case ast.CallExpr:
+			for _, arg := range n.Args {
+				walk(arg)
+			}
+		case ast.IndexExpr:
+			walk(n.Base)
+		case ast.UnaryExpr:
+			walk(n.Expr)
+		case ast.BinaryExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.CompareExpr:
+			walk(n.Left)
+			walk(n.Right)
+		case ast.ConditionalExpr:
+			walk(n.Then)
+			walk(n.Cond)
+			walk(n.Else)
+		case ast.ModeExpr:
+			walk(n.Expr)
+		case ast.AliasExpr:
+			walk(n.Expr)
+		}
+	}
+	walk(expr)
+	return out
+}
+
+func hasErrorSince(diags *diag.Diagnostics, start int) bool {
+	if diags == nil {
+		return false
+	}
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < len(diags.Items); i++ {
+		if diags.Items[i].Severity == diag.SeverityError {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasBinaryOp(expr ast.Expr, op string) bool {
+	if expr == nil || op == "" {
+		return false
+	}
+	switch e := expr.(type) {
+	case ast.BinaryExpr:
+		if e.Op == op {
+			return true
+		}
+		return exprHasBinaryOp(e.Left, op) || exprHasBinaryOp(e.Right, op)
+	case ast.ListExpr:
+		for _, it := range e.Items {
+			if exprHasBinaryOp(it, op) {
+				return true
+			}
+		}
+		return false
+	case ast.TupleExpr:
+		for _, it := range e.Items {
+			if exprHasBinaryOp(it, op) {
+				return true
+			}
+		}
+		return false
+	case ast.ConvertExpr:
+		return exprHasBinaryOp(e.Expr, op)
+	case ast.CallExpr:
+		if exprHasBinaryOp(e.Callee, op) {
+			return true
+		}
+		for _, arg := range e.Args {
+			if exprHasBinaryOp(arg, op) {
+				return true
+			}
+		}
+		return false
+	case ast.IndexExpr:
+		if exprHasBinaryOp(e.Base, op) {
+			return true
+		}
+		for _, item := range e.Items {
+			if exprHasBinaryOp(item, op) {
+				return true
+			}
+		}
+		return false
+	case ast.UnaryExpr:
+		return exprHasBinaryOp(e.Expr, op)
+	case ast.CompareExpr:
+		return exprHasBinaryOp(e.Left, op) || exprHasBinaryOp(e.Right, op)
+	case ast.ConditionalExpr:
+		return exprHasBinaryOp(e.Then, op) || exprHasBinaryOp(e.Cond, op) || exprHasBinaryOp(e.Else, op)
+	case ast.ModeExpr:
+		return exprHasBinaryOp(e.Expr, op)
+	case ast.AliasExpr:
+		return exprHasBinaryOp(e.Expr, op)
+	default:
+		return false
+	}
+}
+
+func resolveFinalExposeOrder(refs []combIdentRef, sourceSymbols map[string]sourceSymbolInfo, combOrders map[string][]string, ambiguous map[string]bool) []string {
 	seen := make(map[string]struct{})
 	out := make([]string, 0, len(refs))
 	add := func(name string) {
@@ -451,6 +663,12 @@ func resolveFinalExposeOrder(refs []combIdentRef, sourceSymbols map[string]sourc
 		if !ambiguous[ref.Name] {
 			if source, ok := sourceSymbols[ref.Name]; ok {
 				for _, name := range source.VarOrder {
+					add(name)
+				}
+				continue
+			}
+			if order, ok := combOrders[ref.Name]; ok {
+				for _, name := range order {
 					add(name)
 				}
 				continue
@@ -507,6 +725,8 @@ func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
 			for _, arg := range n.Args {
 				walk(arg, inCollection)
 			}
+		case ast.AliasExpr:
+			walk(n.Expr, inCollection)
 		case ast.UnaryExpr:
 			walk(n.Expr, inCollection)
 		case ast.BinaryExpr:
@@ -582,5 +802,91 @@ func combHasOp(expr ast.CombExpr, op string) bool {
 		return combHasOp(e.Left, op) || combHasOp(e.Right, op)
 	default:
 		return false
+	}
+}
+
+func combValueFromParamsetSlice(src *Paramset, selected []string, origin diag.Span) (eval.Value, bool) {
+	if src == nil || len(selected) == 0 {
+		return eval.Null(), false
+	}
+	seen := make(map[string]struct{}, len(selected))
+	order := make([]string, 0, len(selected))
+	for _, name := range selected {
+		if name == "" {
+			return eval.Null(), false
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		if _, ok := src.Vars[name]; !ok {
+			return eval.Null(), false
+		}
+		order = append(order, name)
+	}
+	if len(order) == 0 {
+		return eval.Null(), false
+	}
+	rows := make([]eval.Row, 0, len(src.Rows))
+	seenRows := make(map[string]struct{}, len(src.Rows))
+	for _, row := range src.Rows {
+		projected := eval.Row{Values: make(map[string]eval.Cell, len(order))}
+		keyParts := make([]string, 0, len(order))
+		for _, name := range order {
+			cell, ok := row.Values[name]
+			if !ok {
+				return eval.Null(), false
+			}
+			if cell.Origin.IsZero() {
+				cell.Origin = origin
+			}
+			projected.Values[name] = cell
+			keyParts = append(keyParts, evalValueKeyForComb(cell.Value))
+		}
+		key := strings.Join(keyParts, "\x1f")
+		if _, exists := seenRows[key]; exists {
+			continue
+		}
+		seenRows[key] = struct{}{}
+		rows = append(rows, projected)
+	}
+	return eval.CombValue(&eval.Comb{
+		Order: order,
+		Rows:  rows,
+	}), true
+}
+
+func evalValueKeyForComb(v eval.Value) string {
+	switch v.Kind {
+	case eval.KindNull:
+		return "n:"
+	case eval.KindInt:
+		return fmt.Sprintf("i:%d", v.I)
+	case eval.KindFloat:
+		return fmt.Sprintf("f:%g", v.F)
+	case eval.KindString:
+		return "s:" + v.S
+	case eval.KindBool:
+		if v.B {
+			return "b:1"
+		}
+		return "b:0"
+	case eval.KindList, eval.KindTuple:
+		parts := make([]string, 0, len(v.L))
+		for _, item := range v.L {
+			parts = append(parts, evalValueKeyForComb(item))
+		}
+		prefix := "l:"
+		if v.Kind == eval.KindTuple {
+			prefix = "t:"
+		}
+		return prefix + strings.Join(parts, ",")
+	case eval.KindComb:
+		if v.C == nil {
+			return "c:nil"
+		}
+		return fmt.Sprintf("c:%d:%d", len(v.C.Order), len(v.C.Rows))
+	default:
+		return "u:"
 	}
 }

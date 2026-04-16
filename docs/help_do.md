@@ -20,7 +20,7 @@ do <name>
 
 ### `after`: step dependency declarations
 
-The `after` keyword defines execution dependencies. A dependent step also inherits variables visible in predecessor steps. For example, in `do step1 after step0`, variables imported in `step0` are visible in `step1`. JBS imports only variables that are not already inherited.
+The `after` keyword defines [execution dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies). A dependent step also inherits variables visible in predecessor steps. For example, in `do step1 after step0`, variables imported in `step0` are visible in `step1`. JBS imports only variables that are not already inherited.
 
 If the same variable name would come from a different parameter set (either inherited or explicitly imported with `with`), JBS raises an error. Dependency cycles are not permitted.
 

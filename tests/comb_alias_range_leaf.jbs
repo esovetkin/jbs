@@ -1,0 +1,13 @@
+param p
+{
+        a = (1, 2)
+        c = comb(a * range(2) as b)
+
+        c
+}
+
+do run
+        with p
+{
+        echo $a $b
+}

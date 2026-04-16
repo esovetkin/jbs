@@ -24,6 +24,9 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 			out[e.Name] = struct{}{}
 		}
 	case ast.QualifiedIdentExpr:
+		if e.Namespace != "" {
+			out[e.Namespace] = struct{}{}
+		}
 		return
 	case ast.ModeExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
@@ -38,8 +41,16 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 	case ast.ConvertExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.CallExpr:
+		collectExprLocalIdentDeps(e.Callee, out)
 		for _, arg := range e.Args {
 			collectExprLocalIdentDeps(arg, out)
+		}
+	case ast.AliasExpr:
+		collectExprLocalIdentDeps(e.Expr, out)
+	case ast.IndexExpr:
+		collectExprLocalIdentDeps(e.Base, out)
+		for _, item := range e.Items {
+			collectExprLocalIdentDeps(item, out)
 		}
 	case ast.UnaryExpr:
 		collectExprLocalIdentDeps(e.Expr, out)

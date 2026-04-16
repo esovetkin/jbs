@@ -1,0 +1,14 @@
+param p
+{
+        x = (1, 2, 3, 4)
+        c = comb(x)
+        even = filter(c, c.x % 2 == 0)
+        n = len(even)
+        even
+}
+
+do run
+        with p
+{
+        echo ${x}
+}

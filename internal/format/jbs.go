@@ -544,6 +544,14 @@ func renderStepOptionClause(maxAsync *int, procs *int, iterations *int) string {
 func renderWithClause(items []ast.WithItem) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
+		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
+			part := item.SourceExpr + "[" + strings.Join(item.SourceSlice, ",") + "]"
+			if item.CombAlias != "" {
+				part += " as " + item.CombAlias
+			}
+			parts = append(parts, part)
+			continue
+		}
 		if item.From == "" {
 			part := item.Name
 			if item.Alias != "" {

@@ -1,0 +1,9 @@
+param p
+{
+        x = (1, 2)
+        y = (3, 4)
+        a = comb(x + y)
+        b = comb(x as z + a as t)
+
+        b
+}

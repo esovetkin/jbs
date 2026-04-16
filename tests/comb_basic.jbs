@@ -1,0 +1,13 @@
+param p
+{
+        x = (1, 2)
+        y = ("a", "b")
+        a = comb(x * y)
+        a
+}
+
+do run
+        with p
+{
+        echo ${x} ${y}
+}

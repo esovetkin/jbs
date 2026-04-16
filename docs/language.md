@@ -53,12 +53,14 @@ param_with_clause := with_clause
 param_header_item := NEWLINE | comment
 param_item    := param_stmt | sep
 param_stmt    := IDENT "=" expr opt_comment
-final_expr    := comb_expr
+final_expr    := comb_expr | expr
 
 with_clause   := "with" with_item ("," with_item)*
 qualified_name := IDENT ("." IDENT)*
 with_item     := qualified_name ("from" qualified_name)? ("as" IDENT)?
               | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
+              | qualified_name "[" qualified_name ("," qualified_name)* "]" ("as" IDENT)?
+              | "(" qualified_name ("," qualified_name)+ ")" "in" qualified_name
 
 do_block      := "do" IDENT do_header_item* raw_block
 submit_block  := "submit" IDENT submit_header_item* "{" submit_item* "}"
@@ -202,11 +204,24 @@ Supported assignment expressions:
   - `range(start, stop)`
   - `range(start, stop, step)`
   - `rev(list_expr)`
+  - `comb(expr)`
+  - `len(value)`
+  - `filter(values, mask)`
+  - `all(value)`
+  - `any(value)`
+- alias expression:
+  - `expr as IDENT` (comb-context metadata only)
 
 Context restriction:
 
 - `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
 - `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
+- `comb(...)`, `len(...)`, `filter(...)`, `all(...)`, and `any(...)` are also supported in `param` assignment expressions.
+
+Qualified access and indexing:
+
+- `a.b` in expressions resolves to a comb-column lookup when `a` is a comb value.
+- `a[x]` and `a[x,y]` project comb values by column names.
 
 String arithmetic in assignment expressions:
 
@@ -323,7 +338,27 @@ param p_convert {
 ```
 
 This behavior applies to assignment expressions.
-The final line in a `param` block is still combination algebra (`+` zip, `*` outer product).
+The final line in a `param` block must evaluate to a comb value.
+
+Two forms are supported:
+
+- legacy combination algebra (`+` zip, `*` outer product) with identifiers and qualified identifiers
+- general expression form (for example `comb(...)`) that evaluates to comb
+
+Examples:
+
+```jbs
+param p_legacy {
+        x = (1, 2)
+        y = ("a", "b")
+        x + y
+}
+
+param p_expr {
+        x = (1, 2)
+        comb(x * x as b)
+}
+```
 
 ## Combination Algebra
 
@@ -341,6 +376,32 @@ The final line in a `param` block is still combination algebra (`+` zip, `*` out
 Repeated identifier use in a single combination expression is rejected (`E036`).
 
 `tuple` and `list` behave in the same way for the combination algebra expression.
+
+### `comb(...)` strict leaf rules
+
+`comb(...)` evaluates expression-level combination algebra and returns a comb object.
+
+- Leaves must be identifiers, or explicit aliases with `as`.
+- Unnamed non-identifier leaves are rejected.
+- Aliases are comb-column metadata only.
+- Alias on a comb-valued operand is rejected.
+- Duplicate output column names are rejected.
+
+Examples:
+
+```jbs
+# invalid: duplicate output name `a`
+c0 = comb(a + a)
+
+# valid: second branch renamed to b
+c1 = comb(a + a as b)
+
+# invalid: range(...) leaf has no output name
+c2 = comb(a * range(2))
+
+# valid: explicit output name for range(...) leaf
+c3 = comb(a * range(2) as b)
+```
 
 Examples:
 
@@ -502,7 +563,7 @@ In `param`:
 - repeated `with` clauses in the header are valid and concatenated.
 - If the same visible variable name is imported from different sources in one `param` block, compilation fails with `E214`.
 - Importing the same variable name repeatedly from the same source is allowed.
-- full-source imports can be used directly in the final combination expression (for example `p0 + d`, `p0 * p1 + x`).
+- full-source imports can be used directly in the final expression (for example `p0 + d`, `p0 * p1 + x`).
 - mixing a full-source symbol and variables imported from that same source in one final expression is rejected (`E220`).
 - if a final-expression identifier matches both a visible variable and a visible full-source symbol, compilation fails as ambiguous (`E221`).
 - aliases (`as`) disambiguate both variable imports and full-source symbols.

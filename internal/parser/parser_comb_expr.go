@@ -54,13 +54,41 @@ func (p *tokenParser) parseCombPrimary() ast.CombExpr {
 	tok := p.peek()
 	if tok.Type == lexer.TokenIdent {
 		nameTok := p.next()
+		span := nameTok.Span
 		if p.peek().Type == lexer.TokenDot {
 			p.next()
 			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
+			span = diag.Merge(nameTok.Span, memberTok.Span)
+			if p.peek().Type == lexer.TokenLParen {
+				callSpan := p.consumeCombCallTail()
+				if !callSpan.IsZero() {
+					span = diag.Merge(span, callSpan)
+				}
+				p.diags.AddError(
+					diag.CodeE060,
+					"function call is not allowed in final combination expression",
+					span,
+					"assign the call result to a variable, then use the variable in the final expression",
+				)
+				return ast.CombIdent{Name: "", Span: span}
+			}
 			return ast.CombIdent{
 				Name: nameTok.Value + "." + memberTok.Value,
-				Span: diag.Merge(nameTok.Span, memberTok.Span),
+				Span: span,
 			}
+		}
+		if p.peek().Type == lexer.TokenLParen {
+			callSpan := p.consumeCombCallTail()
+			if !callSpan.IsZero() {
+				span = diag.Merge(span, callSpan)
+			}
+			p.diags.AddError(
+				diag.CodeE060,
+				"function call is not allowed in final combination expression",
+				span,
+				"assign the call result to a variable, then use the variable in the final expression",
+			)
+			return ast.CombIdent{Name: "", Span: span}
 		}
 		return ast.CombIdent{Name: nameTok.Value, Span: nameTok.Span}
 	}
@@ -77,4 +105,29 @@ func (p *tokenParser) parseCombPrimary() ast.CombExpr {
 	)
 	p.next()
 	return ast.CombIdent{Name: "", Span: tok.Span}
+}
+
+func (p *tokenParser) consumeCombCallTail() diag.Span {
+	open := p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after identifier")
+	if open.Span.IsZero() {
+		return diag.Span{}
+	}
+	span := open.Span
+	depth := 1
+	for depth > 0 {
+		tok := p.peek()
+		if tok.Type == lexer.TokenEOF {
+			p.diags.AddError(diag.CodeE059, "expected ')' in combination expression", span, "close the function call with ')'")
+			return span
+		}
+		tok = p.next()
+		span = diag.Merge(span, tok.Span)
+		switch tok.Type {
+		case lexer.TokenLParen:
+			depth++
+		case lexer.TokenRParen:
+			depth--
+		}
+	}
+	return span
 }

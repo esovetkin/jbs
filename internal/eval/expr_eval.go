@@ -16,6 +16,7 @@ import (
 	"math"
 	"math/bits"
 	"strings"
+	"unicode/utf8"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -61,6 +62,21 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
 		return Null()
 	case ast.QualifiedIdentExpr:
+		if ns, ok := env[e.Namespace]; ok {
+			if IsComb(ns) {
+				col, exists := CombColumn(ns, e.Name)
+				if !exists {
+					diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s.%s'", e.Namespace, e.Name), e.Span, "import or define the variable before use")
+					return Null()
+				}
+				if len(col) == 1 {
+					return col[0]
+				}
+				return List(col)
+			}
+			diags.AddError(diag.CodeE106, fmt.Sprintf("qualified access '%s.%s' requires a comb namespace", e.Namespace, e.Name), e.Span, "use qualified access only on comb values in expressions")
+			return Null()
+		}
 		key := e.Namespace + "." + e.Name
 		if v, ok := env[key]; ok {
 			return v
@@ -91,18 +107,65 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.ConvertExpr:
 		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalConvert(e.Target, value, e.Span, diags)
+	case ast.AliasExpr:
+		diags.AddError(diag.CodeE106, "alias expression is only allowed inside comb()", e.Span, "use syntax: comb(expr as name)")
+		return Null()
 	case ast.CallExpr:
+		if name, ok := callName(e.Callee); ok && name == "comb" {
+			return evalCall(e.Callee, e.Args, nil, env, e.Span, diags, opts, ctx)
+		}
 		args := make([]Value, 0, len(e.Args))
 		for _, it := range e.Args {
 			args = append(args, evalExprWithCtx(it, env, diags, opts, ctx))
 		}
-		return evalCall(e.Callee, args, e.Span, diags, opts)
+		return evalCall(e.Callee, e.Args, args, env, e.Span, diags, opts, ctx)
+	case ast.IndexExpr:
+		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
+		if !IsComb(base) {
+			diags.AddError(diag.CodeE106, "index expression requires a comb base", e.Span, "use syntax: comb_value[col] or comb_value[col0,col1]")
+			return Null()
+		}
+		selectors := make([]string, 0, len(e.Items))
+		for _, item := range e.Items {
+			switch n := item.(type) {
+			case ast.IdentExpr:
+				selectors = append(selectors, n.Name)
+			case ast.QualifiedIdentExpr:
+				selectors = append(selectors, n.Namespace+"."+n.Name)
+			default:
+				diags.AddError(diag.CodeE106, "comb index selectors must be identifiers", item.GetSpan(), "use syntax: comb_value[col] or comb_value[col0,col1]")
+				return Null()
+			}
+		}
+		if len(selectors) == 0 {
+			diags.AddError(diag.CodeE106, "comb index selectors cannot be empty", e.Span, "use at least one selector inside []")
+			return Null()
+		}
+		projected, ok := CombProject(base, selectors)
+		if !ok {
+			diags.AddError(diag.CodeE106, "invalid comb projection selector", e.Span, "select existing comb columns only")
+			return Null()
+		}
+		return projected
 	case ast.UnaryExpr:
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
+		if opts.Context == EvalCtxParamAssign && (e.Op == "+" || e.Op == "*") && exprNeedsCombBinary(e, env) {
+			rows, _ := evalExprAsNamedCombRows(e, env, diags, opts, ctx)
+			return combValueFromRows(rows)
+		}
 		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
 		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
+		if (e.Op == "+" || e.Op == "*") && (IsComb(l) || IsComb(r)) {
+			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
+			leftRows := combRowsFromBinaryOperand(e.Left, l, env, diags, opts, ctx)
+			rightRows := combRowsFromBinaryOperand(e.Right, r, env, diags, opts, ctx)
+			if e.Op == "+" {
+				return combValueFromRows(zipRows(leftRows, rightRows, opNode, diags))
+			}
+			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
+		}
 		return evalBinary(e.Op, l, r, e.Span, diags, opts, ctx)
 	case ast.CompareExpr:
 		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
@@ -152,11 +215,27 @@ var kernelFuncs = map[string]kernelFunc{
 	},
 }
 
-func evalCall(callee ast.Expr, args []Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
+func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	name, ok := callName(callee)
 	if !ok {
 		diags.AddError(diag.CodeE199, "unsupported function callee", callee.GetSpan(), "use a simple function name")
 		return Null()
+	}
+	switch name {
+	case "comb":
+		if opts.Context != EvalCtxParamAssign {
+			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in param assignments", at, "use this function only in param assignment expressions")
+			return Null()
+		}
+		return evalCombCall(rawArgs, env, at, diags, opts, ctx)
+	case "len":
+		return evalLenCall(args, at, diags)
+	case "filter":
+		return evalFilterCall(args, at, diags)
+	case "all":
+		return evalAllAnyCall("all", args, at, diags)
+	case "any":
+		return evalAllAnyCall("any", args, at, diags)
 	}
 	return evalKernelCall(name, args, at, diags, opts)
 }
@@ -235,6 +314,395 @@ func evalListCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	default:
 		return List([]Value{value})
 	}
+}
+
+func evalLenCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, "len() expects exactly one argument", at, "use len(value)")
+		return Null()
+	}
+	v := args[0]
+	switch v.Kind {
+	case KindList, KindTuple:
+		return Int(int64(len(v.L)))
+	case KindString:
+		return Int(int64(utf8.RuneCountInString(v.S)))
+	case KindComb:
+		return Int(int64(CombRowCount(v)))
+	default:
+		diags.AddError(diag.CodeE106, "len() expects list/tuple/string/comb value", at, "use len() with supported value kinds")
+		return Null()
+	}
+}
+
+func evalFilterCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 2 {
+		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, mask)")
+		return Null()
+	}
+	target := args[0]
+	maskVals := ToSeries(args[1])
+	if len(maskVals) == 0 {
+		diags.AddError(diag.CodeE106, "filter() mask cannot be empty", at, "use a non-empty boolean mask")
+		return Null()
+	}
+	switch target.Kind {
+	case KindList, KindTuple:
+		out := make([]Value, 0, len(target.L))
+		mask := broadcastMask(maskVals, len(target.L), at, diags)
+		for i, item := range target.L {
+			if mask[i] {
+				out = append(out, item)
+			}
+		}
+		if target.Kind == KindTuple {
+			return Tuple(out)
+		}
+		return List(out)
+	case KindComb:
+		if !IsComb(target) {
+			return CombValue(&Comb{Order: nil, Rows: nil})
+		}
+		outRows := make([]Row, 0, len(target.C.Rows))
+		mask := broadcastMask(maskVals, len(target.C.Rows), at, diags)
+		for i, row := range target.C.Rows {
+			if mask[i] {
+				outRows = append(outRows, row.clone())
+			}
+		}
+		return CombValue(&Comb{
+			Order: append([]string(nil), target.C.Order...),
+			Rows:  outRows,
+		})
+	default:
+		diags.AddError(diag.CodeE106, "filter() expects list/tuple/comb as first argument", at, "use filter() with list, tuple, or comb values")
+		return Null()
+	}
+}
+
+func evalAllAnyCall(kind string, args []Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, kind+"() expects exactly one argument", at, "use "+kind+"(values)")
+		return Null()
+	}
+	v := args[0]
+	if v.Kind == KindComb {
+		diags.AddError(diag.CodeE106, kind+"() does not accept comb values", at, "project comb columns before using "+kind+"()")
+		return Null()
+	}
+	values := toSeriesOrScalar(v)
+	if len(values) == 0 {
+		if kind == "all" {
+			return Bool(true)
+		}
+		return Bool(false)
+	}
+	castWarned := false
+	test := func(item Value) bool {
+		b, casted := truthy(item)
+		if casted && !castWarned {
+			castWarned = true
+			diags.AddWarning(diag.CodeW101, kind+"() cast non-boolean values via truthiness", at, "use explicit boolean expressions to avoid implicit casts")
+		}
+		return b
+	}
+	if kind == "all" {
+		for _, item := range values {
+			if !test(item) {
+				return Bool(false)
+			}
+		}
+		return Bool(true)
+	}
+	for _, item := range values {
+		if test(item) {
+			return Bool(true)
+		}
+	}
+	return Bool(false)
+}
+
+func toSeriesOrScalar(v Value) []Value {
+	if v.Kind == KindList || v.Kind == KindTuple {
+		return slicesCloneValues(v.L)
+	}
+	return []Value{v}
+}
+
+func truthy(v Value) (bool, bool) {
+	switch v.Kind {
+	case KindBool:
+		return v.B, false
+	case KindInt:
+		return v.I != 0, true
+	case KindFloat:
+		return v.F != 0.0, true
+	case KindString:
+		return v.S != "", true
+	case KindNull:
+		return false, true
+	case KindList, KindTuple:
+		return len(v.L) > 0, true
+	case KindComb:
+		return CombRowCount(v) > 0, true
+	default:
+		return true, true
+	}
+}
+
+func broadcastMask(maskVals []Value, n int, at diag.Span, diags *diag.Diagnostics) []bool {
+	if n <= 0 {
+		return nil
+	}
+	if len(maskVals) != n {
+		diags.AddWarning(
+			diag.CodeW101,
+			fmt.Sprintf("length mismatch in filter mask: values=%d mask=%d; cyclic broadcast to length %d", n, len(maskVals), n),
+			at,
+			"align mask length with filtered value length",
+		)
+	}
+	out := make([]bool, n)
+	castWarned := false
+	for i := 0; i < n; i++ {
+		b, casted := truthy(maskVals[i%len(maskVals)])
+		if casted && !castWarned {
+			castWarned = true
+			diags.AddWarning(diag.CodeW101, "filter() cast non-boolean mask values via truthiness", at, "use explicit boolean mask values")
+		}
+		out[i] = b
+	}
+	return out
+}
+
+func exprNeedsCombBinary(expr ast.Expr, env map[string]Value) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case ast.AliasExpr:
+		return true
+	case ast.IdentExpr:
+		if v, ok := env[e.Name]; ok {
+			return IsComb(v)
+		}
+		return false
+	case ast.QualifiedIdentExpr:
+		if ns, ok := env[e.Namespace]; ok && IsComb(ns) {
+			return true
+		}
+		if v, ok := env[e.Namespace+"."+e.Name]; ok {
+			return IsComb(v)
+		}
+		return false
+	case ast.BinaryExpr:
+		return exprNeedsCombBinary(e.Left, env) || exprNeedsCombBinary(e.Right, env)
+	case ast.UnaryExpr:
+		return exprNeedsCombBinary(e.Expr, env)
+	case ast.ModeExpr:
+		return exprNeedsCombBinary(e.Expr, env)
+	case ast.ConvertExpr:
+		return exprNeedsCombBinary(e.Expr, env)
+	case ast.CallExpr:
+		if name, ok := callName(e.Callee); ok && name == "comb" {
+			return true
+		}
+		if exprNeedsCombBinary(e.Callee, env) {
+			return true
+		}
+		for _, arg := range e.Args {
+			if exprNeedsCombBinary(arg, env) {
+				return true
+			}
+		}
+		return false
+	case ast.IndexExpr:
+		if exprNeedsCombBinary(e.Base, env) {
+			return true
+		}
+		for _, item := range e.Items {
+			if exprNeedsCombBinary(item, env) {
+				return true
+			}
+		}
+		return false
+	case ast.ListExpr:
+		for _, item := range e.Items {
+			if exprNeedsCombBinary(item, env) {
+				return true
+			}
+		}
+		return false
+	case ast.TupleExpr:
+		for _, item := range e.Items {
+			if exprNeedsCombBinary(item, env) {
+				return true
+			}
+		}
+		return false
+	case ast.CompareExpr:
+		return exprNeedsCombBinary(e.Left, env) || exprNeedsCombBinary(e.Right, env)
+	case ast.ConditionalExpr:
+		return exprNeedsCombBinary(e.Then, env) || exprNeedsCombBinary(e.Cond, env) || exprNeedsCombBinary(e.Else, env)
+	default:
+		return false
+	}
+}
+
+func evalCombCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) != 1 {
+		diags.AddError(diag.CodeE106, "comb() expects exactly one argument", at, "use comb(expression)")
+		return Null()
+	}
+	rows, _ := evalExprAsNamedCombRows(rawArgs[0], env, diags, opts, ctx)
+	return combValueFromRows(rows)
+}
+
+func evalExprAsNamedCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
+	if expr == nil {
+		return nil, false
+	}
+	switch e := expr.(type) {
+	case ast.BinaryExpr:
+		if e.Op == "+" || e.Op == "*" {
+			left, okLeft := evalExprAsNamedCombRows(e.Left, env, diags, opts, ctx)
+			right, okRight := evalExprAsNamedCombRows(e.Right, env, diags, opts, ctx)
+			if !okLeft || !okRight {
+				return nil, false
+			}
+			if dupName, ok := firstDuplicatedColumnName(left, right); ok {
+				diags.AddError(
+					diag.CodeE036,
+					fmt.Sprintf("repeated identifier '%s' is not allowed in combination expression", dupName),
+					e.Span,
+					"use each identifier at most once in a combination expression",
+				)
+				return nil, false
+			}
+			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
+			if e.Op == "+" {
+				return zipRows(left, right, opNode, diags), true
+			}
+			return productRows(left, right, opNode, diags), true
+		}
+	case ast.IdentExpr:
+		v, ok := env[e.Name]
+		if !ok {
+			diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
+			return nil, false
+		}
+		return combRowsFromNamedValue(e.Name, v, e.Span), true
+	case ast.QualifiedIdentExpr:
+		v := evalExprWithCtx(e, env, diags, opts, ctx)
+		return combRowsFromNamedValue(e.Namespace+"."+e.Name, v, e.Span), true
+	case ast.CallExpr:
+		name, ok := callName(e.Callee)
+		if !ok || name != "comb" {
+			break
+		}
+		v := evalExprWithCtx(e, env, diags, opts, ctx)
+		if !IsComb(v) {
+			diags.AddError(diag.CodeE106, "comb leaf expression must evaluate to a comb value", e.Span, "use comb(...) as a comb-producing leaf")
+			return nil, false
+		}
+		return cloneRows(v.C.Rows), true
+	case ast.AliasExpr:
+		if e.Alias == "" {
+			diags.AddError(diag.CodeE106, "comb leaf expression alias cannot be empty", e.Span, "use syntax: expression as name")
+			return nil, false
+		}
+		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
+		if IsComb(v) {
+			diags.AddError(diag.CodeE106, "alias cannot be applied to a comb-valued expression", e.Span, "apply alias only to non-comb leaves")
+			return nil, false
+		}
+		return combRowsFromNamedValue(e.Alias, v, e.Span), true
+	}
+	diags.AddError(
+		diag.CodeE106,
+		"comb leaf expression must be an identifier or use 'as <name>'",
+		expr.GetSpan(),
+		"use syntax: ident, ident as alias, or expression as alias",
+	)
+	return nil, false
+}
+
+func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
+	if IsComb(value) {
+		return cloneRows(value.C.Rows)
+	}
+	series := ToSeries(value)
+	rows := make([]Row, 0, len(series))
+	for _, v := range series {
+		rows = append(rows, Row{
+			Values: map[string]Cell{
+				name: {
+					Value:  v,
+					Origin: span,
+				},
+			},
+		})
+	}
+	return rows
+}
+
+func combRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) []Row {
+	if expr == nil {
+		return combRowsFromValue(value, diag.Span{})
+	}
+	switch e := expr.(type) {
+	case ast.IdentExpr:
+		return combRowsFromNamedValue(e.Name, value, e.Span)
+	case ast.QualifiedIdentExpr:
+		return combRowsFromNamedValue(e.Namespace+"."+e.Name, value, e.Span)
+	case ast.AliasExpr:
+		rows, _ := evalExprAsNamedCombRows(e, env, diags, opts, ctx)
+		return rows
+	default:
+		return combRowsFromValue(value, expr.GetSpan())
+	}
+}
+
+func firstDuplicatedColumnName(left, right []Row) (string, bool) {
+	if len(left) == 0 || len(right) == 0 {
+		return "", false
+	}
+	leftNames := RowVariableNames(left)
+	if len(leftNames) == 0 {
+		return "", false
+	}
+	leftSet := make(map[string]struct{}, len(leftNames))
+	for _, name := range leftNames {
+		leftSet[name] = struct{}{}
+	}
+	for _, name := range RowVariableNames(right) {
+		if _, ok := leftSet[name]; ok {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func combRowsFromValue(value Value, _ diag.Span) []Row {
+	if IsComb(value) {
+		return cloneRows(value.C.Rows)
+	}
+	series := ToSeries(value)
+	rows := make([]Row, 0, len(series))
+	for range series {
+		rows = append(rows, Row{Values: map[string]Cell{}})
+	}
+	return rows
+}
+
+func combValueFromRows(rows []Row) Value {
+	if rows == nil {
+		rows = make([]Row, 0)
+	}
+	return CombValue(&Comb{
+		Order: RowVariableNames(rows),
+		Rows:  cloneRows(rows),
+	})
 }
 
 func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
@@ -345,6 +813,22 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 			return Bool(l.B && r.B)
 		}
 		return Bool(l.B || r.B)
+	}
+
+	if IsComb(l) || IsComb(r) {
+		switch op {
+		case "+", "*":
+			leftRows := combRowsFromValue(l, at)
+			rightRows := combRowsFromValue(r, at)
+			opNode := ast.CombBinary{Op: op, OpSpan: at, Span: at}
+			if op == "+" {
+				return combValueFromRows(zipRows(leftRows, rightRows, opNode, diags))
+			}
+			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
+		default:
+			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for comb values", op), at, "use '+' or '*' with comb values")
+			return Null()
+		}
 	}
 
 	if opts.ParamAssignmentTupleArithmetic && (IsTuple(l) || IsTuple(r)) {
@@ -566,6 +1050,23 @@ func (c *evalCtx) warnIntOverflow(diags *diag.Diagnostics, op string, at diag.Sp
 }
 
 func evalCompare(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if isSequence(l) || isSequence(r) {
+		ls := ToSeries(l)
+		rs := ToSeries(r)
+		if len(ls) == 0 || len(rs) == 0 {
+			return List(nil)
+		}
+		n := len(ls)
+		if len(rs) > n {
+			n = len(rs)
+		}
+		out := make([]Value, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, evalCompare(op, ls[i%len(ls)], rs[i%len(rs)], at, diags))
+		}
+		return List(out)
+	}
+
 	switch op {
 	case "==":
 		return Bool(Equal(l, r))

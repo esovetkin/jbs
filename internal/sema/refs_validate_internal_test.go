@@ -64,7 +64,7 @@ func TestCollectExprIdentRefs(t *testing.T) {
 	for _, ref := range refs {
 		got = append(got, ref.Name)
 	}
-	want := []string{"a", "b", "c", "d", "e"}
+	want := []string{"a", "list", "b", "ns", "c", "d", "e"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected ident refs: got=%#v want=%#v", got, want)
 	}

@@ -88,6 +88,15 @@ type WithItem struct {
 	Name  string
 	From  string
 	Alias string
+	// SourceExpr carries the import source for source-slice syntax
+	// (for example `with p[x,y]` or `with (x,y) in p`).
+	SourceExpr string
+	// SourceSlice carries selected variable names from SourceExpr for
+	// source-slice syntax.
+	SourceSlice []string
+	// CombAlias carries optional comb-object alias for source-slice
+	// imports (for example `with p[x,y] as a`).
+	CombAlias string
 	// Rejected marks items that failed qualified import normalization.
 	// Semantic with-resolution skips these to avoid duplicate root-cause diagnostics.
 	Rejected bool
@@ -177,6 +186,7 @@ type ParamBlock struct {
 	WithItems   []WithItem
 	Assignments []Assignment
 	Final       CombExpr
+	FinalExpr   Expr
 	HeaderRaw   string
 	Header      []HeaderElem
 	BodyRaw     string
@@ -258,6 +268,15 @@ type QualifiedIdentExpr struct {
 func (e QualifiedIdentExpr) exprNode()          {}
 func (e QualifiedIdentExpr) GetSpan() diag.Span { return e.Span }
 
+type IndexExpr struct {
+	Base  Expr
+	Items []Expr
+	Span  diag.Span
+}
+
+func (e IndexExpr) exprNode()          {}
+func (e IndexExpr) GetSpan() diag.Span { return e.Span }
+
 type StringExpr struct {
 	Value string
 	Span  diag.Span
@@ -318,6 +337,15 @@ type CallExpr struct {
 
 func (e CallExpr) exprNode()          {}
 func (e CallExpr) GetSpan() diag.Span { return e.Span }
+
+type AliasExpr struct {
+	Expr  Expr
+	Alias string
+	Span  diag.Span
+}
+
+func (e AliasExpr) exprNode()          {}
+func (e AliasExpr) GetSpan() diag.Span { return e.Span }
 
 type UnaryExpr struct {
 	Op   string

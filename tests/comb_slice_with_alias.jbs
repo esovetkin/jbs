@@ -1,0 +1,18 @@
+param base
+{
+        x = (1, 2)
+        y = ("u", "v", "w")
+        x * y
+}
+
+param derived
+        with base[x, y] as m
+{
+        m
+}
+
+do run
+        with derived
+{
+        echo ${x} ${y}
+}

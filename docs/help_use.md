@@ -31,6 +31,18 @@ do s
 }
 ```
 
+You can also use comb-style slicing on imported parameter-space symbols:
+
+```jbs
+use test_lib
+
+do s0
+        with test_lib.p[x, y]
+{
+        echo ${x} ${y}
+}
+```
+
 Resolution rules:
 - `use <module>`:
   - first resolves embedded `shared/<module>.jbs`

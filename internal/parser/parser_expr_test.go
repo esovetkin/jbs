@@ -189,6 +189,51 @@ func TestParseExprPrecedenceAndAssociativity(t *testing.T) {
 	}
 }
 
+func TestParseExprAliasPrecedence(t *testing.T) {
+	t.Run("a + a as b parses alias on rhs", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("a + a as b", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		top, ok := expr.(ast.BinaryExpr)
+		if !ok || top.Op != "+" {
+			t.Fatalf("expected top '+' binary, got %#v", expr)
+		}
+		alias, ok := top.Right.(ast.AliasExpr)
+		if !ok {
+			t.Fatalf("expected alias expression on rhs, got %#v", top.Right)
+		}
+		if alias.Alias != "b" {
+			t.Fatalf("expected alias name b, got %q", alias.Alias)
+		}
+		id, ok := alias.Expr.(ast.IdentExpr)
+		if !ok || id.Name != "a" {
+			t.Fatalf("expected aliased identifier a, got %#v", alias.Expr)
+		}
+	})
+
+	t.Run("(a + a) as b parses alias on parenthesized expression", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("(a + a) as b", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		alias, ok := expr.(ast.AliasExpr)
+		if !ok {
+			t.Fatalf("expected top-level alias expression, got %#v", expr)
+		}
+		if alias.Alias != "b" {
+			t.Fatalf("expected alias name b, got %q", alias.Alias)
+		}
+		if _, ok := alias.Expr.(ast.BinaryExpr); !ok {
+			t.Fatalf("expected aliased binary expression, got %#v", alias.Expr)
+		}
+	})
+}
+
 func TestParseConditionalExpressions(t *testing.T) {
 	t.Run("valid conditional", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
@@ -333,6 +378,18 @@ func TestParsePrimaryBoolModeCallAndQualified(t *testing.T) {
 				t.Fatalf("unexpected parse errors: %s", diags.String())
 			}
 		})
+	}
+}
+
+func TestParseAliasMissingIdentifierReportsE058(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`a as "b"`, diags)
+	expr := tp.parseExpr()
+	if _, ok := expr.(ast.AliasExpr); !ok {
+		t.Fatalf("expected alias expression fallback, got %#v", expr)
+	}
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for missing alias identifier, got: %s", diags.String())
 	}
 }
 

@@ -94,3 +94,43 @@ func TestParseQualifiedNameErrorBranches(t *testing.T) {
 		}
 	})
 }
+
+func TestParseWithItemsSourceSliceSyntax(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("p[x,y] as a", diags)
+	items := p.parseWithItems()
+	if len(items) != 1 {
+		t.Fatalf("expected one with item, got %#v", items)
+	}
+	it := items[0]
+	if it.SourceExpr != "p" {
+		t.Fatalf("expected source expr p, got %#v", it)
+	}
+	if len(it.SourceSlice) != 2 || it.SourceSlice[0] != "x" || it.SourceSlice[1] != "y" {
+		t.Fatalf("expected source slice [x,y], got %#v", it)
+	}
+	if it.CombAlias != "a" {
+		t.Fatalf("expected comb alias a, got %#v", it)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+}
+
+func TestParseWithItemsTupleInSyntax(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("(x,y) in p", diags)
+	items := p.parseWithItems()
+	if len(items) != 2 {
+		t.Fatalf("expected two with items, got %#v", items)
+	}
+	if items[0].Name != "x" || items[0].From != "p" {
+		t.Fatalf("unexpected first item: %#v", items[0])
+	}
+	if items[1].Name != "y" || items[1].From != "p" {
+		t.Fatalf("unexpected second item: %#v", items[1])
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+}

@@ -20,9 +20,61 @@ param <name> [with ...]
 Inside a `param` block:
 
 - assignments define variable values
-- the final expression uses `+` and `*` to define the parameter-space combination
+- the final expression must evaluate to a comb value
+- legacy final form uses `+` and `*` to define the parameter-space combination
+- expression final form is also allowed, for example `comb(...)`
 - using the same variable multiple times in the final expression is not allowed
 - variables used in the final expression become available to `do` and `submit` (when imported with `with`)
+
+### First-Class `comb` Values
+
+`comb` values are row/column parameter-space objects built from combination algebra.
+
+```jbs
+param p
+{
+        x = (1, 2)
+        y = ("a", "b", "c")
+        m = comb(x * y)
+
+        mx = m.x
+        mxy = m[x, y]
+
+        m
+}
+```
+
+Notes:
+
+- `m.x` selects one column as a sequence
+- `m[x]` and `m[x,y]` project a comb object by columns
+- `m[]` is invalid
+- unknown columns produce an error
+
+### Comb Aliasing with `as`
+
+You can rename one comb branch explicitly with `as`:
+
+```jbs
+param p
+{
+        x = (1, 2, 3)
+        y = ("a", "b", "c")
+        a = comb(x + y)
+
+        # valid: rename x-branch to z
+        b = (x as z) + a
+        b
+}
+```
+
+Rules:
+
+- `comb(a + a)` is invalid (duplicate output name `a`)
+- `comb(a + a as b)` is valid
+- `comb(a * range(2))` is invalid (unnamed non-identifier leaf)
+- `comb(a * range(2) as b)` is valid
+- alias on a comb-valued operand is invalid, for example `(a as t)` when `a` is comb
 
 ### Variable Types
 
@@ -35,7 +87,9 @@ Supported value types:
   - bool, for example `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
 - tuples, for example `(0,1,2)`
 - lists, for example `[0,1,2]`
-- kernel functions used in `param` assignments, for example `range(...)`, `rev(...)`
+- kernel functions used in `param` assignments, for example:
+  - `range(...)`, `rev(...)`
+  - `comb(...)`, `len(...)`, `filter(...)`, `all(...)`, `any(...)`
 - mode declarations with `shell(...)` and `python(...)`
 
 Example:
@@ -50,7 +104,7 @@ host = shell("hostname | tr -d '\n'")
 
 ### Tuple vs List Behavior
 
-In the final combination expression, tuples and lists behave the same.
+In legacy final combination algebra, tuples and lists behave the same.
 
 They differ in assignment-level arithmetic:
 
@@ -151,6 +205,43 @@ param derived4
 ```
 
 Operator precedence and parentheses work as usual, for example `(a + b) * c`.
+
+### Extra `with` Forms
+
+The following `with` forms are also valid in `param` headers:
+
+```jbs
+with p[x, y]
+with (x, y) in p
+with p[x, y] as a
+```
+
+- `with p[x,y]` and `with (x,y) in p` are equivalent
+- `with p[x,y] as a` also binds `a` as a comb alias
+
+### `len`, `filter`, `all`, `any`
+
+```jbs
+param p
+{
+        x = (1, 2, 3, 4)
+        m = comb(x)
+
+        even = filter(m, m.x % 2 == 0)
+        n = len(even)
+        has_even = any(even.x)
+        all_small = all(m.x <= 4)
+
+        even
+}
+```
+
+Behavior summary:
+
+- `len` accepts list, tuple, string, and comb
+- `filter` accepts list, tuple, or comb as first argument
+- `filter` mask supports scalar or vector inputs with broadcast rules
+- `all` and `any` reduce scalar/sequence truthiness to one boolean
 
 ### Multiline Continuation
 

@@ -645,6 +645,13 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 				Name: n.Name,
 				Span: n.Span,
 			})
+		case ast.QualifiedIdentExpr:
+			if n.Namespace != "" {
+				out = append(out, varRef{
+					Name: n.Namespace,
+					Span: n.Span,
+				})
+			}
 		case ast.ListExpr:
 			for _, it := range n.Items {
 				walk(it)
@@ -656,8 +663,16 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 		case ast.ConvertExpr:
 			walk(n.Expr)
 		case ast.CallExpr:
+			walk(n.Callee)
 			for _, arg := range n.Args {
 				walk(arg)
+			}
+		case ast.AliasExpr:
+			walk(n.Expr)
+		case ast.IndexExpr:
+			walk(n.Base)
+			for _, item := range n.Items {
+				walk(item)
 			}
 		case ast.UnaryExpr:
 			walk(n.Expr)
@@ -711,8 +726,16 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 		case ast.ConvertExpr:
 			walk(n.Expr)
 		case ast.CallExpr:
+			walk(n.Callee)
 			for _, arg := range n.Args {
 				walk(arg)
+			}
+		case ast.AliasExpr:
+			walk(n.Expr)
+		case ast.IndexExpr:
+			walk(n.Base)
+			for _, item := range n.Items {
+				walk(item)
 			}
 		case ast.UnaryExpr:
 			walk(n.Expr)

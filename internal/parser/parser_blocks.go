@@ -46,12 +46,13 @@ func (p *Parser) parseParamBlock(blockStart diag.Position) ast.ParamBlock {
 		}
 	}
 
-	assignments, final := parseParamBody(p.file, body, innerStart, p.diags)
+	assignments, final, finalExpr := parseParamBody(p.file, body, innerStart, p.diags)
 	return ast.ParamBlock{
 		Name:        name,
 		WithItems:   withItems,
 		Assignments: assignments,
 		Final:       final,
+		FinalExpr:   finalExpr,
 		HeaderRaw:   headerRaw,
 		Header:      headerElems,
 		BodyRaw:     body,

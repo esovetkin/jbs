@@ -147,6 +147,19 @@ func resolveImportedVars(items []ast.WithItem, sources map[string]*ImportSource)
 	}
 
 	for _, item := range items {
+		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
+			src := sources[item.SourceExpr]
+			if src == nil {
+				continue
+			}
+			for _, sel := range item.SourceSlice {
+				if _, ok := src.Vars[sel]; !ok {
+					continue
+				}
+				add(sel, sel, src.Name, src.Kind, item.Span)
+			}
+			continue
+		}
 		if item.From == "" {
 			src := sources[item.Name]
 			if src == nil {

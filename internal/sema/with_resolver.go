@@ -31,6 +31,8 @@ type ExpandedWithItem struct {
 	Vars       []ExpandedWithVar
 	Full       bool
 	SourceExpr string
+	CombAlias  string
+	SliceOrder []string
 	Span       diag.Span
 }
 
@@ -63,6 +65,46 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 
 	for _, item := range items {
 		if item.Rejected {
+			continue
+		}
+		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
+			src, issue := r.resolveNamedSource(item.SourceExpr, item, opts)
+			if issue != nil {
+				issues = append(issues, *issue)
+				continue
+			}
+			vars := make([]ExpandedWithVar, 0, len(item.SourceSlice))
+			ok := true
+			for _, sel := range item.SourceSlice {
+				if _, exists := src.Vars[sel]; !exists {
+					issues = append(issues, ResolveIssue{
+						Kind:     IssueUnknownVar,
+						Item:     item,
+						Source:   item.SourceExpr,
+						Variable: sel,
+						Span:     item.Span,
+					})
+					ok = false
+					continue
+				}
+				vars = append(vars, ExpandedWithVar{
+					Visible:   sel,
+					SourceVar: sel,
+				})
+			}
+			if !ok {
+				continue
+			}
+			expanded = append(expanded, ExpandedWithItem{
+				Source:     src.Name,
+				Kind:       src.Kind,
+				Vars:       vars,
+				Full:       false,
+				SourceExpr: item.SourceExpr,
+				CombAlias:  item.CombAlias,
+				SliceOrder: append([]string(nil), item.SourceSlice...),
+				Span:       item.Span,
+			})
 			continue
 		}
 		if item.From == "" {

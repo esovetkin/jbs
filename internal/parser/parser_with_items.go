@@ -16,56 +16,119 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 	items := make([]ast.WithItem, 0)
 	currentFrom := ""
 	for {
-		names, ok := p.parseWithNames()
-		if !ok || len(names) == 0 {
-			break
-		}
-
-		src := ""
-		srcSpan := diag.Span{}
-		hasExplicitFrom := false
 		p.skipTriviaInline()
-		word, ok := p.peekWord()
-		if ok && word == "from" {
-			p.consumeWord()
-			srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after 'from'")
-			src = srcName
-			srcSpan = fromSpan
-			currentFrom = srcName
-			hasExplicitFrom = true
-		}
-
-		alias := ""
-		aliasSpan := diag.Span{}
-		p.skipTriviaInline()
-		if word, ok := p.peekWord(); ok && word == "as" {
-			asStart := p.pos()
-			asEnd := p.consumeWord()
-			aliasName, parsedAliasSpan := p.parseRequiredIdent(diag.CodeE023, "expected alias identifier after 'as' in with clause")
-			if len(names) != 1 {
-				span := diag.NewSpan(p.file, asStart, parsedAliasSpan.End)
+		itemStart := p.pos()
+		if p.peek() == '(' {
+			names, ok := p.parseWithNames()
+			if !ok || len(names) == 0 {
+				break
+			}
+			src := ""
+			srcSpan := diag.Span{}
+			hasExplicitSource := false
+			p.skipTriviaInline()
+			if word, ok := p.peekWord(); ok && (word == "from" || word == "in") {
+				p.consumeWord()
+				srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after with clause source keyword")
+				src = srcName
+				srcSpan = fromSpan
+				currentFrom = srcName
+				hasExplicitSource = true
+			}
+			if !hasExplicitSource && currentFrom != "" {
+				src = currentFrom
+			}
+			p.skipTriviaInline()
+			if word, ok := p.peekWord(); ok && word == "as" {
+				asStart := p.pos()
+				asEnd := p.consumeWord()
+				_, parsedAliasSpan := p.parseRequiredIdent(diag.CodeE023, "expected alias identifier after 'as' in with clause")
+				span := diag.Merge(diag.NewSpan(p.file, asStart, asEnd), parsedAliasSpan)
 				p.diags.AddError(diag.CodeE023, "alias is only allowed for a single with-clause item", span, "use `name as alias` or split tuple imports into individual aliased items")
-			} else {
-				alias = aliasName
-				aliasSpan = diag.Merge(diag.NewSpan(p.file, asStart, asEnd), parsedAliasSpan)
 			}
-		}
-		if !hasExplicitFrom && currentFrom != "" && alias == "" {
-			src = currentFrom
+			for _, name := range names {
+				item := ast.WithItem{Name: name.Name, Span: name.Span, From: src}
+				if src != "" && !srcSpan.IsZero() {
+					item.Span = diag.Merge(item.Span, srcSpan)
+				}
+				items = append(items, item)
+			}
+		} else {
+			name, nameSpan := p.parseQualifiedName(diag.CodeE023, "expected identifier in with clause")
+			if name == "" {
+				break
+			}
+			p.skipTriviaInline()
+			if p.peek() == '[' {
+				sliceNames, sliceSpan, ok := p.parseWithSliceNames()
+				if !ok {
+					break
+				}
+				combAlias := ""
+				aliasSpan := diag.Span{}
+				p.skipTriviaInline()
+				if word, ok := p.peekWord(); ok && word == "as" {
+					asStart := p.pos()
+					asEnd := p.consumeWord()
+					aliasName, parsedAliasSpan := p.parseRequiredIdent(diag.CodeE023, "expected alias identifier after 'as' in with clause")
+					combAlias = aliasName
+					aliasSpan = diag.Merge(diag.NewSpan(p.file, asStart, asEnd), parsedAliasSpan)
+				}
+				itemSpan := diag.Merge(nameSpan, sliceSpan)
+				if !aliasSpan.IsZero() {
+					itemSpan = diag.Merge(itemSpan, aliasSpan)
+				}
+				items = append(items, ast.WithItem{
+					Name:        name,
+					SourceExpr:  name,
+					SourceSlice: sliceNames,
+					CombAlias:   combAlias,
+					Span:        itemSpan,
+				})
+			} else {
+				src := ""
+				srcSpan := diag.Span{}
+				hasExplicitFrom := false
+				p.skipTriviaInline()
+				word, ok := p.peekWord()
+				if ok && (word == "from" || word == "in") {
+					p.consumeWord()
+					srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after with clause source keyword")
+					src = srcName
+					srcSpan = fromSpan
+					currentFrom = srcName
+					hasExplicitFrom = true
+				}
+
+				alias := ""
+				aliasSpan := diag.Span{}
+				p.skipTriviaInline()
+				if word, ok := p.peekWord(); ok && word == "as" {
+					asStart := p.pos()
+					asEnd := p.consumeWord()
+					aliasName, parsedAliasSpan := p.parseRequiredIdent(diag.CodeE023, "expected alias identifier after 'as' in with clause")
+					alias = aliasName
+					aliasSpan = diag.Merge(diag.NewSpan(p.file, asStart, asEnd), parsedAliasSpan)
+				}
+				if !hasExplicitFrom && currentFrom != "" && alias == "" {
+					src = currentFrom
+				}
+				item := ast.WithItem{Name: name, Span: nameSpan, From: src}
+				if src != "" && !srcSpan.IsZero() {
+					item.Span = diag.Merge(item.Span, srcSpan)
+				}
+				if alias != "" {
+					item.Alias = alias
+					if !aliasSpan.IsZero() {
+						item.Span = diag.Merge(item.Span, aliasSpan)
+					}
+				}
+				items = append(items, item)
+			}
 		}
 
-		for _, name := range names {
-			item := ast.WithItem{Name: name.Name, Span: name.Span, From: src}
-			if src != "" && !srcSpan.IsZero() {
-				item.Span = diag.Merge(item.Span, srcSpan)
-			}
-			if alias != "" {
-				item.Alias = alias
-				if !aliasSpan.IsZero() {
-					item.Span = diag.Merge(item.Span, aliasSpan)
-				}
-			}
-			items = append(items, item)
+		if itemStart == p.pos() {
+			break
 		}
 		p.skipTriviaInline()
 		if p.peek() != ',' {
@@ -74,6 +137,45 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 		p.advance()
 	}
 	return items
+}
+
+func (p *Parser) parseWithSliceNames() ([]string, diag.Span, bool) {
+	start := p.pos()
+	if p.peek() != '[' {
+		p.diags.AddError(diag.CodeE023, "expected '[' in with slice syntax", diag.NewSpan(p.file, start, start), "use syntax: source[var0,var1]")
+		return nil, diag.NewSpan(p.file, start, start), false
+	}
+	p.advance()
+	names := make([]string, 0, 2)
+	for {
+		p.skipTriviaInline()
+		if p.peek() == ']' {
+			end := p.pos()
+			p.advance()
+			if len(names) == 0 {
+				span := diag.NewSpan(p.file, start, end)
+				p.diags.AddError(diag.CodeE023, "empty with-slice selector list", span, "add at least one variable name inside []")
+				return nil, span, false
+			}
+			return names, diag.NewSpan(p.file, start, p.pos()), true
+		}
+		name, _ := p.parseQualifiedName(diag.CodeE023, "expected identifier in with slice selector")
+		if name == "" {
+			return nil, diag.NewSpan(p.file, start, p.pos()), false
+		}
+		names = append(names, name)
+		p.skipTriviaInline()
+		if p.peek() == ',' {
+			p.advance()
+			continue
+		}
+		if p.peek() == ']' {
+			continue
+		}
+		span := diag.NewSpan(p.file, start, p.pos())
+		p.diags.AddError(diag.CodeE023, "unterminated with slice selector list", span, "close selector list with ']'")
+		return nil, span, false
+	}
 }
 
 type withName struct {

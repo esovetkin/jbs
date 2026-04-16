@@ -89,6 +89,12 @@ func walkComb(expr ast.CombExpr, fn func(ast.CombIdent)) {
 func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, opts CombEvalOptions, diags *diag.Diagnostics) []Row {
 	switch e := expr.(type) {
 	case ast.CombIdent:
+		if e.Name == "" {
+			return nil
+		}
+		if srcRows, ok := opts.SourceRows[e.Name]; ok {
+			return cloneRows(srcRows)
+		}
 		vals, ok := series[e.Name]
 		if ok {
 			rows := make([]Row, 0, len(vals))
@@ -100,9 +106,6 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 				rows = append(rows, Row{Values: map[string]Cell{e.Name: {Value: v, Origin: origin}}})
 			}
 			return rows
-		}
-		if srcRows, ok := opts.SourceRows[e.Name]; ok {
-			return cloneRows(srcRows)
 		}
 		diags.AddError(diag.CodeE111, fmt.Sprintf("unknown combination identifier '%s'", e.Name), e.Span, "define the variable before final expression")
 		return nil

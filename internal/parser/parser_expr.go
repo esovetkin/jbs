@@ -218,6 +218,11 @@ func (p *tokenParser) parseUnary() ast.Expr {
 }
 
 func (p *tokenParser) parsePrimary() ast.Expr {
+	expr := p.parsePrimaryAtom()
+	return p.parsePostfix(expr)
+}
+
+func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 	tok := p.peek()
 	switch tok.Type {
 	case lexer.TokenIdent:
@@ -241,20 +246,7 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 			}
 		}
 		nameTok := p.next()
-		callee := ast.Expr(ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span})
-		if p.peek().Type == lexer.TokenDot {
-			p.next()
-			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
-			callee = ast.QualifiedIdentExpr{
-				Namespace: nameTok.Value,
-				Name:      memberTok.Value,
-				Span:      diag.Merge(nameTok.Span, memberTok.Span),
-			}
-		}
-		if p.peek().Type == lexer.TokenLParen {
-			return p.parseCallExpr(callee)
-		}
-		return callee
+		return ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span}
 	case lexer.TokenString:
 		p.next()
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
@@ -344,6 +336,109 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 		)
 		p.next()
 		return ast.StringExpr{Value: "", Span: tok.Span}
+	}
+}
+
+func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {
+	expr := base
+	for {
+		switch p.peek().Type {
+		case lexer.TokenDot:
+			p.next()
+			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
+			switch n := expr.(type) {
+			case ast.IdentExpr:
+				expr = ast.QualifiedIdentExpr{
+					Namespace: n.Name,
+					Name:      memberTok.Value,
+					Span:      diag.Merge(n.Span, memberTok.Span),
+				}
+			case ast.QualifiedIdentExpr:
+				ns := n.Namespace + "." + n.Name
+				expr = ast.QualifiedIdentExpr{
+					Namespace: ns,
+					Name:      memberTok.Value,
+					Span:      diag.Merge(n.Span, memberTok.Span),
+				}
+			default:
+				p.diags.AddError(
+					diag.CodeE064,
+					"expected identifier namespace before '.'",
+					memberTok.Span,
+					"use syntax: namespace.member",
+				)
+				expr = ast.QualifiedIdentExpr{
+					Namespace: "",
+					Name:      memberTok.Value,
+					Span:      diag.Merge(expr.GetSpan(), memberTok.Span),
+				}
+			}
+		case lexer.TokenLParen:
+			expr = p.parseCallExpr(expr)
+		case lexer.TokenLBracket:
+			expr = p.parseIndexExpr(expr)
+		case lexer.TokenAs:
+			asTok := p.next()
+			aliasTok := p.peek()
+			if aliasTok.Type != lexer.TokenIdent {
+				p.diags.AddError(
+					diag.CodeE058,
+					"expected alias identifier after 'as'",
+					aliasTok.Span,
+					"use syntax: expression as identifier",
+				)
+				if aliasTok.Type != lexer.TokenEOF {
+					aliasTok = p.next()
+					expr = ast.AliasExpr{
+						Expr:  expr,
+						Alias: "",
+						Span:  diag.Merge(expr.GetSpan(), aliasTok.Span),
+					}
+				} else {
+					expr = ast.AliasExpr{
+						Expr:  expr,
+						Alias: "",
+						Span:  diag.Merge(expr.GetSpan(), asTok.Span),
+					}
+				}
+				continue
+			}
+			aliasTok = p.next()
+			expr = ast.AliasExpr{
+				Expr:  expr,
+				Alias: aliasTok.Value,
+				Span:  diag.Merge(expr.GetSpan(), aliasTok.Span),
+			}
+		default:
+			return expr
+		}
+	}
+}
+
+func (p *tokenParser) parseIndexExpr(base ast.Expr) ast.Expr {
+	open := p.expect(lexer.TokenLBracket, diag.CodeE055, "expected '[' after expression")
+	p.skipNewlines()
+	items := make([]ast.Expr, 0, 2)
+	if p.peek().Type != lexer.TokenRBracket {
+		for {
+			items = append(items, p.parseExpr())
+			p.skipNewlines()
+			if p.peek().Type != lexer.TokenComma {
+				break
+			}
+			p.next()
+			p.skipNewlines()
+			if p.peek().Type == lexer.TokenRBracket {
+				break
+			}
+		}
+	}
+	p.skipNewlines()
+	close := p.expect(lexer.TokenRBracket, diag.CodeE055, "expected ']' to close index expression")
+	return ast.IndexExpr{
+		Base:  base,
+		Items: items,
+		Span:  diag.Merge(base.GetSpan(), diag.Merge(open.Span, close.Span)),
 	}
 }
 

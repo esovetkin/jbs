@@ -30,15 +30,72 @@ a + b
 c = 3
 `
 	diags := &diag.Diagnostics{}
-	assignments, final := parseParamBody("param_body.jbs", body, diag.NewPos(0, 1, 1), diags)
+	assignments, final, finalExpr := parseParamBody("param_body.jbs", body, diag.NewPos(0, 1, 1), diags)
 	if len(assignments) != 2 {
 		t.Fatalf("expected 2 assignments before final expression, got %d", len(assignments))
 	}
 	if final == nil {
 		t.Fatalf("expected final combination expression")
 	}
+	if finalExpr != nil {
+		t.Fatalf("did not expect final expression fallback, got %#v", finalExpr)
+	}
 	if !hasCode(diags, "E026") {
 		t.Fatalf("expected E026 for trailing tokens after final expression, got: %s", diags.String())
+	}
+}
+
+func TestParseParamBodyFinalFunctionCallParsesAsFinalExpr(t *testing.T) {
+	body := `
+a = 1
+a * range(2)
+`
+	diags := &diag.Diagnostics{}
+	assignments, final, finalExpr := parseParamBody("param_body_final_call.jbs", body, diag.NewPos(0, 1, 1), diags)
+	if len(assignments) != 1 {
+		t.Fatalf("expected one assignment before final expression, got %d", len(assignments))
+	}
+	if final != nil {
+		t.Fatalf("did not expect legacy comb final for call expression, got %#v", final)
+	}
+	if finalExpr == nil {
+		t.Fatalf("expected final expression fallback for call-based final statement")
+	}
+	if hasCode(diags, "E026") {
+		t.Fatalf("did not expect E026 trailing-token cascade, got: %s", diags.String())
+	}
+	if diags.HasErrors() {
+		t.Fatalf("did not expect parser errors for final expression fallback, got: %s", diags.String())
+	}
+}
+
+func TestParseParamBodyFinalCombCallParsesAsFinalExpr(t *testing.T) {
+	body := `
+x = (1,2)
+y = (3,4)
+comb(x*x as b)
+`
+	diags := &diag.Diagnostics{}
+	assignments, final, finalExpr := parseParamBody("param_body_final_comb_call.jbs", body, diag.NewPos(0, 1, 1), diags)
+	if len(assignments) != 2 {
+		t.Fatalf("expected two assignments before final expression, got %d", len(assignments))
+	}
+	if final != nil {
+		t.Fatalf("did not expect legacy comb final for comb(...) call, got %#v", final)
+	}
+	if finalExpr == nil {
+		t.Fatalf("expected final expression fallback for comb(...) final")
+	}
+	call, ok := finalExpr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected final expression to be call expr, got %T", finalExpr)
+	}
+	callee, ok := call.Callee.(ast.IdentExpr)
+	if !ok || callee.Name != "comb" {
+		t.Fatalf("expected comb(...) call, got %#v", call.Callee)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("did not expect parser errors, got: %s", diags.String())
 	}
 }
 
@@ -48,12 +105,15 @@ a = 1
 b = 2
 `
 	diags := &diag.Diagnostics{}
-	assignments, final := parseParamBody("param_body_missing_final.jbs", body, diag.NewPos(0, 1, 1), diags)
+	assignments, final, finalExpr := parseParamBody("param_body_missing_final.jbs", body, diag.NewPos(0, 1, 1), diags)
 	if len(assignments) != 2 {
 		t.Fatalf("expected two assignments, got %d", len(assignments))
 	}
 	if final != nil {
 		t.Fatalf("expected nil final expression when missing, got %#v", final)
+	}
+	if finalExpr != nil {
+		t.Fatalf("expected nil final fallback expression when missing, got %#v", finalExpr)
 	}
 	if !hasCode(diags, "E027") {
 		t.Fatalf("expected E027 for missing final expression, got: %s", diags.String())

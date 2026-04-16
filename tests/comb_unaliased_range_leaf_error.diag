@@ -1,0 +1,12 @@
+ERROR E106 /home/jackson/jbs/tests/comb_unaliased_range_leaf_error.jbs:4:22
+comb leaf expression must be an identifier or use 'as <name>'
+     4 |         c = comb(a * range(2))
+       |                      ^^^^^^^^
+Hint: use syntax: ident, ident as alias, or expression as alias
+ERROR E230 /home/jackson/jbs/tests/comb_unaliased_range_leaf_error.jbs:1:1
+parameterset 'p' evaluates to zero rows
+     1 | param p
+       | ^
+     2 | {
+     3 |         a = (1, 2)
+Hint: ensure final expression yields at least one row

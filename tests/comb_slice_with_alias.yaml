@@ -1,0 +1,45 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Param block 'base'
+  - name: base
+    parameter:
+      - name: _ji_base
+        type: int
+        mode: text
+        _: 0,1,2,3,4,5
+      - name: x
+        mode: python
+        _: '[1,1,1,2,2,2][$_ji_base]'
+      - name: "y"
+        mode: python
+        _: '["u","v","w","u","v","w"][$_ji_base]'
+
+  # Param block 'derived'
+  - name: derived
+    parameter:
+      - name: _ji_derived
+        type: int
+        mode: text
+        _: 0,1,2,3,4,5
+      - name: x
+        mode: python
+        _: '[1,1,1,2,2,2][$_ji_derived]'
+      - name: "y"
+        mode: python
+        _: '["u","v","w","u","v","w"][$_ji_derived]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'run'
+  - name: run
+    use:
+      - derived
+    do:
+      - |
+        echo ${x} ${y}
