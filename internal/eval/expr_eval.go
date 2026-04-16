@@ -707,37 +707,64 @@ func combValueFromRows(rows []Row) Value {
 
 func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(args) < 1 || len(args) > 3 {
-		diags.AddError(diag.CodeE106, "range() expects 1, 2, or 3 integer arguments", at, "use range(stop), range(start, stop), or range(start, stop, step)")
+		diags.AddError(diag.CodeE106, "range() expects 1, 2, or 3 arguments", at, "use range(stop), range(start, stop), or range(start, stop, step)")
 		return Null()
 	}
-
-	ints := make([]int64, len(args))
-	for i, arg := range args {
+	for _, arg := range args {
 		if arg.Kind == KindNull {
 			return Null()
 		}
+	}
+
+	if len(args) < 3 {
+		ints := make([]int64, len(args))
+		for i, arg := range args {
+			if arg.Kind != KindInt {
+				diags.AddError(diag.CodeE106, "range() with 1 or 2 arguments expects integers", at, "use integer arguments only")
+				return Null()
+			}
+			ints[i] = arg.I
+		}
+		start := int64(0)
+		stop := int64(0)
+		step := int64(1)
+		switch len(ints) {
+		case 1:
+			stop = ints[0]
+		case 2:
+			start = ints[0]
+			stop = ints[1]
+		}
+		return evalRangeInt(start, stop, step, at, diags)
+	}
+
+	allInt := true
+	for _, arg := range args {
 		if arg.Kind != KindInt {
-			diags.AddError(diag.CodeE106, "range() expects integer arguments", at, "use integer arguments only")
+			allInt = false
+			break
+		}
+	}
+	if allInt {
+		return evalRangeInt(args[0].I, args[1].I, args[2].I, at, diags)
+	}
+
+	nums := make([]float64, 3)
+	for i, arg := range args {
+		switch arg.Kind {
+		case KindInt:
+			nums[i] = float64(arg.I)
+		case KindFloat:
+			nums[i] = arg.F
+		default:
+			diags.AddError(diag.CodeE106, "range() with 3 arguments expects numeric values", at, "use int or float arguments")
 			return Null()
 		}
-		ints[i] = arg.I
 	}
+	return evalRangeFloat(nums[0], nums[1], nums[2], at, diags)
+}
 
-	start := int64(0)
-	stop := int64(0)
-	step := int64(1)
-	switch len(ints) {
-	case 1:
-		stop = ints[0]
-	case 2:
-		start = ints[0]
-		stop = ints[1]
-	case 3:
-		start = ints[0]
-		stop = ints[1]
-		step = ints[2]
-	}
-
+func evalRangeInt(start, stop, step int64, at diag.Span, diags *diag.Diagnostics) Value {
 	if step <= 0 {
 		diags.AddError(diag.CodeE106, "range() step must be a positive integer", at, "use step > 0")
 		return Null()
@@ -745,7 +772,6 @@ func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if start >= stop {
 		return List(nil)
 	}
-
 	items := make([]Value, 0)
 	for current := start; current < stop; {
 		items = append(items, Int(current))
@@ -754,6 +780,35 @@ func evalRangeCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 			return Null()
 		}
 		current += step
+	}
+	return List(items)
+}
+
+func evalRangeFloat(start, stop, step float64, at diag.Span, diags *diag.Diagnostics) Value {
+	if math.IsNaN(start) || math.IsNaN(stop) || math.IsNaN(step) || math.IsInf(start, 0) || math.IsInf(stop, 0) || math.IsInf(step, 0) {
+		diags.AddError(diag.CodeE106, "range() with 3 arguments expects finite numeric values", at, "use finite int/float bounds and step")
+		return Null()
+	}
+	if step <= 0 {
+		diags.AddError(diag.CodeE106, "range() step must be positive", at, "use step > 0")
+		return Null()
+	}
+	if start >= stop {
+		return List(nil)
+	}
+	items := make([]Value, 0)
+	for current := start; current < stop; {
+		items = append(items, Float(current))
+		next := current + step
+		if !(next > current) {
+			diags.AddError(diag.CodeE106, "range() step is too small to make progress", at, "use a larger step")
+			return Null()
+		}
+		if math.IsNaN(next) || math.IsInf(next, 0) {
+			diags.AddError(diag.CodeE106, "range() overflow while generating values", at, "use smaller bounds or step")
+			return Null()
+		}
+		current = next
 	}
 	return List(items)
 }

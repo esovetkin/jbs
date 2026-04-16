@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 	"jbs/internal/lower"
 	"jbs/internal/parser"
 	"jbs/internal/sema"
@@ -69,6 +70,35 @@ param p {
 	for i, w := range want {
 		if b[i].I != w {
 			t.Fatalf("unexpected b[%d]=%d", i, b[i].I)
+		}
+	}
+}
+
+func TestKernelRangeFloatThreeArgsAllowedInParamAssignments(t *testing.T) {
+	src := `
+param p {
+  a = range(0,1.5,0.5)
+  a
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("range_float_three_args_param.jbs", src, diags)
+	res := sema.Analyze(prog, lower.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	p := res.ParamByName["p"]
+	if p == nil {
+		t.Fatalf("missing param p")
+	}
+	a := p.Vars["a"]
+	if len(a) != 3 {
+		t.Fatalf("expected len(a)=3, got %d", len(a))
+	}
+	want := []float64{0.0, 0.5, 1.0}
+	for i, w := range want {
+		if a[i].Kind != eval.KindFloat || a[i].F != w {
+			t.Fatalf("unexpected a[%d]=%#v", i, a[i])
 		}
 	}
 }

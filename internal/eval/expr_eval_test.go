@@ -1002,6 +1002,37 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 			t.Fatalf("unexpected range(0,10,2) value at %d: %#v", i, rangeStep.L[i])
 		}
 	}
+	rangeFloat := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args: []ast.Expr{
+			ast.NumberExpr{Int: true, IntValue: 0},
+			ast.NumberExpr{Int: false, FloatValue: 1.5},
+			ast.NumberExpr{Int: false, FloatValue: 0.5},
+		},
+	}, map[string]Value{}, diags, opts)
+	if rangeFloat.Kind != KindList || len(rangeFloat.L) != 3 {
+		t.Fatalf("expected range(0,1.5,0.5) len 3, got %#v", rangeFloat)
+	}
+	for i, want := range []float64{0.0, 0.5, 1.0} {
+		if rangeFloat.L[i].Kind != KindFloat || math.Abs(rangeFloat.L[i].F-want) > 1e-12 {
+			t.Fatalf("unexpected range(0,1.5,0.5) value at %d: %#v", i, rangeFloat.L[i])
+		}
+	}
+	rangeFloatSmallStep := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args: []ast.Expr{
+			ast.NumberExpr{Int: true, IntValue: 0},
+			ast.NumberExpr{Int: false, FloatValue: 1.5},
+			ast.NumberExpr{Int: false, FloatValue: 0.01},
+		},
+	}, map[string]Value{}, diags, opts)
+	if rangeFloatSmallStep.Kind != KindList || len(rangeFloatSmallStep.L) == 0 {
+		t.Fatalf("expected non-empty range(0,1.5,0.01), got %#v", rangeFloatSmallStep)
+	}
+	last := rangeFloatSmallStep.L[len(rangeFloatSmallStep.L)-1]
+	if last.Kind != KindFloat || !(last.F < 1.5) {
+		t.Fatalf("expected last float value < 1.5, got %#v", last)
+	}
 
 	revList := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "rev"},
@@ -1106,6 +1137,18 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			wantCode: "E106",
 		},
 		{
+			name: "range two-arg float type error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 0},
+					ast.NumberExpr{Int: false, FloatValue: 1.5},
+				},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
 			name: "range step error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
@@ -1113,6 +1156,19 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 					ast.NumberExpr{Int: true, IntValue: 0},
 					ast.NumberExpr{Int: true, IntValue: 5},
 					ast.NumberExpr{Int: true, IntValue: 0},
+				},
+			},
+			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			wantCode: "E106",
+		},
+		{
+			name: "range three-arg non-numeric type error",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "range"},
+				Args: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 0},
+					ast.NumberExpr{Int: false, FloatValue: 1.5},
+					ast.StringExpr{Value: "x"},
 				},
 			},
 			opts:     ExprOptions{Context: EvalCtxParamAssign},
@@ -1554,6 +1610,20 @@ func TestEvalRangeAndRevCornerBranches(t *testing.T) {
 		}
 		if diagCount(diags, "E106") != 1 {
 			t.Fatalf("expected E106 overflow diagnostic, got: %s", diags.String())
+		}
+	})
+	t.Run("range float non-progress guard", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalRangeCall([]Value{
+			Float(10000000000000000),
+			Float(10000000000000010),
+			Float(1),
+		}, spanAt(79, 10), diags)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null for float non-progress guard, got %#v", got)
+		}
+		if diagCount(diags, "E106") != 1 {
+			t.Fatalf("expected E106 non-progress diagnostic, got: %s", diags.String())
 		}
 	})
 
