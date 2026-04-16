@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
@@ -92,8 +93,59 @@ func TestEvalFilterCallBranches(t *testing.T) {
 		if got.Kind != KindList || len(got.L) != 3 {
 			t.Fatalf("expected full list due truthy broadcast mask, got %#v", got)
 		}
-		if diagCount(diags, "W101") < 2 {
-			t.Fatalf("expected W101 mismatch + cast warnings, got: %s", diags.String())
+		if diagCount(diags, "W101") != 1 {
+			t.Fatalf("expected one W101 cast warning for divisible broadcast, got: %s", diags.String())
+		}
+		if hasDiagMessage(diags, "length mismatch in filter mask") {
+			t.Fatalf("did not expect mismatch warning for divisible broadcast, got: %s", diags.String())
+		}
+	})
+
+	t.Run("divisible broadcast has no mismatch warning", func(t *testing.T) {
+		values := make([]Value, 0, 10)
+		for i := int64(0); i < 10; i++ {
+			values = append(values, Int(i))
+		}
+		diags := &diag.Diagnostics{}
+		got := evalFilterCall([]Value{
+			List(values),
+			List([]Value{Bool(true), Bool(false)}),
+		}, spanAt(312, 20), diags)
+		if got.Kind != KindList || len(got.L) != 5 {
+			t.Fatalf("expected five filtered values, got %#v", got)
+		}
+		want := []int64{0, 2, 4, 6, 8}
+		for i, v := range got.L {
+			if v.Kind != KindInt || v.I != want[i] {
+				t.Fatalf("unexpected filtered value at %d: got=%#v want=%d", i, v, want[i])
+			}
+		}
+		if hasDiagMessage(diags, "length mismatch in filter mask") {
+			t.Fatalf("did not expect mismatch warning for divisible broadcast, got: %s", diags.String())
+		}
+		if diagCount(diags, "W101") != 0 {
+			t.Fatalf("expected no W101 warnings for boolean divisible mask, got: %s", diags.String())
+		}
+	})
+
+	t.Run("non-divisible broadcast emits mismatch warning", func(t *testing.T) {
+		values := make([]Value, 0, 10)
+		for i := int64(0); i < 10; i++ {
+			values = append(values, Int(i))
+		}
+		diags := &diag.Diagnostics{}
+		got := evalFilterCall([]Value{
+			List(values),
+			List([]Value{Bool(true), Bool(false), Bool(true)}),
+		}, spanAt(312, 40), diags)
+		if got.Kind != KindList || len(got.L) != 7 {
+			t.Fatalf("expected seven filtered values, got %#v", got)
+		}
+		if !hasDiagMessage(diags, "length mismatch in filter mask") {
+			t.Fatalf("expected mismatch warning for non-divisible broadcast, got: %s", diags.String())
+		}
+		if diagCount(diags, "W101") != 1 {
+			t.Fatalf("expected one W101 mismatch warning, got: %s", diags.String())
 		}
 	})
 
@@ -157,6 +209,15 @@ func TestEvalFilterCallBranches(t *testing.T) {
 			t.Fatalf("expected E106, got: %s", diags.String())
 		}
 	})
+}
+
+func hasDiagMessage(diags *diag.Diagnostics, needle string) bool {
+	for _, item := range diags.Items {
+		if strings.Contains(item.Message, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEvalAllAnyCallBranches(t *testing.T) {

@@ -454,18 +454,22 @@ func broadcastMask(maskVals []Value, n int, at diag.Span, diags *diag.Diagnostic
 	if n <= 0 {
 		return nil
 	}
-	if len(maskVals) != n {
-		diags.AddWarning(
-			diag.CodeW101,
-			fmt.Sprintf("length mismatch in filter mask: values=%d mask=%d; cyclic broadcast to length %d", n, len(maskVals), n),
-			at,
-			"align mask length with filtered value length",
-		)
+	m := len(maskVals)
+	if m != n {
+		shouldWarn := n%m != 0
+		if shouldWarn {
+			diags.AddWarning(
+				diag.CodeW101,
+				fmt.Sprintf("length mismatch in filter mask: values=%d mask=%d; cyclic broadcast to length %d", n, m, n),
+				at,
+				"align mask length with filtered value length",
+			)
+		}
 	}
 	out := make([]bool, n)
 	castWarned := false
 	for i := 0; i < n; i++ {
-		b, casted := truthy(maskVals[i%len(maskVals)])
+		b, casted := truthy(maskVals[i%m])
 		if casted && !castWarned {
 			castWarned = true
 			diags.AddWarning(diag.CodeW101, "filter() cast non-boolean mask values via truthiness", at, "use explicit boolean mask values")
