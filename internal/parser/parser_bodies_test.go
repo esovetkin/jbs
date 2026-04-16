@@ -120,6 +120,24 @@ b = 2
 	}
 }
 
+func TestCombExprFromExprIdentConversion(t *testing.T) {
+	span := diag.NewSpan("param_body_ident.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
+	comb, ok := combExprFromExpr(ast.IdentExpr{Name: "x", Span: span})
+	if !ok {
+		t.Fatalf("expected ident to convert to comb ident")
+	}
+	got, ok := comb.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected ast.CombIdent, got %T", comb)
+	}
+	if got.Name != "x" {
+		t.Fatalf("expected comb name x, got %q", got.Name)
+	}
+	if got.Span != span {
+		t.Fatalf("expected comb span %v, got %v", span, got.Span)
+	}
+}
+
 func TestParseLetBodyMalformedStatementContinues(t *testing.T) {
 	body := `
 x = 1

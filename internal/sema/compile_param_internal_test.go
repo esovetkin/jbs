@@ -36,6 +36,46 @@ func TestCompileParamBlockFinalNilReturnsEmptyParamset(t *testing.T) {
 	}
 }
 
+func TestCompileParamBlockSkipsNilKnownAndLetSources(t *testing.T) {
+	sp := diag.Span{}
+	block := ast.ParamBlock{
+		Name: "p",
+		WithItems: []ast.WithItem{
+			{Name: "base", Span: sp},
+			{Name: "defaults", Span: sp},
+		},
+		Assignments: []ast.Assignment{
+			{
+				Name: "x",
+				Op:   ast.AssignEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: sp},
+				Span: sp,
+			},
+		},
+		Final: ast.CombIdent{Name: "x", Span: sp},
+	}
+	diags := &diag.Diagnostics{}
+	got := compileParamBlock(
+		block,
+		map[string]*Paramset{"base": nil},
+		map[string]eval.Value{},
+		map[string]*LetNamespace{"defaults": nil},
+		diags,
+	)
+	if got == nil {
+		t.Fatalf("expected paramset, got nil")
+	}
+	if got.Name != "p" {
+		t.Fatalf("unexpected paramset name %q", got.Name)
+	}
+	if len(got.Vars["x"]) != 1 || got.Vars["x"][0].Kind != eval.KindInt || got.Vars["x"][0].I != 1 {
+		t.Fatalf("expected x to be compiled despite nil known/let sources, got %#v", got.Vars["x"])
+	}
+	if countDiagCode(diags, "E020") == 0 {
+		t.Fatalf("expected E020 for unknown with sources after nil source skip, got: %s", diags.String())
+	}
+}
+
 func TestCompileParamBlockImportParamFallsBackToVarsAndCarriesMode(t *testing.T) {
 	sp := diag.Span{}
 	base := &Paramset{

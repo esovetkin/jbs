@@ -114,9 +114,15 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 
 	importSources := make(map[string]*ImportSource, len(known)+len(lets))
 	for name, ps := range known {
+		if ps == nil {
+			continue
+		}
 		importSources[name] = importSourceFromParam(ps)
 	}
 	for name, ls := range lets {
+		if ls == nil {
+			continue
+		}
 		importSources[name] = importSourceFromLet(ls)
 	}
 	resolver := WithResolver{
@@ -135,6 +141,9 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 		switch item.Kind {
 		case SourceKindParam:
 			src := known[item.Source]
+			if src == nil {
+				continue
+			}
 			if item.Full {
 				sourceSymbol := item.SourceExpr
 				if sourceSymbol == "" {
@@ -159,20 +168,18 @@ func compileParamBlock(block ast.ParamBlock, known map[string]*Paramset, globals
 							VarOrder: planutil.SourceVarNames(src.Order, src.Vars),
 						}
 						sourceRows[sourceSymbol] = cloneEvalRows(src.Rows)
-						if src != nil {
-							env[sourceSymbol] = eval.CombValue(&eval.Comb{
-								Order: append([]string(nil), sourceSymbols[sourceSymbol].VarOrder...),
-								Rows:  cloneEvalRows(src.Rows),
-							})
-							origins[sourceSymbol] = item.Span
-						}
+						env[sourceSymbol] = eval.CombValue(&eval.Comb{
+							Order: append([]string(nil), sourceSymbols[sourceSymbol].VarOrder...),
+							Rows:  cloneEvalRows(src.Rows),
+						})
+						origins[sourceSymbol] = item.Span
 					}
 				}
 			}
 			for _, v := range item.Vars {
 				importParamVar(v.Visible, v.SourceVar, src, item.Span)
 			}
-			if item.CombAlias != "" && src != nil {
+			if item.CombAlias != "" {
 				if combValue, ok := combValueFromParamsetSlice(src, item.SliceOrder, item.Span); ok {
 					env[item.CombAlias] = combValue
 					origins[item.CombAlias] = item.Span

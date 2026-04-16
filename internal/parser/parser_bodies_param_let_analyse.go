@@ -67,7 +67,7 @@ func combExprFromExpr(expr ast.Expr) (ast.CombExpr, bool) {
 		if e.Name == "" {
 			return nil, false
 		}
-		return ast.CombIdent{Name: e.Name, Span: e.Span}, true
+		return ast.CombIdent(e), true
 	case ast.QualifiedIdentExpr:
 		if e.Namespace == "" || e.Name == "" {
 			return nil, false
