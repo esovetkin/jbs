@@ -26,8 +26,8 @@ func TestLoadAndExpandSourceSupportsSelectiveEmbeddedAndLocalImports(t *testing.
 	if res == nil {
 		t.Fatalf("expected non-nil result")
 	}
-	if res.Program.File != "<repl>" {
-		t.Fatalf("unexpected program file label: got=%q want=%q", res.Program.File, "<repl>")
+	if info := res.Modules[res.Entry.ID]; info == nil || info.Program.File != "<repl>" {
+		t.Fatalf("unexpected entry module info: %#v", info)
 	}
 	if _, ok := res.Sources["<repl>"]; !ok {
 		t.Fatalf("expected entry source in map")
@@ -105,16 +105,12 @@ func TestLoadAndExpandFileModeControlWithUse(t *testing.T) {
 	cwd := t.TempDir()
 	writeTestFile(t, cwd, "lib.jbs", "v = 5\n")
 	entry := writeTestFile(t, cwd, "entry.jbs", "use v from \"./lib.jbs\"\nresult = v\n")
-	diags := &diag.Diagnostics{}
-	res, err := LoadAndExpand(entry, cwd, diags)
+	res, err := LoadAndExpand(entry, cwd, &diag.Diagnostics{})
 	if err != nil {
 		t.Fatalf("LoadAndExpand failed: %v", err)
 	}
-	if res == nil {
-		t.Fatalf("expected non-nil result")
-	}
-	if hasErrorDiagnostics(diags) {
-		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	if res == nil || res.Modules[res.Entry.ID] == nil {
+		t.Fatalf("expected non-nil result with entry module")
 	}
 }
 

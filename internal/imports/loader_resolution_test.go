@@ -17,8 +17,11 @@ func TestLoadAndExpandHandlesNilDiagnosticsAndBrokenCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAndExpand with nil diagnostics failed: %v", err)
 	}
-	if res == nil || len(res.Program.Stmts) != 1 {
-		t.Fatalf("unexpected expanded program: %#v", res)
+	if res == nil || res.Modules[res.Entry.ID] == nil {
+		t.Fatalf("unexpected load result: %#v", res)
+	}
+	if got := len(res.Modules[res.Entry.ID].Program.Stmts); got != 1 {
+		t.Fatalf("unexpected entry program stmt count: %d", got)
 	}
 
 	origWD, err := os.Getwd()
@@ -52,12 +55,12 @@ func TestLoadAndExpandHandlesNilDiagnosticsAndBrokenCwd(t *testing.T) {
 
 func TestLoadEmbeddedModuleCachesAndReportsMissingModules(t *testing.T) {
 	r := &resolver{
-		cwd:       t.TempDir(),
-		diags:     &diag.Diagnostics{},
-		raw:       map[string]*rawModule{},
-		expanded:  map[string]*expandedModule{},
-		expanding: map[string]bool{},
-		sources:   map[string]string{},
+		cwd:     t.TempDir(),
+		diags:   &diag.Diagnostics{},
+		raw:     map[string]*rawModule{},
+		modules: map[string]*ModuleInfo{},
+		loading: map[string]bool{},
+		sources: map[string]string{},
 	}
 
 	ref0, err := r.loadEmbeddedModule("jsc")
@@ -97,12 +100,12 @@ func TestNormalizeEmbeddedName(t *testing.T) {
 
 func TestResolveBareModuleBranches(t *testing.T) {
 	r := &resolver{
-		cwd:       t.TempDir(),
-		diags:     &diag.Diagnostics{},
-		raw:       map[string]*rawModule{},
-		expanded:  map[string]*expandedModule{},
-		expanding: map[string]bool{},
-		sources:   map[string]string{},
+		cwd:     t.TempDir(),
+		diags:   &diag.Diagnostics{},
+		raw:     map[string]*rawModule{},
+		modules: map[string]*ModuleInfo{},
+		loading: map[string]bool{},
+		sources: map[string]string{},
 	}
 
 	if _, err := r.resolveBareModule("   "); err == nil {
@@ -131,12 +134,12 @@ func TestResolvePathModuleBranches(t *testing.T) {
 	tmp := t.TempDir()
 	diags := &diag.Diagnostics{}
 	r := &resolver{
-		cwd:       tmp,
-		diags:     diags,
-		raw:       map[string]*rawModule{},
-		expanded:  map[string]*expandedModule{},
-		expanding: map[string]bool{},
-		sources:   map[string]string{},
+		cwd:     tmp,
+		diags:   diags,
+		raw:     map[string]*rawModule{},
+		modules: map[string]*ModuleInfo{},
+		loading: map[string]bool{},
+		sources: map[string]string{},
 	}
 
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
@@ -175,24 +178,18 @@ func TestResolveUseSourceBranches(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	writeTestFile(t, tmp, "p.jbs", "value = 1\n")
 	r := &resolver{
-		cwd:       tmp,
-		diags:     diags,
-		raw:       map[string]*rawModule{},
-		expanded:  map[string]*expandedModule{},
-		expanding: map[string]bool{},
-		sources:   map[string]string{},
+		cwd:     tmp,
+		diags:   diags,
+		raw:     map[string]*rawModule{},
+		modules: map[string]*ModuleInfo{},
+		loading: map[string]bool{},
+		sources: map[string]string{},
 	}
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
 
 	aliasedRef := ModuleRef{ID: "embed:jsc.jbs", Label: "shared/jsc.jbs"}
-	current := &expandedModule{
-		Ref:     ModuleRef{ID: "entry", Label: "entry"},
-		BaseDir: filepath.Join(tmp, "imports"),
-		Aliases: map[string]ModuleRef{"lib": aliasedRef},
-		Exports: map[string]ModuleExport{},
-		Stmts:   []ast.Stmt{},
-	}
-	gotAlias, err := r.resolveUseSource(current, ast.UseSource{Kind: ast.UseSourceBare, Value: "lib", Span: span})
+	aliases := map[string]ModuleRef{"lib": aliasedRef}
+	gotAlias, err := r.resolveUseSource(aliases, filepath.Join(tmp, "imports"), ast.UseSource{Kind: ast.UseSourceBare, Value: "lib", Span: span})
 	if err != nil {
 		t.Fatalf("resolveUseSource alias lookup failed: %v", err)
 	}
@@ -200,19 +197,20 @@ func TestResolveUseSourceBranches(t *testing.T) {
 		t.Fatalf("expected aliased ref %#v, got %#v", aliasedRef, gotAlias)
 	}
 
-	if err := os.MkdirAll(current.BaseDir, 0o755); err != nil {
+	baseDir := filepath.Join(tmp, "imports")
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		t.Fatalf("mkdir importer base dir: %v", err)
 	}
-	writeTestFile(t, current.BaseDir, "nested.jbs", "value = 2\n")
-	gotPath, err := r.resolveUseSource(current, ast.UseSource{Kind: ast.UseSourcePath, Value: "./nested.jbs", Span: span})
+	writeTestFile(t, baseDir, "nested.jbs", "value = 2\n")
+	gotPath, err := r.resolveUseSource(aliases, baseDir, ast.UseSource{Kind: ast.UseSourcePath, Value: "./nested.jbs", Span: span})
 	if err != nil {
 		t.Fatalf("resolveUseSource path failed: %v", err)
 	}
-	if want := filepath.Join(current.BaseDir, "nested.jbs"); gotPath.Label != want {
+	if want := filepath.Join(baseDir, "nested.jbs"); gotPath.Label != want {
 		t.Fatalf("expected non-empty path ref label %q, got %q", want, gotPath.Label)
 	}
 
-	if _, err := r.resolveUseSource(current, ast.UseSource{Kind: ast.UseSourceKind("unknown"), Value: "x", Span: span}); err == nil {
+	if _, err := r.resolveUseSource(aliases, baseDir, ast.UseSource{Kind: ast.UseSourceKind("unknown"), Value: "x", Span: span}); err == nil {
 		t.Fatalf("expected unknown source kind to fail")
 	}
 }

@@ -238,4 +238,154 @@ func TestGlobalVarSeriesBindingFromGlobalVarAndCloneCombRows(t *testing.T) {
 	if combRows[0].Values["a"].Value.I != 1 {
 		t.Fatalf("expected cloneCombRows to deep-copy row maps, got original %#v", combRows[0].Values["a"])
 	}
+
+	importedScalar := globalVarFromImportedBinding("renamed", scalarBinding, span)
+	if importedScalar == nil || importedScalar.Name != "renamed" || importedScalar.Mode != "shell" {
+		t.Fatalf("unexpected imported scalar global var: %#v", importedScalar)
+	}
+	if !reflect.DeepEqual(importedScalar.Order, []string{"renamed"}) {
+		t.Fatalf("expected renamed scalar order, got %#v", importedScalar.Order)
+	}
+	if !reflect.DeepEqual(importedScalar.Vars, map[string][]eval.Value{"renamed": {eval.String("shell-value")}}) {
+		t.Fatalf("unexpected imported scalar vars: %#v", importedScalar.Vars)
+	}
+
+	importedTable := globalVarFromImportedBinding("grid_copy", tableBinding, span)
+	if importedTable == nil || importedTable.Name != "grid_copy" {
+		t.Fatalf("unexpected imported table global var: %#v", importedTable)
+	}
+	if !reflect.DeepEqual(importedTable.Order, []string{"a", "b"}) {
+		t.Fatalf("expected imported table order to preserve comb columns, got %#v", importedTable.Order)
+	}
+	if !reflect.DeepEqual(importedTable.Vars["a"], []eval.Value{eval.Int(1), eval.Int(2)}) || !reflect.DeepEqual(importedTable.Vars["b"], []eval.Value{eval.String("x"), eval.String("y")}) {
+		t.Fatalf("unexpected imported table vars: %#v", importedTable.Vars)
+	}
+}
+
+func TestGlobalExprReadNames(t *testing.T) {
+	span := diag.NewSpan("reads.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
+	expr := ast.BinaryExpr{
+		Left: ast.QualifiedIdentExpr{Namespace: "lib", Name: "value", Span: span},
+		Op:   "+",
+		Right: ast.IndexExpr{
+			Base: ast.QualifiedIdentExpr{Namespace: "jobs", Name: "x", Span: span},
+			Items: []ast.Expr{
+				ast.IdentExpr{Name: "ignored", Span: span},
+			},
+			Span: span,
+		},
+		Span: span,
+	}
+	got := globalExprReadNames(expr)
+	want := []string{"lib", "lib.value", "jobs", "jobs.x"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected read names: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
+	span := diag.NewSpan("planner.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+
+	t.Run("unique_forward_initializer", func(t *testing.T) {
+		prog := ast.Program{
+			File: "planner.jbs",
+			Stmts: []ast.Stmt{
+				ast.GlobalAssign{
+					Name: "x",
+					Expr: ast.BinaryExpr{
+						Left:  ast.IdentExpr{Name: "y", Span: span},
+						Op:    "+",
+						Right: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+						Span:  span,
+					},
+					Span: span,
+				},
+				ast.GlobalAssign{
+					Name: "y",
+					Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+					Span: span,
+				},
+			},
+			Span: span,
+		}
+		diags := &diag.Diagnostics{}
+		out, order := compileUserGlobals(prog, nil, diags)
+		if len(diags.Items) != 0 {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+		if !reflect.DeepEqual(order, []string{"x", "y"}) {
+			t.Fatalf("unexpected global order: %#v", order)
+		}
+		if !eval.Equal(out["x"].Value, eval.Int(2)) || !eval.Equal(out["y"].Value, eval.Int(1)) {
+			t.Fatalf("unexpected planned values: x=%#v y=%#v", out["x"], out["y"])
+		}
+	})
+
+	t.Run("ambiguous_forward_read", func(t *testing.T) {
+		prog := ast.Program{
+			File: "planner.jbs",
+			Stmts: []ast.Stmt{
+				ast.GlobalAssign{
+					Name: "x",
+					Expr: ast.BinaryExpr{
+						Left:  ast.IdentExpr{Name: "y", Span: span},
+						Op:    "+",
+						Right: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+						Span:  span,
+					},
+					Span: span,
+				},
+				ast.GlobalAssign{
+					Name: "y",
+					Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+					Span: span,
+				},
+				ast.GlobalAssign{
+					Name: "y",
+					Expr: ast.NumberExpr{Int: true, IntValue: 2, Raw: "2", Span: span},
+					Span: span,
+				},
+			},
+			Span: span,
+		}
+		diags := &diag.Diagnostics{}
+		out, order := compileUserGlobals(prog, nil, diags)
+		if countDiagCode(diags, "E100") == 0 {
+			t.Fatalf("expected unresolved forward read diagnostics, got: %s", diags.String())
+		}
+		if !reflect.DeepEqual(order, []string{"x", "y"}) {
+			t.Fatalf("unexpected global order: %#v", order)
+		}
+		if !eval.Equal(out["y"].Value, eval.Int(2)) {
+			t.Fatalf("expected last y assignment to win, got %#v", out["y"])
+		}
+	})
+
+	t.Run("first_compound_write_stays_invalid", func(t *testing.T) {
+		prog := ast.Program{
+			File: "planner.jbs",
+			Stmts: []ast.Stmt{
+				ast.GlobalAssign{
+					Name: "x",
+					Op:   ast.AssignPlusEq,
+					Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+					Span: span,
+				},
+				ast.GlobalAssign{
+					Name: "x",
+					Expr: ast.NumberExpr{Int: true, IntValue: 2, Raw: "2", Span: span},
+					Span: span,
+				},
+			},
+			Span: span,
+		}
+		diags := &diag.Diagnostics{}
+		out, _ := compileUserGlobals(prog, nil, diags)
+		if countDiagCode(diags, "E100") == 0 {
+			t.Fatalf("expected invalid first compound write to stay unresolved, got: %s", diags.String())
+		}
+		if !eval.Equal(out["x"].Value, eval.Int(2)) {
+			t.Fatalf("expected final direct assignment to win, got %#v", out["x"])
+		}
+	})
 }

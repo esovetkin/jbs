@@ -411,8 +411,12 @@ func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error)
 		return nil, err
 	}
 	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
+	prog := ast.Program{}
+	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
+		prog = info.Program
+	}
 	return &analysisBundle{
-		Program: loadRes.Program,
+		Program: prog,
 		Sources: loadRes.Sources,
 		Result:  res,
 	}, nil
@@ -424,8 +428,12 @@ func analyzeSource(file string, source string, cwd string, diags *diag.Diagnosti
 		return nil, err
 	}
 	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
+	prog := ast.Program{}
+	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
+		prog = info.Program
+	}
 	return &analysisBundle{
-		Program: loadRes.Program,
+		Program: prog,
 		Sources: loadRes.Sources,
 		Result:  res,
 	}, nil

@@ -1,7 +1,6 @@
 package sema
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 
@@ -11,72 +10,8 @@ import (
 )
 
 func compileUserGlobals(prog ast.Program, builtins map[string]eval.Value, diags *diag.Diagnostics) (map[string]*GlobalVar, []string) {
-	knownBuiltins := make(map[string]struct{}, len(builtins))
-	env := make(map[string]eval.Value, len(builtins)+16)
-	for name, value := range builtins {
-		knownBuiltins[name] = struct{}{}
-		env[name] = value
-	}
-
-	out := make(map[string]*GlobalVar)
-	order := make([]string, 0, 16)
-	seenOrder := make(map[string]bool, 16)
-
-	for _, stmt := range prog.Stmts {
-		asn, ok := stmt.(ast.GlobalAssign)
-		if !ok {
-			continue
-		}
-		if _, builtin := knownBuiltins[asn.Name]; builtin {
-			continue
-		}
-
-		effectiveExpr := assignmentExpr(asn.Name, asn.Op, asn.Expr, asn.Span)
-		warnModeExprInCollections(effectiveExpr, diags)
-
-		mode, inner, isModeExpr := unwrapModeExpr(effectiveExpr)
-		expr := effectiveExpr
-		if isModeExpr {
-			expr = inner
-		}
-		value := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
-			GlobalAssignmentTupleArithmetic: true,
-			Context:                         eval.EvalCtxBindingAssign,
-		})
-		if isModeExpr {
-			value = coerceModeValue(mode, value, asn.Span, diags)
-		} else {
-			mode = ""
-		}
-
-		if hasNestedList(value) {
-			diags.AddError(
-				diag.CodeE305,
-				fmt.Sprintf("nested tuple/list value is not allowed for global variable '%s'", asn.Name),
-				asn.Span,
-				"use flat tuple/list values only",
-			)
-		}
-
-		orderNames, vars := globalVarSeries(asn.Name, value)
-		out[asn.Name] = &GlobalVar{
-			Name:      asn.Name,
-			Value:     value,
-			Mode:      mode,
-			Span:      asn.Span,
-			Order:     orderNames,
-			Vars:      vars,
-			DependsOn: globalExprDependencies(effectiveExpr, asn.Name),
-		}
-		if !seenOrder[asn.Name] {
-			seenOrder[asn.Name] = true
-			order = append(order, asn.Name)
-		}
-
-		env[asn.Name] = value
-	}
-
-	return out, order
+	exec := execGlobalPlan(buildGlobalPlan(prog), builtins, builtins, diags)
+	return globalVarsFromExec(exec)
 }
 
 func globalExprDependencies(expr ast.Expr, self string) []string {
@@ -155,6 +90,30 @@ func globalVarSeries(name string, value eval.Value) ([]string, map[string][]eval
 	}
 	return []string{name}, map[string][]eval.Value{
 		name: eval.ToSeries(value),
+	}
+}
+
+func globalVarFromImportedBinding(name string, binding *GlobalBinding, span diag.Span) *GlobalVar {
+	if binding == nil {
+		return nil
+	}
+	order, vars := globalVarSeries(name, binding.Value)
+	mode := ""
+	if len(order) == 1 {
+		if binding.Modes != nil {
+			mode = binding.Modes[order[0]]
+			if mode == "" && binding.Name != "" {
+				mode = binding.Modes[binding.Name]
+			}
+		}
+	}
+	return &GlobalVar{
+		Name:  name,
+		Value: binding.Value,
+		Mode:  mode,
+		Span:  span,
+		Order: order,
+		Vars:  vars,
 	}
 }
 

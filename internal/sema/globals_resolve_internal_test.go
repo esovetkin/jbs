@@ -143,6 +143,41 @@ func TestResolveTopLevelGlobalsJbsNameLiteralRule(t *testing.T) {
 	}
 }
 
+func TestResolveTopLevelGlobalsKeepsSeedPriorityOverForwardOverride(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+	defaults := map[string]eval.Value{
+		"jbs_name":    eval.String("default_name"),
+		"jbs_outpath": eval.String("default_out"),
+		"jbs_comment": eval.String(""),
+	}
+	prog := ast.Program{
+		File: "in.jbs",
+		Stmts: []ast.Stmt{
+			ast.GlobalAssign{
+				Name: "jbs_comment",
+				Expr: ast.IdentExpr{Name: "jbs_name", Span: span},
+				Span: span,
+			},
+			ast.GlobalAssign{
+				Name: "jbs_name",
+				Expr: ast.StringExpr{Value: "override", Span: span},
+				Span: span,
+			},
+		},
+	}
+	diags := &diag.Diagnostics{}
+	got := resolveTopLevelGlobals(prog, defaults, diags)
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got.Values["jbs_comment"].S != "default_name" {
+		t.Fatalf("expected jbs_comment to read the seed value for jbs_name, got %#v", got.Values["jbs_comment"])
+	}
+	if got.Values["jbs_name"].S != "override" {
+		t.Fatalf("expected later jbs_name assignment to apply to jbs_name itself, got %#v", got.Values["jbs_name"])
+	}
+}
+
 func TestIsScalarGlobalValue(t *testing.T) {
 	tests := []struct {
 		name string

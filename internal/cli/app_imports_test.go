@@ -46,6 +46,85 @@ func TestAnalyzeInputWithImports(t *testing.T) {
 	}
 }
 
+func TestAnalyzeInputSelectiveImportCanBeOverwrittenLocally(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "b.jbs", "x = 1\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use x from \"./b.jbs\"\nx += 1\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if gv := bundle.Result.GlobalVarByName["x"]; gv == nil || gv.Value.I != 2 {
+		t.Fatalf("expected overwritten imported value x=2, got %#v", gv)
+	}
+}
+
+func TestAnalyzeInputSelectiveImportUsesSourceModuleScope(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib_dep.jbs", "y = 1\nx = y + 1\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use x from \"./lib_dep.jbs\"\nz = x + 10\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if gv := bundle.Result.GlobalVarByName["x"]; gv == nil || gv.Value.I != 2 {
+		t.Fatalf("expected projected import x=2 from source module scope, got %#v", gv)
+	}
+	if gv := bundle.Result.GlobalVarByName["z"]; gv == nil || gv.Value.I != 12 {
+		t.Fatalf("expected dependent local z=12, got %#v", gv)
+	}
+}
+
+func TestAnalyzeInputSelectiveImportOrderIsStableForDependentGlobals(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib_dep.jbs", "y = 1\nx = y + 1\n")
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "x_then_y",
+			source: "use x, y from \"./lib_dep.jbs\"\n" +
+				"do run with x {\n" +
+				"  echo ${x}\n" +
+				"}\n",
+		},
+		{
+			name: "y_then_x",
+			source: "use y, x from \"./lib_dep.jbs\"\n" +
+				"do run with x {\n" +
+				"  echo ${x}\n" +
+				"}\n",
+		},
+	}
+	for _, tc := range cases {
+		mainPath := writeCLIFile(t, cwd, tc.name+".jbs", tc.source)
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeInput(mainPath, diags)
+		if err != nil {
+			t.Fatalf("%s: analyzeInput failed: %v", tc.name, err)
+		}
+		if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+			t.Fatalf("%s: expected no error diagnostics: %s", tc.name, diags.String())
+		}
+		x := bundle.Result.GlobalVarByName["x"]
+		y := bundle.Result.GlobalVarByName["y"]
+		if x == nil || x.Value.I != 2 || y == nil || y.Value.I != 1 {
+			t.Fatalf("%s: unexpected compiled globals: x=%#v y=%#v", tc.name, x, y)
+		}
+	}
+}
+
 func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	cwd := t.TempDir()
 	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = comb(x)\n")
