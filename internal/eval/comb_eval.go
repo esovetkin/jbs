@@ -50,7 +50,7 @@ func EvalCombination(expr ast.CombExpr, series map[string][]Value, origins map[s
 
 func EvalCombinationWithOptions(expr ast.CombExpr, series map[string][]Value, origins map[string]diag.Span, opts CombEvalOptions, diags *diag.Diagnostics) []Row {
 	if expr == nil {
-		diags.AddError(diag.CodeE113, "missing combination expression", diag.Span{}, "add a final combination expression in param block")
+		diags.AddError(diag.CodeE113, "missing combination expression", diag.Span{}, "add a combination expression to the global assignment")
 		return nil
 	}
 	checkRepeatedIdentifiers(expr, diags)

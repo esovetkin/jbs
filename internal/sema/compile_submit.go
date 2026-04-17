@@ -7,6 +7,7 @@ package sema
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -16,14 +17,14 @@ import (
 	"jbs/internal/planutil"
 )
 
-func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource, globals map[string]eval.Value, effective map[string]VarOrigin, diags *diag.Diagnostics) *SubmitSpec {
+func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBinding, globals map[string]eval.Value, effective map[string]VisibleBinding, namespaces map[string]*Namespace, diags *diag.Diagnostics) *SubmitSpec {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {
 		env[k] = v
 	}
 
 	for name, origin := range effective {
-		src := sources[origin.Paramset]
+		src := bindings[origin.Source]
 		if src == nil {
 			continue
 		}
@@ -82,90 +83,118 @@ func compileSubmitBlock(block ast.SubmitBlock, sources map[string]*ImportSource,
 		}
 	}
 
+	collectUseBindings := func(useName string) []*GlobalBinding {
+		if binding := bindings[useName]; binding != nil {
+			return []*GlobalBinding{binding}
+		}
+		ns := namespaces[useName]
+		if ns == nil {
+			return nil
+		}
+		names := make([]string, 0, len(ns.Bindings))
+		for _, bindingName := range ns.Bindings {
+			rest := strings.TrimPrefix(bindingName, useName+".")
+			if rest == bindingName || strings.Contains(rest, ".") {
+				continue
+			}
+			names = append(names, bindingName)
+		}
+		slices.Sort(names)
+		out := make([]*GlobalBinding, 0, len(names))
+		for _, name := range names {
+			if binding := bindings[name]; binding != nil {
+				out = append(out, binding)
+			}
+		}
+		return out
+	}
+
 	for _, useName := range block.UseNames {
-		src := sources[useName]
-		if src == nil {
+		useBindings := collectUseBindings(useName)
+		if len(useBindings) == 0 {
 			diags.AddError(
 				diag.CodeE078,
-				fmt.Sprintf("unknown submit use namespace '%s'", useName),
+				fmt.Sprintf("unknown submit use source '%s'", useName),
 				block.Span,
-				"use an existing let namespace in submit header use clause",
+				"use an existing scalar global or module namespace in submit header use clause",
 			)
 			continue
 		}
-		if src.Kind != SourceKindLet {
-			diags.AddError(
-				diag.CodeE071,
-				fmt.Sprintf("submit use source '%s' must be a let namespace", useName),
-				block.Span,
-				"use a let namespace in submit header use clause",
-			)
-			continue
-		}
-		for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
-			vals := src.Vars[varName]
-			value := eval.Null()
-			if len(vals) > 0 {
-				value = vals[0]
+		for _, src := range useBindings {
+			if !src.Supports(ImportIntoSubmitUse) {
+				diags.AddError(
+					diag.CodeE071,
+					fmt.Sprintf("submit use source '%s' contains non-scalar global '%s'", useName, src.Name),
+					block.Span,
+					"use only scalar globals in submit header use clauses",
+				)
+				continue
 			}
-			origin := src.Origins[varName]
-			if origin.IsZero() {
-				origin = src.Span
-			}
-			if _, ok := allowedSubmitKeys[varName]; !ok {
-				if prev, exists := seenHelperFromUse[varName]; exists && prev.useName != useName {
+			for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
+				vals := src.Vars[varName]
+				value := eval.Null()
+				if len(vals) > 0 {
+					value = vals[0]
+				}
+				origin := src.Origins[varName]
+				if origin.IsZero() {
+					origin = src.Span
+				}
+				if _, ok := allowedSubmitKeys[varName]; !ok {
+					if prev, exists := seenHelperFromUse[varName]; exists && prev.useName != useName {
+						diags.AddWarning(
+							diag.CodeW072,
+							fmt.Sprintf("submit helper '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
+							origin,
+							"merge defaults explicitly or keep one namespace per helper variable",
+							diag.RelatedSpan{Message: "first definition", Span: prev.span},
+						)
+					}
+					seenHelperFromUse[varName] = submitUseOrigin{
+						useName: useName,
+						span:    origin,
+					}
+					env[varName] = value
+					setHelper(SubmitHelper{
+						Original: varName,
+						Aliased:  helperAlias(varName),
+						Mode:     src.Modes[varName],
+						Value:    value,
+						Span:     origin,
+						UseName:  useName,
+					})
+					continue
+				}
+				if isRawSubmitKey(varName) {
+					diags.AddWarning(
+						diag.CodeW071,
+						fmt.Sprintf("submit default '%s' from global '%s' is ignored (raw-block key)", varName, src.Name),
+						origin,
+						"set raw-block submit keys directly in submit body",
+					)
+					continue
+				}
+				if prev, exists := seenFromUse[varName]; exists && prev.useName != useName {
 					diags.AddWarning(
 						diag.CodeW072,
-						fmt.Sprintf("submit helper '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
+						fmt.Sprintf("submit default '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
 						origin,
-						"merge defaults explicitly or keep one namespace per helper variable",
+						"merge defaults explicitly or keep one namespace per submit key",
 						diag.RelatedSpan{Message: "first definition", Span: prev.span},
 					)
 				}
-				seenHelperFromUse[varName] = submitUseOrigin{
+				seenFromUse[varName] = submitUseOrigin{
 					useName: useName,
 					span:    origin,
 				}
 				env[varName] = value
-				setHelper(SubmitHelper{
-					Original: varName,
-					Aliased:  helperAlias(varName),
-					Mode:     src.Modes[varName],
-					Value:    value,
-					Span:     origin,
-					UseName:  useName,
+				setValue(SubmitValue{
+					Name:  varName,
+					Mode:  src.Modes[varName],
+					Value: value,
+					Span:  origin,
 				})
-				continue
 			}
-			if isRawSubmitKey(varName) {
-				diags.AddWarning(
-					diag.CodeW071,
-					fmt.Sprintf("submit default '%s' from let '%s' is ignored (raw-block key)", varName, useName),
-					origin,
-					"set raw-block submit keys directly in submit body",
-				)
-				continue
-			}
-			if prev, exists := seenFromUse[varName]; exists && prev.useName != useName {
-				diags.AddWarning(
-					diag.CodeW072,
-					fmt.Sprintf("submit default '%s' is defined in multiple use namespaces ('%s', '%s'); last wins ('%s')", varName, prev.useName, useName, useName),
-					origin,
-					"merge defaults explicitly or keep one namespace per submit key",
-					diag.RelatedSpan{Message: "first definition", Span: prev.span},
-				)
-			}
-			seenFromUse[varName] = submitUseOrigin{
-				useName: useName,
-				span:    origin,
-			}
-			env[varName] = value
-			setValue(SubmitValue{
-				Name:  varName,
-				Mode:  src.Modes[varName],
-				Value: value,
-				Span:  origin,
-			})
 		}
 	}
 

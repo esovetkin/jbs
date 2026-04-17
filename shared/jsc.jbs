@@ -12,4 +12,3 @@ timelimit = "00:15:00"
 outlogfile = "job.out"
 outerrfile = "job.err"
 starter = "srun"
-submit_defaults = comb(systemname + queue + nodes + threadspertask + gres + timelimit + outlogfile + outerrfile + starter)

@@ -135,19 +135,6 @@ type GlobalAssign struct {
 func (g GlobalAssign) stmtNode()          {}
 func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 
-type LetBlock struct {
-	Name        string
-	Assignments []Assignment
-	HeaderRaw   string
-	Header      []HeaderElem
-	BodyRaw     string
-	Span        diag.Span
-	Comments    NodeComments
-}
-
-func (l LetBlock) stmtNode()          {}
-func (l LetBlock) GetSpan() diag.Span { return l.Span }
-
 type AnalyseBlock struct {
 	StepName    string
 	WithItems   []WithItem
@@ -180,22 +167,6 @@ type AnalyseColumn struct {
 }
 
 func (a AnalyseColumn) GetSpan() diag.Span { return a.Span }
-
-type ParamBlock struct {
-	Name        string
-	WithItems   []WithItem
-	Assignments []Assignment
-	Final       CombExpr
-	FinalExpr   Expr
-	HeaderRaw   string
-	Header      []HeaderElem
-	BodyRaw     string
-	Span        diag.Span
-	Comments    NodeComments
-}
-
-func (p ParamBlock) stmtNode()          {}
-func (p ParamBlock) GetSpan() diag.Span { return p.Span }
 
 type DoBlock struct {
 	Name       string

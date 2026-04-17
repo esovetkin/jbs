@@ -1,4 +1,4 @@
-// parses `param` final combination expressions into `ast.CombExpr`
+// parses combination expressions into `ast.CombExpr`
 //
 // handle the dedicated combination algebra grammar (`+` zip / `*`
 // product), precedence (`*` before `+`), parentheses, identifier

@@ -29,7 +29,7 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 			p.skipTriviaInline()
 			if word, ok := p.peekWord(); ok && (word == "from" || word == "in") {
 				p.consumeWord()
-				srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after with clause source keyword")
+				srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source global binding name after with clause source keyword")
 				src = srcName
 				srcSpan = fromSpan
 				currentFrom = srcName
@@ -93,7 +93,7 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 				word, ok := p.peekWord()
 				if ok && (word == "from" || word == "in") {
 					p.consumeWord()
-					srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source parameterset name after with clause source keyword")
+					srcName, fromSpan := p.parseQualifiedName(diag.CodeE024, "expected source global binding name after with clause source keyword")
 					src = srcName
 					srcSpan = fromSpan
 					currentFrom = srcName

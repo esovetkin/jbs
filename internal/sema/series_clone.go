@@ -1,0 +1,14 @@
+package sema
+
+import "jbs/internal/eval"
+
+func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
+	if len(src) == 0 {
+		return map[string][]eval.Value{}
+	}
+	out := make(map[string][]eval.Value, len(src))
+	for name, values := range src {
+		out[name] = append([]eval.Value(nil), values...)
+	}
+	return out
+}

@@ -6,7 +6,7 @@ outpath: out
 
 # Parameter sets used to create workpackage combinations
 parameterset:
-  # Param block 'cases'
+  # Table-valued global 'cases'
   - name: cases
     parameter:
       - name: _ji_cases
@@ -22,7 +22,7 @@ parameterset:
 
 # Pattern sets used for result extraction
 patternset:
-  # Let namespace 'p' used for analyse extraction
+  # Imported globals from 'p' used for analyse extraction
   - name: p
     pattern:
       # From analyse 'write': alias 'n' for pattern 'p.number'

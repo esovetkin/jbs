@@ -163,12 +163,12 @@ func annotateResult(node *yaml.Node, result *lower.ResultObject) {
 
 func parameterSetComment(ps lower.ParameterSet) string {
 	switch ps.Meta.Kind {
-	case lower.ParameterSetKindParam:
+	case lower.ParameterSetKindGlobalTable:
 		src := ps.Meta.Source
 		if src == "" {
 			src = ps.Name
 		}
-		return fmt.Sprintf("Param block '%s'", src)
+		return fmt.Sprintf("Table-valued global '%s'", src)
 	case lower.ParameterSetKindSubset:
 		if ps.Meta.Step != "" && ps.Meta.Source != "" {
 			return fmt.Sprintf("Synthetic subset parameterset for step '%s' derived from '%s' for variable-only imports", ps.Meta.Step, ps.Meta.Source)
@@ -228,12 +228,12 @@ func stepComment(step lower.Step) string {
 
 func patternSetComment(ps lower.PatternSet) string {
 	switch ps.Meta.Kind {
-	case lower.PatternSetKindLet:
+	case lower.PatternSetKindImportedGlobals:
 		if ps.Meta.Source != "" {
-			return fmt.Sprintf("Let namespace '%s' used for analyse extraction", ps.Meta.Source)
+			return fmt.Sprintf("Imported globals from '%s' used for analyse extraction", ps.Meta.Source)
 		}
-		return fmt.Sprintf("Let namespace '%s' used for analyse extraction", ps.Name)
-	case lower.PatternSetKindInline:
+		return fmt.Sprintf("Imported globals from '%s' used for analyse extraction", ps.Name)
+	case lower.PatternSetKindInlineAnalyse:
 		if ps.Meta.Source != "" {
 			return fmt.Sprintf("Inline analyse extraction patterns for step '%s'", ps.Meta.Source)
 		}
@@ -346,8 +346,6 @@ func appendHeadComment(n *yaml.Node, text string) {
 }
 
 func annotateProjectedComments(root *yaml.Node, doc lower.Document) {
-	paramSeq := mapValueNode(root, "parameterset")
-	patternSeq := mapValueNode(root, "patternset")
 	stepSeq := mapValueNode(root, "step")
 	analyserSeq := mapValueNode(root, "analyser")
 	for _, c := range doc.Meta.SourceComments {
@@ -358,10 +356,6 @@ func annotateProjectedComments(root *yaml.Node, doc lower.Document) {
 		switch {
 		case strings.HasPrefix(target, "do:") || strings.HasPrefix(target, "submit:"):
 			annotateProjectedStepComment(stepSeq, target, c.Text)
-		case strings.HasPrefix(target, "param:"):
-			annotateProjectedParamComment(paramSeq, doc.ParameterSet, target, c.Text)
-		case strings.HasPrefix(target, "let:"):
-			annotateProjectedLetComment(patternSeq, doc.PatternSet, target, c.Text)
 		case strings.HasPrefix(target, "analyse:"):
 			annotateProjectedAnalyseComment(analyserSeq, doc.Analyser, target, c.Text)
 		}
@@ -429,46 +423,6 @@ func findStepNodeByName(stepSeq *yaml.Node, name string) *yaml.Node {
 		}
 	}
 	return nil
-}
-
-func annotateProjectedParamComment(paramSeq *yaml.Node, sets []lower.ParameterSet, target string, text string) {
-	name := strings.TrimPrefix(target, "param:")
-	name = strings.TrimSuffix(name, ".header")
-	name = strings.Split(name, ".")[0]
-	for i := range sets {
-		if sets[i].Meta.Kind != lower.ParameterSetKindParam {
-			continue
-		}
-		source := sets[i].Meta.Source
-		if source == "" {
-			source = sets[i].Name
-		}
-		if source != name {
-			continue
-		}
-		appendHeadComment(seqItem(paramSeq, i), text)
-		return
-	}
-}
-
-func annotateProjectedLetComment(patternSeq *yaml.Node, sets []lower.PatternSet, target string, text string) {
-	name := strings.TrimPrefix(target, "let:")
-	name = strings.TrimSuffix(name, ".header")
-	name = strings.Split(name, ".")[0]
-	for i := range sets {
-		if sets[i].Meta.Kind != lower.PatternSetKindLet {
-			continue
-		}
-		source := sets[i].Meta.Source
-		if source == "" {
-			source = sets[i].Name
-		}
-		if source != name {
-			continue
-		}
-		appendHeadComment(seqItem(patternSeq, i), text)
-		return
-	}
 }
 
 func annotateProjectedAnalyseComment(analyserSeq *yaml.Node, analysers []lower.Analyser, target string, text string) {

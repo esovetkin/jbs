@@ -27,26 +27,26 @@ type subsetVarSpec struct {
 
 func (ctx *lowerContext) resolveStepUsesForStep(stepName string, aliases map[string]string) stepUseResolution {
 	inheritedSteps := make([]string, 0)
-	if plan := ctx.res.StepImportByName[stepName]; plan != nil {
+	if plan := ctx.res.StepScopeByName[stepName]; plan != nil {
 		inheritedSteps = append(inheritedSteps, plan.InheritedSteps...)
 		return ctx.resolveStepUses(stepName, inheritedSteps, plan.ExplicitDelta, aliases)
 	}
 	return ctx.resolveStepUses(stepName, inheritedSteps, nil, aliases)
 }
 
-func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.PlannedImport, aliases map[string]string) stepUseResolution {
+func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.ScopeImport, aliases map[string]string) stepUseResolution {
 	uses := make([]interface{}, 0)
 	grouped := make(map[string][]subsetVarSpec)
 	groupOrder := make([]string, 0)
 	seenDirect := make(map[string]struct{})
 	sourceRows := ctx.inheritedRowsForStep(stepName, inheritedSteps)
-	sources := ctx.res.ImportSourceByName
+	bindings := ctx.res.BindingsByName
 
 	for _, item := range items {
 		if item.Full {
-			if src := sources[item.Source]; src != nil {
-				if item.Kind == sema.SourceKindParam && sourceRows[item.Source] == "" && !sourceNeedsAlias(src, aliases) {
-					ctx.ensureSourceParamset(item.Source)
+			if src := bindings[item.Source]; src != nil {
+				if src.Shape == sema.BindingTable && sourceRows[item.Source] == "" && !sourceNeedsAlias(src, aliases) {
+					ctx.ensureSourceParameterSet(item.Source)
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
 						uses = append(uses, item.Source)
@@ -96,8 +96,8 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	}
 
 	for _, source := range groupOrder {
-		src := sources[source]
-		if src != nil && src.Kind == sema.SourceKindLet {
+		src := bindings[source]
+		if src != nil && src.Shape == sema.BindingScalar {
 			subset, rowsVar := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
 			if subset != "" {
 				uses = append(uses, subset)
@@ -125,13 +125,13 @@ func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[strin
 	if !forSubmit {
 		return map[string]string{}
 	}
-	plan := ctx.res.StepImportByName[stepName]
+	plan := ctx.res.StepScopeByName[stepName]
 	if plan == nil {
 		return map[string]string{}
 	}
 	out := make(map[string]string)
 	for name, origin := range plan.Effective {
-		if origin.Kind != sema.SourceKindParam && origin.Kind != sema.SourceKindLet {
+		if origin.Source == "" {
 			continue
 		}
 		if sema.IsSubmitKey(name) {
@@ -156,7 +156,7 @@ func (ctx *lowerContext) submitValueAliasMap(stepName string) map[string]string 
 	return out
 }
 
-func sourceNeedsAlias(src *sema.ImportSource, aliases map[string]string) bool {
+func sourceNeedsAlias(src *sema.GlobalBinding, aliases map[string]string) bool {
 	if src == nil || len(aliases) == 0 {
 		return false
 	}

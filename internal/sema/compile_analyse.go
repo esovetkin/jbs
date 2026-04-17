@@ -91,25 +91,25 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	}
 	spec.StepKind = stepKind
 
-	plan := res.StepImportByName[block.StepName]
-	spec.StepVars = visibleSpansFromStepPlan(plan, res.ImportSourceByName)
+	plan := res.StepScopeByName[block.StepName]
+	spec.StepVars = visibleSpansFromStepPlan(plan, res.BindingsByName)
 
 	env := make(map[string]eval.Value, len(res.Globals.Values)+32)
 	for k, v := range res.Globals.Values {
 		env[k] = v
 	}
-	addEnvFromStepPlan(env, plan, res.ImportSourceByName)
+	addEnvFromStepPlan(env, plan, res.BindingsByName)
 	analyseImports := resolveAnalyseWithImports(block.WithItems, res, diags)
 	for visible, imported := range analyseImports {
-		ns := res.LetByName[imported.Source]
-		if ns == nil {
+		binding := res.BindingsByName[imported.Source]
+		if binding == nil {
 			continue
 		}
-		v, ok := ns.Vars[imported.SourceVar]
+		v, ok := binding.Vars[imported.SourceVar]
 		if !ok {
 			continue
 		}
-		env[visible] = v
+		env[visible] = seriesAsValue(v)
 	}
 
 	seenAssignments := make(map[string]diag.Span, len(block.Assignments))
@@ -177,7 +177,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 				diag.CodeE412,
 				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", assign.Name),
 				assign.Span,
-				"use a string expression such as an imported let variable or a quoted regex pattern",
+				"use a string expression such as an imported global or a quoted regex pattern",
 			)
 			continue
 		}
@@ -252,7 +252,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	return spec
 }
 
-type analyseLetImport struct {
+type analyseBindingImport struct {
 	Source    string
 	SourceVar string
 	Span      diag.Span
@@ -262,18 +262,12 @@ type analyseImportOptions struct {
 	EmitDiagnostics bool
 }
 
-func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseLetImport {
-	out := make(map[string]analyseLetImport)
-	resolver := WithResolver{
-		Params:  res.ParamByName,
-		Lets:    res.LetByName,
-		Sources: res.ImportSourceByName,
-	}
-	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
-		AllowParam:                false,
-		AllowLet:                  true,
+func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseBindingImport {
+	out := make(map[string]analyseBindingImport)
+	resolver := BindingResolver{Bindings: res.BindingsByName}
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
+		Context:                   ImportIntoAnalyse,
 		EnableMixedSourceFallback: true,
-		DetectAmbiguousSource:     true,
 	})
 	if opts.EmitDiagnostics && diags != nil {
 		emitWithIssues(diags, analyseWithDiagPolicy(), issues)
@@ -281,22 +275,26 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 
 	tracker := newImportConflictTracker()
 	for _, item := range expanded {
-		ns := res.LetByName[item.Source]
-		if ns == nil {
+		binding := res.BindingsByName[item.Source]
+		if binding == nil {
 			continue
 		}
 		for _, v := range item.Vars {
-			value, ok := ns.Vars[v.SourceVar]
+			values, ok := binding.Vars[v.SourceVar]
 			if !ok {
 				continue
+			}
+			value := eval.Null()
+			if len(values) > 0 {
+				value = values[0]
 			}
 			if value.Kind != eval.KindString {
 				if opts.EmitDiagnostics && diags != nil {
 					diags.AddError(
 						diag.CodeE422,
-						fmt.Sprintf("analyse with-clause variable '%s' from let '%s' must be a string", v.SourceVar, item.Source),
+						fmt.Sprintf("analyse with-clause variable '%s' from global '%s' must be a string", v.SourceVar, item.Source),
 						item.Span,
-						"use string-valued let variables for analyse imports",
+						"use string-valued globals for analyse imports",
 					)
 				}
 				continue
@@ -306,15 +304,15 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 				if opts.EmitDiagnostics && diags != nil && first {
 					diags.AddError(
 						diag.CodeE214,
-						fmt.Sprintf("conflicting analyse import '%s' from let namespaces '%s' and '%s'", v.Visible, prev.Source, item.Source),
+						fmt.Sprintf("conflicting analyse import '%s' from globals '%s' and '%s'", v.Visible, prev.Source, item.Source),
 						item.Span,
-						"import each analyse variable from only one let namespace",
+						"import each analyse variable from only one global binding",
 						diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
 					)
 				}
 				continue
 			}
-			out[v.Visible] = analyseLetImport{
+			out[v.Visible] = analyseBindingImport{
 				Source:    item.Source,
 				SourceVar: v.SourceVar,
 				Span:      item.Span,
@@ -325,7 +323,7 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 	return out
 }
 
-func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseLetImport {
+func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseBindingImport {
 	return resolveAnalyseImportsCanonical(items, res, diags, analyseImportOptions{
 		EmitDiagnostics: true,
 	})

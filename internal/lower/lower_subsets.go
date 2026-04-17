@@ -27,7 +27,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		return existing.Name, existing.RowsVar
 	}
 
-	src := ctx.res.ImportSourceByName[source]
+	src := ctx.res.BindingsByName[source]
 	if src == nil {
 		// Semantic analysis already reports unknown parameter set imports with
 		// precise spans. Skip lower-stage duplicate diagnostics.
@@ -156,7 +156,7 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		return existing.Name, existing.RowsVar
 	}
 
-	src := ctx.res.ImportSourceByName[source]
+	src := ctx.res.BindingsByName[source]
 	if src == nil {
 		return "", ""
 	}
@@ -179,20 +179,20 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		if len(vals) > 0 {
 			value = vals[0]
 		}
-		param := Parameter{Name: subsetEmittedName(variable)}
+		parameter := Parameter{Name: subsetEmittedName(variable)}
 		if mode, ok := src.Modes[sourceVar]; ok && mode != "" {
-			param.Mode = mode
+			parameter.Mode = mode
 			switch mode {
 			case "python":
-				param.Value = SingleQuoted(asString(value))
+				parameter.Value = SingleQuoted(asString(value))
 			default:
-				param.Value = asString(value)
+				parameter.Value = asString(value)
 			}
 		} else {
-			param.Mode = "text"
-			param.Value = asString(value)
+			parameter.Mode = "text"
+			parameter.Value = asString(value)
 		}
-		params = append(params, param)
+		params = append(params, parameter)
 	}
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{

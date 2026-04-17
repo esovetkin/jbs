@@ -127,7 +127,7 @@ func TestQualifiedCombNamespaceDispatch(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			diags := &diag.Diagnostics{}
-			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxParamAssign})
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 			if got.Kind != tc.wantKind {
 				t.Fatalf("unexpected kind: got=%s want=%s value=%#v", got.Kind, tc.wantKind, got)
 			}
@@ -198,7 +198,7 @@ func TestIndexExprCombProjectionErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			diags := &diag.Diagnostics{}
-			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxParamAssign})
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 			if got.Kind != KindNull {
 				t.Fatalf("expected null result, got %#v", got)
 			}
@@ -794,7 +794,7 @@ func TestEvalTupleConcatParamAssignmentMode(t *testing.T) {
 	}
 	diags := &diag.Diagnostics{}
 	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
-		ParamAssignmentTupleArithmetic: true,
+		GlobalAssignmentTupleArithmetic: true,
 	})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
@@ -822,7 +822,7 @@ func TestEvalTupleRepeatParamAssignmentMode(t *testing.T) {
 	}
 	diags := &diag.Diagnostics{}
 	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
-		ParamAssignmentTupleArithmetic: true,
+		GlobalAssignmentTupleArithmetic: true,
 	})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
@@ -852,7 +852,7 @@ func TestEvalTupleRepeatZeroCountParamAssignmentMode(t *testing.T) {
 	}
 	diags := &diag.Diagnostics{}
 	got := EvalExprWithOptions(expr, map[string]Value{}, diags, ExprOptions{
-		ParamAssignmentTupleArithmetic: true,
+		GlobalAssignmentTupleArithmetic: true,
 	})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
@@ -916,7 +916,7 @@ func TestEvalTupleArithmeticErrorsInParamMode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			diags := &diag.Diagnostics{}
 			_ = EvalExprWithOptions(tc.expr, map[string]Value{}, diags, ExprOptions{
-				ParamAssignmentTupleArithmetic: true,
+				GlobalAssignmentTupleArithmetic: true,
 			})
 			if count := diagCount(diags, "E106"); count == 0 {
 				t.Fatalf("expected E106, got: %s", diags.String())
@@ -1084,7 +1084,7 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 
 func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	opts := ExprOptions{Context: EvalCtxParamAssign}
+	opts := ExprOptions{Context: EvalCtxBindingAssign}
 
 	rangeOne := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "range"},
@@ -1237,7 +1237,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "range"},
 				Args:   nil,
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
@@ -1246,7 +1246,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "range"},
 				Args:   []ast.Expr{ast.StringExpr{Value: "x"}},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
@@ -1258,7 +1258,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 					ast.NumberExpr{Int: false, FloatValue: 1.5},
 				},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
@@ -1271,7 +1271,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 					ast.NumberExpr{Int: true, IntValue: 0},
 				},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
@@ -1284,7 +1284,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 					ast.StringExpr{Value: "x"},
 				},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
@@ -1293,16 +1293,16 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "rev"},
 				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
 		},
 		{
-			name: "range context error outside param",
+			name: "range context error outside top-level global assignment",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
 				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 3}},
 			},
-			opts:     ExprOptions{Context: EvalCtxLetAssign},
+			opts:     ExprOptions{Context: EvalCtxScalarGlobalAssign},
 			wantCode: "E199",
 		},
 		{
@@ -1311,7 +1311,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "unknown"},
 				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
 			},
-			opts:     ExprOptions{Context: EvalCtxParamAssign},
+			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E199",
 		},
 		{
@@ -1323,7 +1323,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 					ast.NumberExpr{Int: true, IntValue: 1},
 				},
 			},
-			opts:       ExprOptions{Context: EvalCtxParamAssign},
+			opts:       ExprOptions{Context: EvalCtxBindingAssign},
 			wantNoErrs: true,
 		},
 		{
@@ -1332,7 +1332,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "range"},
 				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: -1}},
 			},
-			opts:       ExprOptions{Context: EvalCtxParamAssign},
+			opts:       ExprOptions{Context: EvalCtxBindingAssign},
 			wantNoErrs: true,
 		},
 	}
@@ -1420,7 +1420,7 @@ func TestEvalCallUnsupportedCallee(t *testing.T) {
 		nil,
 		spanAt(73, 1),
 		diags,
-		ExprOptions{Context: EvalCtxParamAssign},
+		ExprOptions{Context: EvalCtxBindingAssign},
 		&evalCtx{overflowWarned: map[string]struct{}{}},
 	)
 	if got.Kind != KindNull {
@@ -1449,7 +1449,7 @@ func TestCombCallUsesCombAlgebraAndSkipsEagerArgEval(t *testing.T) {
 		"y": Tuple([]Value{Int(3), Int(4)}),
 	}
 	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
@@ -1487,7 +1487,7 @@ func TestCombCallRequiresNamedLeafsOrAlias(t *testing.T) {
 		"a": Tuple([]Value{Int(1), Int(2)}),
 	}
 	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if got.Kind != KindComb {
 		t.Fatalf("expected comb result placeholder, got %#v", got)
 	}
@@ -1523,7 +1523,7 @@ func TestCombCallSupportsAliasForNonCombLeafs(t *testing.T) {
 		"a": Tuple([]Value{Int(1), Int(2)}),
 	}
 	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
@@ -1560,7 +1560,7 @@ func TestCombCallRejectsAliasOnCombOperand(t *testing.T) {
 		Span: spanAt(85, 1),
 	}
 	diags := &diag.Diagnostics{}
-	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diagCount(diags, "E106") == 0 {
 		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
 	}
@@ -1588,7 +1588,7 @@ func TestParamAssignCombBinarySupportsAliasOutsideCombCall(t *testing.T) {
 		Span:  spanAt(86, 1),
 	}
 	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
@@ -1622,7 +1622,7 @@ func TestParamAssignCombBinaryRejectsAliasOnCombOperand(t *testing.T) {
 		Span:  spanAt(87, 1),
 	}
 	diags := &diag.Diagnostics{}
-	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxParamAssign})
+	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diagCount(diags, "E106") == 0 {
 		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
 	}
@@ -1648,7 +1648,7 @@ func TestCombCallOutsideParamAssignDoesNotEvaluateArgsEagerly(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	got := EvalExprWithOptions(expr, env, diags, ExprOptions{})
 	if got.Kind != KindNull {
-		t.Fatalf("expected null for comb() outside param assign, got %#v", got)
+		t.Fatalf("expected null for comb() outside top-level global assignment, got %#v", got)
 	}
 	if diagCount(diags, "E199") != 1 {
 		t.Fatalf("expected one E199, got: %s", diags.String())

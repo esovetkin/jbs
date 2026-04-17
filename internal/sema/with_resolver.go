@@ -1,10 +1,3 @@
-// implement normalized expansion of parsed `with` items
-//
-// resolve named/fallback sources across param/let catalogs under
-// configurable options (allowed kinds, ambiguity detection,
-// mixed-source fallback), expands full source imports into explicit
-// variable mappings, and returns both expanded imports and structured
-// resolve issues
 package sema
 
 import (
@@ -13,11 +6,9 @@ import (
 	"jbs/internal/planutil"
 )
 
-type WithResolveOptions struct {
-	AllowParam                bool
-	AllowLet                  bool
+type ResolveOptions struct {
+	Context                   ImportContext
 	EnableMixedSourceFallback bool
-	DetectAmbiguousSource     bool
 }
 
 type ExpandedWithVar struct {
@@ -27,7 +18,6 @@ type ExpandedWithVar struct {
 
 type ExpandedWithItem struct {
 	Source     string
-	Kind       SourceKind
 	Vars       []ExpandedWithVar
 	Full       bool
 	SourceExpr string
@@ -41,8 +31,7 @@ type ResolveIssueKind int
 const (
 	IssueUnknownSource ResolveIssueKind = iota
 	IssueUnknownVar
-	IssueAmbiguousSource
-	IssueDisallowedKind
+	IssueDisallowedBinding
 )
 
 type ResolveIssue struct {
@@ -53,13 +42,11 @@ type ResolveIssue struct {
 	Span     diag.Span
 }
 
-type WithResolver struct {
-	Params  map[string]*Paramset
-	Lets    map[string]*LetNamespace
-	Sources map[string]*ImportSource
+type BindingResolver struct {
+	Bindings map[string]*GlobalBinding
 }
 
-func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOptions) ([]ExpandedWithItem, []ResolveIssue) {
+func (r BindingResolver) ExpandWithItems(items []ast.WithItem, opts ResolveOptions) ([]ExpandedWithItem, []ResolveIssue) {
 	expanded := make([]ExpandedWithItem, 0, len(items))
 	issues := make([]ResolveIssue, 0)
 
@@ -68,7 +55,7 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 			continue
 		}
 		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
-			src, issue := r.resolveNamedSource(item.SourceExpr, item, opts)
+			src, issue := r.resolveBinding(item.SourceExpr, item, opts)
 			if issue != nil {
 				issues = append(issues, *issue)
 				continue
@@ -87,19 +74,14 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 					ok = false
 					continue
 				}
-				vars = append(vars, ExpandedWithVar{
-					Visible:   sel,
-					SourceVar: sel,
-				})
+				vars = append(vars, ExpandedWithVar{Visible: sel, SourceVar: sel})
 			}
 			if !ok {
 				continue
 			}
 			expanded = append(expanded, ExpandedWithItem{
 				Source:     src.Name,
-				Kind:       src.Kind,
 				Vars:       vars,
-				Full:       false,
 				SourceExpr: item.SourceExpr,
 				CombAlias:  item.CombAlias,
 				SliceOrder: append([]string(nil), item.SourceSlice...),
@@ -108,16 +90,16 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 			continue
 		}
 		if item.From == "" {
-			src, issue := r.resolveNamedSource(item.Name, item, opts)
+			src, issue := r.resolveBinding(item.Name, item, opts)
 			if issue != nil {
 				issues = append(issues, *issue)
 				continue
 			}
-			expanded = append(expanded, expandFullSource(item, src))
+			expanded = append(expanded, expandFullBinding(item, src))
 			continue
 		}
 
-		src, issue := r.resolveNamedSource(item.From, item, opts)
+		src, issue := r.resolveBinding(item.From, item, opts)
 		if issue != nil {
 			issues = append(issues, *issue)
 			continue
@@ -129,32 +111,25 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 			}
 			expanded = append(expanded, ExpandedWithItem{
 				Source: src.Name,
-				Kind:   src.Kind,
-				Vars: []ExpandedWithVar{
-					{
-						Visible:   visible,
-						SourceVar: item.Name,
-					},
-				},
-				Full:       false,
-				SourceExpr: "",
-				Span:       item.Span,
+				Vars: []ExpandedWithVar{{
+					Visible:   visible,
+					SourceVar: item.Name,
+				}},
+				Span: item.Span,
 			})
 			continue
 		}
-
 		if opts.EnableMixedSourceFallback {
-			fallback, fallbackIssue := r.resolveFallbackSource(item.Name, item, opts)
+			fallback, fallbackIssue := r.resolveBinding(item.Name, item, opts)
 			if fallbackIssue != nil {
-				issues = append(issues, *fallbackIssue)
-				continue
-			}
-			if fallback != nil {
-				expanded = append(expanded, expandFullSource(item, fallback))
+				if fallbackIssue.Kind != IssueUnknownSource {
+					issues = append(issues, *fallbackIssue)
+				}
+			} else if fallback != nil {
+				expanded = append(expanded, expandFullBinding(item, fallback))
 				continue
 			}
 		}
-
 		issues = append(issues, ResolveIssue{
 			Kind:     IssueUnknownVar,
 			Item:     item,
@@ -163,20 +138,11 @@ func (r WithResolver) ExpandWithItems(items []ast.WithItem, opts WithResolveOpti
 			Span:     item.Span,
 		})
 	}
-
 	return expanded, issues
 }
 
-func (r WithResolver) resolveNamedSource(name string, item ast.WithItem, opts WithResolveOptions) (*ImportSource, *ResolveIssue) {
-	if opts.DetectAmbiguousSource && r.Params[name] != nil && r.Lets[name] != nil {
-		return nil, &ResolveIssue{
-			Kind:   IssueAmbiguousSource,
-			Item:   item,
-			Source: name,
-			Span:   item.Span,
-		}
-	}
-	src := r.Sources[name]
+func (r BindingResolver) resolveBinding(name string, item ast.WithItem, opts ResolveOptions) (*GlobalBinding, *ResolveIssue) {
+	src := r.Bindings[name]
 	if src == nil {
 		return nil, &ResolveIssue{
 			Kind:   IssueUnknownSource,
@@ -185,9 +151,9 @@ func (r WithResolver) resolveNamedSource(name string, item ast.WithItem, opts Wi
 			Span:   item.Span,
 		}
 	}
-	if !sourceKindAllowed(src.Kind, opts) {
+	if !src.Supports(opts.Context) {
 		return nil, &ResolveIssue{
-			Kind:   IssueDisallowedKind,
+			Kind:   IssueDisallowedBinding,
 			Item:   item,
 			Source: name,
 			Span:   item.Span,
@@ -196,44 +162,9 @@ func (r WithResolver) resolveNamedSource(name string, item ast.WithItem, opts Wi
 	return src, nil
 }
 
-func (r WithResolver) resolveFallbackSource(name string, item ast.WithItem, opts WithResolveOptions) (*ImportSource, *ResolveIssue) {
-	if opts.DetectAmbiguousSource && r.Params[name] != nil && r.Lets[name] != nil {
-		return nil, &ResolveIssue{
-			Kind:   IssueAmbiguousSource,
-			Item:   item,
-			Source: name,
-			Span:   item.Span,
-		}
-	}
-	src := r.Sources[name]
-	if src == nil {
-		return nil, nil
-	}
-	if !sourceKindAllowed(src.Kind, opts) {
-		return nil, &ResolveIssue{
-			Kind:   IssueDisallowedKind,
-			Item:   item,
-			Source: name,
-			Span:   item.Span,
-		}
-	}
-	return src, nil
-}
-
-func sourceKindAllowed(kind SourceKind, opts WithResolveOptions) bool {
-	switch kind {
-	case SourceKindParam:
-		return opts.AllowParam
-	case SourceKindLet:
-		return opts.AllowLet
-	default:
-		return false
-	}
-}
-
-func expandFullSource(item ast.WithItem, src *ImportSource) ExpandedWithItem {
-	vars := make([]ExpandedWithVar, 0, len(src.Order))
-	for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
+func expandFullBinding(item ast.WithItem, binding *GlobalBinding) ExpandedWithItem {
+	vars := make([]ExpandedWithVar, 0, len(binding.Order))
+	for _, name := range planutil.SourceVarNames(binding.Order, binding.Vars) {
 		vars = append(vars, ExpandedWithVar{
 			Visible:   name,
 			SourceVar: name,
@@ -244,8 +175,7 @@ func expandFullSource(item ast.WithItem, src *ImportSource) ExpandedWithItem {
 		sourceExpr = item.Alias
 	}
 	return ExpandedWithItem{
-		Source:     src.Name,
-		Kind:       src.Kind,
+		Source:     binding.Name,
 		Vars:       vars,
 		Full:       true,
 		SourceExpr: sourceExpr,

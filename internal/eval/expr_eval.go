@@ -26,16 +26,15 @@ type EvalContext int
 
 const (
 	EvalCtxDefault EvalContext = iota
-	EvalCtxParamAssign
-	EvalCtxLetAssign
+	EvalCtxBindingAssign
+	EvalCtxScalarGlobalAssign
 	EvalCtxSubmitField
-	EvalCtxGlobalAssign
 	EvalCtxAnalyseAssign
 )
 
 type ExprOptions struct {
-	ParamAssignmentTupleArithmetic bool
-	Context                        EvalContext
+	GlobalAssignmentTupleArithmetic bool
+	Context                         EvalContext
 }
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
@@ -151,7 +150,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
-		if opts.Context == EvalCtxParamAssign && (e.Op == "+" || e.Op == "*") && exprNeedsCombBinary(e, env) {
+		if opts.Context == EvalCtxBindingAssign && (e.Op == "+" || e.Op == "*") && exprNeedsCombBinary(e, env) {
 			rows, _ := evalExprAsNamedCombRows(e, env, diags, opts, ctx)
 			return combValueFromRows(rows)
 		}
@@ -197,13 +196,13 @@ type kernelFunc struct {
 var kernelFuncs = map[string]kernelFunc{
 	"range": {
 		allowed: map[EvalContext]struct{}{
-			EvalCtxParamAssign: {},
+			EvalCtxBindingAssign: {},
 		},
 		eval: evalRangeCall,
 	},
 	"rev": {
 		allowed: map[EvalContext]struct{}{
-			EvalCtxParamAssign: {},
+			EvalCtxBindingAssign: {},
 		},
 		eval: evalRevCall,
 	},
@@ -223,8 +222,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]
 	}
 	switch name {
 	case "comb":
-		if opts.Context != EvalCtxParamAssign {
-			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in param assignments", at, "use this function only in param assignment expressions")
+		if opts.Context != EvalCtxBindingAssign {
+			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in top-level global assignments", at, "use this function only in top-level global assignment expressions")
 			return Null()
 		}
 		return evalCombCall(rawArgs, env, at, diags, opts, ctx)
@@ -267,9 +266,9 @@ func evalKernelCall(name string, args []Value, at diag.Span, diags *diag.Diagnos
 		if _, ok := fn.allowed[opts.Context]; !ok {
 			diags.AddError(
 				diag.CodeE199,
-				fmt.Sprintf("function '%s' is only allowed in param assignments", name),
+				fmt.Sprintf("function '%s' is only allowed in top-level global assignments", name),
 				at,
-				"use this function only in param assignment expressions",
+				"use this function only in top-level global assignment expressions",
 			)
 			return Null()
 		}
@@ -964,7 +963,7 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 		}
 	}
 
-	if opts.ParamAssignmentTupleArithmetic && (IsTuple(l) || IsTuple(r)) {
+	if opts.GlobalAssignmentTupleArithmetic && (IsTuple(l) || IsTuple(r)) {
 		return evalParamTupleBinary(op, l, r, at, diags)
 	}
 

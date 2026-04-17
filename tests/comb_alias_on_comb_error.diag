@@ -4,8 +4,8 @@ alias cannot be applied to a comb-valued expression
        |                           ^^^^^^
 Hint: apply alias only to non-comb leaves
 ERROR E230 /home/jackson/jbs/tests/comb_alias_on_comb_error.jbs:1:1
-parameterset 'p' evaluates to zero rows
-     1 | param p
+table-valued global 'p' evaluates to zero rows
+     1 | p = comb(...)
        | ^
      2 | {
      3 |         x = (1, 2)

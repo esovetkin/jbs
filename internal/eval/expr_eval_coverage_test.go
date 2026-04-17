@@ -21,7 +21,7 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 			ast.QualifiedIdentExpr{Namespace: "m", Name: "x", Span: spanAt(500, 1)},
 			map[string]Value{"m": comb},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 		)
 		if got.Kind != KindInt || got.I != 7 {
 			t.Fatalf("expected int scalar 7, got %#v", got)
@@ -72,7 +72,7 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 			},
 			map[string]Value{"m": comb},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 		)
 		if !IsComb(got) || got.C == nil {
 			t.Fatalf("expected comb projection result, got %#v", got)
@@ -223,7 +223,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 			map[string]Value{},
 			span,
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 			ctx,
 		)
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
@@ -250,7 +250,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 			},
 			map[string]Value{"x": List([]Value{Int(1), Int(2)})},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 			ctx,
 		)
 		if ok || rows != nil || diagCount(diags, "E036") == 0 {
@@ -272,7 +272,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 			ast.QualifiedIdentExpr{Namespace: "ns", Name: "v", Span: span},
 			map[string]Value{"ns.v": Int(9)},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 			ctx,
 		)
 		if !ok || len(rows) != 1 {
@@ -302,7 +302,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 			},
 			map[string]Value{},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 			ctx,
 		)
 		if !ok || len(rows) != 1 {
@@ -367,7 +367,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 				}),
 			},
 			diags,
-			ExprOptions{Context: EvalCtxParamAssign},
+			ExprOptions{Context: EvalCtxBindingAssign},
 			ctx,
 		)
 		if ok || rows != nil || diagCount(diags, "E106") == 0 {

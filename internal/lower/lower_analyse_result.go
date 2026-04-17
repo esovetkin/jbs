@@ -25,11 +25,11 @@ func (ctx *lowerContext) ensurePatternSet(groupName, analyseStep string) {
 		}
 	}
 	meta := PatternSetMeta{
-		Kind:   PatternSetKindInline,
+		Kind:   PatternSetKindInlineAnalyse,
 		Source: analyseStep,
 	}
-	if _, ok := ctx.res.LetByName[groupName]; ok {
-		meta.Kind = PatternSetKindLet
+	if binding := ctx.res.BindingsByName[groupName]; binding != nil {
+		meta.Kind = PatternSetKindImportedGlobals
 		meta.Source = groupName
 	}
 	ps := PatternSet{

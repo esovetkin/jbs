@@ -290,8 +290,8 @@ func evaluateReplExpression(cwd, source, exprText string) (string, string, bool,
 	}
 	evalDiags := &diag.Diagnostics{}
 	value := eval.EvalExprWithOptions(expr, env, evalDiags, eval.ExprOptions{
-		ParamAssignmentTupleArithmetic: true,
-		Context:                        eval.EvalCtxParamAssign,
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
 	})
 	evalErrs := filterDiagnosticsBySeverity(evalDiags, diag.SeverityError)
 	if len(evalErrs.Items) > 0 {
@@ -410,7 +410,7 @@ func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error)
 	if err != nil {
 		return nil, err
 	}
-	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
 	return &analysisBundle{
 		Program: loadRes.Program,
 		Sources: loadRes.Sources,
@@ -423,7 +423,7 @@ func analyzeSource(file string, source string, cwd string, diags *diag.Diagnosti
 	if err != nil {
 		return nil, err
 	}
-	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
 	return &analysisBundle{
 		Program: loadRes.Program,
 		Sources: loadRes.Sources,

@@ -44,8 +44,8 @@ submit run
 	if _, ok := res.SubmitByName["run"]; !ok {
 		t.Fatalf("expected compiled submit spec for run, got %#v", res.SubmitByName)
 	}
-	if _, ok := res.StepImportByName["run"]; !ok {
-		t.Fatalf("expected step import plan for run submit step, got %#v", res.StepImportByName)
+	if _, ok := res.StepScopeByName["run"]; !ok {
+		t.Fatalf("expected step scope plan for run submit step, got %#v", res.StepScopeByName)
 	}
 	if _, ok := res.GlobalVarByName["x"]; !ok {
 		t.Fatalf("expected global variable x to be compiled, got %#v", res.GlobalVarByName)

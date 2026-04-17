@@ -14,10 +14,6 @@ func projectSourceComments(res *sema.Result) []CommentProjection {
 	out := make([]CommentProjection, 0)
 	for _, stmt := range res.Program.Stmts {
 		switch node := stmt.(type) {
-		case ast.ParamBlock:
-			out = append(out, projectHeaderComments("param", node.Name, node.Header)...)
-		case ast.LetBlock:
-			out = append(out, projectHeaderComments("let", node.Name, node.Header)...)
 		case ast.DoBlock:
 			out = append(out, projectHeaderComments("do", node.Name, node.Header)...)
 		case ast.SubmitBlock:

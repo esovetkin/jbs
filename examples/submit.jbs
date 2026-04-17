@@ -1,4 +1,4 @@
-use submit_defaults from jsc
+use jsc
 
 id = (1, 2)
 label = ("alpha", "beta")
@@ -13,7 +13,7 @@ do prep
 
 submit run0
         after prep
-        use submit_defaults
+        use jsc
         with jobs
 {
         account = "atmlaml"
@@ -31,7 +31,7 @@ analyse run0
 
 submit run1
         after run0
-        use submit_defaults
+        use jsc
 {
         account = "atmlaml"
         executable = "/bin/bash"

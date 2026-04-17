@@ -21,27 +21,28 @@ import (
 type LoadResult struct {
 	Program ast.Program
 	Sources map[string]string
+	Entry   ModuleRef
+	Aliases map[string]ModuleRef
+	Modules map[string]*ModuleInfo
 }
 
-type moduleRef struct {
+type ModuleRef struct {
 	ID    string
 	Label string
 }
 
-type symbolKind string
+type ExportKind string
 
 const (
-	symbolKindLet    symbolKind = "let"
-	symbolKindParam  symbolKind = "param"
-	symbolKindDo     symbolKind = "do"
-	symbolKindSubmit symbolKind = "submit"
-	symbolKindGlobal symbolKind = "global"
-	symbolKindOther  symbolKind = "other"
+	ExportGlobal ExportKind = "global"
+	ExportDo     ExportKind = "do"
+	ExportSubmit ExportKind = "submit"
+	ExportOther  ExportKind = "other"
 )
 
-type symbolDecl struct {
+type ModuleExport struct {
 	Name       string
-	Kind       symbolKind
+	Kind       ExportKind
 	Stmt       ast.Stmt
 	Span       diag.Span
 	ModuleID   string
@@ -49,8 +50,16 @@ type symbolDecl struct {
 	Imported   bool
 }
 
+type ModuleInfo struct {
+	Ref     ModuleRef
+	BaseDir string
+	Program ast.Program
+	Exports map[string]ModuleExport
+	Aliases map[string]ModuleRef
+}
+
 type rawModule struct {
-	Ref     moduleRef
+	Ref     ModuleRef
 	Source  string
 	Program ast.Program
 	// BaseDir anchors quoted-path imports from this module.
@@ -58,12 +67,12 @@ type rawModule struct {
 }
 
 type expandedModule struct {
-	Ref moduleRef
+	Ref ModuleRef
 	// BaseDir is preserved during expansion for importer-relative path resolution.
 	BaseDir string
 	Stmts   []ast.Stmt
-	Symbols map[string]symbolDecl
-	Aliases map[string]moduleRef
+	Exports map[string]ModuleExport
+	Aliases map[string]ModuleRef
 }
 
 type resolver struct {
@@ -133,11 +142,12 @@ func newResolver(cwd string, diags *diag.Diagnostics) (*resolver, error) {
 	}, nil
 }
 
-func (r *resolver) loadResult(entryRef moduleRef) (*LoadResult, error) {
+func (r *resolver) loadResult(entryRef ModuleRef) (*LoadResult, error) {
 	expanded := r.expandModule(entryRef)
 	if expanded == nil {
 		return nil, fmt.Errorf("failed to expand entry module")
 	}
+	r.expandAliasClosure(entryRef, map[string]struct{}{})
 	prog := ast.Program{File: entryRef.Label, Stmts: append([]ast.Stmt(nil), expanded.Stmts...)}
 	if len(prog.Stmts) > 0 {
 		prog.Span = diag.Merge(prog.Stmts[0].GetSpan(), prog.Stmts[len(prog.Stmts)-1].GetSpan())
@@ -146,10 +156,62 @@ func (r *resolver) loadResult(entryRef moduleRef) (*LoadResult, error) {
 	for k, v := range r.sources {
 		outSources[k] = v
 	}
-	return &LoadResult{Program: prog, Sources: outSources}, nil
+	modules := make(map[string]*ModuleInfo, len(r.expanded))
+	for id, mod := range r.expanded {
+		if mod == nil {
+			continue
+		}
+		moduleProg := ast.Program{File: mod.Ref.Label, Stmts: append([]ast.Stmt(nil), mod.Stmts...)}
+		if len(moduleProg.Stmts) > 0 {
+			moduleProg.Span = diag.Merge(moduleProg.Stmts[0].GetSpan(), moduleProg.Stmts[len(moduleProg.Stmts)-1].GetSpan())
+		}
+		exports := make(map[string]ModuleExport, len(mod.Exports))
+		for name, decl := range mod.Exports {
+			exports[name] = decl
+		}
+		aliases := make(map[string]ModuleRef, len(mod.Aliases))
+		for alias, ref := range mod.Aliases {
+			aliases[alias] = ref
+		}
+		modules[id] = &ModuleInfo{
+			Ref:     mod.Ref,
+			BaseDir: mod.BaseDir,
+			Program: moduleProg,
+			Exports: exports,
+			Aliases: aliases,
+		}
+	}
+	aliases := make(map[string]ModuleRef, len(expanded.Aliases))
+	for alias, ref := range expanded.Aliases {
+		aliases[alias] = ref
+	}
+	return &LoadResult{
+		Program: prog,
+		Sources: outSources,
+		Entry:   entryRef,
+		Aliases: aliases,
+		Modules: modules,
+	}, nil
 }
 
-func (r *resolver) loadSourceModule(label string, source string, baseDir string) (moduleRef, error) {
+func (r *resolver) expandAliasClosure(ref ModuleRef, seen map[string]struct{}) {
+	if r == nil || ref.ID == "" {
+		return
+	}
+	if _, ok := seen[ref.ID]; ok {
+		return
+	}
+	seen[ref.ID] = struct{}{}
+	mod := r.expandModule(ref)
+	if mod == nil {
+		return
+	}
+	for _, alias := range mod.Aliases {
+		r.expandAliasClosure(alias, seen)
+	}
+}
+
+func (r *resolver) loadSourceModule(label string, source string, baseDir string) (ModuleRef, error) {
 	entryLabel := strings.TrimSpace(label)
 	if entryLabel == "" {
 		entryLabel = "<source>"
@@ -168,7 +230,7 @@ func (r *resolver) loadSourceModule(label string, source string, baseDir string)
 		return raw.Ref, nil
 	}
 	prog := parser.Parse(entryLabel, source, r.diags)
-	ref := moduleRef{ID: id, Label: entryLabel}
+	ref := ModuleRef{ID: id, Label: entryLabel}
 	r.raw[id] = &rawModule{
 		Ref:     ref,
 		Source:  source,
@@ -179,7 +241,7 @@ func (r *resolver) loadSourceModule(label string, source string, baseDir string)
 	return ref, nil
 }
 
-func (r *resolver) loadFileModule(absPath string) (moduleRef, error) {
+func (r *resolver) loadFileModule(absPath string) (ModuleRef, error) {
 	absPath = filepath.Clean(absPath)
 	id := "file:" + absPath
 	label := absPath
@@ -188,11 +250,11 @@ func (r *resolver) loadFileModule(absPath string) (moduleRef, error) {
 	}
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return moduleRef{}, err
+		return ModuleRef{}, err
 	}
 	src := string(data)
 	prog := parser.Parse(label, src, r.diags)
-	ref := moduleRef{ID: id, Label: label}
+	ref := ModuleRef{ID: id, Label: label}
 	r.raw[id] = &rawModule{
 		Ref:     ref,
 		Source:  src,
@@ -203,7 +265,7 @@ func (r *resolver) loadFileModule(absPath string) (moduleRef, error) {
 	return ref, nil
 }
 
-func (r *resolver) loadEmbeddedModule(name string) (moduleRef, error) {
+func (r *resolver) loadEmbeddedModule(name string) (ModuleRef, error) {
 	norm := normalizeEmbeddedName(name)
 	id := "embed:" + norm
 	label := filepath.ToSlash(filepath.Join("shared", norm))
@@ -212,10 +274,10 @@ func (r *resolver) loadEmbeddedModule(name string) (moduleRef, error) {
 	}
 	src, err := shared.Read(norm)
 	if err != nil {
-		return moduleRef{}, err
+		return ModuleRef{}, err
 	}
 	prog := parser.Parse(label, src, r.diags)
-	ref := moduleRef{ID: id, Label: label}
+	ref := ModuleRef{ID: id, Label: label}
 	r.raw[id] = &rawModule{
 		Ref:     ref,
 		Source:  src,
@@ -237,10 +299,10 @@ func normalizeEmbeddedName(name string) string {
 	return n
 }
 
-func (r *resolver) resolveBareModule(name string) (moduleRef, error) {
+func (r *resolver) resolveBareModule(name string) (ModuleRef, error) {
 	n := strings.TrimSpace(name)
 	if n == "" {
-		return moduleRef{}, fmt.Errorf("empty module name")
+		return ModuleRef{}, fmt.Errorf("empty module name")
 	}
 	if shared.Has(n) {
 		return r.loadEmbeddedModule(n)
@@ -249,7 +311,7 @@ func (r *resolver) resolveBareModule(name string) (moduleRef, error) {
 	return r.loadFileModule(local)
 }
 
-func (r *resolver) resolvePathModule(path string, importerBaseDir string, at diag.Span) (moduleRef, error) {
+func (r *resolver) resolvePathModule(path string, importerBaseDir string, at diag.Span) (ModuleRef, error) {
 	p := strings.TrimSpace(path)
 	if !strings.HasSuffix(p, ".jbs") {
 		r.diags.AddError(
@@ -258,7 +320,7 @@ func (r *resolver) resolvePathModule(path string, importerBaseDir string, at dia
 			at,
 			"use syntax: use \"path/to/file.jbs\" as alias or use name from \"path/to/file.jbs\"",
 		)
-		return moduleRef{}, fmt.Errorf("invalid .jbs path: %s", path)
+		return ModuleRef{}, fmt.Errorf("invalid .jbs path: %s", path)
 	}
 	abs := p
 	if !filepath.IsAbs(abs) {
@@ -272,7 +334,7 @@ func (r *resolver) resolvePathModule(path string, importerBaseDir string, at dia
 	return r.loadFileModule(abs)
 }
 
-func (r *resolver) resolveUseSource(current *expandedModule, src ast.UseSource) (moduleRef, error) {
+func (r *resolver) resolveUseSource(current *expandedModule, src ast.UseSource) (ModuleRef, error) {
 	switch src.Kind {
 	case ast.UseSourcePath:
 		baseDir := r.cwd
@@ -288,11 +350,11 @@ func (r *resolver) resolveUseSource(current *expandedModule, src ast.UseSource) 
 		}
 		return r.resolveBareModule(src.Value)
 	default:
-		return moduleRef{}, fmt.Errorf("unknown use source kind")
+		return ModuleRef{}, fmt.Errorf("unknown use source kind")
 	}
 }
 
-func (r *resolver) expandModule(ref moduleRef) *expandedModule {
+func (r *resolver) expandModule(ref ModuleRef) *expandedModule {
 	if exp, ok := r.expanded[ref.ID]; ok {
 		return exp
 	}
@@ -316,8 +378,8 @@ func (r *resolver) expandModule(ref moduleRef) *expandedModule {
 		Ref:     ref,
 		BaseDir: raw.BaseDir,
 		Stmts:   make([]ast.Stmt, 0, len(raw.Program.Stmts)),
-		Symbols: make(map[string]symbolDecl),
-		Aliases: make(map[string]moduleRef),
+		Exports: make(map[string]ModuleExport),
+		Aliases: make(map[string]ModuleRef),
 	}
 	inserted := make(map[string]struct{})
 
@@ -326,7 +388,6 @@ func (r *resolver) expandModule(ref moduleRef) *expandedModule {
 			r.processUseStmt(mod, useStmt, inserted)
 			continue
 		}
-		stmt = r.normalizeWithRefs(mod, stmt, inserted)
 		r.addLocalStmt(mod, stmt)
 	}
 
@@ -361,7 +422,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 			}
 			return
 		}
-		if sym, ok := mod.Symbols[alias]; ok {
+		if sym, ok := mod.Exports[alias]; ok {
 			r.diags.AddError(
 				diag.CodeE534,
 				fmt.Sprintf("import name collision: alias '%s' conflicts with symbol '%s'", alias, sym.Name),
@@ -395,7 +456,7 @@ func (r *resolver) processUseStmt(mod *expandedModule, stmt ast.UseStmt, inserte
 }
 
 func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
-	name, kind, importable, ok := stmtSymbol(stmt)
+	name, kind, importable, ok := stmtExport(stmt)
 	if ok {
 		if _, aliasExists := mod.Aliases[name]; aliasExists {
 			r.diags.AddError(
@@ -404,7 +465,7 @@ func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
 				stmt.GetSpan(),
 				"rename symbol or alias",
 			)
-		} else if prev, exists := mod.Symbols[name]; exists {
+		} else if prev, exists := mod.Exports[name]; exists {
 			if prev.Imported {
 				r.diags.AddError(
 					diag.CodeE534,
@@ -415,7 +476,7 @@ func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
 				)
 			}
 		} else {
-			mod.Symbols[name] = symbolDecl{
+			mod.Exports[name] = ModuleExport{
 				Name:       name,
 				Kind:       kind,
 				Stmt:       stmt,
@@ -429,87 +490,8 @@ func (r *resolver) addLocalStmt(mod *expandedModule, stmt ast.Stmt) {
 	mod.Stmts = append(mod.Stmts, stmt)
 }
 
-func (r *resolver) normalizeWithRefs(mod *expandedModule, stmt ast.Stmt, inserted map[string]struct{}) ast.Stmt {
-	normalizeItems := func(items []ast.WithItem) []ast.WithItem {
-		if len(items) == 0 {
-			return items
-		}
-		out := make([]ast.WithItem, len(items))
-		for i, item := range items {
-			n := item
-			nameRejected := false
-			fromRejected := false
-			sourceExprRejected := false
-			n.Name, nameRejected = r.normalizeWithRef(mod, item.Name, item.Span, inserted)
-			if item.From != "" {
-				n.From, fromRejected = r.normalizeWithRef(mod, item.From, item.Span, inserted)
-			}
-			if item.SourceExpr != "" {
-				n.SourceExpr, sourceExprRejected = r.normalizeWithRef(mod, item.SourceExpr, item.Span, inserted)
-			}
-			n.Rejected = nameRejected || fromRejected || sourceExprRejected
-			out[i] = n
-		}
-		return out
-	}
-
-	switch n := stmt.(type) {
-	case ast.ParamBlock:
-		n.WithItems = normalizeItems(n.WithItems)
-		return n
-	case ast.DoBlock:
-		n.WithItems = normalizeItems(n.WithItems)
-		return n
-	case ast.SubmitBlock:
-		n.WithItems = normalizeItems(n.WithItems)
-		return n
-	case ast.AnalyseBlock:
-		n.WithItems = normalizeItems(n.WithItems)
-		return n
-	default:
-		return stmt
-	}
-}
-
-func (r *resolver) normalizeWithRef(mod *expandedModule, ref string, at diag.Span, inserted map[string]struct{}) (string, bool) {
-	ref = strings.TrimSpace(ref)
-	if ref == "" || !strings.Contains(ref, ".") {
-		return ref, false
-	}
-	alias, name, ok := strings.Cut(ref, ".")
-	if !ok || alias == "" || name == "" || strings.Contains(name, ".") {
-		r.diags.AddError(
-			diag.CodeE537,
-			fmt.Sprintf("invalid qualified with reference '%s'", ref),
-			at,
-			"use syntax alias.symbol in with clauses",
-		)
-		return ref, true
-	}
-	sourceRef, ok := mod.Aliases[alias]
-	if !ok {
-		r.diags.AddError(
-			diag.CodeE537,
-			fmt.Sprintf("unknown with alias '%s' in qualified reference '%s'", alias, ref),
-			at,
-			"declare alias first with `use <module>` or `use \"path\" as <alias>`",
-		)
-		return ref, true
-	}
-	source := r.expandModule(sourceRef)
-	if source == nil {
-		return name, false
-	}
-	r.importSymbol(mod, source, name, at, inserted, make(map[string]struct{}))
-	sym, imported := mod.Symbols[name]
-	if !imported || sym.ModuleID != source.Ref.ID {
-		return name, true
-	}
-	return name, false
-}
-
 func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, name string, at diag.Span, inserted map[string]struct{}, visiting map[string]struct{}) {
-	sym, ok := source.Symbols[name]
+	sym, ok := source.Exports[name]
 	if !ok {
 		r.diags.AddError(
 			diag.CodeE532,
@@ -524,7 +506,7 @@ func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, 
 			diag.CodeE533,
 			fmt.Sprintf("symbol '%s' in module '%s' is not importable", name, source.Ref.Label),
 			at,
-			"only let/param/do/submit/global symbols are importable",
+			"only globals, do blocks, and submit blocks are importable",
 		)
 		return
 	}
@@ -553,7 +535,7 @@ func (r *resolver) importSymbol(target *expandedModule, source *expandedModule, 
 	target.Stmts = append(target.Stmts, sym.Stmt)
 }
 
-func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedModule, sym symbolDecl, at diag.Span) bool {
+func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedModule, sym ModuleExport, at diag.Span) bool {
 	if _, aliasExists := target.Aliases[sym.Name]; aliasExists {
 		r.diags.AddError(
 			diag.CodeE534,
@@ -564,7 +546,7 @@ func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedMod
 		)
 		return false
 	}
-	if prev, exists := target.Symbols[sym.Name]; exists {
+	if prev, exists := target.Exports[sym.Name]; exists {
 		if prev.ModuleID == source.Ref.ID && prev.Name == sym.Name {
 			return false
 		}
@@ -578,7 +560,7 @@ func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedMod
 		)
 		return false
 	}
-	target.Symbols[sym.Name] = symbolDecl{
+	target.Exports[sym.Name] = ModuleExport{
 		Name:       sym.Name,
 		Kind:       sym.Kind,
 		Stmt:       sym.Stmt,
@@ -591,14 +573,14 @@ func (r *resolver) addImportedSymbol(target *expandedModule, source *expandedMod
 }
 
 type depRef struct {
-	Source moduleRef
+	Source ModuleRef
 	Name   string
 	Span   diag.Span
 }
 
 func (r *resolver) symbolDependencies(mod *expandedModule, stmt ast.Stmt) []depRef {
 	deps := make([]depRef, 0)
-	add := func(source moduleRef, name string, span diag.Span) {
+	add := func(source ModuleRef, name string, span diag.Span) {
 		if name == "" || source.ID == "" {
 			return
 		}
@@ -609,78 +591,134 @@ func (r *resolver) symbolDependencies(mod *expandedModule, stmt ast.Stmt) []depR
 		}
 		deps = append(deps, depRef{Source: source, Name: name, Span: span})
 	}
-	resolveLocal := func(name string) (moduleRef, string, bool) {
-		if sym, ok := mod.Symbols[name]; ok {
+	resolveName := func(name string) (ModuleRef, string, bool) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return ModuleRef{}, "", false
+		}
+		if alias, tail, ok := strings.Cut(name, "."); ok && alias != "" && tail != "" {
+			if ref, exists := mod.Aliases[alias]; exists {
+				return ref, tail, true
+			}
+		}
+		if sym, ok := mod.Exports[name]; ok {
 			ref, exists := r.moduleRefByID(sym.ModuleID)
 			if !exists {
-				return moduleRef{}, "", false
+				return ModuleRef{}, "", false
 			}
 			return ref, sym.Name, true
 		}
-		return moduleRef{}, "", false
+		return ModuleRef{}, "", false
+	}
+
+	addExprDeps := func(expr ast.Expr) {}
+	addExprDeps = func(expr ast.Expr) {
+		if expr == nil {
+			return
+		}
+		switch n := expr.(type) {
+		case ast.IdentExpr:
+			if ref, depName, ok := resolveName(n.Name); ok {
+				add(ref, depName, n.Span)
+			}
+		case ast.QualifiedIdentExpr:
+			if ref, depName, ok := resolveName(n.Namespace + "." + n.Name); ok {
+				add(ref, depName, n.Span)
+			} else if ref, depName, ok := resolveName(n.Namespace); ok {
+				add(ref, depName, n.Span)
+			}
+		case ast.ModeExpr:
+			addExprDeps(n.Expr)
+		case ast.ListExpr:
+			for _, it := range n.Items {
+				addExprDeps(it)
+			}
+		case ast.TupleExpr:
+			for _, it := range n.Items {
+				addExprDeps(it)
+			}
+		case ast.ConvertExpr:
+			addExprDeps(n.Expr)
+		case ast.CallExpr:
+			addExprDeps(n.Callee)
+			for _, arg := range n.Args {
+				addExprDeps(arg)
+			}
+		case ast.AliasExpr:
+			addExprDeps(n.Expr)
+		case ast.IndexExpr:
+			addExprDeps(n.Base)
+			for _, item := range n.Items {
+				addExprDeps(item)
+			}
+		case ast.UnaryExpr:
+			addExprDeps(n.Expr)
+		case ast.BinaryExpr:
+			addExprDeps(n.Left)
+			addExprDeps(n.Right)
+		case ast.CompareExpr:
+			addExprDeps(n.Left)
+			addExprDeps(n.Right)
+		case ast.ConditionalExpr:
+			addExprDeps(n.Then)
+			addExprDeps(n.Cond)
+			addExprDeps(n.Else)
+		}
 	}
 
 	importWithItems := func(items []ast.WithItem) {
 		for _, item := range items {
 			if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
-				if aliasRef, ok := mod.Aliases[item.SourceExpr]; ok {
-					for _, sel := range item.SourceSlice {
-						add(aliasRef, sel, item.Span)
-					}
-					continue
-				}
-				if ref, depName, ok := resolveLocal(item.SourceExpr); ok {
+				if ref, depName, ok := resolveName(item.SourceExpr); ok {
 					add(ref, depName, item.Span)
 					continue
 				}
 				for _, sel := range item.SourceSlice {
-					if ref, depName, ok := resolveLocal(sel); ok {
+					if ref, depName, ok := resolveName(sel); ok {
 						add(ref, depName, item.Span)
 					}
 				}
 				continue
 			}
 			if item.From == "" {
-				if ref, depName, ok := resolveLocal(item.Name); ok {
+				if ref, depName, ok := resolveName(item.Name); ok {
 					add(ref, depName, item.Span)
 				}
 				continue
 			}
-			if aliasRef, ok := mod.Aliases[item.From]; ok {
-				add(aliasRef, item.Name, item.Span)
-				continue
-			}
-			if ref, depName, ok := resolveLocal(item.From); ok {
+			if ref, depName, ok := resolveName(item.From); ok {
 				add(ref, depName, item.Span)
 				continue
 			}
-			if ref, depName, ok := resolveLocal(item.Name); ok {
+			if ref, depName, ok := resolveName(item.Name); ok {
 				add(ref, depName, item.Span)
 			}
 		}
 	}
 
 	switch n := stmt.(type) {
-	case ast.ParamBlock:
-		importWithItems(n.WithItems)
+	case ast.GlobalAssign:
+		addExprDeps(n.Expr)
 	case ast.DoBlock:
 		for _, dep := range n.After {
-			if ref, depName, ok := resolveLocal(dep); ok {
+			if ref, depName, ok := resolveName(dep); ok {
 				add(ref, depName, n.Span)
 			}
 		}
 		importWithItems(n.WithItems)
 	case ast.SubmitBlock:
 		for _, dep := range n.After {
-			if ref, depName, ok := resolveLocal(dep); ok {
+			if ref, depName, ok := resolveName(dep); ok {
 				add(ref, depName, n.Span)
 			}
 		}
 		for _, useName := range n.UseNames {
-			if ref, depName, ok := resolveLocal(useName); ok {
+			if ref, depName, ok := resolveName(useName); ok {
 				add(ref, depName, n.Span)
 			}
 		}
+		importWithItems(n.WithItems)
+	case ast.AnalyseBlock:
 		importWithItems(n.WithItems)
 	}
 
@@ -693,31 +731,27 @@ func (r *resolver) symbolDependencies(mod *expandedModule, stmt ast.Stmt) []depR
 	return deps
 }
 
-func (r *resolver) moduleRefByID(id string) (moduleRef, bool) {
+func (r *resolver) moduleRefByID(id string) (ModuleRef, bool) {
 	if raw, ok := r.raw[id]; ok && raw != nil {
 		return raw.Ref, true
 	}
 	if exp, ok := r.expanded[id]; ok && exp != nil {
 		return exp.Ref, true
 	}
-	return moduleRef{}, false
+	return ModuleRef{}, false
 }
 
-func stmtSymbol(stmt ast.Stmt) (string, symbolKind, bool, bool) {
+func stmtExport(stmt ast.Stmt) (string, ExportKind, bool, bool) {
 	switch n := stmt.(type) {
-	case ast.LetBlock:
-		return n.Name, symbolKindLet, true, true
-	case ast.ParamBlock:
-		return n.Name, symbolKindParam, true, true
 	case ast.DoBlock:
-		return n.Name, symbolKindDo, true, true
+		return n.Name, ExportDo, true, true
 	case ast.SubmitBlock:
-		return n.Name, symbolKindSubmit, true, true
+		return n.Name, ExportSubmit, true, true
 	case ast.GlobalAssign:
-		return n.Name, symbolKindGlobal, true, true
+		return n.Name, ExportGlobal, true, true
 	case ast.AnalyseBlock:
-		return n.StepName, symbolKindOther, true, false
+		return n.StepName, ExportOther, true, false
 	default:
-		return "", symbolKindOther, false, false
+		return "", ExportOther, false, false
 	}
 }

@@ -6,17 +6,61 @@ import (
 	"jbs/internal/eval"
 )
 
-type Paramset struct {
+type BindingShape string
+
+const (
+	BindingScalar BindingShape = "scalar"
+	BindingTable  BindingShape = "table"
+)
+
+type ImportContext string
+
+const (
+	ImportIntoStep      ImportContext = "step"
+	ImportIntoSubmitUse ImportContext = "submit_use"
+	ImportIntoAnalyse   ImportContext = "analyse"
+)
+
+type GlobalBinding struct {
 	Name            string
-	Block           ast.ParamBlock
+	Value           eval.Value
+	Shape           BindingShape
 	Rows            []eval.Row
 	Vars            map[string][]eval.Value
 	BaseVars        map[string][]eval.Value
 	Origins         map[string]diag.Span
 	Modes           map[string]string
 	Order           []string
-	HasPlus         bool
+	Span            diag.Span
+	DependsOn       []string
 	SyntheticGlobal bool
+}
+
+func (b *GlobalBinding) Supports(ctx ImportContext) bool {
+	if b == nil {
+		return false
+	}
+	switch ctx {
+	case ImportIntoStep:
+		return true
+	case ImportIntoSubmitUse:
+		return b.Shape == BindingScalar
+	case ImportIntoAnalyse:
+		if b.Shape != BindingScalar {
+			return false
+		}
+		if len(b.Order) != 1 {
+			return false
+		}
+		col := b.Order[0]
+		vals := b.Vars[col]
+		if len(vals) == 0 {
+			return true
+		}
+		return vals[0].Kind == eval.KindString
+	default:
+		return false
+	}
 }
 
 type GlobalState struct {
@@ -33,70 +77,51 @@ type GlobalVar struct {
 	Order     []string
 	Vars      map[string][]eval.Value
 	Namespace string
-	// Direct global variable dependencies collected from the effective
-	// assignment expression for this symbol.
 	DependsOn []string
 }
 
-type SourceKind string
-
-const (
-	SourceKindParam SourceKind = "param"
-	SourceKindLet   SourceKind = "let"
-)
-
-type ImportSource struct {
-	Name    string
-	Kind    SourceKind
-	Vars    map[string][]eval.Value
-	Origins map[string]diag.Span
-	Modes   map[string]string
-	Order   []string
-	Span    diag.Span
+type Namespace struct {
+	Name     string
+	Bindings []string
+	Steps    []string
 }
 
 type Result struct {
-	Program            ast.Program
-	Globals            GlobalState
-	GlobalVarByName    map[string]*GlobalVar
-	GlobalVarOrder     []string
-	LetNamespaces      []*LetNamespace
-	LetByName          map[string]*LetNamespace
-	ImportSourceByName map[string]*ImportSource
-	Paramsets          []*Paramset
-	ParamByName        map[string]*Paramset
-	DoBlocks           []ast.DoBlock
-	Submits            []ast.SubmitBlock
-	SubmitByName       map[string]*SubmitSpec
-	StepImportByName   map[string]*StepImportPlan
-	Analyse            []*AnalyseSpec
+	Program         ast.Program
+	Globals         GlobalState
+	GlobalVarByName map[string]*GlobalVar
+	GlobalVarOrder  []string
+	Bindings        []*GlobalBinding
+	BindingsByName  map[string]*GlobalBinding
+	Namespaces      map[string]*Namespace
+	DoBlocks        []ast.DoBlock
+	Submits         []ast.SubmitBlock
+	StepOrder       []string
+	SubmitByName    map[string]*SubmitSpec
+	StepScopeByName map[string]*StepScopePlan
+	Analyse         []*AnalyseSpec
 }
 
-type VarOrigin struct {
+type VisibleBinding struct {
 	Name      string
 	SourceVar string
-	Paramset  string
-	Kind      SourceKind
+	Source    string
 	Span      diag.Span
 }
 
-type PlannedImport struct {
+type ScopeImport struct {
 	Source    string
-	Kind      SourceKind
 	Visible   string
 	SourceVar string
 	Full      bool
 	Span      diag.Span
 }
 
-type StepImportPlan struct {
-	// Canonical step import representation consumed by semantic step
-	// visibility/reference accounting and lowering.
-	// Step consumers must not re-expand raw with-items independently.
+type StepScopePlan struct {
 	StepName       string
-	Inherited      map[string]VarOrigin
-	ExplicitDelta  []PlannedImport
-	Effective      map[string]VarOrigin
+	Inherited      map[string]VisibleBinding
+	ExplicitDelta  []ScopeImport
+	Effective      map[string]VisibleBinding
 	InheritedSteps []string
 }
 
@@ -122,14 +147,6 @@ type SubmitSpec struct {
 	Name    string
 	Values  []SubmitValue
 	Helpers []SubmitHelper
-	Span    diag.Span
-}
-
-type LetNamespace struct {
-	Name    string
-	Vars    map[string]eval.Value
-	Modes   map[string]string
-	Origins map[string]diag.Span
 	Span    diag.Span
 }
 

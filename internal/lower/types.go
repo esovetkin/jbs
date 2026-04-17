@@ -54,9 +54,9 @@ type CommentProjection struct {
 type ParameterSetKind string
 
 const (
-	ParameterSetKindParam      ParameterSetKind = "param"
-	ParameterSetKindSubset     ParameterSetKind = "subset"
-	ParameterSetKindSubmitInit ParameterSetKind = "submit_system"
+	ParameterSetKindGlobalTable ParameterSetKind = "global_table"
+	ParameterSetKindSubset      ParameterSetKind = "subset"
+	ParameterSetKindSubmitInit  ParameterSetKind = "submit_system"
 )
 
 type ParameterSetMeta struct {
@@ -83,8 +83,8 @@ type Parameter struct {
 type PatternSetKind string
 
 const (
-	PatternSetKindLet    PatternSetKind = "let"
-	PatternSetKindInline PatternSetKind = "analyse_inline"
+	PatternSetKindImportedGlobals PatternSetKind = "imported_globals"
+	PatternSetKindInlineAnalyse   PatternSetKind = "analyse_inline"
 )
 
 type PatternSetMeta struct {
@@ -207,13 +207,13 @@ type subsetInfo struct {
 }
 
 type lowerContext struct {
-	res                    *sema.Result
-	doc                    Document
-	diags                  *diag.Diagnostics
-	names                  map[string]struct{}
-	sourceParamsetEmitted  map[string]struct{}
-	subsetNames            map[subsetKey]subsetInfo
-	stepSourceRows         map[string]map[string]string
-	patternSetIndexByGroup map[string]int
-	analyserNames          map[string]string
+	res                       *sema.Result
+	doc                       Document
+	diags                     *diag.Diagnostics
+	names                     map[string]struct{}
+	sourceParameterSetEmitted map[string]struct{}
+	subsetNames               map[subsetKey]subsetInfo
+	stepSourceRows            map[string]map[string]string
+	patternSetIndexByGroup    map[string]int
+	analyserNames             map[string]string
 }

@@ -14,17 +14,16 @@ type withIssueFormat struct {
 }
 
 type WithDiagPolicy struct {
-	UnknownSource  withIssueFormat
-	UnknownVar     withIssueFormat
-	Ambiguous      withIssueFormat
-	DisallowedKind withIssueFormat
+	UnknownSource     withIssueFormat
+	UnknownVar        withIssueFormat
+	DisallowedBinding withIssueFormat
 }
 
 func unknownSourceFormat(hint func(ResolveIssue) string) withIssueFormat {
 	return withIssueFormat{
 		Code: diag.CodeE020,
 		Message: func(issue ResolveIssue) string {
-			return fmt.Sprintf("unknown parameterset '%s' in with clause", issue.Source)
+			return fmt.Sprintf("unknown global import source '%s' in with clause", issue.Source)
 		},
 		Hint: hint,
 	}
@@ -40,26 +39,14 @@ func unknownVarFormat(hint func(ResolveIssue) string) withIssueFormat {
 	}
 }
 
-func ambiguousSourceFormat() withIssueFormat {
-	return withIssueFormat{
-		Code: diag.CodeE218,
-		Message: func(issue ResolveIssue) string {
-			return fmt.Sprintf("ambiguous with source '%s': matches both param and let namespace", issue.Source)
-		},
-		Hint: func(ResolveIssue) string {
-			return "disambiguate by renaming the param or let namespace"
-		},
-	}
-}
-
-func analyseDisallowedKindFormat() withIssueFormat {
+func analyseDisallowedBindingFormat() withIssueFormat {
 	return withIssueFormat{
 		Code: diag.CodeE420,
 		Message: func(issue ResolveIssue) string {
-			return fmt.Sprintf("analyse with-clause can only import from let namespaces; '%s' is not a let namespace", issue.Source)
+			return fmt.Sprintf("analyse with-clause can only import scalar string globals; '%s' is not eligible", issue.Source)
 		},
 		Hint: func(ResolveIssue) string {
-			return "use `with <let_namespace>` or `with <variable> from <let_namespace>`"
+			return "use a scalar string global or import one from a module namespace"
 		},
 	}
 }
@@ -69,7 +56,6 @@ func baseWithDiagPolicy() WithDiagPolicy {
 		UnknownVar: unknownVarFormat(func(ResolveIssue) string {
 			return "import a variable that exists in the selected source"
 		}),
-		Ambiguous: ambiguousSourceFormat(),
 	}
 }
 
@@ -94,10 +80,8 @@ func policyFormatForIssue(policy WithDiagPolicy, kind ResolveIssueKind) withIssu
 		return policy.UnknownSource
 	case IssueUnknownVar:
 		return policy.UnknownVar
-	case IssueAmbiguousSource:
-		return policy.Ambiguous
-	case IssueDisallowedKind:
-		return policy.DisallowedKind
+	case IssueDisallowedBinding:
+		return policy.DisallowedBinding
 	default:
 		return withIssueFormat{}
 	}
@@ -106,7 +90,7 @@ func policyFormatForIssue(policy WithDiagPolicy, kind ResolveIssueKind) withIssu
 func paramWithDiagPolicy() WithDiagPolicy {
 	policy := baseWithDiagPolicy()
 	policy.UnknownSource = unknownSourceFormat(func(ResolveIssue) string {
-		return "define/import the parameterset or let namespace before using it"
+		return "define or import the global binding before using it"
 	})
 	return policy
 }
@@ -115,9 +99,9 @@ func stepValidateWithDiagPolicy() WithDiagPolicy {
 	policy := baseWithDiagPolicy()
 	policy.UnknownSource = unknownSourceFormat(func(issue ResolveIssue) string {
 		if issue.Item.From == "" {
-			return "import an existing parameterset or let namespace"
+			return "import an existing global binding"
 		}
-		return "import from an existing parameterset or let namespace"
+		return "import from an existing global binding"
 	})
 	return policy
 }
@@ -125,11 +109,11 @@ func stepValidateWithDiagPolicy() WithDiagPolicy {
 func analyseWithDiagPolicy() WithDiagPolicy {
 	policy := baseWithDiagPolicy()
 	policy.UnknownSource = unknownSourceFormat(func(ResolveIssue) string {
-		return "import from an existing let namespace"
+		return "import from an existing scalar string global"
 	})
 	policy.UnknownVar = unknownVarFormat(func(ResolveIssue) string {
-		return "import a variable that exists in the selected let namespace"
+		return "import a variable that exists in the selected global binding"
 	})
-	policy.DisallowedKind = analyseDisallowedKindFormat()
+	policy.DisallowedBinding = analyseDisallowedBindingFormat()
 	return policy
 }

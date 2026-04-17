@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
 	"jbs/internal/planutil"
@@ -34,7 +33,6 @@ type wpState struct {
 
 type sourceGroup struct {
 	Source string
-	Kind   sema.SourceKind
 	Vars   []sourceVar
 	Full   bool
 	Span   diag.Span
@@ -51,8 +49,8 @@ type sourceChoice struct {
 }
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
-	candidateColumns := collectQualifiedColumns(res.ImportSourceByName)
-	steps := collectStepsInProgramOrder(res.Program)
+	candidateColumns := collectQualifiedColumns(res.BindingsByName)
+	steps := collectStepsInResultOrder(res)
 	defs := make(map[string]stepDef, len(steps))
 	preferred := make([]string, 0, len(steps))
 	for _, step := range steps {
@@ -63,16 +61,16 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	statesByStep := make(map[string][]wpState, len(steps))
 	for _, stepName := range planutil.TopoStepOrder(stepDeps(defs), preferred) {
 		step := defs[stepName]
-		plan := res.StepImportByName[stepName]
+		plan := res.StepScopeByName[stepName]
 		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
-		groups := groupExplicitDeltaBySource(plan, res.ImportSourceByName)
-		statesByStep[stepName] = expandStep(parents, groups, res.ImportSourceByName, step.Span, diags)
+		groups := groupExplicitDeltaBySource(plan, res.BindingsByName)
+		statesByStep[stepName] = expandStep(parents, groups, res.BindingsByName, step.Span, diags)
 	}
 
 	rows := make([]Row, 0)
 	usedCols := make(map[string]struct{})
 	for _, step := range steps {
-		plan := res.StepImportByName[step.Name]
+		plan := res.StepScopeByName[step.Name]
 		states := statesByStep[step.Name]
 		for _, state := range states {
 			vals := make(map[string]string)
@@ -81,14 +79,14 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 					continue
 				}
 				origin, ok := plan.Effective[name]
-				if !ok || origin.Paramset == "" {
+				if !ok || origin.Source == "" {
 					continue
 				}
 				sourceVar := name
 				if origin.SourceVar != "" {
 					sourceVar = origin.SourceVar
 				}
-				key := origin.Paramset + "." + sourceVar
+				key := origin.Source + "." + sourceVar
 				vals[key] = value.String()
 				usedCols[key] = struct{}{}
 			}
@@ -147,11 +145,11 @@ func pruneHeaderOnlyColumns(cols []string, rows []Row) []string {
 	return out
 }
 
-func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {
+func collectQualifiedColumns(bindings map[string]*sema.GlobalBinding) []string {
 	out := make([]string, 0)
 	seen := make(map[string]struct{})
-	for _, sourceName := range slices.Sorted(maps.Keys(sources)) {
-		src := sources[sourceName]
+	for _, sourceName := range slices.Sorted(maps.Keys(bindings)) {
+		src := bindings[sourceName]
 		if src == nil {
 			continue
 		}
@@ -167,25 +165,22 @@ func collectQualifiedColumns(sources map[string]*sema.ImportSource) []string {
 	return out
 }
 
-func collectStepsInProgramOrder(prog ast.Program) []stepDef {
-	out := make([]stepDef, 0)
-	for _, stmt := range prog.Stmts {
-		switch n := stmt.(type) {
-		case ast.DoBlock:
-			out = append(out, stepDef{
-				Name:  n.Name,
-				Kind:  "do",
-				After: append([]string(nil), n.After...),
-				Span:  n.Span,
-			})
-		case ast.SubmitBlock:
-			out = append(out, stepDef{
-				Name:  n.Name,
-				Kind:  "submit",
-				After: append([]string(nil), n.After...),
-				Span:  n.Span,
-			})
+func collectStepsInResultOrder(res *sema.Result) []stepDef {
+	out := make([]stepDef, 0, len(res.StepOrder))
+	for _, name := range res.StepOrder {
+		for _, n := range res.DoBlocks {
+			if n.Name == name {
+				out = append(out, stepDef{Name: n.Name, Kind: "do", After: append([]string(nil), n.After...), Span: n.Span})
+				goto next
+			}
 		}
+		for _, n := range res.Submits {
+			if n.Name == name {
+				out = append(out, stepDef{Name: n.Name, Kind: "submit", After: append([]string(nil), n.After...), Span: n.Span})
+				break
+			}
+		}
+	next:
 	}
 	return out
 }
@@ -228,7 +223,7 @@ func inheritParentStates(after []string, byStep map[string][]wpState, at diag.Sp
 	return combined
 }
 
-func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*sema.ImportSource) []sourceGroup {
+func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*sema.GlobalBinding) []sourceGroup {
 	if plan == nil {
 		return nil
 	}
@@ -241,7 +236,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*s
 		}
 		g, ok := bySource[source]
 		if !ok {
-			g = &sourceGroup{Source: source, Kind: item.Kind, Vars: make([]sourceVar, 0), Span: item.Span}
+			g = &sourceGroup{Source: source, Vars: make([]sourceVar, 0), Span: item.Span}
 			bySource[source] = g
 			order = append(order, source)
 		}
@@ -282,7 +277,7 @@ func groupExplicitDeltaBySource(plan *sema.StepImportPlan, sources map[string]*s
 	return out
 }
 
-func expandStep(parents []wpState, groups []sourceGroup, sources map[string]*sema.ImportSource, at diag.Span, diags *diag.Diagnostics) []wpState {
+func expandStep(parents []wpState, groups []sourceGroup, sources map[string]*sema.GlobalBinding, at diag.Span, diags *diag.Diagnostics) []wpState {
 	if len(parents) == 0 {
 		return nil
 	}
@@ -307,7 +302,7 @@ func expandStep(parents []wpState, groups []sourceGroup, sources map[string]*sem
 	return states
 }
 
-func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.ImportSource) []sourceChoice {
+func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.GlobalBinding) []sourceChoice {
 	src := sources[group.Source]
 	if src == nil {
 		return nil

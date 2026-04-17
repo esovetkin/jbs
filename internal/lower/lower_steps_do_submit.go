@@ -17,7 +17,7 @@ import (
 func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	inherits := make([]string, 0)
 	inheritVars := make([]string, 0)
-	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
+	if plan := ctx.res.StepScopeByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
 		inherits = append(inherits, plan.InheritedSteps...)
 		inheritVars = slices.Sorted(maps.Keys(plan.Inherited))
 	}
@@ -88,7 +88,7 @@ func (ctx *lowerContext) addSubmitParameterSet(block ast.SubmitBlock, aliases ma
 func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, aliases map[string]string) Step {
 	inherits := make([]string, 0)
 	inheritVars := make([]string, 0)
-	if plan := ctx.res.StepImportByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
+	if plan := ctx.res.StepScopeByName[block.Name]; plan != nil && len(plan.InheritedSteps) > 0 {
 		inherits = append(inherits, plan.InheritedSteps...)
 		inheritVars = slices.Sorted(maps.Keys(plan.Inherited))
 	}
@@ -130,29 +130,29 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 
 // buildSubmitParameter converts one submit field/helper value into a JUBE parameter payload.
 func buildSubmitParameter(name, mode string, value eval.Value, aliases map[string]string, withTypeInference bool) Parameter {
-	param := Parameter{Name: name}
+	parameter := Parameter{Name: name}
 	if withTypeInference {
 		if t := submitParameterType(name); t != "" {
-			param.Type = t
+			parameter.Type = t
 		}
 	}
 	value = rewriteShellRefsInEvalValue(value, aliases)
 	if mode != "" {
-		param.Mode = mode
+		parameter.Mode = mode
 		if mode == "python" {
-			param.Value = SingleQuoted(asString(value))
+			parameter.Value = SingleQuoted(asString(value))
 		} else {
-			param.Value = asString(value)
+			parameter.Value = asString(value)
 		}
-		return param
+		return parameter
 	}
 	switch value.Kind {
 	case eval.KindList, eval.KindTuple, eval.KindNull:
-		param.Value = pythonLiteral(value)
+		parameter.Value = pythonLiteral(value)
 	default:
-		param.Value = templateValue(value)
+		parameter.Value = templateValue(value)
 	}
-	return param
+	return parameter
 }
 
 func submitParameterType(name string) string {

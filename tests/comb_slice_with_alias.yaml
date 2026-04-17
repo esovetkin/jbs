@@ -6,7 +6,7 @@ outpath: out
 
 # Parameter sets used to create workpackage combinations
 parameterset:
-  # Param block 'base'
+  # Table-valued global 'base'
   - name: base
     parameter:
       - name: _ji_base
@@ -20,7 +20,7 @@ parameterset:
         mode: python
         _: '["u","v","w","u","v","w"][$_ji_base]'
 
-  # Param block 'derived'
+  # Table-valued global 'derived'
   - name: derived
     parameter:
       - name: _ji_derived

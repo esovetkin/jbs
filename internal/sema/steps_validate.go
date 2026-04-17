@@ -127,34 +127,23 @@ func validateStepHeaderOptions(kind, stepName string, maxAsync *int, procs *int,
 }
 
 func validateUseClauses(res *Result, diags *diag.Diagnostics) {
-	for _, ps := range res.Paramsets {
-		validateWithItems(ps.Block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
-	}
 	for _, block := range res.DoBlocks {
-		validateWithItems(block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
+		validateWithItems(block.WithItems, res.BindingsByName, diags)
 	}
 	for _, block := range res.Submits {
-		validateWithItems(block.WithItems, res.ParamByName, res.LetByName, res.ImportSourceByName, diags)
+		validateWithItems(block.WithItems, res.BindingsByName, diags)
 	}
 }
 
 func validateWithItems(
 	items []ast.WithItem,
-	params map[string]*Paramset,
-	lets map[string]*LetNamespace,
-	sources map[string]*ImportSource,
+	bindings map[string]*GlobalBinding,
 	diags *diag.Diagnostics,
 ) {
-	resolver := WithResolver{
-		Params:  params,
-		Lets:    lets,
-		Sources: sources,
-	}
-	expanded, issues := resolver.ExpandWithItems(items, WithResolveOptions{
-		AllowParam:                true,
-		AllowLet:                  true,
+	resolver := BindingResolver{Bindings: bindings}
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
+		Context:                   ImportIntoStep,
 		EnableMixedSourceFallback: true,
-		DetectAmbiguousSource:     true,
 	})
 	emitWithIssues(diags, stepValidateWithDiagPolicy(), issues)
 

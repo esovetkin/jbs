@@ -6,7 +6,7 @@ outpath: out
 
 # Parameter sets used to create workpackage combinations
 parameterset:
-  # Param block 'matrix'
+  # Table-valued global 'matrix'
   - name: matrix
     parameter:
       - name: _ji_matrix

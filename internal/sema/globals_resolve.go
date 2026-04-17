@@ -55,7 +55,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 				continue
 			}
 			v := eval.EvalExprWithOptions(assign.Expr, values, diags, eval.ExprOptions{
-				Context: eval.EvalCtxGlobalAssign,
+				Context: eval.EvalCtxScalarGlobalAssign,
 			})
 			values[assign.Name] = v
 			delete(modes, assign.Name)
@@ -69,7 +69,7 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 			expr = inner
 		}
 		v := eval.EvalExprWithOptions(expr, values, diags, eval.ExprOptions{
-			Context: eval.EvalCtxGlobalAssign,
+			Context: eval.EvalCtxScalarGlobalAssign,
 		})
 		if isModeExpr {
 			v = coerceModeValue(mode, v, assign.Span, diags)
