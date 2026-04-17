@@ -10,6 +10,7 @@ var knownHelpTopics = []string{
 	"do",
 	"functions",
 	"globals",
+	"repl",
 	"submit",
 	"use",
 }
@@ -25,6 +26,7 @@ var knownHelpTopicSet = func() map[string]struct{} {
 type Flags struct {
 	Input      string
 	Output     string
+	Repl       bool
 	Check      bool
 	Fmt        bool
 	FmtStrict  bool
@@ -47,8 +49,15 @@ func (e UsageError) Error() string {
 func ParseFlags(args []string) (Flags, error) {
 	cfg := Flags{Output: "-"}
 	if len(args) == 0 {
-		cfg.Help = true
+		cfg.Repl = true
 		return cfg, nil
+	}
+	if args[0] == "repl" {
+		cfg.Repl = true
+		if len(args) == 1 {
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs repl"}
 	}
 	if args[0] == "help" {
 		cfg.Help = true
@@ -164,7 +173,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|do|functions|globals|submit|use]
+  jbs help [analyse|do|functions|globals|repl|submit|use]
 
 Inspect embedded shared scripts:
   jbs embed [filename]
@@ -174,7 +183,11 @@ Inspect step parameter expansion:
   defaults: -t pretty, -o -
 
 Format jbs in place:
-  jbs fmt [-s|--strict] script.jbs`
+  jbs fmt [-s|--strict] script.jbs
+
+Interactive mode:
+  jbs
+  jbs repl`
 }
 
 func isKnownHelpTopic(topic string) bool {

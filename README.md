@@ -80,7 +80,7 @@ Options:
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [globals|functions|do|submit|analyse|use]
+  jbs help [globals|functions|do|submit|analyse|repl|use]
 
 Inspect embedded shared scripts:
   jbs embed [filename]
@@ -91,6 +91,10 @@ Inspect step parameter expansion:
 
 Format jbs in place:
   jbs fmt [-s|--strict] script.jbs
+
+Interactive mode:
+  jbs
+  jbs repl
 ```
 
 A JBS program now uses top-level global assignments for all declarations. Sequence and matrix-like parameter spaces are represented as first-class `comb` values. `do` and `submit` blocks import visible variables explicitly through `with`. At the end, `analyse` builds result tables from parsed files.

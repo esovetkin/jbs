@@ -76,6 +76,39 @@ type resolver struct {
 }
 
 func LoadAndExpand(entryPath string, cwd string, diags *diag.Diagnostics) (*LoadResult, error) {
+	r, err := newResolver(cwd, diags)
+	if err != nil {
+		return nil, err
+	}
+	entryAbs := entryPath
+	if !filepath.IsAbs(entryAbs) {
+		entryAbs = filepath.Join(r.cwd, entryPath)
+	}
+	entryAbs = filepath.Clean(entryAbs)
+	entryRef, err := r.loadFileModule(entryAbs)
+	if err != nil {
+		return nil, err
+	}
+	return r.loadResult(entryRef)
+}
+
+// LoadAndExpandSource expands `use` imports for an in-memory entry module.
+//
+// The source is parsed under entryLabel and uses baseDir as importer base for
+// quoted path imports. Bare module resolution still uses cwd.
+func LoadAndExpandSource(entryLabel string, source string, baseDir string, cwd string, diags *diag.Diagnostics) (*LoadResult, error) {
+	r, err := newResolver(cwd, diags)
+	if err != nil {
+		return nil, err
+	}
+	entryRef, err := r.loadSourceModule(entryLabel, source, baseDir)
+	if err != nil {
+		return nil, err
+	}
+	return r.loadResult(entryRef)
+}
+
+func newResolver(cwd string, diags *diag.Diagnostics) (*resolver, error) {
 	if diags == nil {
 		diags = &diag.Diagnostics{}
 	}
@@ -90,24 +123,17 @@ func LoadAndExpand(entryPath string, cwd string, diags *diag.Diagnostics) (*Load
 	if err != nil {
 		return nil, err
 	}
-	entryAbs := entryPath
-	if !filepath.IsAbs(entryAbs) {
-		entryAbs = filepath.Join(absCwd, entryPath)
-	}
-	entryAbs = filepath.Clean(entryAbs)
-
-	r := &resolver{
+	return &resolver{
 		cwd:       absCwd,
 		diags:     diags,
 		raw:       make(map[string]*rawModule),
 		expanded:  make(map[string]*expandedModule),
 		expanding: make(map[string]bool),
 		sources:   make(map[string]string),
-	}
-	entryRef, err := r.loadFileModule(entryAbs)
-	if err != nil {
-		return nil, err
-	}
+	}, nil
+}
+
+func (r *resolver) loadResult(entryRef moduleRef) (*LoadResult, error) {
 	expanded := r.expandModule(entryRef)
 	if expanded == nil {
 		return nil, fmt.Errorf("failed to expand entry module")
@@ -121,6 +147,36 @@ func LoadAndExpand(entryPath string, cwd string, diags *diag.Diagnostics) (*Load
 		outSources[k] = v
 	}
 	return &LoadResult{Program: prog, Sources: outSources}, nil
+}
+
+func (r *resolver) loadSourceModule(label string, source string, baseDir string) (moduleRef, error) {
+	entryLabel := strings.TrimSpace(label)
+	if entryLabel == "" {
+		entryLabel = "<source>"
+	}
+	normBaseDir := strings.TrimSpace(baseDir)
+	if normBaseDir == "" {
+		normBaseDir = r.cwd
+	}
+	if !filepath.IsAbs(normBaseDir) {
+		normBaseDir = filepath.Join(r.cwd, normBaseDir)
+	}
+	normBaseDir = filepath.Clean(normBaseDir)
+
+	id := "source:" + entryLabel
+	if raw, ok := r.raw[id]; ok {
+		return raw.Ref, nil
+	}
+	prog := parser.Parse(entryLabel, source, r.diags)
+	ref := moduleRef{ID: id, Label: entryLabel}
+	r.raw[id] = &rawModule{
+		Ref:     ref,
+		Source:  source,
+		Program: prog,
+		BaseDir: normBaseDir,
+	}
+	r.sources[entryLabel] = source
+	return ref, nil
 }
 
 func (r *resolver) loadFileModule(absPath string) (moduleRef, error) {

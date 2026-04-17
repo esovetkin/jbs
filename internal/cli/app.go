@@ -5,16 +5,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
 	helpdocs "jbs/docs"
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/emit"
+	"jbs/internal/eval"
 	jbsformat "jbs/internal/format"
 	"jbs/internal/imports"
 	"jbs/internal/lower"
+	"jbs/internal/parser"
 	"jbs/internal/printparam"
+	jbsrepl "jbs/internal/repl"
 	"jbs/internal/sema"
 	"jbs/shared"
 )
@@ -27,12 +32,17 @@ type analysisBundle struct {
 	Result  *sema.Result
 }
 
+var runReplFn = runRepl
+
 func Run(args []string, stdout, stderr io.Writer) int {
 	flags, err := ParseFlags(args)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		fmt.Fprintln(stderr, UsageText())
 		return 2
+	}
+	if flags.Repl {
+		return runReplFn(stdout, stderr)
 	}
 	if flags.Help {
 		if flags.HelpTopic == "" {
@@ -185,12 +195,231 @@ func runFmt(path string, strict bool, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runRepl(stdout, stderr io.Writer) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to determine working directory: %v\n", err)
+		return 1
+	}
+	check := func(source string) (string, bool, error) {
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeSource("<repl>", source, cwd, diags)
+		if err != nil {
+			return "", true, err
+		}
+		diagText := ""
+		errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
+		if len(errorDiags.Items) > 0 {
+			diagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
+		}
+		return diagText, diags.HasErrors(), nil
+	}
+	yaml := func(source string) (string, string, bool, error) {
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeSource("<repl>", source, cwd, diags)
+		if err != nil {
+			return "", "", true, err
+		}
+		doc := lower.ToJUBEYAML(bundle.Result, diags)
+		diagText := ""
+		errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
+		if len(errorDiags.Items) > 0 {
+			diagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
+		}
+		if diags.HasErrors() {
+			return "", diagText, true, nil
+		}
+		out, err := emit.YAML(doc)
+		if err != nil {
+			return "", diagText, true, err
+		}
+		return string(out), diagText, false, nil
+	}
+	inspect := func(source, name string) (string, bool, error) {
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeSource("<repl>", source, cwd, diags)
+		if err != nil {
+			return "", false, err
+		}
+		if gv := bundle.Result.GlobalVarByName[name]; gv != nil {
+			return formatReplValue(gv.Value), true, nil
+		}
+		return "", false, nil
+	}
+	evalExpr := func(source, exprText string) (string, string, bool, bool, error) {
+		return evaluateReplExpression(cwd, source, exprText)
+	}
+	return jbsrepl.Run(jbsrepl.Options{
+		Stdout:   stdout,
+		Stderr:   stderr,
+		Cwd:      cwd,
+		Check:    check,
+		YAML:     yaml,
+		Inspect:  inspect,
+		EvalExpr: evalExpr,
+	})
+}
+
+func evaluateReplExpression(cwd, source, exprText string) (string, string, bool, bool, error) {
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeSource("<repl>", source, cwd, diags)
+	if err != nil {
+		return "", "", true, true, err
+	}
+	sourceErrs := filterDiagnosticsBySeverity(diags, diag.SeverityError)
+	if len(sourceErrs.Items) > 0 {
+		return "", formatDiagnosticsWithSources(sourceErrs, bundle.Sources, bundle.Program.File), true, true, nil
+	}
+
+	exprDiags := &diag.Diagnostics{}
+	expr, handled := parser.ParseStandaloneExpr("<repl-expr>", exprText, diag.NewPos(0, 1, 1), exprDiags)
+	if !handled {
+		return "", "", false, false, nil
+	}
+	exprErrs := filterDiagnosticsBySeverity(exprDiags, diag.SeverityError)
+	if len(exprErrs.Items) > 0 {
+		return "", formatDiagnostics(exprErrs, exprText), true, true, nil
+	}
+
+	env := lower.BuiltinGlobalValues()
+	for name, gv := range bundle.Result.GlobalVarByName {
+		if gv == nil {
+			continue
+		}
+		env[name] = gv.Value
+	}
+	evalDiags := &diag.Diagnostics{}
+	value := eval.EvalExprWithOptions(expr, env, evalDiags, eval.ExprOptions{
+		ParamAssignmentTupleArithmetic: true,
+		Context:                        eval.EvalCtxParamAssign,
+	})
+	evalErrs := filterDiagnosticsBySeverity(evalDiags, diag.SeverityError)
+	if len(evalErrs.Items) > 0 {
+		return "", formatDiagnostics(evalErrs, exprText), true, true, nil
+	}
+	return formatReplValue(value), "", true, false, nil
+}
+
+const replMaxPreviewItems = 3
+
+func filterDiagnosticsBySeverity(diags *diag.Diagnostics, severity diag.Severity) diag.Diagnostics {
+	out := diag.Diagnostics{
+		Items: make([]diag.Diagnostic, 0, len(diags.Items)),
+	}
+	for _, item := range diags.Items {
+		if item.Severity == severity {
+			out.Items = append(out.Items, item)
+		}
+	}
+	return out
+}
+
+func formatReplValue(v eval.Value) string {
+	switch v.Kind {
+	case eval.KindList:
+		return formatReplSequence("[", "]", v.L)
+	case eval.KindTuple:
+		return formatReplSequence("(", ")", v.L)
+	case eval.KindComb:
+		return formatReplComb(v.C)
+	default:
+		return v.String()
+	}
+}
+
+func formatReplSequence(open, close string, items []eval.Value) string {
+	limit := len(items)
+	if limit > replMaxPreviewItems {
+		limit = replMaxPreviewItems
+	}
+	parts := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, formatReplInlineValue(items[i]))
+	}
+	if len(items) > limit {
+		parts = append(parts, "...")
+	}
+	return open + strings.Join(parts, ", ") + close
+}
+
+func formatReplInlineValue(v eval.Value) string {
+	switch v.Kind {
+	case eval.KindList:
+		return formatReplSequence("[", "]", v.L)
+	case eval.KindTuple:
+		return formatReplSequence("(", ")", v.L)
+	case eval.KindComb:
+		return formatReplComb(v.C)
+	case eval.KindString:
+		return strconv.Quote(v.S)
+	default:
+		return v.String()
+	}
+}
+
+func formatReplComb(c *eval.Comb) string {
+	if c == nil {
+		return "comb(rows=0, cols=[], head=[])"
+	}
+	cols := slices.Clone(c.Order)
+	if len(cols) == 0 {
+		colSet := make(map[string]struct{})
+		for _, row := range c.Rows {
+			for name := range row.Values {
+				colSet[name] = struct{}{}
+			}
+		}
+		cols = make([]string, 0, len(colSet))
+		for name := range colSet {
+			cols = append(cols, name)
+		}
+		slices.Sort(cols)
+	}
+
+	headLimit := len(c.Rows)
+	if headLimit > replMaxPreviewItems {
+		headLimit = replMaxPreviewItems
+	}
+	headRows := make([]string, 0, headLimit+1)
+	for i := 0; i < headLimit; i++ {
+		row := c.Rows[i]
+		cells := make([]string, 0, len(cols))
+		for _, col := range cols {
+			cell, ok := row.Values[col]
+			if !ok {
+				continue
+			}
+			cells = append(cells, col+":"+formatReplInlineValue(cell.Value))
+		}
+		headRows = append(headRows, "{"+strings.Join(cells, ", ")+"}")
+	}
+	if len(c.Rows) > headLimit {
+		headRows = append(headRows, "...")
+	}
+	return "comb(rows=" + strconv.Itoa(len(c.Rows)) +
+		", cols=[" + strings.Join(cols, ", ") +
+		"], head=[" + strings.Join(headRows, ", ") + "])"
+}
+
 func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("determine working directory: %w", err)
 	}
 	loadRes, err := imports.LoadAndExpand(path, cwd, diags)
+	if err != nil {
+		return nil, err
+	}
+	res := sema.Analyze(loadRes.Program, lower.BuiltinGlobalValues(), diags)
+	return &analysisBundle{
+		Program: loadRes.Program,
+		Sources: loadRes.Sources,
+		Result:  res,
+	}, nil
+}
+
+func analyzeSource(file string, source string, cwd string, diags *diag.Diagnostics) (*analysisBundle, error) {
+	loadRes, err := imports.LoadAndExpandSource(file, source, cwd, cwd, diags)
 	if err != nil {
 		return nil, err
 	}

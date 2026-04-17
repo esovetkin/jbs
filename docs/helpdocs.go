@@ -19,6 +19,7 @@ var topicToFile = map[string]string{
 	"do":        "help_do.md",
 	"functions": "help_functions.md",
 	"globals":   "help_globals.md",
+	"repl":      "help_repl.md",
 	"submit":    "help_submit.md",
 	"use":       "help_use.md",
 }

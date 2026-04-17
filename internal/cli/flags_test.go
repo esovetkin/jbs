@@ -72,8 +72,37 @@ func TestParseFlagsCompileModeCases(t *testing.T) {
 
 func TestParseFlagsNoArgMode(t *testing.T) {
 	f := mustParseFlags(t, nil)
-	if !f.Help || f.HelpTopic != "" {
-		t.Fatalf("expected no-arg mode to select general help")
+	if !f.Repl || f.Help || f.HelpTopic != "" {
+		t.Fatalf("expected no-arg mode to select repl")
+	}
+}
+
+func TestParseFlagsReplMode(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{name: "repl_command", args: []string{"repl"}},
+		{name: "repl_with_extra", args: []string{"repl", "extra"}, wantErr: true},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := ParseFlags(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected usage error for args=%v", tc.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !f.Repl {
+				t.Fatalf("expected repl mode")
+			}
+		})
 	}
 }
 
@@ -327,6 +356,7 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "printparam_rejects_check", args: []string{"printparam", "--check", "input.jbs"}},
 		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
 		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
+		{name: "repl_extra_argument", args: []string{"repl", "extra"}},
 		{name: "too_many_args", args: []string{"a.jbs", "b.jbs"}},
 	}
 
