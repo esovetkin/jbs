@@ -68,7 +68,11 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 
-		resolver := BindingResolver{Bindings: res.BindingsByName}
+		resolver := BindingResolver{
+			Bindings:   res.BindingsByName,
+			Globals:    res.Globals.Values,
+			Namespaces: res.Namespaces,
+		}
 		expandedWith, _ := resolver.ExpandWithItems(def.WithItems, ResolveOptions{
 			Context:                   ImportIntoStep,
 			EnableMixedSourceFallback: true,

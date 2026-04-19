@@ -83,21 +83,26 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 		}
 	}
 
-	collectUseBindings := func(useName string) []*GlobalBinding {
+	collectUseBindings := func(useName string) ([]*GlobalBinding, []string, bool) {
 		if binding := bindings[useName]; binding != nil {
-			return []*GlobalBinding{binding}
+			return []*GlobalBinding{binding}, nil, true
+		}
+		if _, ok := globals[useName]; ok {
+			return nil, []string{useName}, true
 		}
 		ns := namespaces[useName]
 		if ns == nil {
-			return nil
+			return nil, nil, false
 		}
 		names := make([]string, 0, len(ns.Bindings))
+		bindingSet := make(map[string]struct{}, len(ns.Bindings))
 		for _, bindingName := range ns.Bindings {
 			rest := strings.TrimPrefix(bindingName, useName+".")
 			if rest == bindingName || strings.Contains(rest, ".") {
 				continue
 			}
 			names = append(names, bindingName)
+			bindingSet[bindingName] = struct{}{}
 		}
 		slices.Sort(names)
 		out := make([]*GlobalBinding, 0, len(names))
@@ -106,12 +111,44 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 				out = append(out, binding)
 			}
 		}
-		return out
+		disallowed := make([]string, 0)
+		for _, member := range directNamespaceMembers(useName, ns) {
+			fullName := useName + "." + member
+			if _, ok := bindingSet[fullName]; ok {
+				continue
+			}
+			if _, ok := globals[fullName]; ok {
+				disallowed = append(disallowed, fullName)
+			}
+		}
+		return out, disallowed, true
+	}
+
+	reportSubmitUseDisallowed := func(useName string, memberName string, at diag.Span) {
+		message := fmt.Sprintf("submit use source '%s' is not a scalar data binding", useName)
+		if memberName != "" && memberName != useName {
+			message = fmt.Sprintf("submit use source '%s' contains member '%s' that is not a scalar data binding", useName, memberName)
+		}
+		diags.AddError(
+			diag.CodeE071,
+			message,
+			at,
+			"use only scalar data bindings in submit header use clauses",
+		)
+	}
+
+	reportSubmitFieldFunction := func(fieldName string, at diag.Span) {
+		diags.AddError(
+			diag.CodeE071,
+			fmt.Sprintf("submit key '%s' must evaluate to data, not function", fieldName),
+			at,
+			"use scalar/string/list values in submit fields, not function-valued globals",
+		)
 	}
 
 	for _, useName := range block.UseNames {
-		useBindings := collectUseBindings(useName)
-		if len(useBindings) == 0 {
+		useBindings, disallowedMembers, known := collectUseBindings(useName)
+		if !known {
 			diags.AddError(
 				diag.CodeE078,
 				fmt.Sprintf("unknown submit use source '%s'", useName),
@@ -120,14 +157,12 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 			)
 			continue
 		}
+		for _, memberName := range disallowedMembers {
+			reportSubmitUseDisallowed(useName, memberName, block.Span)
+		}
 		for _, src := range useBindings {
 			if !src.Supports(ImportIntoSubmitUse) {
-				diags.AddError(
-					diag.CodeE071,
-					fmt.Sprintf("submit use source '%s' contains non-scalar global '%s'", useName, src.Name),
-					block.Span,
-					"use only scalar globals in submit header use clauses",
-				)
+				reportSubmitUseDisallowed(useName, src.Name, block.Span)
 				continue
 			}
 			for _, varName := range planutil.SourceVarNames(src.Order, src.Vars) {
@@ -274,6 +309,10 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 		})
 		if isModeExpr {
 			value = coerceModeValue(mode, value, field.Span, diags)
+		}
+		if value.Kind == eval.KindFunction {
+			reportSubmitFieldFunction(field.Name, field.Span)
+			continue
 		}
 		if hasNestedList(value) {
 			diags.AddError(

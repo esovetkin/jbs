@@ -174,6 +174,7 @@ func TestMarkSubmitUseBindingRefsForDirectBindingsAndNamespaces(t *testing.T) {
 		Namespaces: map[string]*Namespace{
 			"ns": {
 				Name:     "ns",
+				Members:  []string{"ns.valid", "ns.table", "ns.fn", "ns.deep.child"},
 				Bindings: []string{"ns.valid", "ns.table", "ns.deep.child"},
 			},
 		},

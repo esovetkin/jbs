@@ -143,6 +143,12 @@ func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {
 			"scalar":  scalar,
 			"table":   table,
 		},
+		Globals: map[string]eval.Value{
+			"fn": eval.Function(&eval.FunctionValue{}),
+		},
+		Namespaces: map[string]*Namespace{
+			"lib": {Name: "lib", Members: []string{"lib.fn"}},
+		},
 	}
 
 	if got, issue := resolver.resolveBinding("missing", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoStep}); got != nil || issue == nil || issue.Kind != IssueUnknownSource {
@@ -153,6 +159,12 @@ func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {
 	}
 	if got, issue := resolver.resolveBinding("scalar", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoAnalyse}); got != scalar || issue != nil {
 		t.Fatalf("expected scalar binding to resolve for analyse context, got binding=%#v issue=%#v", got, issue)
+	}
+	if got, issue := resolver.resolveBinding("fn", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoStep}); got != nil || issue == nil || issue.Kind != IssueDisallowedBinding {
+		t.Fatalf("expected function-valued source to report disallowed-binding, got binding=%#v issue=%#v", got, issue)
+	}
+	if got, issue := resolver.resolveBinding("lib", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoStep}); got != nil || issue == nil || issue.Kind != IssueDisallowedBinding {
+		t.Fatalf("expected namespace source to report disallowed-binding, got binding=%#v issue=%#v", got, issue)
 	}
 
 	expanded := expandFullBinding(ast.WithItem{Name: "ordered", Alias: "alias_name", Span: span}, ordered)

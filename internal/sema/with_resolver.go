@@ -3,6 +3,7 @@ package sema
 import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 	"jbs/internal/planutil"
 )
 
@@ -43,7 +44,9 @@ type ResolveIssue struct {
 }
 
 type BindingResolver struct {
-	Bindings map[string]*GlobalBinding
+	Bindings   map[string]*GlobalBinding
+	Globals    map[string]eval.Value
+	Namespaces map[string]*Namespace
 }
 
 func (r BindingResolver) ExpandWithItems(items []ast.WithItem, opts ResolveOptions) ([]ExpandedWithItem, []ResolveIssue) {
@@ -144,6 +147,14 @@ func (r BindingResolver) ExpandWithItems(items []ast.WithItem, opts ResolveOptio
 func (r BindingResolver) resolveBinding(name string, item ast.WithItem, opts ResolveOptions) (*GlobalBinding, *ResolveIssue) {
 	src := r.Bindings[name]
 	if src == nil {
+		if r.isExpressionVisibleOnly(name) {
+			return nil, &ResolveIssue{
+				Kind:   IssueDisallowedBinding,
+				Item:   item,
+				Source: name,
+				Span:   item.Span,
+			}
+		}
 		return nil, &ResolveIssue{
 			Kind:   IssueUnknownSource,
 			Item:   item,
@@ -160,6 +171,19 @@ func (r BindingResolver) resolveBinding(name string, item ast.WithItem, opts Res
 		}
 	}
 	return src, nil
+}
+
+func (r BindingResolver) isExpressionVisibleOnly(name string) bool {
+	if name == "" {
+		return false
+	}
+	if _, exists := r.Bindings[name]; exists {
+		return false
+	}
+	if _, exists := r.Globals[name]; exists {
+		return true
+	}
+	return r.Namespaces[name] != nil
 }
 
 func expandFullBinding(item ast.WithItem, binding *GlobalBinding) ExpandedWithItem {

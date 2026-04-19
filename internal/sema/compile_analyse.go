@@ -144,6 +144,15 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 				Names:   scopeNameCatalog(visibleNamesFromEnv(env), res.Namespaces),
 				Files:   fileAccessForSpan(res.BaseDirByFile, assign.Span),
 			})
+			if value.Kind == eval.KindFunction {
+				diags.AddError(
+					diag.CodeE412,
+					fmt.Sprintf("analyse helper '%s' must evaluate to data, not function", assign.Name),
+					assign.Span,
+					"use scalar/string/list data in analyse helpers, not function-valued globals",
+				)
+				continue
+			}
 			if hasNestedList(value) {
 				diags.AddError(
 					diag.CodeE305,
@@ -175,6 +184,15 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		})
 		if value.Kind != eval.KindString {
 			if hasErrorCodeSince(diags, before, diag.CodeE100) {
+				continue
+			}
+			if value.Kind == eval.KindFunction {
+				diags.AddError(
+					diag.CodeE412,
+					fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string data, not function", assign.Name),
+					assign.Span,
+					"use a string-valued expression, not a function-valued global",
+				)
 				continue
 			}
 			diags.AddError(
@@ -269,6 +287,8 @@ type analyseImportOptions struct {
 func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseBindingImport {
 	out := make(map[string]analyseBindingImport)
 	resolver := BindingResolver{Bindings: res.BindingsByName}
+	resolver.Globals = res.Globals.Values
+	resolver.Namespaces = res.Namespaces
 	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
 		Context:                   ImportIntoAnalyse,
 		EnableMixedSourceFallback: true,

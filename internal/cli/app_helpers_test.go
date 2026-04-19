@@ -179,3 +179,30 @@ func TestRunCheckWithFunctionValuedGlobals(t *testing.T) {
 		t.Fatalf("expected no stdout output in check mode, got %q", stdout.String())
 	}
 }
+
+func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"add = function(x) {",
+		"  x + 1",
+		"}",
+		"do run with add {",
+		"  echo hi",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", path}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected failing check for function-valued with import, code=%d stderr=%s", code, stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "ERROR E420") || !strings.Contains(errText, "not a data binding") {
+		t.Fatalf("expected data-binding error for function-valued with import, got %q", errText)
+	}
+}

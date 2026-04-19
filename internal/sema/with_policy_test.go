@@ -39,10 +39,21 @@ func TestWithPolicyFormatHelpers(t *testing.T) {
 	if disallowedFormat.Code != diag.CodeE420 {
 		t.Fatalf("expected E420, got %q", disallowedFormat.Code)
 	}
-	if got := disallowedFormat.Message(disallowedIssue); got != "analyse with-clause can only import scalar string globals; 'table' is not eligible" {
+	if got := disallowedFormat.Message(disallowedIssue); got != "analyse with-clause can only import scalar string data bindings; 'table' is not a data binding" {
 		t.Fatalf("unexpected disallowed-binding message: %q", got)
 	}
-	if got := disallowedFormat.Hint(disallowedIssue); got != "use a scalar string global or import one from a module namespace" {
+	if got := disallowedFormat.Hint(disallowedIssue); got != "use a scalar string data binding, not an expression-visible global such as a function" {
+		t.Fatalf("unexpected disallowed-binding hint: %q", got)
+	}
+
+	stepDisallowed := stepDisallowedBindingFormat()
+	if stepDisallowed.Code != diag.CodeE420 {
+		t.Fatalf("expected step disallowed-binding code E420, got %q", stepDisallowed.Code)
+	}
+	if got := stepDisallowed.Message(ResolveIssue{Source: "fn", Span: span}); got != "with-clause can only import data bindings; 'fn' is not a data binding" {
+		t.Fatalf("unexpected step disallowed-binding message: %q", got)
+	}
+	if got := stepDisallowed.Hint(ResolveIssue{Source: "fn", Span: span}); got != "use a scalar/table data binding, not an expression-visible global such as a function" {
 		t.Fatalf("unexpected disallowed-binding hint: %q", got)
 	}
 }
@@ -77,6 +88,9 @@ func TestWithPolicyMappingsAndDefaults(t *testing.T) {
 	}
 	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{From: "src"}}); got != "import from an existing global binding" {
 		t.Fatalf("unexpected step-policy unknown-source hint with from: %q", got)
+	}
+	if stepPolicy.DisallowedBinding.Code != diag.CodeE420 {
+		t.Fatalf("expected step-policy disallowed-binding code E420, got %q", stepPolicy.DisallowedBinding.Code)
 	}
 
 	analysePolicy := analyseWithDiagPolicy()
@@ -135,7 +149,7 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 	if diags.Items[2].Code != string(diag.CodeE420) {
 		t.Fatalf("expected third code E420, got %s", diags.Items[2].Code)
 	}
-	if diags.Items[2].Message != "analyse with-clause can only import scalar string globals; 'table' is not eligible" {
+	if diags.Items[2].Message != "analyse with-clause can only import scalar string data bindings; 'table' is not a data binding" {
 		t.Fatalf("unexpected disallowed-binding message: %q", diags.Items[2].Message)
 	}
 }

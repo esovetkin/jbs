@@ -51,6 +51,11 @@ func TestNormalizePatternRegexAndHasErrorCodeSince(t *testing.T) {
 func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"fn": eval.Function(&eval.FunctionValue{}),
+			},
+		},
 		BindingsByName: map[string]*GlobalBinding{
 			"pattern": scalarBinding("pattern", "pattern", eval.String("%d"), span),
 			"empty": {
@@ -69,6 +74,7 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 		{Name: "pattern", From: "pattern", Alias: "dup", Span: span},
 		{Name: "other", From: "other", Alias: "dup", Span: span},
 		{Name: "empty", Span: span},
+		{Name: "fn", Span: span},
 		{Name: "missing", Span: span},
 	}
 
@@ -91,6 +97,9 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	}
 	if countDiagCode(diags, "E020") != 1 {
 		t.Fatalf("expected one unknown analyse import source diagnostic, got %d: %s", countDiagCode(diags, "E020"), diags.String())
+	}
+	if countDiagCode(diags, "E420") != 1 {
+		t.Fatalf("expected one disallowed analyse import diagnostic, got %d: %s", countDiagCode(diags, "E420"), diags.String())
 	}
 }
 
@@ -333,5 +342,35 @@ func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
 	}
 	if spec.Assignments[0].Template.Regex != "2" || spec.Assignments[0].Template.Type != "string" {
 		t.Fatalf("expected helper-backed extraction regex '2', got %#v", spec.Assignments[0])
+	}
+}
+
+func TestCompileAnalyseBlockRejectsFunctionValuedHelpers(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"helperFn": eval.Function(&eval.FunctionValue{}),
+			},
+		},
+		BindingsByName:  map[string]*GlobalBinding{},
+		DoBlocks:        []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{"run": {Effective: map[string]VisibleBinding{}}},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{Name: "helper", Expr: ast.IdentExpr{Name: "helperFn", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, diags)
+	if spec == nil {
+		t.Fatalf("expected analyse spec")
+	}
+	if countDiagCode(diags, "E412") != 1 {
+		t.Fatalf("expected one function-valued analyse-helper diagnostic, got %d: %s", countDiagCode(diags, "E412"), diags.String())
 	}
 }

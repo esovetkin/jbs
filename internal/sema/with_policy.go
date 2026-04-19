@@ -43,10 +43,22 @@ func analyseDisallowedBindingFormat() withIssueFormat {
 	return withIssueFormat{
 		Code: diag.CodeE420,
 		Message: func(issue ResolveIssue) string {
-			return fmt.Sprintf("analyse with-clause can only import scalar string globals; '%s' is not eligible", issue.Source)
+			return fmt.Sprintf("analyse with-clause can only import scalar string data bindings; '%s' is not a data binding", issue.Source)
 		},
 		Hint: func(ResolveIssue) string {
-			return "use a scalar string global or import one from a module namespace"
+			return "use a scalar string data binding, not an expression-visible global such as a function"
+		},
+	}
+}
+
+func stepDisallowedBindingFormat() withIssueFormat {
+	return withIssueFormat{
+		Code: diag.CodeE420,
+		Message: func(issue ResolveIssue) string {
+			return fmt.Sprintf("with-clause can only import data bindings; '%s' is not a data binding", issue.Source)
+		},
+		Hint: func(ResolveIssue) string {
+			return "use a scalar/table data binding, not an expression-visible global such as a function"
 		},
 	}
 }
@@ -103,6 +115,7 @@ func stepValidateWithDiagPolicy() WithDiagPolicy {
 		}
 		return "import from an existing global binding"
 	})
+	policy.DisallowedBinding = stepDisallowedBindingFormat()
 	return policy
 }
 

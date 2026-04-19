@@ -77,6 +77,11 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 		},
 	}
 	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"fn": eval.Function(&eval.FunctionValue{}),
+			},
+		},
 		BindingsByName: bindings,
 		DoBlocks: []ast.DoBlock{
 			{
@@ -85,6 +90,13 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 					{Name: "a", From: "srcA", Span: span},
 					{Name: "a", From: "srcB", Span: span},
 					{Name: "missing_var", From: "srcA", Span: span},
+				},
+				Span: span,
+			},
+			{
+				Name: "fn_step",
+				WithItems: []ast.WithItem{
+					{Name: "fn", Span: span},
 				},
 				Span: span,
 			},
@@ -111,5 +123,8 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 	}
 	if countDiagCode(diags, "E020") != 1 {
 		t.Fatalf("expected one unknown-source diagnostic, got %d: %s", countDiagCode(diags, "E020"), diags.String())
+	}
+	if countDiagCode(diags, "E420") != 1 {
+		t.Fatalf("expected one disallowed-binding diagnostic, got %d: %s", countDiagCode(diags, "E420"), diags.String())
 	}
 }

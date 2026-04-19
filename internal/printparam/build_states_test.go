@@ -136,9 +136,22 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 func TestBuildEndToEnd(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	res := &sema.Result{
-		StepOrder: []string{"s0", "s1", "s2"},
-		DoBlocks:  []ast.DoBlock{{Name: "s0", Span: span}, {Name: "s1", After: []string{"s0"}, Span: span}},
-		Submits:   []ast.SubmitBlock{{Name: "s2", After: []string{"s1"}, Span: span}},
+		Globals: sema.GlobalState{
+			Values: map[string]eval.Value{
+				"helper_fn": eval.Function(&eval.FunctionValue{}),
+			},
+		},
+		GlobalVarByName: map[string]*sema.GlobalVar{
+			"helper_fn": {
+				Name:  "helper_fn",
+				Value: eval.Function(&eval.FunctionValue{}),
+				Span:  span,
+			},
+		},
+		GlobalVarOrder: []string{"helper_fn"},
+		StepOrder:      []string{"s0", "s1", "s2"},
+		DoBlocks:       []ast.DoBlock{{Name: "s0", Span: span}, {Name: "s1", After: []string{"s0"}, Span: span}},
+		Submits:        []ast.SubmitBlock{{Name: "s2", After: []string{"s1"}, Span: span}},
 		BindingsByName: map[string]*sema.GlobalBinding{
 			"p": {
 				Name:  "p",
@@ -191,6 +204,11 @@ func TestBuildEndToEnd(t *testing.T) {
 	wantCols := []string{"p.x", "p.y", "q.z"}
 	if !reflect.DeepEqual(table.Columns, wantCols) {
 		t.Fatalf("unexpected columns: got=%#v want=%#v", table.Columns, wantCols)
+	}
+	for _, col := range table.Columns {
+		if col == "helper_fn.helper_fn" || col == "helper_fn" {
+			t.Fatalf("did not expect function-valued globals to appear in printparam columns: %#v", table.Columns)
+		}
 	}
 	if len(table.Rows) != 6 {
 		t.Fatalf("expected six rows, got %d: %#v", len(table.Rows), table.Rows)

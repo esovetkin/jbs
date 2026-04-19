@@ -212,6 +212,54 @@ func TestCompileSubmitBlockUsesBindingsAndReportsDiagnostics(t *testing.T) {
 	}
 }
 
+func TestCompileSubmitBlockRejectsFunctionValuedSourcesAndFields(t *testing.T) {
+	span := diag.NewSpan("submit.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	block := ast.SubmitBlock{
+		Name:     "submit-step",
+		UseNames: []string{"add", "defaults"},
+		Fields: []ast.SubmitField{
+			{Name: "nodes", Op: ast.AssignEq, Expr: ast.IdentExpr{Name: "add", Span: span}, Span: span},
+			{Name: "queue", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "main", Span: span}, Span: span},
+			{Name: "account", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "proj", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+	diags := &diag.Diagnostics{}
+	spec := compileSubmitBlock(
+		block,
+		map[string]*GlobalBinding{
+			"defaults.nodes": scalarBinding("defaults.nodes", "nodes", eval.Int(2), span),
+		},
+		map[string]eval.Value{
+			"add":          eval.Function(&eval.FunctionValue{}),
+			"defaults.add": eval.Function(&eval.FunctionValue{}),
+		},
+		map[string]VisibleBinding{},
+		map[string]*Namespace{
+			"defaults": {
+				Name:     "defaults",
+				Members:  []string{"defaults.add", "defaults.nodes"},
+				Bindings: []string{"defaults.nodes"},
+			},
+		},
+		nil,
+		diags,
+	)
+	if spec == nil {
+		t.Fatalf("expected submit spec")
+	}
+	if countDiagCode(diags, "E071") != 3 {
+		t.Fatalf("expected three E071 diagnostics for function-valued submit uses/fields, got %d: %s", countDiagCode(diags, "E071"), diags.String())
+	}
+	resolved := make(map[string]SubmitValue, len(spec.Values))
+	for _, value := range spec.Values {
+		resolved[value.Name] = value
+	}
+	if !eval.Equal(resolved["nodes"].Value, eval.Int(2)) {
+		t.Fatalf("expected scalar defaults member to remain usable, got %#v", resolved["nodes"])
+	}
+}
+
 func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
 	span := diag.NewSpan("submit.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	bindings := map[string]*GlobalBinding{

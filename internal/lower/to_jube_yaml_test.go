@@ -44,6 +44,7 @@ func TestToJUBEYAMLBuildsDocumentFromSemanticResult(t *testing.T) {
 			"jbs_name":    eval.String("bench"),
 			"jbs_outpath": eval.String("out_dir"),
 			"jbs_comment": eval.String("c"),
+			"helper_fn":   eval.Function(&eval.FunctionValue{}),
 		}},
 		Program:         ast.Program{Stmts: []ast.Stmt{doBlock, submitBlock}},
 		Bindings:        []*sema.GlobalBinding{binding, nil, synthetic},
@@ -62,6 +63,11 @@ func TestToJUBEYAMLBuildsDocumentFromSemanticResult(t *testing.T) {
 	}
 	if len(doc.ParameterSet) != 2 {
 		t.Fatalf("expected one table binding plus one submit parameter set, got %#v", doc.ParameterSet)
+	}
+	for _, ps := range doc.ParameterSet {
+		if ps.Name == "helper_fn" {
+			t.Fatalf("did not expect function-valued global to be lowered as parameter set: %#v", doc.ParameterSet)
+		}
 	}
 	if doc.ParameterSet[0].Name != "jobs" || doc.ParameterSet[0].Meta.Kind != ParameterSetKindGlobalTable {
 		t.Fatalf("unexpected lowered source parameter set: %#v", doc.ParameterSet[0])
