@@ -199,6 +199,24 @@ func TestParseCombPrimaryFunctionCallTailNestedParentheses(t *testing.T) {
 	}
 }
 
+func TestParseCombPrimaryFunctionCallTailWithNamedArgs(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, tp := parseCombPrimaryFrom("range(a = 1, b = 2)", diags)
+	id, ok := expr.(ast.CombIdent)
+	if !ok {
+		t.Fatalf("expected fallback CombIdent, got %T", expr)
+	}
+	if id.Name != "" {
+		t.Fatalf("expected empty fallback identifier name, got %q", id.Name)
+	}
+	if !hasCode(diags, "E060") {
+		t.Fatalf("expected E060 for function call in comb expression, got: %s", diags.String())
+	}
+	if tp.peek().Type != lexer.TokenEOF {
+		t.Fatalf("expected parser to consume named-arg call tail, got %s", tp.peek().Type)
+	}
+}
+
 func TestConsumeCombCallTailZeroOpenSpanReturnsZeroSpan(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := &tokenParser{tokens: nil, diags: diags}

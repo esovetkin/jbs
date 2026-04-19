@@ -145,6 +145,67 @@ x=(1, 2)
 	}
 }
 
+func TestJBSFormatsFunctionAssignment(t *testing.T) {
+	src := `
+f=function(x,y=1){
+x + y
+}
+`
+	var diags diag.Diagnostics
+	got, err := JBS("functions.jbs", src, &diags)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	want := "f = function(x, y = 1) {\n    x + y\n}\n"
+	if got != want {
+		t.Fatalf("unexpected formatted function assignment\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}
+
+func TestJBSFormatsNamedCallArguments(t *testing.T) {
+	src := `
+f(1,b=2)
+`
+	var diags diag.Diagnostics
+	got, err := JBS("named_args.jbs", src, &diags)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got != "f(1, b = 2)\n" {
+		t.Fatalf("unexpected named-arg formatting: %q", got)
+	}
+}
+
+func TestJBSFormatsInlineAnonymousFunctionCall(t *testing.T) {
+	src := `
+function(x){x}(1,b=2)
+`
+	var diags diag.Diagnostics
+	got, err := JBS("inline_function.jbs", src, &diags)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	checks := []string{
+		"function(x) {",
+		"    x",
+		"}(1, b = 2)",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("formatted anonymous call missing %q\n--- output ---\n%s", needle, got)
+		}
+	}
+}
+
 func TestSplitSegmentLinesAndComments(t *testing.T) {
 	if got := splitSegmentLines("a\nb\n"); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("unexpected split with trailing newline: %v", got)

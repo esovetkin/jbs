@@ -243,6 +243,17 @@ func (p *tokenParser) parsePrimary() ast.Expr {
 func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 	tok := p.peek()
 	switch tok.Type {
+	case lexer.TokenFunction:
+		return p.parseFunctionExpr()
+	case lexer.TokenReturn:
+		p.diags.AddError(
+			diag.CodeE058,
+			"'return' is only allowed inside function bodies",
+			tok.Span,
+			"use 'return expr' inside function(...) { ... }",
+		)
+		p.next()
+		return ast.StringExpr{Value: "", Span: tok.Span}
 	case lexer.TokenIdent:
 		if tok.Value == "true" || tok.Value == "True" || tok.Value == "TRUE" {
 			p.next()
@@ -471,12 +482,31 @@ func (p *tokenParser) parseCallArgs() []ast.CallArg {
 		return nil
 	}
 	args := make([]ast.CallArg, 0, 2)
+	seenNamed := make(map[string]diag.Span)
+	sawNamed := false
 	for {
-		expr := p.parseExpr()
-		args = append(args, ast.CallArg{
-			Expr: expr,
-			Span: expr.GetSpan(),
-		})
+		arg := p.parseCallArg()
+		if arg.Name != "" {
+			sawNamed = true
+			if prev, exists := seenNamed[arg.Name]; exists {
+				p.diags.AddError(
+					diag.CodeE058,
+					fmt.Sprintf("duplicate named argument '%s'", arg.Name),
+					arg.Span,
+					fmt.Sprintf("remove the duplicate named argument; first declaration was at %d:%d", prev.Start.Line, prev.Start.Column),
+				)
+			} else {
+				seenNamed[arg.Name] = arg.Span
+			}
+		} else if sawNamed {
+			p.diags.AddError(
+				diag.CodeE058,
+				"positional argument cannot appear after named arguments",
+				arg.Span,
+				"move positional arguments before the first named argument",
+			)
+		}
+		args = append(args, arg)
 		p.skipNewlines()
 		if p.peek().Type != lexer.TokenComma {
 			break
@@ -488,6 +518,264 @@ func (p *tokenParser) parseCallArgs() []ast.CallArg {
 		}
 	}
 	return args
+}
+
+func (p *tokenParser) parseCallArg() ast.CallArg {
+	if p.peek().Type == lexer.TokenIdent && p.peekN(1).Type == lexer.TokenEqual {
+		nameTok := p.next()
+		eqTok := p.next()
+		p.skipNewlines()
+		expr := p.parseExpr()
+		span := diag.Merge(nameTok.Span, eqTok.Span)
+		if expr != nil {
+			span = diag.Merge(nameTok.Span, expr.GetSpan())
+		}
+		return ast.CallArg{
+			Name: nameTok.Value,
+			Expr: expr,
+			Span: span,
+		}
+	}
+	expr := p.parseExpr()
+	span := diag.Span{}
+	if expr != nil {
+		span = expr.GetSpan()
+	}
+	return ast.CallArg{Expr: expr, Span: span}
+}
+
+func (p *tokenParser) parseFunctionExpr() ast.Expr {
+	fnTok := p.expect(lexer.TokenFunction, diag.CodeE058, "expected 'function'")
+	p.skipNewlines()
+	openTok := p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after 'function'")
+	params := p.parseFunctionParams()
+	closeParen := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close function parameter list")
+	p.skipNewlines()
+	openBrace := p.expect(lexer.TokenLBrace, diag.CodeE025, "expected '{' to start function body")
+	body := []ast.FuncBodyStmt(nil)
+	closeBrace := openBrace
+	if openBrace.Type == lexer.TokenLBrace {
+		body = p.parseFunctionBody()
+		closeBrace = p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close function body")
+	}
+	endSpan := closeBrace.Span
+	if endSpan.IsZero() {
+		endSpan = closeParen.Span
+	}
+	if endSpan.IsZero() {
+		endSpan = openTok.Span
+	}
+	return ast.FunctionExpr{
+		Params: params,
+		Body:   body,
+		Span:   diag.Merge(fnTok.Span, endSpan),
+	}
+}
+
+func (p *tokenParser) parseFunctionParams() []ast.FuncParam {
+	p.skipNewlines()
+	if p.peek().Type == lexer.TokenRParen {
+		return nil
+	}
+	params := make([]ast.FuncParam, 0, 2)
+	seen := make(map[string]diag.Span)
+	sawDefault := false
+	for {
+		nameTok := p.peek()
+		if nameTok.Type != lexer.TokenIdent {
+			p.diags.AddError(
+				diag.CodeE050,
+				"expected parameter name in function parameter list",
+				nameTok.Span,
+				"use syntax: function(arg, other = expr) { ... }",
+			)
+			if nameTok.Type != lexer.TokenRParen && nameTok.Type != lexer.TokenEOF {
+				p.next()
+			}
+			break
+		}
+		nameTok = p.next()
+		param := ast.FuncParam{Name: nameTok.Value, Span: nameTok.Span}
+		if prev, exists := seen[param.Name]; exists {
+			p.diags.AddError(
+				diag.CodeE058,
+				fmt.Sprintf("duplicate parameter '%s'", param.Name),
+				nameTok.Span,
+				fmt.Sprintf("remove the duplicate parameter; first declaration was at %d:%d", prev.Start.Line, prev.Start.Column),
+			)
+		} else {
+			seen[param.Name] = nameTok.Span
+		}
+
+		p.skipNewlines()
+		if p.peek().Type == lexer.TokenEqual {
+			p.next()
+			p.skipNewlines()
+			param.Default = p.parseExpr()
+			if param.Default != nil {
+				param.Span = diag.Merge(nameTok.Span, param.Default.GetSpan())
+			}
+			sawDefault = true
+		} else if sawDefault {
+			p.diags.AddError(
+				diag.CodeE058,
+				fmt.Sprintf("parameter '%s' without default follows a defaulted parameter", param.Name),
+				nameTok.Span,
+				"move required parameters before defaulted parameters",
+			)
+		}
+		params = append(params, param)
+
+		p.skipNewlines()
+		if p.peek().Type != lexer.TokenComma {
+			break
+		}
+		p.next()
+		p.skipNewlines()
+		if p.peek().Type == lexer.TokenRParen {
+			break
+		}
+	}
+	return params
+}
+
+func (p *tokenParser) parseFunctionBody() []ast.FuncBodyStmt {
+	body := make([]ast.FuncBodyStmt, 0, 4)
+	for {
+		p.skipStmtSeparators()
+		if p.peek().Type == lexer.TokenRBrace || p.peek().Type == lexer.TokenEOF {
+			return body
+		}
+		body = append(body, p.parseFunctionBodyStmt())
+	}
+}
+
+func (p *tokenParser) parseFunctionBodyStmt() ast.FuncBodyStmt {
+	switch p.peek().Type {
+	case lexer.TokenReturn:
+		return p.parseReturnStmt()
+	case lexer.TokenDo, lexer.TokenSubmit, lexer.TokenAnalyse, lexer.TokenUse:
+		tok := p.next()
+		p.diags.AddError(
+			diag.CodeE058,
+			fmt.Sprintf("'%s' is not allowed inside function bodies", tok.Text),
+			tok.Span,
+			"use assignments, return statements, or expressions inside function bodies",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+		return ast.ExprStmt{
+			Expr: ast.StringExpr{Value: "", Span: tok.Span},
+			Span: tok.Span,
+		}
+	case lexer.TokenIdent:
+		if isAssignToken(p.peekN(1).Type) {
+			return p.parseLocalAssignStmt()
+		}
+	}
+	return p.parseFunctionExprStmt()
+}
+
+func (p *tokenParser) parseLocalAssignStmt() ast.FuncBodyStmt {
+	nameTok := p.expect(lexer.TokenIdent, diag.CodeE050, "expected local assignment identifier")
+	op, _, ok := p.parseAssignOp()
+	if !ok {
+		p.diags.AddError(
+			diag.CodeE051,
+			"expected assignment operator in function body assignment",
+			p.peek().Span,
+			"use one of: =, +=, -=, *=, /=, %=",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+		return ast.LocalAssignStmt{
+			Name: nameTok.Value,
+			Op:   ast.AssignEq,
+			Span: nameTok.Span,
+		}
+	}
+	expr := p.parseExpr()
+	span := nameTok.Span
+	if expr != nil {
+		span = diag.Merge(span, expr.GetSpan())
+	}
+	if !isFunctionBodyStmtTerminator(p.peek().Type) {
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after function body assignment",
+			p.peek().Span,
+			"remove unsupported trailing syntax after the expression",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+	} else {
+		p.skipStmtSeparators()
+	}
+	return ast.LocalAssignStmt{
+		Name: nameTok.Value,
+		Op:   op,
+		Expr: expr,
+		Span: span,
+	}
+}
+
+func (p *tokenParser) parseReturnStmt() ast.FuncBodyStmt {
+	retTok := p.expect(lexer.TokenReturn, diag.CodeE058, "expected 'return'")
+	expr := p.parseExpr()
+	span := retTok.Span
+	if expr != nil {
+		span = diag.Merge(span, expr.GetSpan())
+	}
+	if !isFunctionBodyStmtTerminator(p.peek().Type) {
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after return expression",
+			p.peek().Span,
+			"remove unsupported trailing syntax after the return expression",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+	} else {
+		p.skipStmtSeparators()
+	}
+	return ast.ReturnStmt{
+		Expr: expr,
+		Span: span,
+	}
+}
+
+func (p *tokenParser) parseFunctionExprStmt() ast.FuncBodyStmt {
+	expr := p.parseExpr()
+	span := diag.Span{}
+	if expr != nil {
+		span = expr.GetSpan()
+	}
+	if !isFunctionBodyStmtTerminator(p.peek().Type) {
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after function body expression",
+			p.peek().Span,
+			"remove unsupported trailing syntax after the expression",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+	} else {
+		p.skipStmtSeparators()
+	}
+	return ast.ExprStmt{
+		Expr: expr,
+		Span: span,
+	}
+}
+
+func isFunctionBodyStmtTerminator(t lexer.TokenType) bool {
+	return t == lexer.TokenEOF ||
+		t == lexer.TokenNewline ||
+		t == lexer.TokenSemicolon ||
+		t == lexer.TokenComment ||
+		t == lexer.TokenRBrace
+}
+
+func (p *tokenParser) consumeUntilFunctionBodyStmtEnd() {
+	for !isFunctionBodyStmtTerminator(p.peek().Type) {
+		p.next()
+	}
+	p.skipStmtSeparators()
 }
 
 func isDecimalIntegerLiteral(text string) bool {

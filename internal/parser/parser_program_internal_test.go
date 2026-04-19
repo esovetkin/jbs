@@ -3,6 +3,7 @@ package parser
 import (
 	"testing"
 
+	"jbs/internal/ast"
 	"jbs/internal/diag"
 )
 
@@ -52,5 +53,42 @@ func TestParseProgramReportsExpressionErrorsForMalformedTopLevelInput(t *testing
 	}
 	if !hasDiag(diags, "E061") {
 		t.Fatalf("expected E061 for trailing tokens in malformed expr line, got: %s", diags.String())
+	}
+}
+
+func TestParseProgramWithFunctionSyntax(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	src := `
+f = function(x, y = 1) {
+  x + y
+}
+function(a) {
+  return a
+}(1)
+`
+	prog := Parse("functions.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected two top-level statements, got %d", len(prog.Stmts))
+	}
+	assign, ok := prog.Stmts[0].(ast.GlobalAssign)
+	if !ok {
+		t.Fatalf("expected first stmt to be global assign, got %#v", prog.Stmts[0])
+	}
+	if _, ok := assign.Expr.(ast.FunctionExpr); !ok {
+		t.Fatalf("expected function literal rhs, got %#v", assign.Expr)
+	}
+	exprStmt, ok := prog.Stmts[1].(ast.ExprStmt)
+	if !ok {
+		t.Fatalf("expected second stmt to be expr stmt, got %#v", prog.Stmts[1])
+	}
+	call, ok := exprStmt.Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", exprStmt.Expr)
+	}
+	if _, ok := call.Callee.(ast.FunctionExpr); !ok {
+		t.Fatalf("expected function literal callee, got %#v", call.Callee)
 	}
 }

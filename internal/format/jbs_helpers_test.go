@@ -90,6 +90,38 @@ func TestFormatExprStmt(t *testing.T) {
 	}
 }
 
+func TestFormatFunctionExprHelpers(t *testing.T) {
+	src := []rune("function(x){ return x }\n")
+	fn := ast.FunctionExpr{
+		Params: []ast.FuncParam{{Name: "x"}},
+		Body: []ast.FuncBodyStmt{
+			ast.ReturnStmt{
+				Expr: ast.IdentExpr{Name: "x"},
+			},
+		},
+	}
+	got := formatExprLines(fn, src)
+	want := []string{
+		"function(x) {",
+		"    return x",
+		"}",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("formatFunctionExprLines mismatch: got=%v want=%v", got, want)
+	}
+
+	call := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "f"},
+		Args: []ast.CallArg{
+			ast.PosCallArg(ast.NumberExpr{Raw: "1", Int: true, IntValue: 1}),
+			{Name: "b", Expr: ast.NumberExpr{Raw: "2", Int: true, IntValue: 2}},
+		},
+	}
+	if got := flattenFormattedLines(formatExprLines(call, src)); got != "f(1, b = 2)" {
+		t.Fatalf("unexpected call formatting: %q", got)
+	}
+}
+
 func TestFormatSubmitBlockRendersFieldFallback(t *testing.T) {
 	submit := ast.SubmitBlock{
 		Name: "run",

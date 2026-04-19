@@ -265,70 +265,9 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 	startPos := p.pos()
 	startOff := p.off
-	mode := blockScanCode
-	escaped := false
-	for !p.eof() {
-		r := p.peek()
-		switch mode {
-		case blockScanSingleQuote:
-			p.advance()
-			if escaped {
-				escaped = false
-				continue
-			}
-			if r == '\\' {
-				escaped = true
-				continue
-			}
-			if r == '\'' {
-				mode = blockScanCode
-			}
-		case blockScanDoubleQuote:
-			p.advance()
-			if escaped {
-				escaped = false
-				continue
-			}
-			if r == '\\' {
-				escaped = true
-				continue
-			}
-			if r == '"' {
-				mode = blockScanCode
-			}
-		default:
-			switch r {
-			case '#':
-				stmt := string(p.src[startOff:p.off])
-				for !p.eof() && p.peek() != '\n' {
-					p.advance()
-				}
-				if !p.eof() && p.peek() == '\n' {
-					p.advance()
-				}
-				return stmt, startPos
-			case '\n':
-				if p.off > startOff && p.src[p.off-1] == '\\' {
-					p.advance()
-					continue
-				}
-				stmt := string(p.src[startOff:p.off])
-				p.advance()
-				return stmt, startPos
-			case ';':
-				stmt := string(p.src[startOff:p.off])
-				p.advance()
-				return stmt, startPos
-			case '\'':
-				mode = blockScanSingleQuote
-				p.advance()
-			case '"':
-				mode = blockScanDoubleQuote
-				p.advance()
-			default:
-				p.advance()
-			}
-		}
+	stmtEnd, nextOff := scanTopLevelStatementOffsets(p.src, startOff)
+	for p.off < nextOff {
+		p.advance()
 	}
-	return string(p.src[startOff:p.off]), startPos
+	return string(p.src[startOff:stmtEnd]), startPos
 }

@@ -16,8 +16,8 @@ func TestScanContinuationState(t *testing.T) {
 	}{
 		{name: "simple_complete", src: `x = 1`, wantNeedsMore: false},
 		{name: "open_brace", src: "do run {", wantNeedsMore: true, wantBraceDepth: 1},
-		{name: "open_paren", src: "x = (1, 2", wantNeedsMore: false, wantParenDepth: 1},
-		{name: "open_bracket", src: "x = [1, 2", wantNeedsMore: false, wantBrackDepth: 1},
+		{name: "open_paren", src: "x = (1, 2", wantNeedsMore: true, wantParenDepth: 1},
+		{name: "open_bracket", src: "x = [1, 2", wantNeedsMore: true, wantBrackDepth: 1},
 		{name: "open_single", src: "x = 'abc", wantNeedsMore: true, wantSingle: true},
 		{name: "open_double", src: "x = \"abc", wantNeedsMore: true, wantDouble: true},
 		{name: "line_continuation", src: "x = 1 \\", wantNeedsMore: true, wantLineCont: true},
@@ -42,6 +42,29 @@ preprocess = {
 preprocess = {
   echo hi
 }
+}`,
+			wantNeedsMore: false,
+		},
+		{
+			name: "multiline_function_literal_needs_closing_brace",
+			src: `f = function(x) {
+  x`,
+			wantNeedsMore:  true,
+			wantBraceDepth: 1,
+		},
+		{
+			name: "anonymous_multiline_call_needs_closing_paren",
+			src: `function(x) {
+  x
+}(`,
+			wantNeedsMore:  true,
+			wantParenDepth: 1,
+		},
+		{
+			name: "comments_with_braces_do_not_confuse_tracking",
+			src: `function(x) {
+  # } ] )
+  x
 }`,
 			wantNeedsMore: false,
 		},

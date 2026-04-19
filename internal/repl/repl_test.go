@@ -295,8 +295,8 @@ func TestRunTopLevelExprMultilineRequiresBackslash(t *testing.T) {
 	}
 }
 
-func TestRunOpenParenDoesNotTriggerContinuation(t *testing.T) {
-	reader := &fakeReader{events: []fakeEvent{{line: "range("}, {line: ":show"}, {err: io.EOF}}}
+func TestRunOpenParenTriggersContinuation(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "names("}, {line: ")"}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
 	commitCalls := 0
 	opts := baseOptions(t, reader)
@@ -304,19 +304,22 @@ func TestRunOpenParenDoesNotTriggerContinuation(t *testing.T) {
 	opts.Stderr = &err
 	opts.Commit = func(source string, chunk string) (CommitResult, error) {
 		commitCalls++
-		return CommitResult{Source: source, DiagText: "ERROR E058 <repl>:1:1", HasErrors: true}, nil
+		if chunk != "names(\n)" {
+			t.Fatalf("unexpected multiline chunk: %q", chunk)
+		}
+		return CommitResult{Source: appendAcceptedForTest(source, chunk), ExprOutput: []string{"[]"}}, nil
 	}
 	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
 	if commitCalls != 1 {
-		t.Fatalf("expected immediate commit attempt for open-paren expr, got %d", commitCalls)
+		t.Fatalf("expected one commit after closing paren, got %d", commitCalls)
 	}
-	if !strings.Contains(err.String(), "ERROR E058") {
-		t.Fatalf("expected parse diagnostic in stderr, got: %q", err.String())
+	if err.String() != "" {
+		t.Fatalf("did not expect stderr output, got: %q", err.String())
 	}
-	if !strings.Contains(out.String(), "(empty)") {
-		t.Fatalf("expected accepted source to remain empty, got: %q", out.String())
+	if !strings.Contains(out.String(), "names(\n)") {
+		t.Fatalf("expected accepted source to include completed chunk, got: %q", out.String())
 	}
 }

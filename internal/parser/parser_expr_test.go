@@ -861,6 +861,145 @@ func TestParseAliasMissingIdentifierAtEOFReportsE058(t *testing.T) {
 	}
 }
 
+func TestParseFunctionLiteral(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function(x, y = 1) { x + y }", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression, got %#v", expr)
+	}
+	if len(fn.Params) != 2 {
+		t.Fatalf("expected 2 params, got %#v", fn.Params)
+	}
+	if fn.Params[0].Name != "x" || fn.Params[0].Default != nil {
+		t.Fatalf("unexpected first param: %#v", fn.Params[0])
+	}
+	if fn.Params[1].Name != "y" {
+		t.Fatalf("unexpected second param: %#v", fn.Params[1])
+	}
+	if _, ok := fn.Params[1].Default.(ast.NumberExpr); !ok {
+		t.Fatalf("expected numeric default for y, got %#v", fn.Params[1].Default)
+	}
+	if len(fn.Body) != 1 {
+		t.Fatalf("expected one body statement, got %#v", fn.Body)
+	}
+	stmt, ok := fn.Body[0].(ast.ExprStmt)
+	if !ok {
+		t.Fatalf("expected trailing expr stmt, got %#v", fn.Body[0])
+	}
+	if _, ok := stmt.Expr.(ast.BinaryExpr); !ok {
+		t.Fatalf("expected binary expr body, got %#v", stmt.Expr)
+	}
+}
+
+func TestParseNestedFunctionLiteralInsideFunctionBody(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function(x) { inner = function(y) { return y }\ninner }", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression, got %#v", expr)
+	}
+	if len(fn.Body) != 2 {
+		t.Fatalf("expected two body statements, got %#v", fn.Body)
+	}
+	assign, ok := fn.Body[0].(ast.LocalAssignStmt)
+	if !ok {
+		t.Fatalf("expected local assignment, got %#v", fn.Body[0])
+	}
+	inner, ok := assign.Expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected nested function rhs, got %#v", assign.Expr)
+	}
+	if len(inner.Body) != 1 {
+		t.Fatalf("expected one inner body statement, got %#v", inner.Body)
+	}
+	if _, ok := inner.Body[0].(ast.ReturnStmt); !ok {
+		t.Fatalf("expected return stmt inside nested function, got %#v", inner.Body[0])
+	}
+}
+
+func TestParseReturnOutsideFunctionBodyReportsE058(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("return x", diags)
+	_ = tp.parseExpr()
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for return outside function body, got: %s", diags.String())
+	}
+}
+
+func TestParseFunctionBodyRejectsUnsupportedStatements(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function() { use jsc }", diags)
+	_ = tp.parseExpr()
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for unsupported function body statement, got: %s", diags.String())
+	}
+}
+
+func TestParseNamedCallArguments(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("f(1, b = 2)", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", expr)
+	}
+	if len(call.Args) != 2 {
+		t.Fatalf("expected two call args, got %#v", call.Args)
+	}
+	if call.Args[0].Name != "" {
+		t.Fatalf("expected first arg to be positional, got %#v", call.Args[0])
+	}
+	if call.Args[1].Name != "b" {
+		t.Fatalf("expected second arg to be named b, got %#v", call.Args[1])
+	}
+}
+
+func TestParseNamedCallArgumentsRejectPositionalAfterNamed(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("f(a = 1, 2)", diags)
+	_ = tp.parseExpr()
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for positional-after-named call args, got: %s", diags.String())
+	}
+}
+
+func TestParseNamedCallArgumentsRejectDuplicateNames(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("f(a = 1, a = 2)", diags)
+	_ = tp.parseExpr()
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for duplicate named call args, got: %s", diags.String())
+	}
+}
+
+func TestParseInlineAnonymousCallee(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("(function(x) { x + 1 })(1)", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", expr)
+	}
+	if _, ok := call.Callee.(ast.FunctionExpr); !ok {
+		t.Fatalf("expected function literal callee, got %#v", call.Callee)
+	}
+}
+
 func TestIsDecimalIntegerLiteralEmptyString(t *testing.T) {
 	if isDecimalIntegerLiteral("") {
 		t.Fatalf("expected empty string to be non-integer literal")

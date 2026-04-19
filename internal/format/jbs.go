@@ -267,26 +267,30 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 }
 
 func formatExprStmt(stmt ast.ExprStmt, srcRunes []rune) []string {
-	exprText := strings.TrimSpace(spanText(srcRunes, stmt.Span))
-	if exprText == "" {
+	if stmt.Expr == nil {
+		exprText := strings.TrimSpace(spanText(srcRunes, stmt.Span))
+		if exprText == "" {
+			return nil
+		}
+		return []string{exprText}
+	}
+	lines := formatExprLines(stmt.Expr, srcRunes)
+	if len(lines) == 0 {
 		return nil
 	}
-	return []string{exprText}
+	return lines
 }
 
 func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
-	exprText := ""
-	if g.Expr != nil {
-		exprText = strings.TrimSpace(spanText(srcRunes, g.Expr.GetSpan()))
-	}
-	if exprText == "" {
-		exprText = "\"\""
-	}
 	op := string(g.Op)
 	if op == "" {
 		op = string(ast.AssignEq)
 	}
-	return []string{g.Name + " " + op + " " + exprText}
+	exprLines := formatExprLines(g.Expr, srcRunes)
+	if len(exprLines) == 0 {
+		exprLines = []string{`""`}
+	}
+	return prefixFormattedLines("", g.Name+" "+op+" ", exprLines)
 }
 
 func formatDoBlock(d ast.DoBlock) []string {
@@ -329,18 +333,15 @@ func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []string {
 			lines = append(lines, bodyIndent+"}")
 			continue
 		}
-		exprText := ""
-		if f.Expr != nil {
-			exprText = strings.TrimSpace(spanText(srcRunes, f.Expr.GetSpan()))
-		}
-		if exprText == "" {
-			exprText = "\"\""
-		}
 		op := string(f.Op)
 		if op == "" {
 			op = string(ast.AssignEq)
 		}
-		lines = append(lines, bodyIndent+f.Name+" "+op+" "+exprText)
+		exprLines := formatExprLines(f.Expr, srcRunes)
+		if len(exprLines) == 0 {
+			exprLines = []string{`""`}
+		}
+		lines = append(lines, prefixFormattedLines(bodyIndent, f.Name+" "+op+" ", exprLines)...)
 	}
 	return lines
 }
@@ -907,6 +908,302 @@ func dropIndent(s string, n int) string {
 		i++
 	}
 	return string(runes[i:])
+}
+
+func prefixFormattedLines(baseIndent string, firstPrefix string, lines []string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(lines))
+	out = append(out, baseIndent+firstPrefix+lines[0])
+	for i := 1; i < len(lines); i++ {
+		out = append(out, baseIndent+lines[i])
+	}
+	return out
+}
+
+func indentLines(lines []string, indent string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, indent+line)
+	}
+	return out
+}
+
+func formatExprLines(expr ast.Expr, srcRunes []rune) []string {
+	if expr == nil {
+		return nil
+	}
+	if !needsStructuredExprFormatting(expr) {
+		text := strings.TrimSpace(spanText(srcRunes, expr.GetSpan()))
+		if text != "" {
+			return []string{text}
+		}
+		inline := formatExprInline(expr, srcRunes)
+		if inline == "" {
+			return nil
+		}
+		return []string{inline}
+	}
+	switch e := expr.(type) {
+	case ast.FunctionExpr:
+		return formatFunctionExprLines(e, srcRunes)
+	case ast.CallExpr:
+		return formatCallExprLines(e, srcRunes)
+	default:
+		return []string{formatExprInline(expr, srcRunes)}
+	}
+}
+
+func needsStructuredExprFormatting(expr ast.Expr) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case ast.FunctionExpr:
+		return true
+	case ast.CallExpr:
+		if needsStructuredExprFormatting(e.Callee) {
+			return true
+		}
+		for _, arg := range e.Args {
+			if arg.Name != "" || needsStructuredExprFormatting(arg.Expr) {
+				return true
+			}
+		}
+		return false
+	case ast.ListExpr:
+		for _, item := range e.Items {
+			if needsStructuredExprFormatting(item) {
+				return true
+			}
+		}
+	case ast.TupleExpr:
+		for _, item := range e.Items {
+			if needsStructuredExprFormatting(item) {
+				return true
+			}
+		}
+	case ast.IndexExpr:
+		if needsStructuredExprFormatting(e.Base) {
+			return true
+		}
+		for _, item := range e.Items {
+			if needsStructuredExprFormatting(item) {
+				return true
+			}
+		}
+	case ast.MemberExpr:
+		return needsStructuredExprFormatting(e.Base)
+	case ast.AliasExpr:
+		return needsStructuredExprFormatting(e.Expr)
+	case ast.UnaryExpr:
+		return needsStructuredExprFormatting(e.Expr)
+	case ast.BinaryExpr:
+		return needsStructuredExprFormatting(e.Left) || needsStructuredExprFormatting(e.Right)
+	case ast.CompareExpr:
+		return needsStructuredExprFormatting(e.Left) || needsStructuredExprFormatting(e.Right)
+	case ast.ConditionalExpr:
+		return needsStructuredExprFormatting(e.Then) || needsStructuredExprFormatting(e.Cond) || needsStructuredExprFormatting(e.Else)
+	case ast.ModeExpr:
+		return needsStructuredExprFormatting(e.Expr)
+	case ast.ConvertExpr:
+		return needsStructuredExprFormatting(e.Expr)
+	}
+	return false
+}
+
+func formatExprInline(expr ast.Expr, srcRunes []rune) string {
+	if expr == nil {
+		return ""
+	}
+	switch e := expr.(type) {
+	case ast.IdentExpr:
+		return e.Name
+	case ast.QualifiedIdentExpr:
+		if e.Namespace == "" {
+			return e.Name
+		}
+		return e.Namespace + "." + e.Name
+	case ast.MemberExpr:
+		return formatExprInline(e.Base, srcRunes) + "." + e.Name
+	case ast.IndexExpr:
+		items := make([]string, 0, len(e.Items))
+		for _, item := range e.Items {
+			items = append(items, formatExprInline(item, srcRunes))
+		}
+		return formatExprInline(e.Base, srcRunes) + "[" + strings.Join(items, ", ") + "]"
+	case ast.StringExpr:
+		return strconv.Quote(e.Value)
+	case ast.NumberExpr:
+		if e.Raw != "" {
+			return e.Raw
+		}
+		if e.Int {
+			return strconv.FormatInt(e.IntValue, 10)
+		}
+		return strconv.FormatFloat(e.FloatValue, 'g', -1, 64)
+	case ast.BoolExpr:
+		if e.Value {
+			return "true"
+		}
+		return "false"
+	case ast.ListExpr:
+		items := make([]string, 0, len(e.Items))
+		for _, item := range e.Items {
+			items = append(items, formatExprInline(item, srcRunes))
+		}
+		return "[" + strings.Join(items, ", ") + "]"
+	case ast.TupleExpr:
+		items := make([]string, 0, len(e.Items))
+		for _, item := range e.Items {
+			items = append(items, formatExprInline(item, srcRunes))
+		}
+		if len(items) == 0 {
+			return "()"
+		}
+		return "(" + strings.Join(items, ", ") + ")"
+	case ast.ConvertExpr:
+		return e.Target + "(" + formatExprInline(e.Expr, srcRunes) + ")"
+	case ast.CallExpr:
+		lines := formatCallExprLines(e, srcRunes)
+		return flattenFormattedLines(lines)
+	case ast.FunctionExpr:
+		lines := formatFunctionExprLines(e, srcRunes)
+		return flattenFormattedLines(lines)
+	case ast.AliasExpr:
+		return formatExprInline(e.Expr, srcRunes) + " as " + e.Alias
+	case ast.UnaryExpr:
+		return e.Op + formatExprInline(e.Expr, srcRunes)
+	case ast.BinaryExpr:
+		return formatExprInline(e.Left, srcRunes) + " " + e.Op + " " + formatExprInline(e.Right, srcRunes)
+	case ast.CompareExpr:
+		return formatExprInline(e.Left, srcRunes) + " " + e.Op + " " + formatExprInline(e.Right, srcRunes)
+	case ast.ConditionalExpr:
+		return formatExprInline(e.Then, srcRunes) + " if " + formatExprInline(e.Cond, srcRunes) + " else " + formatExprInline(e.Else, srcRunes)
+	case ast.ModeExpr:
+		return e.Mode + "(" + formatExprInline(e.Expr, srcRunes) + ")"
+	default:
+		return strings.TrimSpace(spanText(srcRunes, expr.GetSpan()))
+	}
+}
+
+func formatFunctionExprLines(fn ast.FunctionExpr, srcRunes []rune) []string {
+	params := make([]string, 0, len(fn.Params))
+	for _, param := range fn.Params {
+		text := param.Name
+		if param.Default != nil {
+			text += " = " + formatExprInline(param.Default, srcRunes)
+		}
+		params = append(params, text)
+	}
+	lines := []string{"function(" + strings.Join(params, ", ") + ") {"}
+	for _, stmt := range fn.Body {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(stmt, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatFuncBodyStmtLines(stmt ast.FuncBodyStmt, srcRunes []rune) []string {
+	switch s := stmt.(type) {
+	case ast.LocalAssignStmt:
+		op := string(s.Op)
+		if op == "" {
+			op = string(ast.AssignEq)
+		}
+		exprLines := formatExprLines(s.Expr, srcRunes)
+		if len(exprLines) == 0 {
+			exprLines = []string{`""`}
+		}
+		return prefixFormattedLines("", s.Name+" "+op+" ", exprLines)
+	case ast.ReturnStmt:
+		exprLines := formatExprLines(s.Expr, srcRunes)
+		if len(exprLines) == 0 {
+			exprLines = []string{`""`}
+		}
+		return prefixFormattedLines("", "return ", exprLines)
+	case ast.ExprStmt:
+		return formatExprLines(s.Expr, srcRunes)
+	default:
+		return nil
+	}
+}
+
+func formatCallExprLines(call ast.CallExpr, srcRunes []rune) []string {
+	calleeLines := formatExprLines(call.Callee, srcRunes)
+	if len(calleeLines) == 0 {
+		calleeLines = []string{""}
+	}
+	args := make([][]string, 0, len(call.Args))
+	multilineArgs := false
+	for _, arg := range call.Args {
+		lines := formatCallArgLines(arg, srcRunes)
+		if len(lines) > 1 {
+			multilineArgs = true
+		}
+		args = append(args, lines)
+	}
+	if !multilineArgs {
+		parts := make([]string, 0, len(args))
+		for _, lines := range args {
+			parts = append(parts, flattenFormattedLines(lines))
+		}
+		out := append([]string(nil), calleeLines...)
+		out[len(out)-1] += "(" + strings.Join(parts, ", ") + ")"
+		return out
+	}
+	out := append([]string(nil), calleeLines...)
+	if len(args) == 0 {
+		out[len(out)-1] += "()"
+		return out
+	}
+	out[len(out)-1] += "("
+	for i, argLines := range args {
+		indented := indentLines(argLines, continuationIndent)
+		if len(indented) == 0 {
+			indented = []string{continuationIndent}
+		}
+		if i < len(args)-1 {
+			indented[len(indented)-1] += ","
+		}
+		out = append(out, indented...)
+	}
+	out = append(out, ")")
+	return out
+}
+
+func formatCallArgLines(arg ast.CallArg, srcRunes []rune) []string {
+	exprLines := formatExprLines(arg.Expr, srcRunes)
+	if len(exprLines) == 0 {
+		exprLines = []string{""}
+	}
+	if arg.Name == "" {
+		return exprLines
+	}
+	return prefixFormattedLines("", arg.Name+" = ", exprLines)
+}
+
+func flattenFormattedLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	flat := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		flat = append(flat, trimmed)
+	}
+	return strings.Join(flat, " ")
 }
 
 func spanText(srcRunes []rune, span diag.Span) string {

@@ -144,6 +144,23 @@ func TestParseTopLevelExprStmtTrailingTokens(t *testing.T) {
 	}
 }
 
+func TestParseTopLevelExprStmtFunctionLiteral(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("function(x) {\n  x\n}(1)\n", diags)
+	start := p.pos()
+	got := p.parseTopLevelExprStmt(start)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	call, ok := got.Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", got.Expr)
+	}
+	if _, ok := call.Callee.(ast.FunctionExpr); !ok {
+		t.Fatalf("expected function literal callee, got %#v", call.Callee)
+	}
+}
+
 func TestParseUseStmtErrorBranches(t *testing.T) {
 	tests := []struct {
 		name string
@@ -220,6 +237,37 @@ func TestReadTopLevelStatement(t *testing.T) {
 			wantPrefix: "x = \"a\\\"#b\" + 'c\\'d#e'",
 			wantLine:   1,
 			wantCol:    24,
+		},
+		{
+			name: "multiline function assignment stays one statement",
+			src: "f = function(x, y = 1) {\n" +
+				"  x + y\n" +
+				"}\n" +
+				"next\n",
+			wantPrefix: "f = function(x, y = 1) {\n  x + y\n}",
+			wantLine:   4,
+			wantCol:    1,
+		},
+		{
+			name: "multiline anonymous function call stays one statement",
+			src: "function(x) {\n" +
+				"  x\n" +
+				"}(1)\n" +
+				"next\n",
+			wantPrefix: "function(x) {\n  x\n}(1)",
+			wantLine:   4,
+			wantCol:    1,
+		},
+		{
+			name: "comments inside function body do not terminate statement",
+			src: "f = function(x) {\n" +
+				"  # inner\n" +
+				"  x\n" +
+				"} # trailing\n" +
+				"next\n",
+			wantPrefix: "f = function(x) {\n  # inner\n  x\n} ",
+			wantLine:   5,
+			wantCol:    1,
 		},
 	}
 
