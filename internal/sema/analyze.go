@@ -28,6 +28,7 @@ func AnalyzeWithImports(loadRes *imports.LoadResult, globals map[string]eval.Val
 func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *imports.LoadResult, diags *diag.Diagnostics) *Result {
 	res := &Result{
 		Program:         prog,
+		BaseDirByFile:   make(map[string]string),
 		Globals:         GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
 		GlobalVarByName: make(map[string]*GlobalVar),
 		GlobalVarOrder:  make([]string, 0),
@@ -45,9 +46,12 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 
 	var scope *moduleScope
 	if loadRes == nil {
-		exec := execGlobalPlan(buildGlobalPlan(prog, globals), globals, globals, diags)
+		exec := execGlobalPlan(buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)), globals, globals, diags)
 		scope = emptyModuleScope()
 		scope.Program = prog
+		if baseDir := baseDirForProgramFile(prog.File); baseDir != "" {
+			scope.BaseDirByFile[prog.File] = baseDir
+		}
 		scope.Globals = GlobalState{
 			Values: maps.Clone(exec.ScalarGlobals.Values),
 			Modes:  maps.Clone(exec.ScalarGlobals.Modes),
@@ -98,6 +102,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		Modes:  maps.Clone(scope.Globals.Modes),
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
+	res.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	res.GlobalVarByName, res.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
 	res.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
 	for _, binding := range scope.Bindings {
@@ -125,7 +130,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		if plan := res.StepScopeByName[submit.Name]; plan != nil {
 			effective = plan.Effective
 		}
-		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.BindingsByName, res.Globals.Values, effective, res.Namespaces, diags)
+		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.BindingsByName, res.Globals.Values, effective, res.Namespaces, res.BaseDirByFile, diags)
 	}
 	validateStepVarReferences(res, diags)
 	for _, block := range scope.AnalyseBlocks {

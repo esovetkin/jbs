@@ -228,6 +228,7 @@ Supported assignment expressions:
   - `len(value)`
   - `names()`
   - `names(value)`
+  - `read_csv(path)`
   - `filter(values, mask)`
   - `all(value)`
   - `any(value)`
@@ -239,7 +240,33 @@ Context restriction:
 - `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
 - `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
 - `int(...)`, `float(...)`, and `str(...)` are supported anywhere normal expressions are evaluated.
+- `read_csv(...)` is supported anywhere normal expressions are evaluated.
 - `comb(...)`, `len(...)`, `names(...)`, `filter(...)`, `all(...)`, and `any(...)` are also supported in `param` assignment expressions.
+
+Delimited file loading:
+
+- `read_csv(path)` reads one CSV or TSV file and returns one `comb` value.
+- The first row is the header row.
+- Header names must be unique valid comb column names (`x`, `system_name`, `ns.value`, ...).
+- Quoted and unquoted fields are both supported.
+- `.csv` uses comma and `.tsv` uses tab.
+- Other filenames are sniffed from the first non-empty physical line: tab-without-comma means TSV, otherwise CSV.
+- Every data row must have the same width as the header row.
+- Type inference is per column across all rows:
+  - `bool` if every field is `true` or `false`
+  - otherwise `int` if every field is a base-10 integer
+  - otherwise `float` if every field is a finite float
+  - otherwise `string`
+- Any empty field forces that column to fall back to `string`.
+- Relative paths resolve from the source file that contains the call. Imported modules therefore resolve their own local data files, while REPL calls resolve from the current working directory.
+
+Example:
+
+```jbs
+params = read_csv("./cases.csv")
+names(params)
+len(params)
+```
 
 Qualified access and indexing:
 

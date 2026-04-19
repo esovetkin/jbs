@@ -95,6 +95,40 @@ Rules:
 - `names(module)` returns direct variable members only, not nested descendants
 - `names(comb)` preserves comb column order when available
 
+## `read_csv(<path>)`
+
+`read_csv(...)` reads a CSV or TSV file and returns one `comb` value.
+
+```jbs
+cases = read_csv("./cases.csv")
+names(cases)
+len(cases)
+
+use "./lib/module.jbs" as lib
+other = read_csv("./cases.tsv")
+```
+
+Rules:
+
+- `read_csv(...)` takes exactly one string argument
+- the first row is the header row
+- header names must be unique valid comb column names such as `x`, `system_name`, or `ns.value`
+- both quoted and unquoted fields are supported
+- `.csv` files use `,`
+- `.tsv` files use a tab
+- other filenames are sniffed from the first non-empty line: tab-without-comma means TSV, otherwise CSV
+- every data row must have the same number of fields as the header row
+- type inference is per column across all rows:
+  - `bool` if every value is `true` or `false`
+  - otherwise `int` if every value is a base-10 integer
+  - otherwise `float` if every value is a finite float
+  - otherwise `string`
+- empty cells force that column to become `string`
+- relative paths resolve from the source file that contains the call:
+  - main file calls resolve relative to the main `.jbs` file
+  - imported module calls resolve relative to that module file
+  - REPL calls resolve relative to the current working directory
+
 ## `comb(<expr>)`
 
 XXX link to docs/help_combinations.md

@@ -1,6 +1,8 @@
 package sema
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"jbs/internal/ast"
@@ -268,5 +270,68 @@ func TestCompileAnalyseBlockSupportsNamesBuiltin(t *testing.T) {
 	}
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "cases.csv"), []byte("x,y\n1,2\n3,4\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	analyseFile := filepath.Join(cwd, "analyse.jbs")
+	span := diag.NewSpan(analyseFile, diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals:         GlobalState{Values: map[string]eval.Value{}},
+		BindingsByName:  map[string]*GlobalBinding{},
+		DoBlocks:        []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{"run": {Effective: map[string]VisibleBinding{}}},
+		BaseDirByFile:   map[string]string{analyseFile: cwd},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{
+				Name: "rowCount",
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{
+							Callee: ast.IdentExpr{Name: "read_csv", Span: span},
+							Args:   []ast.Expr{ast.StringExpr{Value: "./cases.csv", Span: span}},
+							Span:   span,
+						},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+			{
+				Name: "capture",
+				File: "out.txt",
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "str", Span: span},
+					Args:   []ast.Expr{ast.IdentExpr{Name: "rowCount", Span: span}},
+					Span:   span,
+				},
+				Span: span,
+			},
+		},
+		Columns: []ast.AnalyseColumn{{Name: "capture", Title: "capture", Span: span}},
+		Span:    span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, diags)
+	if spec == nil {
+		t.Fatalf("expected analyse spec")
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(spec.Assignments) != 1 {
+		t.Fatalf("expected one extraction assignment, got %#v", spec.Assignments)
+	}
+	if spec.Assignments[0].Template.Regex != "2" || spec.Assignments[0].Template.Type != "string" {
+		t.Fatalf("expected helper-backed extraction regex '2', got %#v", spec.Assignments[0])
 	}
 }

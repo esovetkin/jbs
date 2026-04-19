@@ -201,7 +201,7 @@ func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -264,7 +264,7 @@ func TestBuildGlobalPlanAssignsNameCatalogs(t *testing.T) {
 	plan := buildGlobalPlan(prog, map[string]eval.Value{
 		"jbs_name": eval.String("bench"),
 		"ns.value": eval.Int(1),
-	})
+	}, "")
 	if got := plan.Steps[0].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "y"}) {
 		t.Fatalf("unexpected step-0 visible names: %#v", got)
 	}

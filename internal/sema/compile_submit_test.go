@@ -1,6 +1,8 @@
 package sema
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -137,7 +139,7 @@ func TestCompileSubmitBlockUsesBindingsAndReportsDiagnostics(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileSubmitBlock(block, bindings, map[string]eval.Value{}, effective, namespaces, diags)
+	spec := compileSubmitBlock(block, bindings, map[string]eval.Value{}, effective, namespaces, nil, diags)
 	if spec == nil {
 		t.Fatalf("expected submit spec")
 	}
@@ -263,7 +265,7 @@ func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileSubmitBlock(block, bindings, map[string]eval.Value{"visible": eval.Int(2)}, effective, namespaces, diags)
+	spec := compileSubmitBlock(block, bindings, map[string]eval.Value{"visible": eval.Int(2)}, effective, namespaces, nil, diags)
 	if spec == nil {
 		t.Fatalf("expected submit spec")
 	}
@@ -279,5 +281,58 @@ func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
 	}
 	if !eval.Equal(resolved["tasks"].Value, eval.Int(2)) {
 		t.Fatalf("expected names(defaults) to count direct namespace members, got %#v", resolved["tasks"])
+	}
+}
+
+func TestCompileSubmitBlockSupportsReadCSVBuiltin(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "cases.csv"), []byte("x,y\n1,2\n3,4\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	submitFile := filepath.Join(cwd, "submit.jbs")
+	span := diag.NewSpan(submitFile, diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	block := ast.SubmitBlock{
+		Name: "submit-step",
+		Fields: []ast.SubmitField{
+			{
+				Name: "nodes",
+				Op:   ast.AssignEq,
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{
+							Callee: ast.IdentExpr{Name: "read_csv", Span: span},
+							Args:   []ast.Expr{ast.StringExpr{Value: "./cases.csv", Span: span}},
+							Span:   span,
+						},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+			{Name: "account", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "a", Span: span}, Span: span},
+			{Name: "queue", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "q", Span: span}, Span: span},
+			{Name: "starter", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "srun", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileSubmitBlock(block, map[string]*GlobalBinding{}, map[string]eval.Value{}, map[string]VisibleBinding{}, map[string]*Namespace{}, map[string]string{submitFile: cwd}, diags)
+	if spec == nil {
+		t.Fatalf("expected submit spec")
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	resolved := make(map[string]SubmitValue, len(spec.Values))
+	for _, value := range spec.Values {
+		resolved[value.Name] = value
+	}
+	if !eval.Equal(resolved["nodes"].Value, eval.Int(2)) {
+		t.Fatalf("expected nodes=len(read_csv(...)) == 2, got %#v", resolved["nodes"])
+	}
+	if !eval.Equal(resolved["tasks"].Value, eval.Int(2)) {
+		t.Fatalf("expected injected tasks from nodes, got %#v", resolved["tasks"])
 	}
 }

@@ -14,6 +14,7 @@ import (
 type moduleScope struct {
 	Ref                 imports.ModuleRef
 	Program             ast.Program
+	BaseDirByFile       map[string]string
 	Globals             GlobalState
 	GlobalVarByName     map[string]*GlobalVar
 	GlobalVarOrder      []string
@@ -69,6 +70,9 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	scope := emptyModuleScope()
 	scope.Ref = ref
 	scope.Program = info.Program
+	if strings.TrimSpace(info.Program.File) != "" && strings.TrimSpace(info.BaseDir) != "" {
+		scope.BaseDirByFile[info.Program.File] = info.BaseDir
+	}
 	scope.Globals = GlobalState{
 		Values: maps.Clone(exec.ScalarGlobals.Values),
 		Modes:  maps.Clone(exec.ScalarGlobals.Modes),
@@ -208,6 +212,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 					IsSimple:          true,
 					SeedEnv:           seedEnv,
 					VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+					BaseDir:           info.BaseDir,
 				})
 				plan.StepsByName[name] = append(plan.StepsByName[name], id)
 				plan.SimpleWritesByName[name] = append(plan.SimpleWritesByName[name], id)
@@ -231,6 +236,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 				Index:             index,
 				SeedEnv:           maps.Clone(visibleSeeds),
 				VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+				BaseDir:           info.BaseDir,
 			})
 			continue
 		}
@@ -248,6 +254,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 			IsSimple:          !isCompoundAssignOp(assign.Op),
 			SeedEnv:           maps.Clone(visibleSeeds),
 			VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+			BaseDir:           info.BaseDir,
 		}
 		plan.Steps = append(plan.Steps, step)
 		plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
@@ -333,6 +340,7 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		return cloneModuleScope(scope)
 	}
 	out := emptyModuleScope()
+	out.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	for _, binding := range scope.Bindings {
 		if binding == nil {
 			continue
@@ -394,6 +402,14 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 	if dst == nil || src == nil {
 		return
 	}
+	for file, baseDir := range src.BaseDirByFile {
+		if strings.TrimSpace(file) == "" || strings.TrimSpace(baseDir) == "" {
+			continue
+		}
+		if _, exists := dst.BaseDirByFile[file]; !exists {
+			dst.BaseDirByFile[file] = baseDir
+		}
+	}
 	for _, binding := range src.Bindings {
 		if binding == nil {
 			continue
@@ -442,6 +458,7 @@ func emptyModuleScope() *moduleScope {
 		LocalBindingsByName: make(map[string]*GlobalBinding),
 		Bindings:            make([]*GlobalBinding, 0),
 		BindingsByName:      make(map[string]*GlobalBinding),
+		BaseDirByFile:       make(map[string]string),
 		DoBlocks:            make([]ast.DoBlock, 0),
 		Submits:             make([]ast.SubmitBlock, 0),
 		AnalyseBlocks:       make([]ast.AnalyseBlock, 0),
@@ -458,6 +475,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	out := emptyModuleScope()
 	out.Ref = scope.Ref
 	out.Program = scope.Program
+	out.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	out.Globals = GlobalState{
 		Values: maps.Clone(scope.Globals.Values),
 		Modes:  maps.Clone(scope.Globals.Modes),

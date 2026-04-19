@@ -37,6 +37,7 @@ type ExprOptions struct {
 	GlobalAssignmentTupleArithmetic bool
 	Context                         EvalContext
 	Names                           *NameCatalog
+	Files                           *FileAccess
 }
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
@@ -245,6 +246,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]
 		return evalCombCall(rawArgs, env, at, diags, opts, ctx)
 	case "names":
 		return evalNamesCall(rawArgs, env, at, diags, opts, ctx)
+	case "read_csv":
+		return evalReadCSVCall(args, at, diags, opts)
 	case "int", "float", "str":
 		return evalUnaryConvertCall(name, args, at, diags)
 	case "len":

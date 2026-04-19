@@ -43,6 +43,7 @@ type globalInputStep struct {
 	SeedEnv           map[string]eval.Value
 	VisibleNamespaces map[string]*Namespace
 	Names             *eval.NameCatalog
+	BaseDir           string
 }
 
 type globalPlan struct {
@@ -59,7 +60,7 @@ type globalExecResult struct {
 	ScalarGlobals       GlobalState
 }
 
-func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value) *globalPlan {
+func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir string) *globalPlan {
 	plan := &globalPlan{
 		Steps:              make([]globalInputStep, 0),
 		StepsByName:        make(map[string][]int),
@@ -81,6 +82,7 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value) *globalPl
 				Reads:         globalExprReadRefs(effectiveExpr),
 				Index:         index,
 				IsSimple:      !isCompoundAssignOp(assign.Op),
+				BaseDir:       baseDir,
 			}
 			plan.Steps = append(plan.Steps, step)
 			plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
@@ -98,6 +100,7 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value) *globalPl
 				EffectiveExpr: exprStmt.Expr,
 				Reads:         globalExprReadRefs(exprStmt.Expr),
 				Index:         index,
+				BaseDir:       baseDir,
 			})
 		}
 	}
@@ -226,6 +229,7 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 				GlobalAssignmentTupleArithmetic: true,
 				Context:                         eval.EvalCtxBindingAssign,
 				Names:                           step.Names,
+				Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
 			})
 			res.TopLevelExprs = append(res.TopLevelExprs, TopLevelExprResult{
 				Index: step.Index,
@@ -264,6 +268,7 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 				GlobalAssignmentTupleArithmetic: true,
 				Context:                         eval.EvalCtxBindingAssign,
 				Names:                           step.Names,
+				Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
 			})
 			if isModeExpr {
 				value = coerceModeValue(mode, value, step.Assign.Span, diags)
@@ -384,7 +389,7 @@ func execScalarGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.V
 					continue
 				}
 				evalEnv := mergeValueEnv(step.SeedEnv, env)
-				value := eval.EvalExprWithOptions(assign.Expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names})
+				value := eval.EvalExprWithOptions(assign.Expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names, Files: &eval.FileAccess{BaseDir: step.BaseDir}})
 				env[assign.Name] = value
 				out.Values[assign.Name] = value
 				delete(out.Modes, assign.Name)
@@ -397,7 +402,7 @@ func execScalarGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.V
 				expr = inner
 			}
 			evalEnv := mergeValueEnv(step.SeedEnv, env)
-			value := eval.EvalExprWithOptions(expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names})
+			value := eval.EvalExprWithOptions(expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names, Files: &eval.FileAccess{BaseDir: step.BaseDir}})
 			if isModeExpr {
 				value = coerceModeValue(mode, value, assign.Span, diags)
 				out.Modes[assign.Name] = mode

@@ -148,6 +148,27 @@ func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkEmitsReadCSVOutputs(t *testing.T) {
+	cwd := t.TempDir()
+	path := filepath.Join(cwd, "cases.csv")
+	if err := os.WriteFile(path, []byte("x,y\n1,2\n3,4\n"), 0o644); err != nil {
+		t.Fatalf("write csv: %v", err)
+	}
+	commit, err := commitReplChunk(cwd, "", "names(read_csv(\"./cases.csv\"))\nlen(read_csv(\"./cases.csv\"))")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected read_csv expressions to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 2 {
+		t.Fatalf("expected 2 expr outputs, got %#v", commit.ExprOutput)
+	}
+	if commit.ExprOutput[0] != "[\"x\", \"y\"]" || commit.ExprOutput[1] != "2" {
+		t.Fatalf("unexpected read_csv expr output: %#v", commit.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkReportsExpressionError(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "range(,)")

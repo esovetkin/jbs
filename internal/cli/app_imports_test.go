@@ -126,6 +126,63 @@ func TestAnalyzeInputSelectiveImportOrderIsStableForDependentGlobals(t *testing.
 	}
 }
 
+func TestAnalyzeInputReadCSVBuildsComb(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "cases.csv", "x,y\n1,2\n3,4\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "params = read_csv(\"./cases.csv\")\nnames(params)\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	params := bundle.Result.GlobalVarByName["params"]
+	if params == nil || !eval.IsComb(params.Value) {
+		t.Fatalf("expected params comb global, got %#v", params)
+	}
+	if got := params.Value.C.Order; len(got) != 2 || got[0] != "x" || got[1] != "y" {
+		t.Fatalf("unexpected comb order: %#v", got)
+	}
+	want := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	if len(bundle.Result.TopLevelExprs) != 1 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeInputImportedModuleReadCSVUsesModuleBaseDir(t *testing.T) {
+	cwd := t.TempDir()
+	libDir := filepath.Join(cwd, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir lib: %v", err)
+	}
+	writeCLIFile(t, libDir, "cases.csv", "x,y\n1,2\n3,4\n")
+	writeCLIFile(t, libDir, "module.jbs", "params = read_csv(\"./cases.csv\")\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use params from \"./lib/module.jbs\"\nnames(params)\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	params := bundle.Result.GlobalVarByName["params"]
+	if params == nil || !eval.IsComb(params.Value) {
+		t.Fatalf("expected imported params comb, got %#v", params)
+	}
+	if first := params.Value.C.Rows[0].Values["x"].Value; first.Kind != eval.KindInt || first.I != 1 {
+		t.Fatalf("unexpected imported first x cell: %#v", first)
+	}
+	want := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	if len(bundle.Result.TopLevelExprs) != 1 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected imported read_csv expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+}
+
 func TestAnalyzeInputExprStmtRespectsSelectiveImportVisibility(t *testing.T) {
 	cwd := t.TempDir()
 	writeCLIFile(t, cwd, "lib.jbs", "x = 41\n")

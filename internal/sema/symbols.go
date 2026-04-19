@@ -94,6 +94,7 @@ type TopLevelExprResult struct {
 
 type Result struct {
 	Program         ast.Program
+	BaseDirByFile   map[string]string
 	Globals         GlobalState
 	GlobalVarByName map[string]*GlobalVar
 	GlobalVarOrder  []string

@@ -17,7 +17,7 @@ import (
 	"jbs/internal/planutil"
 )
 
-func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBinding, globals map[string]eval.Value, effective map[string]VisibleBinding, namespaces map[string]*Namespace, diags *diag.Diagnostics) *SubmitSpec {
+func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBinding, globals map[string]eval.Value, effective map[string]VisibleBinding, namespaces map[string]*Namespace, baseDirByFile map[string]string, diags *diag.Diagnostics) *SubmitSpec {
 	env := make(map[string]eval.Value, len(globals)+16)
 	for k, v := range globals {
 		env[k] = v
@@ -270,6 +270,7 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 		value := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
 			Context: eval.EvalCtxSubmitField,
 			Names:   submitNames,
+			Files:   fileAccessForSpan(baseDirByFile, field.Span),
 		})
 		if isModeExpr {
 			value = coerceModeValue(mode, value, field.Span, diags)

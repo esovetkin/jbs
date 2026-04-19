@@ -24,7 +24,8 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 		Entry: entryRef,
 		Modules: map[string]*imports.ModuleInfo{
 			entryRef.ID: {
-				Ref: entryRef,
+				Ref:     entryRef,
+				BaseDir: "/mods/entry",
 				Program: ast.Program{File: entryRef.Label, Stmts: []ast.Stmt{
 					ast.UseStmt{Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "a", Span: span}, Alias: "a", Span: span},
 					ast.UseStmt{Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "z", Span: span}, Alias: "z", Span: span},
@@ -35,14 +36,16 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 				},
 			},
 			childRef.ID: {
-				Ref: childRef,
+				Ref:     childRef,
+				BaseDir: "/mods/child",
 				Program: ast.Program{File: childRef.Label, Stmts: []ast.Stmt{
 					ast.GlobalAssign{Name: "child_value", Op: ast.AssignEq, Expr: numberExpr(span, 3), Span: span},
 					ast.SubmitBlock{Name: "child_submit", Span: span},
 				}},
 			},
 			aRef.ID: {
-				Ref: aRef,
+				Ref:     aRef,
+				BaseDir: "/mods/a",
 				Program: ast.Program{File: aRef.Label, Stmts: []ast.Stmt{
 					ast.UseStmt{Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "child", Span: span}, Alias: "child", Span: span},
 					ast.GlobalAssign{Name: "a_value", Op: ast.AssignEq, Expr: numberExpr(span, 1), Span: span},
@@ -51,7 +54,8 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 				Uses: []imports.ResolvedUse{{Kind: imports.UseNamespace, Alias: "child", Source: childRef, Span: span, Index: 0}},
 			},
 			zRef.ID: {
-				Ref: zRef,
+				Ref:     zRef,
+				BaseDir: "/mods/z",
 				Program: ast.Program{File: zRef.Label, Stmts: []ast.Stmt{
 					ast.GlobalAssign{Name: "z_value", Op: ast.AssignEq, Expr: numberExpr(span, 2), Span: span},
 					ast.DoBlock{Name: "run", Span: span},
@@ -88,6 +92,14 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	if !eval.Equal(scope.Env["a.a_value"], eval.Int(1)) || !eval.Equal(scope.Env["a.child.child_value"], eval.Int(3)) || !eval.Equal(scope.Env["z.z_value"], eval.Int(2)) {
 		t.Fatalf("unexpected scope env values: %#v", scope.Env)
 	}
+	if !reflect.DeepEqual(scope.BaseDirByFile, map[string]string{
+		entryRef.Label: "/mods/entry",
+		childRef.Label: "/mods/child",
+		aRef.Label:     "/mods/a",
+		zRef.Label:     "/mods/z",
+	}) {
+		t.Fatalf("unexpected base-dir mapping: %#v", scope.BaseDirByFile)
+	}
 
 	cache := map[string]*moduleScope{}
 	root0 := compileModule(aRef, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{}, cache, map[string]bool{})
@@ -103,6 +115,9 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	}
 	if !eval.Equal(root1.Env["a_value"], eval.Int(1)) {
 		t.Fatalf("expected cached module clone to preserve env values, got %#v", root1.Env)
+	}
+	if root1.BaseDirByFile[aRef.Label] != "/mods/a" || root1.BaseDirByFile[childRef.Label] != "/mods/child" {
+		t.Fatalf("expected cached module clone to preserve base-dir mapping, got %#v", root1.BaseDirByFile)
 	}
 }
 

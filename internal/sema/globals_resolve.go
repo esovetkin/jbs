@@ -9,7 +9,7 @@ import (
 )
 
 func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, diags *diag.Diagnostics) GlobalState {
-	exec := execGlobalPlan(buildGlobalPlan(prog, defaults), defaults, defaults, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, defaults, baseDirForProgramFile(prog.File)), defaults, defaults, diags)
 	return GlobalState{
 		Values: maps.Clone(exec.ScalarGlobals.Values),
 		Modes:  maps.Clone(exec.ScalarGlobals.Modes),
