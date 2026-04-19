@@ -215,6 +215,95 @@ func TestAnalyzeInputExprStmtRespectsSelectiveImportVisibility(t *testing.T) {
 	})
 }
 
+func TestAnalyzeInputSelectiveImportedFunctionIsCallable(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "add = function(a, b) {\n  a + b\n}\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use add from \"./lib.jbs\"\nadd(1, 2)\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if gv := bundle.Result.GlobalVarByName["add"]; gv == nil || gv.Value.Kind != eval.KindFunction {
+		t.Fatalf("expected imported function global add, got %#v", gv)
+	}
+	if len(bundle.Result.TopLevelExprs) != 1 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, eval.Int(3)) {
+		t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeInputNamespaceImportedFunctionIsCallable(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "base = 40\nadd = function(a, b) {\n  a + b + base\n}\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\nlib.add(1, 2)\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if value, ok := bundle.Result.Globals.Values["lib.add"]; !ok || value.Kind != eval.KindFunction {
+		t.Fatalf("expected namespaced function global lib.add, got %#v", bundle.Result.Globals.Values["lib.add"])
+	}
+	if len(bundle.Result.TopLevelExprs) != 1 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, eval.Int(43)) {
+		t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeInputImportedFunctionsCoexistWithDataGlobals(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", strings.Join([]string{
+		"value = 40",
+		"mk = function(delta) {",
+		"  function(x) {",
+		"    x + delta + value",
+		"  }",
+		"}",
+	}, "\n"))
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		"use value, mk from \"./lib.jbs\"",
+		"add = mk(1)",
+		"value + add(1)",
+		"names()",
+	}, "\n"))
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if bundle.Result.GlobalVarByName["mk"] == nil || bundle.Result.GlobalVarByName["mk"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected imported function global mk, got %#v", bundle.Result.GlobalVarByName["mk"])
+	}
+	if bundle.Result.GlobalVarByName["value"] == nil || bundle.Result.GlobalVarByName["value"].Value.I != 40 {
+		t.Fatalf("expected imported data global value, got %#v", bundle.Result.GlobalVarByName["value"])
+	}
+	if len(bundle.Result.TopLevelExprs) != 2 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, eval.Int(82)) {
+		t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+	wantNames := eval.List([]eval.Value{
+		eval.String("add"),
+		eval.String("jbs_comment"),
+		eval.String("jbs_name"),
+		eval.String("jbs_outpath"),
+		eval.String("mk"),
+		eval.String("value"),
+	})
+	if !eval.Equal(bundle.Result.TopLevelExprs[1].Value, wantNames) {
+		t.Fatalf("unexpected names() result: %#v", bundle.Result.TopLevelExprs[1].Value)
+	}
+}
+
 func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
@@ -339,5 +428,29 @@ func TestRunCheckFormatsDiagnosticsAcrossImportedSources(t *testing.T) {
 	text := stderr.String()
 	if !strings.Contains(text, libPath) || !strings.Contains(text, "value = (") {
 		t.Fatalf("expected diagnostics to include imported file path and excerpt, got:\n%s", text)
+	}
+}
+
+func TestRunCheckWithSelectiveImportedFunction(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "add = function(a, b) {\n  a + b\n}\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use add from \"./lib.jbs\"\nadd(1, 2)\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunCheckWithNamespacedImportedFunction(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "base = 40\nadd = function(a, b) {\n  a + b + base\n}\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\nlib.add(1, 2)\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
 	}
 }

@@ -82,6 +82,7 @@ type GlobalVar struct {
 
 type Namespace struct {
 	Name     string
+	Members  []string
 	Bindings []string
 	Steps    []string
 }

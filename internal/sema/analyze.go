@@ -58,22 +58,11 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
-		mergeGlobalVarsIntoState(&scope.Globals, scope.GlobalVarByName)
 		scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 		for _, name := range scope.GlobalVarOrder {
 			gv := scope.GlobalVarByName[name]
-			if gv == nil {
-				continue
-			}
-			binding := bindingFromGlobalVar(name, gv)
-			if binding == nil {
-				continue
-			}
-			scope.LocalBindings = append(scope.LocalBindings, binding)
-			scope.LocalBindingsByName[name] = binding
-			scope.Bindings = append(scope.Bindings, binding)
-			scope.BindingsByName[name] = binding
-			scope.Env[name] = binding.Value
+			registerModuleExport(scope, name, gv, true)
+			registerModuleBinding(scope, bindingFromGlobalVar(name, gv), true)
 		}
 		for _, stmt := range prog.Stmts {
 			switch n := stmt.(type) {
@@ -87,7 +76,8 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 				scope.AnalyseBlocks = append(scope.AnalyseBlocks, n)
 			}
 		}
-		mergeBindingValues(scope.Globals.Values, scope.BindingsByName)
+		materializeModuleFunctionExports(scope)
+		mergeGlobalVarsIntoState(&scope.Globals, scope.ExportsByName)
 	} else {
 		scope = buildEntryModuleScope(loadRes, globals, diags)
 		if scope != nil {
@@ -117,11 +107,12 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	for name, ns := range scope.Namespaces {
 		res.Namespaces[name] = &Namespace{
 			Name:     ns.Name,
+			Members:  append([]string(nil), ns.Members...),
 			Bindings: append([]string(nil), ns.Bindings...),
 			Steps:    append([]string(nil), ns.Steps...),
 		}
 	}
-	mergeBindingValues(res.Globals.Values, res.BindingsByName)
+	mergeGlobalVarsIntoState(&res.Globals, scope.ExportsByName)
 
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)

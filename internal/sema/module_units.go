@@ -19,6 +19,8 @@ type moduleScope struct {
 	GlobalVarByName     map[string]*GlobalVar
 	GlobalVarOrder      []string
 	TopLevelExprs       []TopLevelExprResult
+	LocalExportsByName  map[string]*GlobalVar
+	ExportsByName       map[string]*GlobalVar
 	LocalBindings       []*GlobalBinding
 	LocalBindingsByName map[string]*GlobalBinding
 	Bindings            []*GlobalBinding
@@ -79,7 +81,15 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
-	mergeGlobalVarsIntoState(&scope.Globals, scope.GlobalVarByName)
+	for _, name := range scope.GlobalVarOrder {
+		gv := scope.GlobalVarByName[name]
+		registerModuleExport(scope, name, gv, true)
+		binding := bindingFromGlobalVar(name, gv)
+		if binding == nil {
+			continue
+		}
+		registerModuleBinding(scope, binding, true)
+	}
 	scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 
 	for _, use := range info.Uses {
@@ -87,24 +97,6 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 			continue
 		}
 		mergeModuleScope(scope, prefixedByIndex[use.Index])
-	}
-
-	for _, name := range scope.GlobalVarOrder {
-		gv := scope.GlobalVarByName[name]
-		if gv == nil {
-			continue
-		}
-		binding := bindingFromGlobalVar(name, gv)
-		if binding == nil {
-			continue
-		}
-		scope.LocalBindings = append(scope.LocalBindings, binding)
-		scope.LocalBindingsByName[name] = binding
-		if _, exists := scope.BindingsByName[name]; !exists {
-			scope.Bindings = append(scope.Bindings, binding)
-			scope.BindingsByName[name] = binding
-		}
-		scope.Env[name] = binding.Value
 	}
 
 	for _, stmt := range info.Program.Stmts {
@@ -120,7 +112,8 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		}
 	}
 
-	mergeBindingValues(scope.Globals.Values, scope.BindingsByName)
+	materializeModuleFunctionExports(scope)
+	mergeGlobalVarsIntoState(&scope.Globals, scope.ExportsByName)
 	cache[ref.ID] = cloneModuleScope(scope)
 	return cloneModuleScope(scope)
 }
@@ -177,11 +170,11 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 					continue
 				}
 				child := childByIndex[index]
-				binding := (*GlobalBinding)(nil)
+				exported := (*GlobalVar)(nil)
 				if child != nil {
-					binding = child.LocalBindingsByName[name]
+					exported = child.LocalExportsByName[name]
 				}
-				if binding == nil {
+				if exported == nil {
 					switch moduleLocalSymbolKind(moduleProgram(child, info, index), name) {
 					case localSymbolDo, localSymbolSubmit, localSymbolAnalyse:
 						diags.AddError(
@@ -208,7 +201,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 					ID:                id,
 					Kind:              globalInputProjectedImport,
 					Name:              name,
-					Import:            &projectedImport{LocalName: name, SourceName: name, SourceBinding: binding, Span: use.Span},
+					Import:            &projectedImport{LocalName: name, SourceName: name, SourceGlobal: exported, Span: use.Span},
 					Index:             index,
 					IsSimple:          true,
 					SeedEnv:           seedEnv,
@@ -342,17 +335,37 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 	}
 	out := emptyModuleScope()
 	out.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
+	for name, exported := range scope.ExportsByName {
+		if exported == nil {
+			continue
+		}
+		prefixedName := prefix + "." + name
+		next := cloneGlobalVar(exported)
+		next.Name = prefixedName
+		next.DependsOn = prefixNames(prefix, exported.DependsOn)
+		out.ExportsByName[prefixedName] = next
+		out.Env[prefixedName] = next.Value
+	}
+	for name, exported := range scope.LocalExportsByName {
+		if exported == nil {
+			continue
+		}
+		prefixedName := prefix + "." + name
+		next := cloneGlobalVar(exported)
+		next.Name = prefixedName
+		next.DependsOn = prefixNames(prefix, exported.DependsOn)
+		out.LocalExportsByName[prefixedName] = next
+	}
 	for _, binding := range scope.Bindings {
 		if binding == nil {
 			continue
 		}
-		name := prefix + "." + binding.Name
+		prefixedName := prefix + "." + binding.Name
 		next := cloneBinding(binding)
-		next.Name = name
+		next.Name = prefixedName
 		next.DependsOn = prefixNames(prefix, binding.DependsOn)
 		out.Bindings = append(out.Bindings, next)
-		out.BindingsByName[name] = next
-		out.Env[name] = next.Value
+		out.BindingsByName[prefixedName] = next
 	}
 	for _, block := range scope.DoBlocks {
 		out.DoBlocks = append(out.DoBlocks, prefixDoBlock(block, prefix))
@@ -368,9 +381,22 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		q := prefix + "." + name
 		out.Namespaces[q] = &Namespace{
 			Name:     q,
+			Members:  prefixNames(prefix, ns.Members),
 			Bindings: prefixNames(prefix, ns.Bindings),
 			Steps:    prefixNames(prefix, ns.Steps),
 		}
+	}
+	for name := range out.ExportsByName {
+		head, _, ok := strings.Cut(name, ".")
+		if !ok {
+			continue
+		}
+		ns := out.Namespaces[head]
+		if ns == nil {
+			ns = &Namespace{Name: head}
+			out.Namespaces[head] = ns
+		}
+		ns.Members = appendUniqueString(ns.Members, name)
 	}
 	for _, binding := range out.Bindings {
 		head, _, ok := strings.Cut(binding.Name, ".")
@@ -411,6 +437,17 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 			dst.BaseDirByFile[file] = baseDir
 		}
 	}
+	for name, exported := range src.ExportsByName {
+		if exported == nil {
+			continue
+		}
+		if _, exists := dst.ExportsByName[name]; exists {
+			continue
+		}
+		next := cloneGlobalVar(exported)
+		dst.ExportsByName[name] = next
+		dst.Env[name] = next.Value
+	}
 	for _, binding := range src.Bindings {
 		if binding == nil {
 			continue
@@ -444,6 +481,7 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 			current = &Namespace{Name: name}
 			dst.Namespaces[name] = current
 		}
+		current.Members = mergeUniqueStrings(current.Members, ns.Members)
 		current.Bindings = mergeUniqueStrings(current.Bindings, ns.Bindings)
 		current.Steps = mergeUniqueStrings(current.Steps, ns.Steps)
 	}
@@ -455,6 +493,8 @@ func emptyModuleScope() *moduleScope {
 		GlobalVarByName:     make(map[string]*GlobalVar),
 		GlobalVarOrder:      make([]string, 0),
 		TopLevelExprs:       make([]TopLevelExprResult, 0),
+		LocalExportsByName:  make(map[string]*GlobalVar),
+		ExportsByName:       make(map[string]*GlobalVar),
 		LocalBindings:       make([]*GlobalBinding, 0),
 		LocalBindingsByName: make(map[string]*GlobalBinding),
 		Bindings:            make([]*GlobalBinding, 0),
@@ -489,6 +529,12 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	out.AnalyseBlocks = append([]ast.AnalyseBlock(nil), scope.AnalyseBlocks...)
 	out.StepOrder = append([]string(nil), scope.StepOrder...)
 	out.Env = maps.Clone(scope.Env)
+	for name, exported := range scope.LocalExportsByName {
+		out.LocalExportsByName[name] = cloneGlobalVar(exported)
+	}
+	for name, exported := range scope.ExportsByName {
+		out.ExportsByName[name] = cloneGlobalVar(exported)
+	}
 	for _, binding := range scope.LocalBindings {
 		next := cloneBinding(binding)
 		out.LocalBindings = append(out.LocalBindings, next)
@@ -502,6 +548,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	for name, ns := range scope.Namespaces {
 		out.Namespaces[name] = &Namespace{
 			Name:     ns.Name,
+			Members:  append([]string(nil), ns.Members...),
 			Bindings: append([]string(nil), ns.Bindings...),
 			Steps:    append([]string(nil), ns.Steps...),
 		}
@@ -539,6 +586,17 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 	return &next
 }
 
+func cloneGlobalVar(gv *GlobalVar) *GlobalVar {
+	if gv == nil {
+		return nil
+	}
+	next := *gv
+	next.Order = append([]string(nil), gv.Order...)
+	next.Vars = cloneSeriesMap(gv.Vars)
+	next.DependsOn = append([]string(nil), gv.DependsOn...)
+	return &next
+}
+
 func cloneTopLevelExprResults(in []TopLevelExprResult) []TopLevelExprResult {
 	if len(in) == 0 {
 		return []TopLevelExprResult{}
@@ -557,6 +615,139 @@ func mergeValueEnv(base map[string]eval.Value, extras map[string]eval.Value) map
 		out[name] = value
 	}
 	return out
+}
+
+func registerModuleExport(scope *moduleScope, name string, gv *GlobalVar, local bool) {
+	if scope == nil || gv == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+	next := cloneGlobalVar(gv)
+	next.Name = name
+	if local {
+		scope.LocalExportsByName[name] = next
+	}
+	if _, exists := scope.ExportsByName[name]; !exists {
+		scope.ExportsByName[name] = next
+	}
+	scope.Env[name] = next.Value
+}
+
+func registerModuleBinding(scope *moduleScope, binding *GlobalBinding, local bool) {
+	if scope == nil || binding == nil || strings.TrimSpace(binding.Name) == "" {
+		return
+	}
+	next := cloneBinding(binding)
+	if local {
+		scope.LocalBindings = append(scope.LocalBindings, next)
+		scope.LocalBindingsByName[next.Name] = next
+	}
+	if _, exists := scope.BindingsByName[next.Name]; exists {
+		return
+	}
+	scope.Bindings = append(scope.Bindings, next)
+	scope.BindingsByName[next.Name] = next
+}
+
+func materializeModuleFunctionExports(scope *moduleScope) {
+	if scope == nil {
+		return
+	}
+	env := maps.Clone(scope.Globals.Values)
+	mergeIntoValueEnv(env, scope.Env)
+	root := eval.NewRootFrame(env)
+	frameMemo := map[*eval.Frame]*eval.Frame{}
+	cellMemo := map[*eval.Cell]*eval.Cell{}
+	fnMemo := map[*eval.FunctionValue]*eval.FunctionValue{}
+
+	rewriteValue := func(value eval.Value) eval.Value {
+		if value.Kind != eval.KindFunction || value.Fn == nil || !functionNeedsMaterialization(value.Fn) {
+			return value
+		}
+		return eval.Function(materializeCapturedFunction(value.Fn, root, frameMemo, cellMemo, fnMemo))
+	}
+	rewriteGlobalVar := func(gv *GlobalVar) {
+		if gv == nil || gv.Value.Kind != eval.KindFunction || gv.Value.Fn == nil {
+			return
+		}
+		gv.Value = rewriteValue(gv.Value)
+		gv.Order, gv.Vars = globalVarSeries(gv.Name, gv.Value)
+	}
+
+	for name, gv := range scope.ExportsByName {
+		rewriteGlobalVar(gv)
+		if gv != nil {
+			scope.Env[name] = gv.Value
+			root.AssignLocal(name, gv.Value, gv.Span)
+		}
+	}
+	for _, gv := range scope.LocalExportsByName {
+		rewriteGlobalVar(gv)
+	}
+	for _, gv := range scope.GlobalVarByName {
+		rewriteGlobalVar(gv)
+	}
+}
+
+func materializeCapturedFunction(fn *eval.FunctionValue, root *eval.Frame, frameMemo map[*eval.Frame]*eval.Frame, cellMemo map[*eval.Cell]*eval.Cell, fnMemo map[*eval.FunctionValue]*eval.FunctionValue) *eval.FunctionValue {
+	if fn == nil {
+		return nil
+	}
+	if next := fnMemo[fn]; next != nil {
+		return next
+	}
+	next := *fn
+	fnMemo[fn] = &next
+	next.Capture = materializeCapturedFrame(fn.Capture, root, frameMemo, cellMemo, fnMemo)
+	return &next
+}
+
+func functionNeedsMaterialization(fn *eval.FunctionValue) bool {
+	if fn == nil {
+		return false
+	}
+	for frame := fn.Capture; frame != nil; frame = frame.Parent {
+		if frame.Resolve != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func materializeCapturedFrame(frame *eval.Frame, root *eval.Frame, frameMemo map[*eval.Frame]*eval.Frame, cellMemo map[*eval.Cell]*eval.Cell, fnMemo map[*eval.FunctionValue]*eval.FunctionValue) *eval.Frame {
+	if frame == nil || frame.Parent == nil {
+		return root
+	}
+	if next := frameMemo[frame]; next != nil {
+		return next
+	}
+	next := &eval.Frame{
+		Parent: materializeCapturedFrame(frame.Parent, root, frameMemo, cellMemo, fnMemo),
+		Values: make(map[string]*eval.Cell, len(frame.Values)),
+	}
+	frameMemo[frame] = next
+	for name, cell := range frame.Values {
+		next.Values[name] = materializeCapturedCell(cell, root, frameMemo, cellMemo, fnMemo)
+	}
+	return next
+}
+
+func materializeCapturedCell(cell *eval.Cell, root *eval.Frame, frameMemo map[*eval.Frame]*eval.Frame, cellMemo map[*eval.Cell]*eval.Cell, fnMemo map[*eval.FunctionValue]*eval.FunctionValue) *eval.Cell {
+	if cell == nil {
+		return nil
+	}
+	if next := cellMemo[cell]; next != nil {
+		return next
+	}
+	next := &eval.Cell{
+		Value:    cell.Value,
+		Origin:   cell.Origin,
+		Assigned: cell.Assigned,
+	}
+	cellMemo[cell] = next
+	if next.Assigned && next.Value.Kind == eval.KindFunction && next.Value.Fn != nil && functionNeedsMaterialization(next.Value.Fn) {
+		next.Value = eval.Function(materializeCapturedFunction(next.Value.Fn, root, frameMemo, cellMemo, fnMemo))
+	}
+	return next
 }
 
 func mergeIntoValueEnv(dst map[string]eval.Value, src map[string]eval.Value) {

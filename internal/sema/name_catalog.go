@@ -1,6 +1,7 @@
 package sema
 
 import (
+	"sort"
 	"strings"
 
 	"jbs/internal/eval"
@@ -26,11 +27,15 @@ func directNamespaceMembers(nsName string, ns *Namespace) []string {
 		return []string{}
 	}
 	prefix := nsName + "."
-	out := make([]string, 0, len(ns.Bindings))
-	seen := make(map[string]struct{}, len(ns.Bindings))
-	for _, bindingName := range ns.Bindings {
-		rest := strings.TrimPrefix(bindingName, prefix)
-		if rest == bindingName || strings.Contains(rest, ".") {
+	names := ns.Members
+	if len(names) == 0 {
+		names = ns.Bindings
+	}
+	out := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, memberName := range names {
+		rest := strings.TrimPrefix(memberName, prefix)
+		if rest == memberName || strings.Contains(rest, ".") {
 			continue
 		}
 		if _, ok := seen[rest]; ok {
@@ -39,6 +44,7 @@ func directNamespaceMembers(nsName string, ns *Namespace) []string {
 		seen[rest] = struct{}{}
 		out = append(out, rest)
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -53,6 +59,7 @@ func cloneVisibleNamespaces(in map[string]*Namespace) map[string]*Namespace {
 		}
 		out[name] = &Namespace{
 			Name:     ns.Name,
+			Members:  append([]string(nil), ns.Members...),
 			Bindings: append([]string(nil), ns.Bindings...),
 			Steps:    append([]string(nil), ns.Steps...),
 		}
@@ -72,11 +79,13 @@ func mergeVisibleNamespaces(dst map[string]*Namespace, src map[string]*Namespace
 		if current == nil {
 			dst[name] = &Namespace{
 				Name:     ns.Name,
+				Members:  append([]string(nil), ns.Members...),
 				Bindings: append([]string(nil), ns.Bindings...),
 				Steps:    append([]string(nil), ns.Steps...),
 			}
 			continue
 		}
+		current.Members = mergeUniqueStrings(current.Members, ns.Members)
 		current.Bindings = mergeUniqueStrings(current.Bindings, ns.Bindings)
 		current.Steps = mergeUniqueStrings(current.Steps, ns.Steps)
 	}

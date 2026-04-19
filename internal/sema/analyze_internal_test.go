@@ -107,7 +107,7 @@ func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 }
 
 func TestAnalyzeReturnsNamesResults(t *testing.T) {
-	src := "x = 1\nnames()\n"
+	src := "x = 1\nadd = function(a, b) { a + b }\nnames()\n"
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
@@ -122,6 +122,7 @@ func TestAnalyzeReturnsNamesResults(t *testing.T) {
 		t.Fatalf("expected one top-level expr result, got %#v", res.TopLevelExprs)
 	}
 	want := eval.List([]eval.Value{
+		eval.String("add"),
 		eval.String("jbs_comment"),
 		eval.String("jbs_name"),
 		eval.String("jbs_outpath"),
@@ -162,7 +163,7 @@ func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
 func TestAnalyzeWithImportsReturnsNamesNamespaceResults(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")
-	if err := os.WriteFile(libPath, []byte("value = 41\nother = 7\n"), 0o644); err != nil {
+	if err := os.WriteFile(libPath, []byte("value = 41\nother = 7\nadd = function(a, b) { a + b }\n"), 0o644); err != nil {
 		t.Fatalf("write lib: %v", err)
 	}
 	diags := &diag.Diagnostics{}
@@ -181,9 +182,39 @@ func TestAnalyzeWithImportsReturnsNamesNamespaceResults(t *testing.T) {
 	if len(res.TopLevelExprs) != 1 {
 		t.Fatalf("expected one imported top-level expr result, got %#v", res.TopLevelExprs)
 	}
-	want := eval.List([]eval.Value{eval.String("other"), eval.String("value")})
+	want := eval.List([]eval.Value{eval.String("add"), eval.String("other"), eval.String("value")})
 	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
 		t.Fatalf("unexpected namespace names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+	}
+}
+
+func TestAnalyzeWithImportsReturnsNamesSelectiveFunctionResults(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("value = 41\nadd = function(a, b) { a + b }\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "use add from \"./lib.jbs\"\nnames()\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	want := eval.List([]eval.Value{
+		eval.String("add"),
+		eval.String("jbs_comment"),
+		eval.String("jbs_name"),
+		eval.String("jbs_outpath"),
+	})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected selective names() result: %#v", res.TopLevelExprs)
 	}
 }
 

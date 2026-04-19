@@ -23,10 +23,10 @@ const (
 )
 
 type projectedImport struct {
-	LocalName     string
-	SourceName    string
-	SourceBinding *GlobalBinding
-	Span          diag.Span
+	LocalName    string
+	SourceName   string
+	SourceGlobal *GlobalVar
+	Span         diag.Span
 }
 
 type globalInputStep struct {
@@ -322,11 +322,11 @@ func (e *globalForceEngine) forceStep(id int) (eval.Value, bool) {
 
 	switch step.Kind {
 	case globalInputProjectedImport:
-		if step.Import == nil || step.Import.SourceBinding == nil {
+		if step.Import == nil || step.Import.SourceGlobal == nil {
 			state.Value = eval.Null()
 			return state.Value, true
 		}
-		gv := globalVarFromImportedBinding(step.Name, step.Import.SourceBinding, step.Import.Span)
+		gv := globalVarFromImportedGlobal(step.Name, step.Import.SourceGlobal, step.Import.Span)
 		if gv == nil {
 			state.Value = eval.Null()
 			return state.Value, true
@@ -546,10 +546,10 @@ func execScalarGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.V
 		step := plan.Steps[id]
 		switch step.Kind {
 		case globalInputProjectedImport:
-			if step.Import == nil || step.Import.SourceBinding == nil {
+			if step.Import == nil || step.Import.SourceGlobal == nil {
 				continue
 			}
-			gv := globalVarFromImportedBinding(step.Name, step.Import.SourceBinding, step.Import.Span)
+			gv := globalVarFromImportedGlobal(step.Name, step.Import.SourceGlobal, step.Import.Span)
 			if gv == nil {
 				continue
 			}

@@ -130,6 +130,25 @@ func globalVarFromImportedBinding(name string, binding *GlobalBinding, span diag
 	}
 }
 
+func globalVarFromImportedGlobal(name string, source *GlobalVar, span diag.Span) *GlobalVar {
+	if source == nil {
+		return nil
+	}
+	order, vars := globalVarSeries(name, source.Value)
+	mode := ""
+	if len(order) == 1 {
+		mode = source.Mode
+	}
+	return &GlobalVar{
+		Name:  name,
+		Value: source.Value,
+		Mode:  mode,
+		Span:  span,
+		Order: order,
+		Vars:  vars,
+	}
+}
+
 func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 	if gv == nil || gv.Value.Kind == eval.KindFunction {
 		return nil

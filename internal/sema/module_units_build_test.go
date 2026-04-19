@@ -80,6 +80,9 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	if _, ok := scope.BindingsByName["a.a_value"]; !ok {
 		t.Fatalf("expected prefixed binding a.a_value, got %#v", scope.BindingsByName)
 	}
+	if _, ok := scope.ExportsByName["a.a_value"]; !ok {
+		t.Fatalf("expected prefixed export a.a_value, got %#v", scope.ExportsByName)
+	}
 	if _, ok := scope.BindingsByName["a.child.child_value"]; !ok {
 		t.Fatalf("expected nested prefixed binding a.child.child_value, got %#v", scope.BindingsByName)
 	}
@@ -324,6 +327,9 @@ func TestCompileModuleHandlesFunctionValuedGlobals(t *testing.T) {
 	if scope.GlobalVarByName["inc"] == nil || scope.GlobalVarByName["inc"].Value.Kind != eval.KindFunction {
 		t.Fatalf("expected function-valued global inc in module scope, got %#v", scope.GlobalVarByName["inc"])
 	}
+	if scope.LocalExportsByName["inc"] == nil || scope.LocalExportsByName["inc"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected function-valued export inc in module scope, got %#v", scope.LocalExportsByName["inc"])
+	}
 	if _, ok := scope.LocalBindingsByName["inc"]; ok {
 		t.Fatalf("did not expect function-valued global inc to become a local binding")
 	}
@@ -335,5 +341,104 @@ func TestCompileModuleHandlesFunctionValuedGlobals(t *testing.T) {
 	}
 	if scope.Globals.Values["inc"].Kind != eval.KindFunction {
 		t.Fatalf("expected function global inc to remain in scope.Globals, got %#v", scope.Globals.Values["inc"])
+	}
+}
+
+func TestBuildEntryModuleScopeImportsFunctionExports(t *testing.T) {
+	span := diag.NewSpan("mods.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	entryRef := imports.ModuleRef{ID: "entry", Label: "entry.jbs"}
+	libRef := imports.ModuleRef{ID: "lib", Label: "lib.jbs"}
+	loadRes := &imports.LoadResult{
+		Entry: entryRef,
+		Modules: map[string]*imports.ModuleInfo{
+			entryRef.ID: {
+				Ref:     entryRef,
+				BaseDir: "/mods/entry",
+				Program: ast.Program{File: entryRef.Label, Stmts: []ast.Stmt{
+					ast.UseStmt{Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "lib", Span: span}, Alias: "lib", Span: span},
+					ast.UseStmt{Names: []string{"add"}, Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "lib", Span: span}, Span: span},
+				}},
+				Uses: []imports.ResolvedUse{
+					{Kind: imports.UseNamespace, Alias: "lib", Source: libRef, Span: span, Index: 0},
+					{Kind: imports.UseSelective, Names: []string{"add"}, Source: libRef, Span: span, Index: 1},
+				},
+			},
+			libRef.ID: {
+				Ref:     libRef,
+				BaseDir: "/mods/lib",
+				Program: ast.Program{File: libRef.Label, Stmts: []ast.Stmt{
+					ast.GlobalAssign{
+						Name: "base",
+						Op:   ast.AssignEq,
+						Expr: numberExpr(span, 40),
+						Span: span,
+					},
+					ast.GlobalAssign{
+						Name: "add",
+						Op:   ast.AssignEq,
+						Expr: ast.FunctionExpr{
+							Params: []ast.FuncParam{{Name: "x", Span: span}, {Name: "y", Span: span}},
+							Body: []ast.FuncBodyStmt{
+								ast.ExprStmt{
+									Expr: ast.BinaryExpr{
+										Left: ast.BinaryExpr{
+											Left:  ast.IdentExpr{Name: "x", Span: span},
+											Op:    "+",
+											Right: ast.IdentExpr{Name: "y", Span: span},
+											Span:  span,
+										},
+										Op:    "+",
+										Right: ast.IdentExpr{Name: "base", Span: span},
+										Span:  span,
+									},
+									Span: span,
+								},
+							},
+							Span: span,
+						},
+						Span: span,
+					},
+				}},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	scope := buildEntryModuleScope(loadRes, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if scope.ExportsByName["add"] == nil || scope.ExportsByName["add"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected selective imported function export add, got %#v", scope.ExportsByName["add"])
+	}
+	if scope.ExportsByName["lib.add"] == nil || scope.ExportsByName["lib.add"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected namespaced imported function export lib.add, got %#v", scope.ExportsByName["lib.add"])
+	}
+	if scope.Namespaces["lib"] == nil || !reflect.DeepEqual(directNamespaceMembers("lib", scope.Namespaces["lib"]), []string{"add", "base"}) {
+		t.Fatalf("expected namespace members for lib, got %#v", scope.Namespaces["lib"])
+	}
+	if call := eval.EvalExprWithOptions(
+		ast.CallExpr{
+			Callee: ast.QualifiedIdentExpr{Namespace: "lib", Name: "add", Span: span},
+			Args:   ast.PosCallArgs(numberExpr(span, 1), numberExpr(span, 2)),
+			Span:   span,
+		},
+		nil,
+		diags,
+		eval.ExprOptions{Context: eval.EvalCtxBindingAssign, Frame: eval.NewRootFrame(scope.Env)},
+	); !eval.Equal(call, eval.Int(43)) {
+		t.Fatalf("expected lib.add(1,2)=43, got %#v", call)
+	}
+	if call := eval.EvalExprWithOptions(
+		ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "add", Span: span},
+			Args:   ast.PosCallArgs(numberExpr(span, 1), numberExpr(span, 2)),
+			Span:   span,
+		},
+		nil,
+		diags,
+		eval.ExprOptions{Context: eval.EvalCtxBindingAssign, Frame: eval.NewRootFrame(scope.Env)},
+	); !eval.Equal(call, eval.Int(43)) {
+		t.Fatalf("expected add(1,2)=43, got %#v", call)
 	}
 }

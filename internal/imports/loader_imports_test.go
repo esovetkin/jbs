@@ -167,3 +167,34 @@ func TestResolvedUseOrderPreservesStatementOrder(t *testing.T) {
 		t.Fatalf("unexpected third use: %#v", info.Uses[2])
 	}
 }
+
+func TestLoadResultPreservesFunctionImportEdges(t *testing.T) {
+	dir := t.TempDir()
+	libPath := writeTestFile(t, dir, "lib.jbs", "add = function(a, b) {\n  a + b\n}\n")
+	entry := writeTestFile(t, dir, "entry.jbs", strings.Join([]string{
+		"use add from \"./lib.jbs\"",
+		"use \"./lib.jbs\" as lib",
+		"do run {",
+		"  echo ok",
+		"}",
+	}, "\n"))
+
+	diags := &diag.Diagnostics{}
+	res, err := LoadAndExpand(entry, dir, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpand failed: %v", err)
+	}
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	info := res.Modules[res.Entry.ID]
+	if info == nil || len(info.Uses) != 2 {
+		t.Fatalf("unexpected entry module info: %#v", info)
+	}
+	if info.Uses[0].Kind != UseSelective || !reflect.DeepEqual(info.Uses[0].Names, []string{"add"}) || info.Uses[0].Source.Label != libPath {
+		t.Fatalf("unexpected selective function use: %#v", info.Uses[0])
+	}
+	if info.Uses[1].Kind != UseNamespace || info.Uses[1].Alias != "lib" || info.Uses[1].Source.Label != libPath {
+		t.Fatalf("unexpected namespace function use: %#v", info.Uses[1])
+	}
+}
