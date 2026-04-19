@@ -127,7 +127,7 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 		Right: ast.TupleExpr{Items: []ast.Expr{
 			ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "call", Span: sp},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
 						ast.QualifiedIdentExpr{Namespace: "ns", Name: "item", Span: sp},
 						ast.MemberExpr{
@@ -141,7 +141,7 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 						},
 						ast.ConvertExpr{Expr: ast.IdentExpr{Name: "convert", Span: sp}, Span: sp},
 					}, Span: sp},
-				},
+				),
 				Span: sp,
 			},
 			ast.AliasExpr{Expr: ast.IndexExpr{Base: ast.IdentExpr{Name: "base", Span: sp}, Items: []ast.Expr{ast.IdentExpr{Name: "index", Span: sp}}, Span: sp}, Alias: "alias", Span: sp},

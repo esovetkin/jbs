@@ -23,7 +23,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 			Items: []ast.Expr{
 				ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "callee_ignored", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.ListExpr{
 							Items: []ast.Expr{
 								ast.IdentExpr{Name: "b", Span: span},
@@ -31,7 +31,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 							},
 							Span: span,
 						},
-					},
+					),
 					Span: span,
 				},
 				ast.UnaryExpr{

@@ -21,6 +21,47 @@ func TestLexBasicTokens(t *testing.T) {
 	}
 }
 
+func TestLexFunctionAndReturnKeywords(t *testing.T) {
+	src := "fn = function(x) {\n    return x\n}\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	var sawFunction, sawReturn bool
+	for _, tok := range tokens {
+		switch tok.Type {
+		case TokenFunction:
+			sawFunction = true
+		case TokenReturn:
+			sawReturn = true
+		}
+	}
+	if !sawFunction || !sawReturn {
+		t.Fatalf("expected function and return tokens, got %#v", tokens)
+	}
+}
+
+func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
+	src := "function_name = 1\nreturn_value = 2\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	found := map[string]TokenType{}
+	for _, tok := range tokens {
+		if tok.Type == TokenIdent {
+			found[tok.Value] = tok.Type
+		}
+	}
+	if found["function_name"] != TokenIdent || found["return_value"] != TokenIdent {
+		t.Fatalf("expected identifier tokens for keyword-like names, got %#v", tokens)
+	}
+}
+
 func TestLexEmitsCommentToken(t *testing.T) {
 	src := "a = 1 # trailing comment\n"
 	diags := &diag.Diagnostics{}

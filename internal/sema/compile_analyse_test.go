@@ -237,9 +237,9 @@ func TestCompileAnalyseBlockSupportsNamesBuiltin(t *testing.T) {
 				Name: "helperCount",
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
-					},
+					),
 					Span: span,
 				},
 				Span: span,
@@ -248,13 +248,13 @@ func TestCompileAnalyseBlockSupportsNamesBuiltin(t *testing.T) {
 				Name: "namespaceCount",
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{
 							Callee: ast.IdentExpr{Name: "names", Span: span},
-							Args:   []ast.Expr{ast.IdentExpr{Name: "mod", Span: span}},
+							Args:   ast.PosCallArgs(ast.IdentExpr{Name: "mod", Span: span}),
 							Span:   span,
 						},
-					},
+					),
 					Span: span,
 				},
 				Span: span,
@@ -294,13 +294,13 @@ func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
 				Name: "rowCount",
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{
 							Callee: ast.IdentExpr{Name: "read_csv", Span: span},
-							Args:   []ast.Expr{ast.StringExpr{Value: "./cases.csv", Span: span}},
+							Args:   ast.PosCallArgs(ast.StringExpr{Value: "./cases.csv", Span: span}),
 							Span:   span,
 						},
-					},
+					),
 					Span: span,
 				},
 				Span: span,
@@ -310,7 +310,7 @@ func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
 				File: "out.txt",
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "str", Span: span},
-					Args:   []ast.Expr{ast.IdentExpr{Name: "rowCount", Span: span}},
+					Args:   ast.PosCallArgs(ast.IdentExpr{Name: "rowCount", Span: span}),
 					Span:   span,
 				},
 				Span: span,

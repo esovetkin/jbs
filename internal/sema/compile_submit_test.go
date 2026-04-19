@@ -234,9 +234,9 @@ func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
 				Op:   ast.AssignEq,
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
-					},
+					),
 					Span: span,
 				},
 				Span: span,
@@ -246,13 +246,13 @@ func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
 				Op:   ast.AssignEq,
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{
 							Callee: ast.IdentExpr{Name: "names", Span: span},
-							Args:   []ast.Expr{ast.IdentExpr{Name: "defaults", Span: span}},
+							Args:   ast.PosCallArgs(ast.IdentExpr{Name: "defaults", Span: span}),
 							Span:   span,
 						},
-					},
+					),
 					Span: span,
 				},
 				Span: span,
@@ -299,13 +299,13 @@ func TestCompileSubmitBlockSupportsReadCSVBuiltin(t *testing.T) {
 				Op:   ast.AssignEq,
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "len", Span: span},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.CallExpr{
 							Callee: ast.IdentExpr{Name: "read_csv", Span: span},
-							Args:   []ast.Expr{ast.StringExpr{Value: "./cases.csv", Span: span}},
+							Args:   ast.PosCallArgs(ast.StringExpr{Value: "./cases.csv", Span: span}),
 							Span:   span,
 						},
-					},
+					),
 					Span: span,
 				},
 				Span: span,

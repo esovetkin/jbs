@@ -141,6 +141,7 @@ type ExprStmt struct {
 }
 
 func (e ExprStmt) stmtNode()          {}
+func (e ExprStmt) funcBodyStmtNode()  {}
 func (e ExprStmt) GetSpan() diag.Span { return e.Span }
 
 type AnalyseBlock struct {
@@ -230,6 +231,11 @@ type Expr interface {
 	exprNode()
 }
 
+type FuncBodyStmt interface {
+	Node
+	funcBodyStmtNode()
+}
+
 type IdentExpr struct {
 	Name string
 	Span diag.Span
@@ -317,14 +323,81 @@ type ConvertExpr struct {
 func (e ConvertExpr) exprNode()          {}
 func (e ConvertExpr) GetSpan() diag.Span { return e.Span }
 
+// CallArg represents either a positional call argument (`Name == ""`)
+// or a named argument placeholder for later parser/evaluator phases.
+type CallArg struct {
+	Name string
+	Expr Expr
+	Span diag.Span
+}
+
+func (a CallArg) GetSpan() diag.Span { return a.Span }
+
+func PosCallArg(expr Expr) CallArg {
+	span := diag.Span{}
+	if expr != nil {
+		span = expr.GetSpan()
+	}
+	return CallArg{Expr: expr, Span: span}
+}
+
+func PosCallArgs(exprs ...Expr) []CallArg {
+	if len(exprs) == 0 {
+		return nil
+	}
+	out := make([]CallArg, 0, len(exprs))
+	for _, expr := range exprs {
+		out = append(out, PosCallArg(expr))
+	}
+	return out
+}
+
 type CallExpr struct {
 	Callee Expr
-	Args   []Expr
+	Args   []CallArg
 	Span   diag.Span
 }
 
 func (e CallExpr) exprNode()          {}
 func (e CallExpr) GetSpan() diag.Span { return e.Span }
+
+// FunctionExpr is a first-class expression node. Ordinary assignments such as
+// `name = function(...) { ... }` remain plain assignments whose right-hand side
+// is this expression value.
+type FunctionExpr struct {
+	Params []FuncParam
+	Body   []FuncBodyStmt
+	Span   diag.Span
+}
+
+func (e FunctionExpr) exprNode()          {}
+func (e FunctionExpr) GetSpan() diag.Span { return e.Span }
+
+type FuncParam struct {
+	Name    string
+	Default Expr
+	Span    diag.Span
+}
+
+func (p FuncParam) GetSpan() diag.Span { return p.Span }
+
+type LocalAssignStmt struct {
+	Name string
+	Op   AssignOp
+	Expr Expr
+	Span diag.Span
+}
+
+func (s LocalAssignStmt) funcBodyStmtNode()  {}
+func (s LocalAssignStmt) GetSpan() diag.Span { return s.Span }
+
+type ReturnStmt struct {
+	Expr Expr
+	Span diag.Span
+}
+
+func (s ReturnStmt) funcBodyStmtNode()  {}
+func (s ReturnStmt) GetSpan() diag.Span { return s.Span }
 
 type AliasExpr struct {
 	Expr  Expr

@@ -45,6 +45,8 @@ const (
 	TokenElse         TokenType = "else"
 	TokenAnd          TokenType = "and"
 	TokenOr           TokenType = "or"
+	TokenFunction     TokenType = "function"
+	TokenReturn       TokenType = "return"
 	TokenDo           TokenType = "do"
 	TokenSubmit       TokenType = "submit"
 	TokenAnalyse      TokenType = "analyse"
@@ -68,17 +70,19 @@ func (t Token) IsKeyword(tt TokenType) bool {
 }
 
 var keywords = map[string]TokenType{
-	"if":      TokenIf,
-	"else":    TokenElse,
-	"and":     TokenAnd,
-	"or":      TokenOr,
-	"do":      TokenDo,
-	"submit":  TokenSubmit,
-	"analyse": TokenAnalyse,
-	"with":    TokenWith,
-	"from":    TokenFrom,
-	"after":   TokenAfter,
-	"in":      TokenIn,
-	"as":      TokenAs,
-	"use":     TokenUse,
+	"if":       TokenIf,
+	"else":     TokenElse,
+	"and":      TokenAnd,
+	"or":       TokenOr,
+	"function": TokenFunction,
+	"return":   TokenReturn,
+	"do":       TokenDo,
+	"submit":   TokenSubmit,
+	"analyse":  TokenAnalyse,
+	"with":     TokenWith,
+	"from":     TokenFrom,
+	"after":    TokenAfter,
+	"in":       TokenIn,
+	"as":       TokenAs,
+	"use":      TokenUse,
 }

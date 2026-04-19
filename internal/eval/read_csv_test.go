@@ -13,7 +13,7 @@ import (
 func readCSVCallExpr(span diag.Span, args ...ast.Expr) ast.CallExpr {
 	return ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "read_csv", Span: span},
-		Args:   args,
+		Args:   ast.PosCallArgs(args...),
 		Span:   span,
 	}
 }

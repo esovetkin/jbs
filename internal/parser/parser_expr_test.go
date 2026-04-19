@@ -366,6 +366,12 @@ func TestParsePrimaryBoolModeCallAndQualified(t *testing.T) {
 				if len(c.Args) != 1 {
 					t.Fatalf("expected 1 arg, got %d", len(c.Args))
 				}
+				if c.Args[0].Name != "" {
+					t.Fatalf("expected positional arg, got %#v", c.Args[0])
+				}
+				if _, ok := c.Args[0].Expr.(ast.NumberExpr); !ok {
+					t.Fatalf("expected numeric positional arg expr, got %#v", c.Args[0].Expr)
+				}
 			},
 		},
 		{
@@ -382,6 +388,11 @@ func TestParsePrimaryBoolModeCallAndQualified(t *testing.T) {
 				}
 				if len(c.Args) != 3 {
 					t.Fatalf("expected 3 args, got %d", len(c.Args))
+				}
+				for i, arg := range c.Args {
+					if arg.Name != "" {
+						t.Fatalf("expected positional arg %d, got %#v", i, arg)
+					}
 				}
 			},
 		},
@@ -824,6 +835,9 @@ func TestParseCallArgsBranches(t *testing.T) {
 		}
 		if len(call.Args) != 1 {
 			t.Fatalf("expected one arg, got %#v", call.Args)
+		}
+		if call.Args[0].Name != "" {
+			t.Fatalf("expected positional arg, got %#v", call.Args[0])
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected parse errors: %s", diags.String())

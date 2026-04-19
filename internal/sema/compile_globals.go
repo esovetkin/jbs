@@ -56,7 +56,7 @@ func collectGlobalExprDeps(expr ast.Expr, out map[string]struct{}) {
 		collectGlobalExprDeps(e.Expr, out)
 	case ast.CallExpr:
 		for _, arg := range e.Args {
-			collectGlobalExprDeps(arg, out)
+			collectGlobalExprDeps(arg.Expr, out)
 		}
 	case ast.AliasExpr:
 		collectGlobalExprDeps(e.Expr, out)

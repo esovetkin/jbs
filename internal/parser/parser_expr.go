@@ -465,14 +465,18 @@ func (p *tokenParser) parseCallExpr(callee ast.Expr) ast.Expr {
 	}
 }
 
-func (p *tokenParser) parseCallArgs() []ast.Expr {
+func (p *tokenParser) parseCallArgs() []ast.CallArg {
 	p.skipNewlines()
 	if p.peek().Type == lexer.TokenRParen {
 		return nil
 	}
-	args := make([]ast.Expr, 0, 2)
+	args := make([]ast.CallArg, 0, 2)
 	for {
-		args = append(args, p.parseExpr())
+		expr := p.parseExpr()
+		args = append(args, ast.CallArg{
+			Expr: expr,
+			Span: expr.GetSpan(),
+		})
 		p.skipNewlines()
 		if p.peek().Type != lexer.TokenComma {
 			break

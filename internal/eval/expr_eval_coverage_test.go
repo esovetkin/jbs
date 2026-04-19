@@ -193,7 +193,7 @@ func TestBinaryNeedsRelaxedCombEvalAdditionalBranches(t *testing.T) {
 			name: "call with alias in callee tree",
 			expr: ast.CallExpr{
 				Callee: ast.UnaryExpr{Op: "+", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(506, 1)}, Alias: "k", Span: spanAt(506, 1)}, Span: spanAt(506, 1)},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(506, 3)}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(506, 3)}),
 				Span:   spanAt(506, 1),
 			},
 			want: true,
@@ -326,13 +326,13 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 		rows, ok := evalStrictCombRows(
 			ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "comb", Span: span},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.AliasExpr{
 						Expr:  ast.NumberExpr{Int: true, IntValue: 1, Span: span},
 						Alias: "k",
 						Span:  span,
 					},
-				},
+				),
 				Span: span,
 			},
 			map[string]Value{},
@@ -356,9 +356,9 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 		rows, ok := evalStrictCombRows(
 			ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "comb", Span: span},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 1, Span: span},
-				},
+				),
 				Span: span,
 			},
 			map[string]Value{},

@@ -7,40 +7,48 @@ import (
 )
 
 var (
-	_ Node     = Program{}
-	_ Node     = Comment{}
-	_ Node     = HeaderElem{}
-	_ Node     = UseSource{}
-	_ Node     = WithItem{}
-	_ Node     = Assignment{}
-	_ Node     = AnalyseAssign{}
-	_ Node     = AnalyseColumn{}
-	_ Node     = SubmitField{}
-	_ Stmt     = UseStmt{}
-	_ Stmt     = GlobalAssign{}
-	_ Stmt     = ExprStmt{}
-	_ Stmt     = AnalyseBlock{}
-	_ Stmt     = DoBlock{}
-	_ Stmt     = SubmitBlock{}
-	_ Expr     = IdentExpr{}
-	_ Expr     = QualifiedIdentExpr{}
-	_ Expr     = MemberExpr{}
-	_ Expr     = IndexExpr{}
-	_ Expr     = StringExpr{}
-	_ Expr     = NumberExpr{}
-	_ Expr     = BoolExpr{}
-	_ Expr     = ListExpr{}
-	_ Expr     = TupleExpr{}
-	_ Expr     = ConvertExpr{}
-	_ Expr     = CallExpr{}
-	_ Expr     = AliasExpr{}
-	_ Expr     = UnaryExpr{}
-	_ Expr     = BinaryExpr{}
-	_ Expr     = CompareExpr{}
-	_ Expr     = ConditionalExpr{}
-	_ Expr     = ModeExpr{}
-	_ CombExpr = CombIdent{}
-	_ CombExpr = CombBinary{}
+	_ Node         = Program{}
+	_ Node         = Comment{}
+	_ Node         = HeaderElem{}
+	_ Node         = UseSource{}
+	_ Node         = WithItem{}
+	_ Node         = Assignment{}
+	_ Node         = AnalyseAssign{}
+	_ Node         = AnalyseColumn{}
+	_ Node         = SubmitField{}
+	_ Node         = CallArg{}
+	_ Node         = FuncParam{}
+	_ Node         = LocalAssignStmt{}
+	_ Node         = ReturnStmt{}
+	_ Stmt         = UseStmt{}
+	_ Stmt         = GlobalAssign{}
+	_ Stmt         = ExprStmt{}
+	_ Stmt         = AnalyseBlock{}
+	_ Stmt         = DoBlock{}
+	_ Stmt         = SubmitBlock{}
+	_ Expr         = IdentExpr{}
+	_ Expr         = QualifiedIdentExpr{}
+	_ Expr         = MemberExpr{}
+	_ Expr         = IndexExpr{}
+	_ Expr         = StringExpr{}
+	_ Expr         = NumberExpr{}
+	_ Expr         = BoolExpr{}
+	_ Expr         = ListExpr{}
+	_ Expr         = TupleExpr{}
+	_ Expr         = ConvertExpr{}
+	_ Expr         = CallExpr{}
+	_ Expr         = FunctionExpr{}
+	_ Expr         = AliasExpr{}
+	_ Expr         = UnaryExpr{}
+	_ Expr         = BinaryExpr{}
+	_ Expr         = CompareExpr{}
+	_ Expr         = ConditionalExpr{}
+	_ Expr         = ModeExpr{}
+	_ FuncBodyStmt = ExprStmt{}
+	_ FuncBodyStmt = LocalAssignStmt{}
+	_ FuncBodyStmt = ReturnStmt{}
+	_ CombExpr     = CombIdent{}
+	_ CombExpr     = CombBinary{}
 )
 
 func testSpan(n int) diag.Span {
@@ -66,6 +74,10 @@ func TestPlainNodeGetSpan(t *testing.T) {
 		{name: "AnalyseAssign", node: AnalyseAssign{Span: testSpan(7)}, want: testSpan(7)},
 		{name: "AnalyseColumn", node: AnalyseColumn{Span: testSpan(8)}, want: testSpan(8)},
 		{name: "SubmitField", node: SubmitField{Span: testSpan(9)}, want: testSpan(9)},
+		{name: "CallArg", node: CallArg{Span: testSpan(10)}, want: testSpan(10)},
+		{name: "FuncParam", node: FuncParam{Span: testSpan(11)}, want: testSpan(11)},
+		{name: "LocalAssignStmt", node: LocalAssignStmt{Span: testSpan(12)}, want: testSpan(12)},
+		{name: "ReturnStmt", node: ReturnStmt{Span: testSpan(13)}, want: testSpan(13)},
 	}
 
 	for _, tc := range tests {
@@ -78,12 +90,12 @@ func TestPlainNodeGetSpan(t *testing.T) {
 }
 
 func TestStmtNodes(t *testing.T) {
-	useStmt := UseStmt{Span: testSpan(10)}
-	globalAssign := GlobalAssign{Span: testSpan(11)}
-	exprStmt := ExprStmt{Span: testSpan(12)}
-	analyseBlock := AnalyseBlock{Span: testSpan(13)}
-	doBlock := DoBlock{Span: testSpan(14)}
-	submitBlock := SubmitBlock{Span: testSpan(15)}
+	useStmt := UseStmt{Span: testSpan(20)}
+	globalAssign := GlobalAssign{Span: testSpan(21)}
+	exprStmt := ExprStmt{Span: testSpan(22)}
+	analyseBlock := AnalyseBlock{Span: testSpan(23)}
+	doBlock := DoBlock{Span: testSpan(24)}
+	submitBlock := SubmitBlock{Span: testSpan(25)}
 
 	tests := []struct {
 		name string
@@ -91,12 +103,12 @@ func TestStmtNodes(t *testing.T) {
 		node Node
 		want diag.Span
 	}{
-		{name: "UseStmt", call: func() { useStmt.stmtNode() }, node: useStmt, want: testSpan(10)},
-		{name: "GlobalAssign", call: func() { globalAssign.stmtNode() }, node: globalAssign, want: testSpan(11)},
-		{name: "ExprStmt", call: func() { exprStmt.stmtNode() }, node: exprStmt, want: testSpan(12)},
-		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(13)},
-		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(14)},
-		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(15)},
+		{name: "UseStmt", call: func() { useStmt.stmtNode() }, node: useStmt, want: testSpan(20)},
+		{name: "GlobalAssign", call: func() { globalAssign.stmtNode() }, node: globalAssign, want: testSpan(21)},
+		{name: "ExprStmt", call: func() { exprStmt.stmtNode(); exprStmt.funcBodyStmtNode() }, node: exprStmt, want: testSpan(22)},
+		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(23)},
+		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(24)},
+		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(25)},
 	}
 
 	for _, tc := range tests {
@@ -110,23 +122,24 @@ func TestStmtNodes(t *testing.T) {
 }
 
 func TestExprNodes(t *testing.T) {
-	ident := IdentExpr{Span: testSpan(15)}
-	qualified := QualifiedIdentExpr{Span: testSpan(16)}
-	member := MemberExpr{Span: testSpan(17)}
-	index := IndexExpr{Span: testSpan(18)}
-	str := StringExpr{Span: testSpan(19)}
-	number := NumberExpr{Span: testSpan(20)}
-	boolean := BoolExpr{Span: testSpan(21)}
-	list := ListExpr{Span: testSpan(22)}
-	tuple := TupleExpr{Span: testSpan(23)}
-	convert := ConvertExpr{Span: testSpan(24)}
-	call := CallExpr{Span: testSpan(25)}
-	alias := AliasExpr{Span: testSpan(26)}
-	unary := UnaryExpr{Span: testSpan(27)}
-	binary := BinaryExpr{Span: testSpan(28)}
-	compare := CompareExpr{Span: testSpan(29)}
-	conditional := ConditionalExpr{Span: testSpan(30)}
-	mode := ModeExpr{Span: testSpan(31)}
+	ident := IdentExpr{Span: testSpan(30)}
+	qualified := QualifiedIdentExpr{Span: testSpan(31)}
+	member := MemberExpr{Span: testSpan(32)}
+	index := IndexExpr{Span: testSpan(33)}
+	str := StringExpr{Span: testSpan(34)}
+	number := NumberExpr{Span: testSpan(35)}
+	boolean := BoolExpr{Span: testSpan(36)}
+	list := ListExpr{Span: testSpan(37)}
+	tuple := TupleExpr{Span: testSpan(38)}
+	convert := ConvertExpr{Span: testSpan(39)}
+	call := CallExpr{Span: testSpan(40)}
+	function := FunctionExpr{Span: testSpan(41)}
+	alias := AliasExpr{Span: testSpan(42)}
+	unary := UnaryExpr{Span: testSpan(43)}
+	binary := BinaryExpr{Span: testSpan(44)}
+	compare := CompareExpr{Span: testSpan(45)}
+	conditional := ConditionalExpr{Span: testSpan(46)}
+	mode := ModeExpr{Span: testSpan(47)}
 
 	tests := []struct {
 		name string
@@ -134,23 +147,24 @@ func TestExprNodes(t *testing.T) {
 		node Node
 		want diag.Span
 	}{
-		{name: "IdentExpr", call: func() { ident.exprNode() }, node: ident, want: testSpan(15)},
-		{name: "QualifiedIdentExpr", call: func() { qualified.exprNode() }, node: qualified, want: testSpan(16)},
-		{name: "MemberExpr", call: func() { member.exprNode() }, node: member, want: testSpan(17)},
-		{name: "IndexExpr", call: func() { index.exprNode() }, node: index, want: testSpan(18)},
-		{name: "StringExpr", call: func() { str.exprNode() }, node: str, want: testSpan(19)},
-		{name: "NumberExpr", call: func() { number.exprNode() }, node: number, want: testSpan(20)},
-		{name: "BoolExpr", call: func() { boolean.exprNode() }, node: boolean, want: testSpan(21)},
-		{name: "ListExpr", call: func() { list.exprNode() }, node: list, want: testSpan(22)},
-		{name: "TupleExpr", call: func() { tuple.exprNode() }, node: tuple, want: testSpan(23)},
-		{name: "ConvertExpr", call: func() { convert.exprNode() }, node: convert, want: testSpan(24)},
-		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(25)},
-		{name: "AliasExpr", call: func() { alias.exprNode() }, node: alias, want: testSpan(26)},
-		{name: "UnaryExpr", call: func() { unary.exprNode() }, node: unary, want: testSpan(27)},
-		{name: "BinaryExpr", call: func() { binary.exprNode() }, node: binary, want: testSpan(28)},
-		{name: "CompareExpr", call: func() { compare.exprNode() }, node: compare, want: testSpan(29)},
-		{name: "ConditionalExpr", call: func() { conditional.exprNode() }, node: conditional, want: testSpan(30)},
-		{name: "ModeExpr", call: func() { mode.exprNode() }, node: mode, want: testSpan(31)},
+		{name: "IdentExpr", call: func() { ident.exprNode() }, node: ident, want: testSpan(30)},
+		{name: "QualifiedIdentExpr", call: func() { qualified.exprNode() }, node: qualified, want: testSpan(31)},
+		{name: "MemberExpr", call: func() { member.exprNode() }, node: member, want: testSpan(32)},
+		{name: "IndexExpr", call: func() { index.exprNode() }, node: index, want: testSpan(33)},
+		{name: "StringExpr", call: func() { str.exprNode() }, node: str, want: testSpan(34)},
+		{name: "NumberExpr", call: func() { number.exprNode() }, node: number, want: testSpan(35)},
+		{name: "BoolExpr", call: func() { boolean.exprNode() }, node: boolean, want: testSpan(36)},
+		{name: "ListExpr", call: func() { list.exprNode() }, node: list, want: testSpan(37)},
+		{name: "TupleExpr", call: func() { tuple.exprNode() }, node: tuple, want: testSpan(38)},
+		{name: "ConvertExpr", call: func() { convert.exprNode() }, node: convert, want: testSpan(39)},
+		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(40)},
+		{name: "FunctionExpr", call: func() { function.exprNode() }, node: function, want: testSpan(41)},
+		{name: "AliasExpr", call: func() { alias.exprNode() }, node: alias, want: testSpan(42)},
+		{name: "UnaryExpr", call: func() { unary.exprNode() }, node: unary, want: testSpan(43)},
+		{name: "BinaryExpr", call: func() { binary.exprNode() }, node: binary, want: testSpan(44)},
+		{name: "CompareExpr", call: func() { compare.exprNode() }, node: compare, want: testSpan(45)},
+		{name: "ConditionalExpr", call: func() { conditional.exprNode() }, node: conditional, want: testSpan(46)},
+		{name: "ModeExpr", call: func() { mode.exprNode() }, node: mode, want: testSpan(47)},
 	}
 
 	for _, tc := range tests {
@@ -160,6 +174,55 @@ func TestExprNodes(t *testing.T) {
 				t.Fatalf("GetSpan() = %#v, want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFuncBodyStmtNodes(t *testing.T) {
+	assign := LocalAssignStmt{Span: testSpan(50)}
+	ret := ReturnStmt{Span: testSpan(51)}
+	expr := ExprStmt{Span: testSpan(52)}
+
+	tests := []struct {
+		name string
+		call func()
+		node Node
+		want diag.Span
+	}{
+		{name: "LocalAssignStmt", call: func() { assign.funcBodyStmtNode() }, node: assign, want: testSpan(50)},
+		{name: "ReturnStmt", call: func() { ret.funcBodyStmtNode() }, node: ret, want: testSpan(51)},
+		{name: "ExprStmt", call: func() { expr.funcBodyStmtNode() }, node: expr, want: testSpan(52)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.call()
+			if got := tc.node.GetSpan(); got != tc.want {
+				t.Fatalf("GetSpan() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCallArgHelpers(t *testing.T) {
+	first := NumberExpr{Span: testSpan(60)}
+	second := IdentExpr{Name: "x", Span: testSpan(61)}
+	args := PosCallArgs(first, second)
+	if len(args) != 2 {
+		t.Fatalf("expected 2 positional args, got %#v", args)
+	}
+	if args[0].Name != "" || args[1].Name != "" {
+		t.Fatalf("expected positional args to have empty names, got %#v", args)
+	}
+	if args[0].Expr != first || args[1].Expr != second {
+		t.Fatalf("unexpected positional arg payloads: %#v", args)
+	}
+	if args[0].Span != testSpan(60) || args[1].Span != testSpan(61) {
+		t.Fatalf("unexpected positional arg spans: %#v", args)
+	}
+
+	named := CallArg{Name: "value", Expr: second, Span: testSpan(62)}
+	if named.Name != "value" || named.Expr != second || named.GetSpan() != testSpan(62) {
+		t.Fatalf("unexpected named call arg: %#v", named)
 	}
 }
 

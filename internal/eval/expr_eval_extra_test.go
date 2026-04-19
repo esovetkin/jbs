@@ -422,7 +422,7 @@ func TestBinaryNeedsRelaxedCombEvalCoverage(t *testing.T) {
 		{name: "unary recurse", expr: ast.UnaryExpr{Op: "-", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
 		{name: "mode recurse", expr: ast.ModeExpr{Mode: "python", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
 		{name: "convert recurse", expr: ast.ConvertExpr{Target: "list", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
-		{name: "call recurse args", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "tuple"}, Args: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}}, want: true},
+		{name: "call recurse args", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "tuple"}, Args: ast.PosCallArgs(ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"})}, want: true},
 		{name: "index recurse", expr: ast.IndexExpr{Base: ast.NumberExpr{Int: true, IntValue: 1}, Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2}, Alias: "x"}}}, want: true},
 		{name: "member recurse", expr: ast.MemberExpr{Base: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}, Name: "x"}, want: true},
 		{name: "list recurse", expr: ast.ListExpr{Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}}, want: true},
@@ -513,12 +513,12 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 			name: "len call",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "len"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
 						ast.NumberExpr{Int: true, IntValue: 1},
 						ast.NumberExpr{Int: true, IntValue: 2},
 					}},
-				},
+				),
 			},
 			want: Int(2),
 		},
@@ -526,7 +526,7 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 			name: "filter call",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "filter"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
 						ast.NumberExpr{Int: true, IntValue: 1},
 						ast.NumberExpr{Int: true, IntValue: 2},
@@ -535,7 +535,7 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 						ast.BoolExpr{Value: false},
 						ast.BoolExpr{Value: true},
 					}},
-				},
+				),
 			},
 			want: List([]Value{Int(2)}),
 		},
@@ -543,9 +543,9 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 			name: "all call",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "all"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{ast.BoolExpr{Value: true}, ast.BoolExpr{Value: true}}},
-				},
+				),
 			},
 			want: Bool(true),
 		},
@@ -553,9 +553,9 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 			name: "any call",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "any"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{ast.BoolExpr{Value: false}, ast.BoolExpr{Value: true}}},
-				},
+				),
 			},
 			want: Bool(true),
 		},

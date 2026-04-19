@@ -133,7 +133,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		args := make([]Value, 0, len(e.Args))
 		for _, it := range e.Args {
-			args = append(args, evalExprWithCtx(it, env, diags, opts, ctx))
+			args = append(args, evalExprWithCtx(it.Expr, env, diags, opts, ctx))
 		}
 		return evalCall(e.Callee, e.Args, args, env, e.Span, diags, opts, ctx)
 	case ast.IndexExpr:
@@ -231,7 +231,7 @@ var kernelFuncs = map[string]kernelFunc{
 	},
 }
 
-func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+func evalCall(callee ast.Expr, rawArgs []ast.CallArg, args []Value, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	name, ok := callName(callee)
 	if !ok {
 		diags.AddError(diag.CodeE199, "unsupported function callee", callee.GetSpan(), "use a simple function name")
@@ -243,9 +243,9 @@ func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]
 			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in top-level global assignments", at, "use this function only in top-level global assignment expressions")
 			return Null()
 		}
-		return evalCombCall(rawArgs, env, at, diags, opts, ctx)
+		return evalCombCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "names":
-		return evalNamesCall(rawArgs, env, at, diags, opts, ctx)
+		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "read_csv":
 		return evalReadCSVCall(args, at, diags, opts)
 	case "int", "float", "str":
@@ -260,6 +260,17 @@ func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]
 		return evalAllAnyCall("any", args, at, diags)
 	}
 	return evalKernelCall(name, args, at, diags, opts)
+}
+
+func callArgExprs(args []ast.CallArg) []ast.Expr {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]ast.Expr, 0, len(args))
+	for _, arg := range args {
+		out = append(out, arg.Expr)
+	}
+	return out
 }
 
 func callName(callee ast.Expr) (string, bool) {
@@ -654,7 +665,7 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 			return true
 		}
 		for _, arg := range e.Args {
-			if binaryNeedsRelaxedCombEval(arg) {
+			if binaryNeedsRelaxedCombEval(arg.Expr) {
 				return true
 			}
 		}

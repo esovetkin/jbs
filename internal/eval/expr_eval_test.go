@@ -1169,7 +1169,7 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := EvalExpr(ast.CallExpr{
 			Callee: ast.IdentExpr{Name: "tuple"},
-			Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+			Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
 			Span:   spanAt(201, 1),
 		}, env, diags)
 		if got.Kind != KindNull {
@@ -1187,7 +1187,7 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := EvalExpr(ast.CallExpr{
 			Callee: ast.IdentExpr{Name: "list"},
-			Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+			Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
 			Span:   spanAt(202, 1),
 		}, env, diags)
 		if got.Kind != KindNull {
@@ -1250,7 +1250,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int from int",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 7}),
 				Span:   spanAt(205, 1),
 			},
 			want: Int(7),
@@ -1259,7 +1259,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int from float truncates toward zero",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.UnaryExpr{Op: "-", Expr: ast.NumberExpr{Int: false, FloatValue: 7.9}, Span: spanAt(206, 5)}},
+				Args:   ast.PosCallArgs(ast.UnaryExpr{Op: "-", Expr: ast.NumberExpr{Int: false, FloatValue: 7.9}, Span: spanAt(206, 5)}),
 				Span:   spanAt(206, 1),
 			},
 			want: Int(-7),
@@ -1268,7 +1268,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int from bool",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.BoolExpr{Value: true}},
+				Args:   ast.PosCallArgs(ast.BoolExpr{Value: true}),
 				Span:   spanAt(207, 1),
 			},
 			want: Int(1),
@@ -1277,7 +1277,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int from string",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.StringExpr{Value: "42"}},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "42"}),
 				Span:   spanAt(208, 1),
 			},
 			want: Int(42),
@@ -1286,7 +1286,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int rejects decimal string",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.StringExpr{Value: "1.5"}},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "1.5"}),
 				Span:   spanAt(209, 1),
 			},
 			want:     Null(),
@@ -1296,7 +1296,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int rejects comb",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
 				Span:   spanAt(210, 1),
 			},
 			env: map[string]Value{
@@ -1312,12 +1312,12 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "int rejects list",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "int"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
 						ast.NumberExpr{Int: true, IntValue: 1},
 						ast.NumberExpr{Int: true, IntValue: 2},
 					}},
-				},
+				),
 				Span: spanAt(210, 20),
 			},
 			want:     Null(),
@@ -1327,7 +1327,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "float from int",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 7}),
 				Span:   spanAt(211, 1),
 			},
 			want: Float(7.0),
@@ -1336,7 +1336,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "float from bool",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args:   []ast.Expr{ast.BoolExpr{Value: false}},
+				Args:   ast.PosCallArgs(ast.BoolExpr{Value: false}),
 				Span:   spanAt(212, 1),
 			},
 			want: Float(0.0),
@@ -1345,7 +1345,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "float from exponent string",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args:   []ast.Expr{ast.StringExpr{Value: "1e3"}},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "1e3"}),
 				Span:   spanAt(213, 1),
 			},
 			want: Float(1000.0),
@@ -1354,7 +1354,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "float rejects non finite string",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args:   []ast.Expr{ast.StringExpr{Value: "NaN"}},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "NaN"}),
 				Span:   spanAt(214, 1),
 			},
 			want:     Null(),
@@ -1364,12 +1364,12 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "float rejects tuple",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.TupleExpr{Items: []ast.Expr{
 						ast.NumberExpr{Int: true, IntValue: 1},
 						ast.NumberExpr{Int: true, IntValue: 2},
 					}},
-				},
+				),
 				Span: spanAt(214, 20),
 			},
 			want:     Null(),
@@ -1379,7 +1379,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "str from int",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "str"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 7}),
 				Span:   spanAt(215, 1),
 			},
 			want: String("7"),
@@ -1388,12 +1388,12 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "str from list uses whole value formatting",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "str"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
 						ast.NumberExpr{Int: true, IntValue: 1},
 						ast.NumberExpr{Int: true, IntValue: 2},
 					}},
-				},
+				),
 				Span: spanAt(216, 1),
 			},
 			want: String("[1,2]"),
@@ -1402,7 +1402,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			name: "str from comb",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "str"},
-				Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
 				Span:   spanAt(217, 1),
 			},
 			env: map[string]Value{
@@ -1451,10 +1451,10 @@ func TestEvalIntFloatStrArityErrors(t *testing.T) {
 			name: "float two args",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "float"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 1},
 					ast.NumberExpr{Int: true, IntValue: 2},
-				},
+				),
 				Span: spanAt(219, 1),
 			},
 		},
@@ -1462,10 +1462,10 @@ func TestEvalIntFloatStrArityErrors(t *testing.T) {
 			name: "str two args",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "str"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.StringExpr{Value: "a"},
 					ast.StringExpr{Value: "b"},
-				},
+				),
 				Span: spanAt(220, 1),
 			},
 		},
@@ -1491,7 +1491,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 
 	rangeOne := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "range"},
-		Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 5}},
+		Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 5}),
 	}, map[string]Value{}, diags, opts)
 	if rangeOne.Kind != KindList || len(rangeOne.L) != 5 {
 		t.Fatalf("expected range(5) list of len 5, got %#v", rangeOne)
@@ -1504,11 +1504,11 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 
 	rangeStep := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "range"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.NumberExpr{Int: true, IntValue: 0},
 			ast.NumberExpr{Int: true, IntValue: 10},
 			ast.NumberExpr{Int: true, IntValue: 2},
-		},
+		),
 	}, map[string]Value{}, diags, opts)
 	if rangeStep.Kind != KindList || len(rangeStep.L) != 5 {
 		t.Fatalf("expected range(0,10,2) len 5, got %#v", rangeStep)
@@ -1520,11 +1520,11 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	}
 	rangeFloat := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "range"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.NumberExpr{Int: true, IntValue: 0},
 			ast.NumberExpr{Int: false, FloatValue: 1.5},
 			ast.NumberExpr{Int: false, FloatValue: 0.5},
-		},
+		),
 	}, map[string]Value{}, diags, opts)
 	if rangeFloat.Kind != KindList || len(rangeFloat.L) != 3 {
 		t.Fatalf("expected range(0,1.5,0.5) len 3, got %#v", rangeFloat)
@@ -1536,11 +1536,11 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	}
 	rangeFloatSmallStep := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "range"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.NumberExpr{Int: true, IntValue: 0},
 			ast.NumberExpr{Int: false, FloatValue: 1.5},
 			ast.NumberExpr{Int: false, FloatValue: 0.01},
-		},
+		),
 	}, map[string]Value{}, diags, opts)
 	if rangeFloatSmallStep.Kind != KindList || len(rangeFloatSmallStep.L) == 0 {
 		t.Fatalf("expected non-empty range(0,1.5,0.01), got %#v", rangeFloatSmallStep)
@@ -1552,7 +1552,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 
 	revList := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "rev"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.ListExpr{
 				Items: []ast.Expr{
 					ast.NumberExpr{Int: true, IntValue: 0},
@@ -1560,7 +1560,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 					ast.NumberExpr{Int: true, IntValue: 2},
 				},
 			},
-		},
+		),
 	}, map[string]Value{}, diags, opts)
 	if revList.Kind != KindList || len(revList.L) != 3 {
 		t.Fatalf("expected rev list len 3, got %#v", revList)
@@ -1572,7 +1572,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	}
 	revTuple := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "rev"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.TupleExpr{
 				Items: []ast.Expr{
 					ast.NumberExpr{Int: true, IntValue: 0},
@@ -1580,7 +1580,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 					ast.NumberExpr{Int: true, IntValue: 2},
 				},
 			},
-		},
+		),
 	}, map[string]Value{}, diags, opts)
 	if revTuple.Kind != KindTuple || len(revTuple.L) != 3 {
 		t.Fatalf("expected rev tuple len 3, got %#v", revTuple)
@@ -1593,14 +1593,14 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 
 	tupleVal := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "tuple"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.ListExpr{
 				Items: []ast.Expr{
 					ast.StringExpr{Value: "a"},
 					ast.StringExpr{Value: "b"},
 				},
 			},
-		},
+		),
 	}, map[string]Value{}, diags, ExprOptions{})
 	if tupleVal.Kind != KindTuple || len(tupleVal.L) != 2 {
 		t.Fatalf("expected tuple conversion via call, got %#v", tupleVal)
@@ -1608,14 +1608,14 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 
 	listVal := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "list"},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.TupleExpr{
 				Items: []ast.Expr{
 					ast.NumberExpr{Int: true, IntValue: 3},
 					ast.NumberExpr{Int: true, IntValue: 4},
 				},
 			},
-		},
+		),
 	}, map[string]Value{}, diags, ExprOptions{})
 	if listVal.Kind != KindList || len(listVal.L) != 2 {
 		t.Fatalf("expected list conversion via call, got %#v", listVal)
@@ -1647,7 +1647,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range type error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args:   []ast.Expr{ast.StringExpr{Value: "x"}},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "x"}),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
@@ -1656,10 +1656,10 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range two-arg float type error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 0},
 					ast.NumberExpr{Int: false, FloatValue: 1.5},
-				},
+				),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
@@ -1668,11 +1668,11 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range step error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 0},
 					ast.NumberExpr{Int: true, IntValue: 5},
 					ast.NumberExpr{Int: true, IntValue: 0},
-				},
+				),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
@@ -1681,11 +1681,11 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range three-arg non-numeric type error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 0},
 					ast.NumberExpr{Int: false, FloatValue: 1.5},
 					ast.StringExpr{Value: "x"},
-				},
+				),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
@@ -1694,7 +1694,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "rev non-sequence type error",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "rev"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1}),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E106",
@@ -1703,7 +1703,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range context error outside top-level global assignment",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 3}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 3}),
 			},
 			opts:     ExprOptions{Context: EvalCtxScalarGlobalAssign},
 			wantCode: "E199",
@@ -1712,7 +1712,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "unknown function",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "unknown"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1}),
 			},
 			opts:     ExprOptions{Context: EvalCtxBindingAssign},
 			wantCode: "E199",
@@ -1721,10 +1721,10 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range empty output for start greater than stop",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.NumberExpr{Int: true, IntValue: 10},
 					ast.NumberExpr{Int: true, IntValue: 1},
-				},
+				),
 			},
 			opts:       ExprOptions{Context: EvalCtxBindingAssign},
 			wantNoErrs: true,
@@ -1733,7 +1733,7 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			name: "range empty output for negative stop",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: -1}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: -1}),
 			},
 			opts:       ExprOptions{Context: EvalCtxBindingAssign},
 			wantNoErrs: true,
@@ -1837,14 +1837,14 @@ func TestEvalCallUnsupportedCallee(t *testing.T) {
 func TestCombCallUsesCombAlgebraAndSkipsEagerArgEval(t *testing.T) {
 	expr := ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.BinaryExpr{
 				Left:  ast.IdentExpr{Name: "x", Span: spanAt(82, 7)},
 				Op:    "*",
 				Right: ast.IdentExpr{Name: "y", Span: spanAt(82, 11)},
 				Span:  spanAt(82, 7),
 			},
-		},
+		),
 		Span: spanAt(82, 1),
 	}
 	env := map[string]Value{
@@ -1870,20 +1870,20 @@ func TestCombCallUsesCombAlgebraAndSkipsEagerArgEval(t *testing.T) {
 func TestCombCallRequiresNamedLeafsOrAlias(t *testing.T) {
 	expr := ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.BinaryExpr{
 				Left: ast.IdentExpr{Name: "a", Span: spanAt(82, 7)},
 				Op:   "*",
 				Right: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "range", Span: spanAt(82, 11)},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(82, 17)},
-					},
+					),
 					Span: spanAt(82, 11),
 				},
 				Span: spanAt(82, 7),
 			},
-		},
+		),
 		Span: spanAt(82, 1),
 	}
 	env := map[string]Value{
@@ -1902,16 +1902,16 @@ func TestCombCallRequiresNamedLeafsOrAlias(t *testing.T) {
 func TestCombCallSupportsAliasForNonCombLeafs(t *testing.T) {
 	expr := ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(84, 1)},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.BinaryExpr{
 				Left: ast.IdentExpr{Name: "a", Span: spanAt(84, 7)},
 				Op:   "*",
 				Right: ast.AliasExpr{
 					Expr: ast.CallExpr{
 						Callee: ast.IdentExpr{Name: "range", Span: spanAt(84, 11)},
-						Args: []ast.Expr{
+						Args: ast.PosCallArgs(
 							ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(84, 17)},
-						},
+						),
 						Span: spanAt(84, 11),
 					},
 					Alias: "b",
@@ -1919,7 +1919,7 @@ func TestCombCallSupportsAliasForNonCombLeafs(t *testing.T) {
 				},
 				Span: spanAt(84, 7),
 			},
-		},
+		),
 		Span: spanAt(84, 1),
 	}
 	env := map[string]Value{
@@ -1953,13 +1953,13 @@ func TestCombCallRejectsAliasOnCombOperand(t *testing.T) {
 	}
 	expr := ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(85, 1)},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.AliasExpr{
 				Expr:  ast.IdentExpr{Name: "a", Span: spanAt(85, 7)},
 				Alias: "t",
 				Span:  spanAt(85, 7),
 			},
-		},
+		),
 		Span: spanAt(85, 1),
 	}
 	diags := &diag.Diagnostics{}
@@ -2034,14 +2034,14 @@ func TestParamAssignCombBinaryRejectsAliasOnCombOperand(t *testing.T) {
 func TestCombCallOutsideParamAssignDoesNotEvaluateArgsEagerly(t *testing.T) {
 	expr := ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(83, 1)},
-		Args: []ast.Expr{
+		Args: ast.PosCallArgs(
 			ast.BinaryExpr{
 				Left:  ast.IdentExpr{Name: "x", Span: spanAt(83, 7)},
 				Op:    "*",
 				Right: ast.IdentExpr{Name: "y", Span: spanAt(83, 11)},
 				Span:  spanAt(83, 7),
 			},
-		},
+		),
 		Span: spanAt(83, 1),
 	}
 	env := map[string]Value{

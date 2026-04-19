@@ -698,7 +698,7 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {
-				walk(arg)
+				walk(arg.Expr)
 			}
 		case ast.AliasExpr:
 			walk(n.Expr)
@@ -761,7 +761,7 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {
-				walk(arg)
+				walk(arg.Expr)
 			}
 		case ast.AliasExpr:
 			walk(n.Expr)

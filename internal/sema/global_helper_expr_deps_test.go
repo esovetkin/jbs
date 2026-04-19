@@ -30,7 +30,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 				Op: "-",
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "list", Span: sp},
-					Args: []ast.Expr{
+					Args: ast.PosCallArgs(
 						ast.ModeExpr{
 							Mode: "python",
 							Expr: ast.ListExpr{
@@ -63,7 +63,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 							},
 							Span: sp,
 						},
-					},
+					),
 					Span: sp,
 				},
 				Span: sp,

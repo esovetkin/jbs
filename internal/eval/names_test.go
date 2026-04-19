@@ -87,7 +87,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "namespace argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   []ast.Expr{ast.IdentExpr{Name: "jsc", Span: span}},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "jsc", Span: span}),
 				Span:   span,
 			},
 			opts: opts,
@@ -97,7 +97,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "nested namespace argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   []ast.Expr{ast.QualifiedIdentExpr{Namespace: "jsc", Name: "inner", Span: span}},
+				Args:   ast.PosCallArgs(ast.QualifiedIdentExpr{Namespace: "jsc", Name: "inner", Span: span}),
 				Span:   span,
 			},
 			opts: opts,
@@ -107,7 +107,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "comb argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   []ast.Expr{ast.IdentExpr{Name: "params", Span: span}},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "params", Span: span}),
 				Span:   span,
 			},
 			env:  map[string]Value{"params": comb},
@@ -118,13 +118,13 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "projected comb argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.IndexExpr{
 						Base:  ast.IdentExpr{Name: "params", Span: span},
 						Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: span}},
 						Span:  span,
 					},
-				},
+				),
 				Span: span,
 			},
 			env:  map[string]Value{"params": comb},
@@ -135,10 +135,10 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "invalid arity",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args: []ast.Expr{
+				Args: ast.PosCallArgs(
 					ast.IdentExpr{Name: "a", Span: span},
 					ast.IdentExpr{Name: "b", Span: span},
-				},
+				),
 				Span: span,
 			},
 			opts:     opts,
@@ -148,7 +148,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "invalid scalar argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span}},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span}),
 				Span:   span,
 			},
 			opts:     opts,
@@ -167,7 +167,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "missing variable keeps E100 root cause",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   []ast.Expr{ast.IdentExpr{Name: "missing", Span: span}},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "missing", Span: span}),
 				Span:   span,
 			},
 			opts:     opts,

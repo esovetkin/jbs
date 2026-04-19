@@ -39,7 +39,7 @@ func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
 			walk(n.Expr, inCollection)
 		case ast.CallExpr:
 			for _, arg := range n.Args {
-				walk(arg, inCollection)
+				walk(arg.Expr, inCollection)
 			}
 		case ast.AliasExpr:
 			walk(n.Expr, inCollection)
