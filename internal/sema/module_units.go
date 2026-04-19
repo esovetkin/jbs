@@ -79,6 +79,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
+	mergeGlobalVarsIntoState(&scope.Globals, scope.GlobalVarByName)
 	scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 
 	for _, use := range info.Uses {

@@ -7,7 +7,18 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/parser"
 )
+
+func parseSemaProgram(t *testing.T, file, src string) ast.Program {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse(file, src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	return prog
+}
 
 func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
@@ -511,4 +522,85 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 			t.Fatalf("expected final direct assignment to win, got %#v", out["x"])
 		}
 	})
+}
+
+func TestCompileUserGlobalsSupportsHigherOrderInitializers(t *testing.T) {
+	prog := parseSemaProgram(t, "functions.jbs", `
+base = 40
+mk = function(delta) {
+	function(x) {
+		x + delta + base
+	}
+}
+apply = function(fn, x) {
+	fn(x)
+}
+inc = mk(1)
+value = apply(inc, 1)
+`)
+
+	diags := &diag.Diagnostics{}
+	out, order := compileUserGlobals(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !reflect.DeepEqual(order, []string{"base", "mk", "apply", "inc", "value"}) {
+		t.Fatalf("unexpected global order: %#v", order)
+	}
+	if out["inc"] == nil || out["inc"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected closure-valued global inc, got %#v", out["inc"])
+	}
+	if out["value"] == nil || !eval.Equal(out["value"].Value, eval.Int(42)) {
+		t.Fatalf("expected higher-order initializer value=42, got %#v", out["value"])
+	}
+	if !reflect.DeepEqual(out["inc"].DependsOn, []string{"mk"}) {
+		t.Fatalf("expected inc to depend on mk, got %#v", out["inc"].DependsOn)
+	}
+	if !reflect.DeepEqual(out["value"].DependsOn, []string{"apply", "base", "inc", "mk"}) {
+		t.Fatalf("expected value runtime deps to reflect forced globals, got %#v", out["value"].DependsOn)
+	}
+}
+
+func TestExecGlobalPlanHandlesClosureChainAndExprResults(t *testing.T) {
+	prog := parseSemaProgram(t, "exprs.jbs", `
+seed = 1
+make = function(delta) {
+	function(x) {
+		x + delta + seed
+	}
+}
+add2 = make(2)
+result = add2(3)
+result
+seed += 10
+result
+`)
+
+	diags := &diag.Diagnostics{}
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	gotGlobals, order := globalVarsFromExec(exec)
+	if !reflect.DeepEqual(order, []string{"seed", "make", "add2", "result"}) {
+		t.Fatalf("unexpected global order: %#v", order)
+	}
+	if gotGlobals["add2"] == nil || gotGlobals["add2"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected returned-closure global add2, got %#v", gotGlobals["add2"])
+	}
+	if gotGlobals["seed"] == nil || !eval.Equal(gotGlobals["seed"].Value, eval.Int(11)) {
+		t.Fatalf("expected compound assignment to chain through previous write, got %#v", gotGlobals["seed"])
+	}
+	if gotGlobals["result"] == nil || !eval.Equal(gotGlobals["result"].Value, eval.Int(6)) {
+		t.Fatalf("expected result=6 before later seed rewrite, got %#v", gotGlobals["result"])
+	}
+	if !reflect.DeepEqual(gotGlobals["result"].DependsOn, []string{"add2", "make", "seed"}) {
+		t.Fatalf("expected result runtime deps to include closure chain, got %#v", gotGlobals["result"].DependsOn)
+	}
+	if len(exec.TopLevelExprs) != 2 {
+		t.Fatalf("expected two top-level expr results, got %#v", exec.TopLevelExprs)
+	}
+	if !eval.Equal(exec.TopLevelExprs[0].Value, eval.Int(6)) || !eval.Equal(exec.TopLevelExprs[1].Value, eval.Int(6)) {
+		t.Fatalf("unexpected expr result values: %#v", exec.TopLevelExprs)
+	}
 }

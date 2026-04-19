@@ -58,6 +58,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
+		mergeGlobalVarsIntoState(&scope.Globals, scope.GlobalVarByName)
 		scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 		for _, name := range scope.GlobalVarOrder {
 			gv := scope.GlobalVarByName[name]

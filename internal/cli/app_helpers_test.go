@@ -148,3 +148,34 @@ func TestRunYAMLIgnoresTopLevelExprOutput(t *testing.T) {
 		t.Fatalf("did not expect bare expr output to leak into yaml, got %q", stdout.String())
 	}
 }
+
+func TestRunCheckWithFunctionValuedGlobals(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"base = 40",
+		"mk = function(delta) {",
+		"  function(x) {",
+		"    x + delta + base",
+		"  }",
+		"}",
+		"inc = mk(1)",
+		"x = inc(1)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "" {
+		t.Fatalf("expected no stdout output in check mode, got %q", stdout.String())
+	}
+}

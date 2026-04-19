@@ -243,3 +243,97 @@ func TestBuildEntryModuleScopeKeepsOnlyEntryTopLevelExprResults(t *testing.T) {
 		t.Fatalf("unexpected entry expr result: %#v", scope.TopLevelExprs[0])
 	}
 }
+
+func TestCompileModuleHandlesFunctionValuedGlobals(t *testing.T) {
+	span := diag.NewSpan("mods.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	ref := imports.ModuleRef{ID: "dep", Label: "dep.jbs"}
+	loadRes := &imports.LoadResult{
+		Entry: ref,
+		Modules: map[string]*imports.ModuleInfo{
+			ref.ID: {
+				Ref: ref,
+				Program: ast.Program{
+					File: ref.Label,
+					Stmts: []ast.Stmt{
+						ast.GlobalAssign{Name: "base", Op: ast.AssignEq, Expr: numberExpr(span, 40), Span: span},
+						ast.GlobalAssign{
+							Name: "mk",
+							Op:   ast.AssignEq,
+							Expr: ast.FunctionExpr{
+								Params: []ast.FuncParam{{Name: "delta", Span: span}},
+								Body: []ast.FuncBodyStmt{
+									ast.ExprStmt{
+										Expr: ast.FunctionExpr{
+											Params: []ast.FuncParam{{Name: "x", Span: span}},
+											Body: []ast.FuncBodyStmt{
+												ast.ExprStmt{
+													Expr: ast.BinaryExpr{
+														Left: ast.BinaryExpr{
+															Left:  ast.IdentExpr{Name: "x", Span: span},
+															Op:    "+",
+															Right: ast.IdentExpr{Name: "delta", Span: span},
+															Span:  span,
+														},
+														Op:    "+",
+														Right: ast.IdentExpr{Name: "base", Span: span},
+														Span:  span,
+													},
+													Span: span,
+												},
+											},
+											Span: span,
+										},
+										Span: span,
+									},
+								},
+								Span: span,
+							},
+							Span: span,
+						},
+						ast.GlobalAssign{
+							Name: "inc",
+							Op:   ast.AssignEq,
+							Expr: ast.CallExpr{
+								Callee: ast.IdentExpr{Name: "mk", Span: span},
+								Args:   ast.PosCallArgs(numberExpr(span, 1)),
+								Span:   span,
+							},
+							Span: span,
+						},
+						ast.GlobalAssign{
+							Name: "value",
+							Op:   ast.AssignEq,
+							Expr: ast.CallExpr{
+								Callee: ast.IdentExpr{Name: "inc", Span: span},
+								Args:   ast.PosCallArgs(numberExpr(span, 1)),
+								Span:   span,
+							},
+							Span: span,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	scope := compileModule(ref, loadRes, nil, diags, map[string]*moduleScope{}, map[string]bool{})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if scope.GlobalVarByName["inc"] == nil || scope.GlobalVarByName["inc"].Value.Kind != eval.KindFunction {
+		t.Fatalf("expected function-valued global inc in module scope, got %#v", scope.GlobalVarByName["inc"])
+	}
+	if _, ok := scope.LocalBindingsByName["inc"]; ok {
+		t.Fatalf("did not expect function-valued global inc to become a local binding")
+	}
+	if scope.LocalBindingsByName["value"] == nil || !eval.Equal(scope.LocalBindingsByName["value"].Value, eval.Int(42)) {
+		t.Fatalf("expected value binding 42, got %#v", scope.LocalBindingsByName["value"])
+	}
+	if !reflect.DeepEqual(scope.LocalBindingsByName["value"].DependsOn, []string{"base", "inc", "mk"}) {
+		t.Fatalf("unexpected module runtime deps for value: %#v", scope.LocalBindingsByName["value"])
+	}
+	if scope.Globals.Values["inc"].Kind != eval.KindFunction {
+		t.Fatalf("expected function global inc to remain in scope.Globals, got %#v", scope.Globals.Values["inc"])
+	}
+}

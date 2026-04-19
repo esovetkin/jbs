@@ -8,8 +8,9 @@ import (
 )
 
 type Frame struct {
-	Parent *Frame
-	Values map[string]*Cell
+	Parent  *Frame
+	Values  map[string]*Cell
+	Resolve func(name string, at diag.Span, diags *diag.Diagnostics) (Value, bool)
 }
 
 func NewRootFrame(env map[string]Value) *Frame {
@@ -41,6 +42,21 @@ func (f *Frame) LookupCell(name string) (*Cell, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (f *Frame) ResolveValue(name string, at diag.Span, diags *diag.Diagnostics) (Value, bool, bool) {
+	if cell, ok := f.LookupCell(name); ok {
+		return cell.Value, true, cell.Assigned
+	}
+	for cur := f; cur != nil; cur = cur.Parent {
+		if cur.Resolve == nil {
+			continue
+		}
+		if value, ok := cur.Resolve(name, at, diags); ok {
+			return value, true, true
+		}
+	}
+	return Null(), false, false
 }
 
 func (f *Frame) HasLocal(name string) bool {
@@ -82,9 +98,9 @@ func (f *Frame) AssignLocal(name string, value Value, origin diag.Span) {
 }
 
 func (f *Frame) Read(name string, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
-	if cell, ok := f.LookupCell(name); ok {
-		if cell.Assigned {
-			return cell.Value, true
+	if value, ok, assigned := f.ResolveValue(name, at, diags); ok {
+		if assigned {
+			return value, true
 		}
 		diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", name), at, "assign the local before reading it")
 		return Null(), false

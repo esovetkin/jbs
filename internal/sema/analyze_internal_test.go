@@ -3,6 +3,7 @@ package sema
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"jbs/internal/diag"
@@ -228,6 +229,45 @@ func TestAnalyzeReturnsCombNamesResults(t *testing.T) {
 	want := eval.List([]eval.Value{eval.String("x")})
 	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
 		t.Fatalf("unexpected comb names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+	}
+}
+
+func TestAnalyzeKeepsFunctionGlobalsVisibleWithoutBindings(t *testing.T) {
+	src := `
+base = 40
+mk = function(delta) {
+	function(x) {
+		x + delta + base
+	}
+}
+inc = mk(1)
+value = inc(1)
+value
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("functions.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if res.Globals.Values["inc"].Kind != eval.KindFunction {
+		t.Fatalf("expected function global inc in Globals.Values, got %#v", res.Globals.Values["inc"])
+	}
+	if _, ok := res.BindingsByName["inc"]; ok {
+		t.Fatalf("did not expect function global inc to become a binding")
+	}
+	if res.GlobalVarByName["value"] == nil || !eval.Equal(res.GlobalVarByName["value"].Value, eval.Int(42)) {
+		t.Fatalf("expected analyzed value=42, got %#v", res.GlobalVarByName["value"])
+	}
+	if !reflect.DeepEqual(res.GlobalVarByName["value"].DependsOn, []string{"base", "inc", "mk"}) {
+		t.Fatalf("unexpected runtime dependency set for value: %#v", res.GlobalVarByName["value"])
+	}
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(42)) {
+		t.Fatalf("unexpected top-level expr results: %#v", res.TopLevelExprs)
 	}
 }
 

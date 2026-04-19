@@ -58,6 +58,17 @@ func collectGlobalExprDeps(expr ast.Expr, out map[string]struct{}) {
 		for _, arg := range e.Args {
 			collectGlobalExprDeps(arg.Expr, out)
 		}
+	case ast.FunctionExpr:
+		for _, stmt := range e.Body {
+			switch node := stmt.(type) {
+			case ast.LocalAssignStmt:
+				collectGlobalExprDeps(node.Expr, out)
+			case ast.ReturnStmt:
+				collectGlobalExprDeps(node.Expr, out)
+			case ast.ExprStmt:
+				collectGlobalExprDeps(node.Expr, out)
+			}
+		}
 	case ast.AliasExpr:
 		collectGlobalExprDeps(e.Expr, out)
 	case ast.IndexExpr:
@@ -120,6 +131,9 @@ func globalVarFromImportedBinding(name string, binding *GlobalBinding, span diag
 }
 
 func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
+	if gv == nil || gv.Value.Kind == eval.KindFunction {
+		return nil
+	}
 	order := append([]string(nil), gv.Order...)
 	if len(order) == 0 {
 		order = []string{name}
@@ -168,6 +182,33 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 		Span:            gv.Span,
 		DependsOn:       append([]string(nil), gv.DependsOn...),
 		SyntheticGlobal: true,
+	}
+}
+
+func mergeGlobalVarsIntoState(state *GlobalState, byName map[string]*GlobalVar) {
+	if state == nil {
+		return
+	}
+	if state.Values == nil {
+		state.Values = make(map[string]eval.Value)
+	}
+	if state.Modes == nil {
+		state.Modes = make(map[string]string)
+	}
+	if state.Spans == nil {
+		state.Spans = make(map[string]diag.Span)
+	}
+	for name, gv := range byName {
+		if gv == nil || name == "" {
+			continue
+		}
+		state.Values[name] = gv.Value
+		state.Spans[name] = gv.Span
+		if gv.Mode != "" {
+			state.Modes[name] = gv.Mode
+		} else {
+			delete(state.Modes, name)
+		}
 	}
 }
 

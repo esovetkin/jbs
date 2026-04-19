@@ -38,6 +38,7 @@ type ExprOptions struct {
 	Context                         EvalContext
 	Names                           *NameCatalog
 	Files                           *FileAccess
+	Frame                           *Frame
 }
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
@@ -45,9 +46,13 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 }
 
 func EvalExprWithOptions(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions) Value {
+	frame := opts.Frame
+	if frame == nil {
+		frame = NewRootFrame(env)
+	}
 	return evalExprWithCtx(expr, env, diags, opts, &evalCtx{
 		overflowWarned: make(map[string]struct{}),
-		frame:          NewRootFrame(env),
+		frame:          frame,
 	})
 }
 
@@ -67,7 +72,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		return Null()
 	case ast.QualifiedIdentExpr:
-		if ns, found, assigned := lookupLocalOrCapturedValue(e.Namespace, env, ctx); found {
+		if ns, found, assigned := lookupLocalOrCapturedValue(e.Namespace, env, e.Span, diags, ctx); found {
 			if !assigned {
 				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", e.Namespace), e.Span, "assign the local before reading it")
 				return Null()
@@ -87,7 +92,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			return Null()
 		}
 		key := e.Namespace + "." + e.Name
-		if v, found, assigned := lookupLocalOrCapturedValue(key, env, ctx); found {
+		if v, found, assigned := lookupLocalOrCapturedValue(key, env, e.Span, diags, ctx); found {
 			if !assigned {
 				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", key), e.Span, "assign the local before reading it")
 				return Null()
@@ -290,13 +295,13 @@ func callArgExprs(args []ast.CallArg) []ast.Expr {
 	return out
 }
 
-func lookupLocalOrCapturedValue(name string, env map[string]Value, ctx *evalCtx) (Value, bool, bool) {
+func lookupLocalOrCapturedValue(name string, env map[string]Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) (Value, bool, bool) {
 	if name == "" {
 		return Null(), false, false
 	}
 	if ctx != nil && ctx.frame != nil {
-		if cell, ok := ctx.frame.LookupCell(name); ok {
-			return cell.Value, true, cell.Assigned
+		if value, found, assigned := ctx.frame.ResolveValue(name, at, diags); found {
+			return value, true, assigned
 		}
 	}
 	v, ok := env[name]
@@ -304,11 +309,12 @@ func lookupLocalOrCapturedValue(name string, env map[string]Value, ctx *evalCtx)
 }
 
 func lookupValue(name string, env map[string]Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) (Value, bool) {
-	if ctx != nil && ctx.frame != nil {
-		return ctx.frame.Read(name, at, diags)
-	}
-	if v, ok := env[name]; ok {
-		return v, true
+	if value, found, assigned := lookupLocalOrCapturedValue(name, env, at, diags, ctx); found {
+		if assigned {
+			return value, true
+		}
+		diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", name), at, "assign the local before reading it")
+		return Null(), false
 	}
 	diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "import or define the variable before use")
 	return Null(), false
@@ -316,7 +322,7 @@ func lookupValue(name string, env map[string]Value, at diag.Span, diags *diag.Di
 
 func resolveCallable(callee ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (*FunctionValue, bool, bool) {
 	if name, ok := builtinCallName(callee); ok {
-		if value, found, assigned := lookupLocalOrCapturedValue(name, env, ctx); found {
+		if value, found, assigned := lookupLocalOrCapturedValue(name, env, callee.GetSpan(), diags, ctx); found {
 			if !assigned {
 				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", name), callee.GetSpan(), "assign the local before reading it")
 				return nil, false, false
@@ -330,7 +336,7 @@ func resolveCallable(callee ast.Expr, env map[string]Value, diags *diag.Diagnost
 		return nil, false, true
 	}
 	if ident, ok := callee.(ast.IdentExpr); ok {
-		if value, found, assigned := lookupLocalOrCapturedValue(ident.Name, env, ctx); found {
+		if value, found, assigned := lookupLocalOrCapturedValue(ident.Name, env, callee.GetSpan(), diags, ctx); found {
 			if !assigned {
 				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", ident.Name), callee.GetSpan(), "assign the local before reading it")
 				return nil, false, false
