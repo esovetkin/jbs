@@ -180,6 +180,38 @@ func TestRunCheckWithFunctionValuedGlobals(t *testing.T) {
 	}
 }
 
+func TestRunCheckWithMapReduceExprLinesProducesNoExprOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"inc = function(x) {",
+		"  x + 1",
+		"}",
+		"sum2 = function(acc, x) {",
+		"  acc + x",
+		"}",
+		"map(inc, [1,2,3])",
+		"reduce(sum2, [1,2,3])",
+		"x = (1, 2)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "" {
+		t.Fatalf("expected no stdout output from map/reduce expr lines in check mode, got %q", stdout.String())
+	}
+}
+
 func TestRunYAMLIgnoresTopLevelFunctionCallOutput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
@@ -209,6 +241,42 @@ func TestRunYAMLIgnoresTopLevelFunctionCallOutput(t *testing.T) {
 	}
 	if strings.Contains(out, "TOPLEVEL_FUNCTION_OUTPUT_SHOULD_NOT_APPEAR") {
 		t.Fatalf("did not expect top-level function call result to leak into yaml, got %q", out)
+	}
+}
+
+func TestRunYAMLIgnoresTopLevelMapReduceOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"marker = function(x) {",
+		"  \"MAP_EXPR_SHOULD_NOT_APPEAR\"",
+		"}",
+		"sum2 = function(acc, x) {",
+		"  acc + x",
+		"}",
+		"map(marker, [1])",
+		"reduce(sum2, [1,2])",
+		"x = (1, 2)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "name:") {
+		t.Fatalf("expected yaml output, got %q", out)
+	}
+	if strings.Contains(out, "MAP_EXPR_SHOULD_NOT_APPEAR") {
+		t.Fatalf("did not expect top-level map result to leak into yaml, got %q", out)
 	}
 }
 

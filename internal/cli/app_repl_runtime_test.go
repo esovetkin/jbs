@@ -250,6 +250,90 @@ func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkMapReduceAcrossInputs(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"inc = function(x) {",
+		"  x + 1",
+		"}",
+		"sum2 = function(acc, x) {",
+		"  acc + x",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected function definitions to succeed, diag=%q", first.DiagText)
+	}
+
+	second, err := commitReplChunk(cwd, first.Source, "map(inc, [1,2,3])\nreduce(sum2, [1,2,3])")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected map/reduce to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 2 || second.ExprOutput[0] != "[2, 3, 4]" || second.ExprOutput[1] != "6" {
+		t.Fatalf("unexpected map/reduce expr output: %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkMapWithPersistedClosure(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"make_adder = function(delta) {",
+		"  function(x) {",
+		"    x + delta",
+		"  }",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected closure factory to succeed, diag=%q", first.DiagText)
+	}
+
+	second, err := commitReplChunk(cwd, first.Source, "add2 = make_adder(2)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected closure assignment to succeed, diag=%q", second.DiagText)
+	}
+
+	third, err := commitReplChunk(cwd, second.Source, "map(add2, [1,2])")
+	if err != nil {
+		t.Fatalf("unexpected third commit error: %v", err)
+	}
+	if third.HasErrors {
+		t.Fatalf("expected map with persisted closure to succeed, diag=%q", third.DiagText)
+	}
+	if len(third.ExprOutput) != 1 || third.ExprOutput[0] != "[3, 4]" {
+		t.Fatalf("unexpected closure map output: %#v", third.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkReduceEmptyInputReportsError(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"sum2 = function(acc, x) {",
+		"  acc + x",
+		"}",
+		"reduce(sum2, [])",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if !commit.HasErrors {
+		t.Fatalf("expected reduce([]) error, diag=%q", commit.DiagText)
+	}
+	if !strings.Contains(commit.DiagText, "reduce() cannot operate on an empty list/tuple") {
+		t.Fatalf("unexpected reduce([]) diagnostics: %q", commit.DiagText)
+	}
+}
+
 func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "int(\"42\")\nfloat(true)\nstr([1,2])")

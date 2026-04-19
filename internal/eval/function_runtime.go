@@ -16,6 +16,12 @@ type FunctionValue struct {
 	Span    diag.Span
 }
 
+type CallValueArg struct {
+	Name  string
+	Value Value
+	Span  diag.Span
+}
+
 type functionResult struct {
 	Value    Value
 	Returned bool
@@ -86,6 +92,23 @@ func (ctx *evalCtx) withFrame(frame *Frame) *evalCtx {
 }
 
 func executeFunctionCall(fn *FunctionValue, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	args, _ := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+	return executeFunctionCallValues(fn, args, env, at, diags, opts, ctx)
+}
+
+func evalCallValueArgs(rawArgs []ast.CallArg, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]CallValueArg, bool) {
+	args := make([]CallValueArg, 0, len(rawArgs))
+	for _, arg := range rawArgs {
+		args = append(args, CallValueArg{
+			Name:  arg.Name,
+			Value: evalExprWithCtx(arg.Expr, env, diags, opts, ctx),
+			Span:  arg.Span,
+		})
+	}
+	return args, true
+}
+
+func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if fn == nil {
 		diags.AddError(diag.CodeE199, "expression is not callable", at, "call a function value or supported builtin")
 		return Null()
@@ -97,7 +120,7 @@ func executeFunctionCall(fn *FunctionValue, rawArgs []ast.CallArg, env map[strin
 	}
 	callOpts.Names = callNameCatalog(fn.Names, callFrame)
 
-	boundValues, ok := bindFunctionArguments(fn, rawArgs, env, at, diags, opts, ctx)
+	boundValues, ok := bindFunctionArguments(fn, args, at, diags)
 	if !ok {
 		return Null()
 	}
@@ -120,8 +143,8 @@ func executeFunctionCall(fn *FunctionValue, rawArgs []ast.CallArg, env map[strin
 	return result.Value
 }
 
-func bindFunctionArguments(fn *FunctionValue, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (map[int]Value, bool) {
-	bound := make(map[int]Value, len(rawArgs))
+func bindFunctionArguments(fn *FunctionValue, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) (map[int]Value, bool) {
+	bound := make(map[int]Value, len(args))
 	paramIndex := make(map[string]int, len(fn.Params))
 	for i, param := range fn.Params {
 		if param.Name == "" {
@@ -131,7 +154,7 @@ func bindFunctionArguments(fn *FunctionValue, rawArgs []ast.CallArg, env map[str
 	}
 	namedSeen := false
 	nextPositional := 0
-	for _, arg := range rawArgs {
+	for _, arg := range args {
 		if arg.Name == "" {
 			if namedSeen {
 				diags.AddError(diag.CodeE106, "positional arguments cannot follow named arguments", arg.Span, "pass positional arguments before any named arguments")
@@ -141,8 +164,7 @@ func bindFunctionArguments(fn *FunctionValue, rawArgs []ast.CallArg, env map[str
 				diags.AddError(diag.CodeE106, "too many positional arguments", arg.Span, "remove extra arguments or add parameters")
 				return nil, false
 			}
-			value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-			bound[nextPositional] = value
+			bound[nextPositional] = arg.Value
 			nextPositional++
 			continue
 		}
@@ -156,8 +178,7 @@ func bindFunctionArguments(fn *FunctionValue, rawArgs []ast.CallArg, env map[str
 			diags.AddError(diag.CodeE106, fmt.Sprintf("parameter '%s' received multiple values", arg.Name), arg.Span, "pass each parameter at most once")
 			return nil, false
 		}
-		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-		bound[idx] = value
+		bound[idx] = arg.Value
 	}
 	return bound, true
 }

@@ -247,6 +247,8 @@ Supported assignment expressions:
   - `names(value)`
   - `read_csv(path)`
   - `filter(values, mask)`
+  - `map(function_value, list_or_tuple)`
+  - `reduce(function_value, list_or_tuple)`
   - `all(value)`
   - `any(value)`
 - user-defined call expressions:
@@ -258,6 +260,12 @@ Supported assignment expressions:
 Context restriction:
 
 - `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
+
+Higher-order collection builtins:
+
+- `map(fn, values)` applies one function value to each list/tuple element and preserves the outer kind
+- `reduce(fn, values)` folds a non-empty list/tuple from left to right
+- builtin names are not first-class values here, so use `map(function(x) { int(x) }, values)` instead of `map(int, values)`
 - `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
 - `int(...)`, `float(...)`, and `str(...)` are supported anywhere normal expressions are evaluated.
 - `read_csv(...)` is supported anywhere normal expressions are evaluated.

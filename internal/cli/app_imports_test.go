@@ -304,6 +304,45 @@ func TestAnalyzeInputImportedFunctionsCoexistWithDataGlobals(t *testing.T) {
 	}
 }
 
+func TestAnalyzeInputMapReduceWithImportedFunctions(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", strings.Join([]string{
+		"inc = function(x) {",
+		"  x + 1",
+		"}",
+		"sum2 = function(acc, x) {",
+		"  acc + x",
+		"}",
+	}, "\n"))
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		"use \"./lib.jbs\" as lib",
+		"use sum2 from \"./lib.jbs\"",
+		"mapped = map(lib.inc, [1,2,3])",
+		"total = reduce(sum2, mapped)",
+		"mapped",
+		"total",
+	}, "\n"))
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	wantMapped := eval.List([]eval.Value{eval.Int(2), eval.Int(3), eval.Int(4)})
+	if gv := bundle.Result.GlobalVarByName["mapped"]; gv == nil || !eval.Equal(gv.Value, wantMapped) {
+		t.Fatalf("expected mapped global %#v, got %#v", wantMapped, gv)
+	}
+	if gv := bundle.Result.GlobalVarByName["total"]; gv == nil || !eval.Equal(gv.Value, eval.Int(9)) {
+		t.Fatalf("expected total=9, got %#v", gv)
+	}
+	if len(bundle.Result.TopLevelExprs) != 2 || !eval.Equal(bundle.Result.TopLevelExprs[0].Value, wantMapped) || !eval.Equal(bundle.Result.TopLevelExprs[1].Value, eval.Int(9)) {
+		t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+	}
+}
+
 func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{

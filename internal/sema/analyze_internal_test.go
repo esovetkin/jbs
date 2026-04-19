@@ -302,6 +302,66 @@ value
 	}
 }
 
+func TestAnalyzeSupportsMapReduceWithClosureGlobals(t *testing.T) {
+	src := `
+base = 10
+inc = function(x) {
+	x + base
+}
+mapped = map(inc, [1,2,3])
+total = reduce(function(acc, x) {
+	acc + x
+}, mapped)
+mapped
+total
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("higher_order.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	wantMapped := eval.List([]eval.Value{eval.Int(11), eval.Int(12), eval.Int(13)})
+	if gv := res.GlobalVarByName["mapped"]; gv == nil || !eval.Equal(gv.Value, wantMapped) {
+		t.Fatalf("expected mapped global %#v, got %#v", wantMapped, gv)
+	}
+	if gv := res.GlobalVarByName["total"]; gv == nil || !eval.Equal(gv.Value, eval.Int(36)) {
+		t.Fatalf("expected total=36, got %#v", gv)
+	}
+	if len(res.TopLevelExprs) != 2 || !eval.Equal(res.TopLevelExprs[0].Value, wantMapped) || !eval.Equal(res.TopLevelExprs[1].Value, eval.Int(36)) {
+		t.Fatalf("unexpected top-level expr results: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeWithImportsSupportsMapReduceCallbacks(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("inc = function(x) {\n  x + 1\n}\nsum2 = function(acc, x) {\n  acc + x\n}\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "use \"./lib.jbs\" as lib\nuse sum2 from \"./lib.jbs\"\nmap(lib.inc, [1,2,3])\nreduce(sum2, [1,2,3])\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	wantMapped := eval.List([]eval.Value{eval.Int(2), eval.Int(3), eval.Int(4)})
+	if len(res.TopLevelExprs) != 2 || !eval.Equal(res.TopLevelExprs[0].Value, wantMapped) || !eval.Equal(res.TopLevelExprs[1].Value, eval.Int(6)) {
+		t.Fatalf("unexpected top-level expr results: %#v", res.TopLevelExprs)
+	}
+}
+
 func hasDiagCode(diags *diag.Diagnostics, code string) bool {
 	for _, item := range diags.Items {
 		if string(item.Code) == code {

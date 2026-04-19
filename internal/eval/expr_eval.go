@@ -262,6 +262,10 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalCombCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "names":
 		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
+	case "map":
+		return evalMapCall(rawArgs, env, at, diags, opts, ctx)
+	case "reduce":
+		return evalReduceCall(rawArgs, env, at, diags, opts, ctx)
 	}
 	args := make([]Value, 0, len(rawArgs))
 	for _, arg := range rawArgs {
@@ -371,7 +375,7 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 		return ident.Name, true
 	}
 	switch ident.Name {
-	case "comb", "names", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
+	case "comb", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
 		return ident.Name, true
 	default:
 		return "", false

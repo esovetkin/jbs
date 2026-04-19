@@ -218,6 +218,70 @@ Broadcast warning rule for `filter(values, mask)`:
 - no mismatch warning when `len(values) % len(mask) == 0`
 - warning `W101` when `len(values) % len(mask) != 0`
 
+## `map(<function>, <list/tuple>)`
+
+`map(...)` applies one function to each element of a list or tuple.
+
+```jbs
+inc = function(x) {
+        x + 1
+}
+
+map(inc, [1,2,3]) == [2,3,4]
+map(inc, (1,2,3)) == (2,3,4)
+```
+
+Rules:
+
+- `map(...)` takes exactly two positional arguments
+- the first argument must evaluate to a function value
+- the second argument must be a list or tuple
+- each element is passed as one positional argument to the callback
+- result kind is preserved:
+  - list in -> list out
+  - tuple in -> tuple out
+- empty input returns an empty list or tuple of the same outer kind
+- callback errors stop the map immediately
+
+Builtin names are not first-class callback values in this feature, so use:
+
+```jbs
+map(function(x) {
+        int(x)
+}, ["1","2"])
+```
+
+not:
+
+```jbs
+map(int, ["1","2"])
+```
+
+## `reduce(<function>, <list/tuple>)`
+
+`reduce(...)` folds a list or tuple from left to right.
+
+```jbs
+sum2 = function(acc, x) {
+        acc + x
+}
+
+reduce(sum2, [1,2,3,4]) == 10
+reduce(sum2, (1,2,3,4)) == 10
+```
+
+Rules:
+
+- `reduce(...)` takes exactly two positional arguments
+- the first argument must evaluate to a function value
+- the second argument must be a list or tuple
+- reduction uses left-fold semantics:
+  - first accumulator is the first sequence element
+  - each next step calls `fn(acc, item)`
+- singleton input returns that element unchanged
+- empty input is an error
+- callback errors stop the reduction immediately
+
 ## `all(...)`, `any(...)`, and vectorized boolean operators
 
 Boolean operators are:
