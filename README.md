@@ -109,6 +109,20 @@ cases = comb(model * x)
 
 Read more in `jbs help globals` or [docs/help_globals.md](docs/help_globals.md).
 
+Functions are also ordinary top-level expression values:
+
+```jbs
+make_adder = function(delta) {
+        function(x) {
+                x + delta
+        }
+}
+
+add2 = make_adder(2)
+```
+
+They can be passed around in expressions and imported from modules, but they are not valid `with`/`submit use`/`analyse with` data sources.
+
 ### `do <name> [with ...] [after ...] [<key>=<int> ...] { ... }`
 
 `do` defines the step computation via a shell script with the variables from parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)). [Step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) are defined by `after`. Circular dependencies are not allowed.
@@ -143,15 +157,31 @@ Read more in `jbs help analyse` or [docs/help_analyse.md](docs/help_analyse.md).
 
 `use` imports reusable definitions from embedded or local `.jbs` scripts.
 
-XXX `analyse` fields cannot be reused.
-
 ```jbs
 use jsc
 use "./defaults.jbs" as local_defaults
 use submit_defaults from jsc
+use add from "./lib/math.jbs"
+use "./lib/math.jbs" as math
 ```
 
+Namespace imports expose function-valued globals as `math.add(...)`; selective imports project them into local expression scope as ordinary globals.
+
 Read more in `jbs help use` or [docs/help_use.md](docs/help_use.md).
+
+### REPL
+
+`jbs` with no arguments starts the REPL. Multiline functions and closures work the same way they do in files:
+
+```jbs
+jbs> add = function(a, b = 1) {
+...>   a + b
+...> }
+jbs> add(41)
+42
+```
+
+Bare expression lines print in REPL only. File-mode compilation ignores their display output.
 
 See [docs/language.md](docs/language.md) for the JBS grammar and semantics.
 

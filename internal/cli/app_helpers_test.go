@@ -180,6 +180,38 @@ func TestRunCheckWithFunctionValuedGlobals(t *testing.T) {
 	}
 }
 
+func TestRunYAMLIgnoresTopLevelFunctionCallOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"marker = function() {",
+		"  \"TOPLEVEL_FUNCTION_OUTPUT_SHOULD_NOT_APPEAR\"",
+		"}",
+		"marker()",
+		"x = (1, 2)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "name:") {
+		t.Fatalf("expected yaml output, got %q", out)
+	}
+	if strings.Contains(out, "TOPLEVEL_FUNCTION_OUTPUT_SHOULD_NOT_APPEAR") {
+		t.Fatalf("did not expect top-level function call result to leak into yaml, got %q", out)
+	}
+}
+
 func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

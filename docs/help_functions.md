@@ -1,5 +1,59 @@
 # jbs help functions
 
+## `function(...) { ... }`
+
+Function literals are ordinary expressions.
+
+```jbs
+add = function(a, b = 1) {
+        a + b
+}
+
+add(2)
+add(2, b = 3)
+```
+
+Rules:
+
+- function values are first-class: they can be assigned, returned, passed to calls, stored in lists/tuples, and imported from modules
+- the result is the value from `return expr`, or the last expression if execution reaches the end of the body
+- parameters are comma-separated and may have defaults
+- call sites may mix positional and named arguments, but positional arguments must come first
+- local assignments inside the body are local to that function and shadow captured or global names
+- nested functions capture outer locals lexically
+
+Examples:
+
+```jbs
+make_adder = function(delta) {
+        function(x) {
+                x + delta
+        }
+}
+
+add2 = make_adder(2)
+add2(3) == 5
+```
+
+Imported function-valued globals behave like ordinary globals in expression contexts:
+
+```jbs
+use "./lib.jbs" as lib
+lib.add(1, 2)
+
+use add from "./lib.jbs"
+add(1, 2)
+```
+
+Data-only boundary:
+
+- function-valued globals are expression-visible
+- they are not valid `with` sources
+- they are not valid `submit ... use ...` sources
+- they are not valid `analyse with ...` imports
+
+When printed in REPL or via `str(...)`, a function value renders as `<function>`.
+
 ## `tuple()`, `list()`
 
 treat a list as a tuple, and vice versa

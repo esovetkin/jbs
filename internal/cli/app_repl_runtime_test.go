@@ -75,6 +75,13 @@ func TestFormatReplValueCombFallbackColumnOrder(t *testing.T) {
 	}
 }
 
+func TestFormatReplValueFunctionPlaceholder(t *testing.T) {
+	got := formatReplValue(eval.Function(&eval.FunctionValue{}))
+	if got != "<function>" {
+		t.Fatalf("unexpected function preview: %q", got)
+	}
+}
+
 func TestCommitReplChunkAssignmentProducesNoOutput(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "a = range(5)")
@@ -128,6 +135,118 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	}
 	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_comment\", \"jbs_name\", ...]" {
 		t.Fatalf("unexpected names() expr output: %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkFunctionDefinitionAndCall(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"add = function(a, b = 1) {",
+		"  a + b",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected function definition to succeed, diag=%q", first.DiagText)
+	}
+	if len(first.ExprOutput) != 0 {
+		t.Fatalf("expected no expr output for function definition, got %#v", first.ExprOutput)
+	}
+
+	second, err := commitReplChunk(cwd, first.Source, "add")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected function lookup to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "<function>" {
+		t.Fatalf("unexpected function lookup output: %#v", second.ExprOutput)
+	}
+
+	third, err := commitReplChunk(cwd, second.Source, "add(1, b = 2)")
+	if err != nil {
+		t.Fatalf("unexpected third commit error: %v", err)
+	}
+	if third.HasErrors {
+		t.Fatalf("expected function call to succeed, diag=%q", third.DiagText)
+	}
+	if len(third.ExprOutput) != 1 || third.ExprOutput[0] != "3" {
+		t.Fatalf("unexpected function call output: %#v", third.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkClosurePersistsAcrossInputs(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"make_adder = function(delta) {",
+		"  function(x) {",
+		"    x + delta",
+		"  }",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected closure factory to succeed, diag=%q", first.DiagText)
+	}
+
+	second, err := commitReplChunk(cwd, first.Source, "add2 = make_adder(2)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected closure assignment to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 0 {
+		t.Fatalf("expected no expr output for closure assignment, got %#v", second.ExprOutput)
+	}
+
+	third, err := commitReplChunk(cwd, second.Source, "add2")
+	if err != nil {
+		t.Fatalf("unexpected third commit error: %v", err)
+	}
+	if third.HasErrors {
+		t.Fatalf("expected closure lookup to succeed, diag=%q", third.DiagText)
+	}
+	if len(third.ExprOutput) != 1 || third.ExprOutput[0] != "<function>" {
+		t.Fatalf("unexpected closure lookup output: %#v", third.ExprOutput)
+	}
+
+	fourth, err := commitReplChunk(cwd, third.Source, "add2(3)")
+	if err != nil {
+		t.Fatalf("unexpected fourth commit error: %v", err)
+	}
+	if fourth.HasErrors {
+		t.Fatalf("expected closure call to succeed, diag=%q", fourth.DiagText)
+	}
+	if len(fourth.ExprOutput) != 1 || fourth.ExprOutput[0] != "5" {
+		t.Fatalf("unexpected closure call output: %#v", fourth.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"add = function(x) {",
+		"  x + 1",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "names()")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_comment\", \"jbs_name\", ...]" {
+		t.Fatalf("unexpected names() output for function globals: %#v", second.ExprOutput)
 	}
 }
 
@@ -251,6 +370,34 @@ func TestCommitReplChunkWithNamespaceNames(t *testing.T) {
 	}
 	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"z\"]" {
 		t.Fatalf("unexpected names(lib) output: %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkWithNamespacedImportedFunction(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte(strings.Join([]string{
+		"base = 40",
+		"add = function(a, b) {",
+		"  a + b + base",
+		"}",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	first, err := commitReplChunk(cwd, "", "use \"./lib.jbs\" as lib")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "lib.add(1, 2)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected namespaced imported function call to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "43" {
+		t.Fatalf("unexpected namespaced function output: %#v", second.ExprOutput)
 	}
 }
 

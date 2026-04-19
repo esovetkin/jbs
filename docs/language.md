@@ -107,6 +107,21 @@ digit       := "0" | ... | "9"
 
 `+` and `-` signs are parsed by unary-expression grammar, not as part of the `number` token.
 
+Selected expression grammar additions:
+
+```ebnf
+function_expr   := "function" "(" func_param_list? ")" func_body
+func_param_list := func_param ("," func_param)* ","?
+func_param      := IDENT ("=" expr)?
+func_body       := "{" func_body_stmt* final_expr_stmt? "}"
+func_body_stmt  := local_assign | return_stmt | expr_stmt | sep
+local_assign    := IDENT assign_op expr opt_comment
+assign_op       := "=" | "+=" | "-=" | "*=" | "/=" | "%="
+return_stmt     := "return" expr opt_comment
+call_args       := call_arg ("," call_arg)* ","?
+call_arg        := expr | IDENT "=" expr
+```
+
 ## Statement Separators
 
 At the top level, structural statements, global assignments, and bare expression lines can be separated by a newline or `;`.
@@ -201,6 +216,8 @@ Supported assignment expressions:
 - scalar literals: string/int/float/bool
 - tuples/lists
 - identifiers
+- function literals:
+  - `function(...) { ... }`
 - unary `+`, `-`, `!`
 - binary `+`, `-`, `*`, `/`, `%`
 - logical `&`, `|`
@@ -232,6 +249,9 @@ Supported assignment expressions:
   - `filter(values, mask)`
   - `all(value)`
   - `any(value)`
+- user-defined call expressions:
+  - positional arguments: `f(1, 2)`
+  - named arguments: `f(1, b = 2)`
 - alias expression:
   - `expr as IDENT` (comb-context metadata only)
 
@@ -330,9 +350,61 @@ Mode declarations lower to JUBE parameter mode fields:
 
 Unsupported syntax (diagnostics emitted):
 
-- arbitrary/user-defined function definitions and calls
 - dict literals
-- import statements
+- non-`use` import statements
+
+## Function Expressions And Closures
+
+Functions are first-class values.
+
+```jbs
+add = function(a, b = 1) {
+        a + b
+}
+
+apply = function(f, x) {
+        f(x)
+}
+
+make_adder = function(delta) {
+        function(x) {
+                x + delta
+        }
+}
+
+apply(add, 2)
+make_adder(2)(3)
+```
+
+Semantics:
+
+- `function(...) { ... }` is an ordinary expression
+- function-valued globals can be assigned, returned, stored, imported, and passed to other functions
+- a function returns the value of `return expr`, or the last expression statement if it reaches the end of the body
+- parameters are positional-or-named with optional defaults
+- positional call arguments must come before named arguments
+- local assignments inside a function create or update local bindings in that function frame
+- nested functions capture outer locals lexically
+- local bindings shadow captured and global names with the same spelling
+
+Module interaction:
+
+```jbs
+use "./lib.jbs" as lib
+lib.add(1, 2)
+
+use add from "./lib.jbs"
+add(1, 2)
+```
+
+Function-valued globals move through module imports like other expression-visible globals.
+
+Data-only boundary:
+
+- `do ... with ...` accepts only data bindings
+- `submit ... use ...` accepts only scalar data bindings
+- `analyse with ...` accepts only scalar data bindings
+- function-valued globals remain usable in expressions but are rejected by those data-only flows
 
 ## Tuple and List Semantics in `param` Assignments
 

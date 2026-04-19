@@ -454,3 +454,31 @@ func TestRunCheckWithNamespacedImportedFunction(t *testing.T) {
 		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
 	}
 }
+
+func TestRunCheckWithImportedHigherOrderInitializer(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", strings.Join([]string{
+		"base = 40",
+		"mk = function(delta) {",
+		"  function(x) {",
+		"    x + delta + base",
+		"  }",
+		"}",
+		"",
+	}, "\n"))
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		"use mk from \"./lib.jbs\"",
+		"inc = mk(1)",
+		"x = inc(1)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"",
+	}, "\n"))
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check for imported higher-order initializer, code=%d stderr=%s", code, stderr.String())
+	}
+}

@@ -23,6 +23,18 @@ jbs> do run {
 ...> }
 ```
 
+The same applies to multiline function literals:
+
+```jbs
+jbs> add = function(a, b = 1) {
+...>   a + b
+...> }
+jbs> add
+<function>
+jbs> add(41)
+42
+```
+
 Bare expression lines are part of normal top-level source. They are evaluated in the current module-aware session scope and then appended to the accepted session source.
 
 You can inspect a global variable by entering its bare name:
@@ -39,6 +51,27 @@ Namespace imports work the same way:
 jbs> use jsc
 jbs> jsc.systemname
 # prints the imported value of jsc.systemname
+```
+
+Imported functions behave the same way:
+
+```jbs
+jbs> use "./lib.jbs" as lib
+jbs> lib.add(1, 2)
+3
+```
+
+Returned closures also persist once bound into accepted session source:
+
+```jbs
+jbs> make_adder = function(delta) {
+...>   function(x) {
+...>     x + delta
+...>   }
+...> }
+jbs> add2 = make_adder(2)
+jbs> add2(3)
+5
 ```
 
 Top-level expression continuation is line-oriented, like file mode:
@@ -93,3 +126,4 @@ Notes:
 - REPL output prints errors only; warnings are suppressed in interactive mode.
 - assignments, imports, and blocks do not print values automatically
 - bare expression line output is ignored by normal file compilation; only REPL prints it
+- function values print as `<function>`
