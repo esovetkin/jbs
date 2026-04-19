@@ -217,6 +217,9 @@ Supported assignment expressions:
 - kernel functions:
   - `tuple(expr)`
   - `list(expr)`
+  - `int(value)`
+  - `float(value)`
+  - `str(value)`
   - `range(stop)`
   - `range(start, stop)`
   - `range(start, stop, step)`
@@ -235,6 +238,7 @@ Context restriction:
 
 - `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
 - `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
+- `int(...)`, `float(...)`, and `str(...)` are supported anywhere normal expressions are evaluated.
 - `comb(...)`, `len(...)`, `names(...)`, `filter(...)`, `all(...)`, and `any(...)` are also supported in `param` assignment expressions.
 
 Qualified access and indexing:
@@ -346,6 +350,9 @@ Conversions:
 
 - `tuple(expr)` converts scalar/list/tuple to tuple
 - `list(expr)` converts scalar/list/tuple to list
+- `int(expr)` converts int/float/bool/integer-string to int
+- `float(expr)` converts int/float/bool/finite-numeric-string to float
+- `str(expr)` stringifies the whole value
 
 Kernel list helpers in `param` assignments:
 
@@ -358,12 +365,19 @@ Kernel list helpers in `param` assignments:
 - `range(10,1)` -> `[]`
 - `rev([0,1,2,3,4])` -> `[4,3,2,1,0]`
 - `rev((0,1,2,3,4))` -> `(4,3,2,1,0)`
+- `int("42")` -> `42`
+- `float("1e3")` -> `1000.0`
+- `str([1,2])` -> `"[1,2]"`
 - `names()` -> visible variable names in the current scope
 - `names(params)` -> comb column names
 - `names(lib)` -> direct variable names in imported namespace `lib`
 
 `range(stop)` and `range(start, stop)` are integer forms.
 `range(start, stop, step)` accepts int/float numeric arguments.
+
+`int(...)` and `float(...)` are scalar conversions only. They reject list, tuple, and comb values.
+`int(float_value)` truncates toward zero.
+`str(...)` uses whole-value stringification, so `str([1,2])` returns `"[1,2]"` rather than a list of strings.
 
 `names(...)` returns a list of strings:
 

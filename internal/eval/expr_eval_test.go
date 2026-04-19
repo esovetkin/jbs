@@ -1238,6 +1238,253 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 	})
 }
 
+func TestEvalIntFloatStrCalls(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     ast.Expr
+		env      map[string]Value
+		want     Value
+		diagCode string
+	}{
+		{
+			name: "int from int",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Span:   spanAt(205, 1),
+			},
+			want: Int(7),
+		},
+		{
+			name: "int from float truncates toward zero",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.UnaryExpr{Op: "-", Expr: ast.NumberExpr{Int: false, FloatValue: 7.9}, Span: spanAt(206, 5)}},
+				Span:   spanAt(206, 1),
+			},
+			want: Int(-7),
+		},
+		{
+			name: "int from bool",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.BoolExpr{Value: true}},
+				Span:   spanAt(207, 1),
+			},
+			want: Int(1),
+		},
+		{
+			name: "int from string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.StringExpr{Value: "42"}},
+				Span:   spanAt(208, 1),
+			},
+			want: Int(42),
+		},
+		{
+			name: "int rejects decimal string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.StringExpr{Value: "1.5"}},
+				Span:   spanAt(209, 1),
+			},
+			want:     Null(),
+			diagCode: "E106",
+		},
+		{
+			name: "int rejects comb",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+				Span:   spanAt(210, 1),
+			},
+			env: map[string]Value{
+				"m": CombValue(&Comb{
+					Order: []string{"x"},
+					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+				}),
+			},
+			want:     Null(),
+			diagCode: "E106",
+		},
+		{
+			name: "int rejects list",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Args: []ast.Expr{
+					ast.ListExpr{Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+					}},
+				},
+				Span: spanAt(210, 20),
+			},
+			want:     Null(),
+			diagCode: "E106",
+		},
+		{
+			name: "float from int",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Span:   spanAt(211, 1),
+			},
+			want: Float(7.0),
+		},
+		{
+			name: "float from bool",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args:   []ast.Expr{ast.BoolExpr{Value: false}},
+				Span:   spanAt(212, 1),
+			},
+			want: Float(0.0),
+		},
+		{
+			name: "float from exponent string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args:   []ast.Expr{ast.StringExpr{Value: "1e3"}},
+				Span:   spanAt(213, 1),
+			},
+			want: Float(1000.0),
+		},
+		{
+			name: "float rejects non finite string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args:   []ast.Expr{ast.StringExpr{Value: "NaN"}},
+				Span:   spanAt(214, 1),
+			},
+			want:     Null(),
+			diagCode: "E106",
+		},
+		{
+			name: "float rejects tuple",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args: []ast.Expr{
+					ast.TupleExpr{Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+					}},
+				},
+				Span: spanAt(214, 20),
+			},
+			want:     Null(),
+			diagCode: "E106",
+		},
+		{
+			name: "str from int",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "str"},
+				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 7}},
+				Span:   spanAt(215, 1),
+			},
+			want: String("7"),
+		},
+		{
+			name: "str from list uses whole value formatting",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "str"},
+				Args: []ast.Expr{
+					ast.ListExpr{Items: []ast.Expr{
+						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 2},
+					}},
+				},
+				Span: spanAt(216, 1),
+			},
+			want: String("[1,2]"),
+		},
+		{
+			name: "str from comb",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "str"},
+				Args:   []ast.Expr{ast.IdentExpr{Name: "m"}},
+				Span:   spanAt(217, 1),
+			},
+			env: map[string]Value{
+				"m": CombValue(&Comb{
+					Order: []string{"x"},
+					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+				}),
+			},
+			want: String("comb(rows=1,cols=1)"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExpr(tc.expr, tc.env, diags)
+			if !Equal(got, tc.want) {
+				t.Fatalf("expected %#v, got %#v", tc.want, got)
+			}
+			if tc.diagCode == "" {
+				if diags.HasErrors() {
+					t.Fatalf("unexpected diagnostics: %s", diags.String())
+				}
+				return
+			}
+			if diagCount(diags, tc.diagCode) == 0 {
+				t.Fatalf("expected %s, got: %s", tc.diagCode, diags.String())
+			}
+		})
+	}
+}
+
+func TestEvalIntFloatStrArityErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		expr ast.Expr
+	}{
+		{
+			name: "int no args",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "int"},
+				Span:   spanAt(218, 1),
+			},
+		},
+		{
+			name: "float two args",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "float"},
+				Args: []ast.Expr{
+					ast.NumberExpr{Int: true, IntValue: 1},
+					ast.NumberExpr{Int: true, IntValue: 2},
+				},
+				Span: spanAt(219, 1),
+			},
+		},
+		{
+			name: "str two args",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "str"},
+				Args: []ast.Expr{
+					ast.StringExpr{Value: "a"},
+					ast.StringExpr{Value: "b"},
+				},
+				Span: spanAt(220, 1),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExpr(tc.expr, nil, diags)
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if diagCount(diags, "E106") != 1 {
+				t.Fatalf("expected one E106, got: %s", diags.String())
+			}
+		})
+	}
+}
+
 func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	opts := ExprOptions{Context: EvalCtxBindingAssign}
@@ -1963,6 +2210,24 @@ func TestEvalConvert(t *testing.T) {
 			want:   List(nil),
 		},
 		{
+			name:   "string to int",
+			target: "int",
+			input:  String("42"),
+			want:   Int(42),
+		},
+		{
+			name:   "bool to float",
+			target: "float",
+			input:  Bool(true),
+			want:   Float(1.0),
+		},
+		{
+			name:   "list to string",
+			target: "str",
+			input:  List([]Value{Int(1), Int(2)}),
+			want:   String("[1,2]"),
+		},
+		{
 			name:   "unknown target passthrough",
 			target: "identity",
 			input:  Float(1.5),
@@ -1975,6 +2240,43 @@ func TestEvalConvert(t *testing.T) {
 			got := evalConvert(tc.target, tc.input, spanAt(70, 1), &diag.Diagnostics{})
 			if !Equal(got, tc.want) {
 				t.Fatalf("expected %#v, got %#v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestEvalConvertRejectsInvalidScalarConversions(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		input  Value
+	}{
+		{
+			name:   "int rejects malformed string",
+			target: "int",
+			input:  String("1.5"),
+		},
+		{
+			name:   "float rejects tuple",
+			target: "float",
+			input:  Tuple([]Value{Int(1), Int(2)}),
+		},
+		{
+			name:   "int rejects non finite float",
+			target: "int",
+			input:  Float(math.Inf(1)),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := evalConvert(tc.target, tc.input, spanAt(73, 1), diags)
+			if got.Kind != KindNull {
+				t.Fatalf("expected null conversion result, got %#v", got)
+			}
+			if diagCount(diags, "E106") != 1 {
+				t.Fatalf("expected one E106, got: %s", diags.String())
 			}
 		})
 	}

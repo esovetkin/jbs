@@ -9,6 +9,27 @@ tuple([0,1,2]) * 2 == (0,1,2,0,1,2)
 list((0,1,2)) * 2 == [0,2,4]
 ```
 
+## `int()`, `float()`, `str()`
+
+scalar conversions:
+
+```jbs
+int("42") == 42
+int(3.9) == 3
+float("1e3") == 1000.0
+str((1,2)) == "(1,2)"
+str([1,2]) == "[1,2]"
+```
+
+Rules:
+
+- `int(...)` accepts `int`, `float`, `bool`, and integer strings
+- `int(...)` truncates float input toward zero
+- `float(...)` accepts `int`, `float`, `bool`, and finite numeric strings
+- `int(...)` and `float(...)` reject list/tuple/comb values
+- `str(...)` stringifies the whole value
+- `str([1,2])` returns one string value, not a list of strings
+
 ## `range(...)`
 
 return a list, similar to Python's `range`

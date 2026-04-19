@@ -58,6 +58,8 @@ func (v Value) IsScalar() bool {
 
 func (v Value) String() string {
 	switch v.Kind {
+	case KindNull:
+		return ""
 	case KindInt:
 		return fmt.Sprintf("%d", v.I)
 	case KindFloat:

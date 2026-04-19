@@ -131,6 +131,23 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "int(\"42\")\nfloat(true)\nstr([1,2])")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected conversion expressions to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 3 {
+		t.Fatalf("expected 3 expr outputs, got %#v", commit.ExprOutput)
+	}
+	if commit.ExprOutput[0] != "42" || commit.ExprOutput[1] != "1.0" || commit.ExprOutput[2] != "[1,2]" {
+		t.Fatalf("unexpected conversion expr output: %#v", commit.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkReportsExpressionError(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "range(,)")
