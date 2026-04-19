@@ -197,6 +197,7 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 			}
 		}
 	}
+	submitNames := scopeNameCatalog(visibleNamesFromEnv(env), namespaces)
 
 	seen := make(map[string]diag.Span)
 	for _, field := range block.Fields {
@@ -268,6 +269,7 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 		}
 		value := eval.EvalExprWithOptions(expr, env, diags, eval.ExprOptions{
 			Context: eval.EvalCtxSubmitField,
+			Names:   submitNames,
 		})
 		if isModeExpr {
 			value = coerceModeValue(mode, value, field.Span, diags)

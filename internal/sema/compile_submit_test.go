@@ -209,3 +209,75 @@ func TestCompileSubmitBlockUsesBindingsAndReportsDiagnostics(t *testing.T) {
 		t.Fatalf("expected starter value to be preserved, got %#v", resolved["starter"])
 	}
 }
+
+func TestCompileSubmitBlockSupportsNamesBuiltin(t *testing.T) {
+	span := diag.NewSpan("submit.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	bindings := map[string]*GlobalBinding{
+		"stepSource": scalarBinding("stepSource", "stepv", eval.Int(1), span),
+	}
+	effective := map[string]VisibleBinding{
+		"stepv": {Name: "stepv", Source: "stepSource", Span: span},
+	}
+	namespaces := map[string]*Namespace{
+		"defaults": {
+			Name:     "defaults",
+			Bindings: []string{"defaults.alpha", "defaults.beta", "defaults.child.gamma"},
+		},
+	}
+	block := ast.SubmitBlock{
+		Name: "submit-step",
+		Fields: []ast.SubmitField{
+			{
+				Name: "nodes",
+				Op:   ast.AssignEq,
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+			{
+				Name: "tasks",
+				Op:   ast.AssignEq,
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{
+							Callee: ast.IdentExpr{Name: "names", Span: span},
+							Args:   []ast.Expr{ast.IdentExpr{Name: "defaults", Span: span}},
+							Span:   span,
+						},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+			{Name: "account", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "a", Span: span}, Span: span},
+			{Name: "queue", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "q", Span: span}, Span: span},
+			{Name: "starter", Op: ast.AssignEq, Expr: ast.StringExpr{Value: "srun", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileSubmitBlock(block, bindings, map[string]eval.Value{"visible": eval.Int(2)}, effective, namespaces, diags)
+	if spec == nil {
+		t.Fatalf("expected submit spec")
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	resolved := make(map[string]SubmitValue, len(spec.Values))
+	for _, value := range spec.Values {
+		resolved[value.Name] = value
+	}
+	if !eval.Equal(resolved["nodes"].Value, eval.Int(2)) {
+		t.Fatalf("expected names() to count visible submit values, got %#v", resolved["nodes"])
+	}
+	if !eval.Equal(resolved["tasks"].Value, eval.Int(2)) {
+		t.Fatalf("expected names(defaults) to count direct namespace members, got %#v", resolved["tasks"])
+	}
+}

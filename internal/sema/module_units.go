@@ -141,11 +141,13 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 	}
 	nonGlobalSymbols := collectModuleNonGlobalSymbols(info.Program)
 	visibleSeeds := map[string]eval.Value{}
+	visibleNamespaces := map[string]*Namespace{}
 
 	for index, stmt := range info.Program.Stmts {
 		if use, ok := useByIndex[index]; ok {
 			if use.Kind == imports.UseNamespace {
 				mergeIntoValueEnv(visibleSeeds, prefixedByIndex[index].Env)
+				visibleNamespaces = mergeVisibleNamespaces(visibleNamespaces, prefixedByIndex[index].Namespaces)
 				continue
 			}
 			for _, name := range use.Names {
@@ -198,13 +200,14 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 				id := len(plan.Steps)
 				seedEnv := maps.Clone(visibleSeeds)
 				plan.Steps = append(plan.Steps, globalInputStep{
-					ID:       id,
-					Kind:     globalInputProjectedImport,
-					Name:     name,
-					Import:   &projectedImport{LocalName: name, SourceName: name, SourceBinding: binding, Span: use.Span},
-					Index:    index,
-					IsSimple: true,
-					SeedEnv:  seedEnv,
+					ID:                id,
+					Kind:              globalInputProjectedImport,
+					Name:              name,
+					Import:            &projectedImport{LocalName: name, SourceName: name, SourceBinding: binding, Span: use.Span},
+					Index:             index,
+					IsSimple:          true,
+					SeedEnv:           seedEnv,
+					VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
 				})
 				plan.StepsByName[name] = append(plan.StepsByName[name], id)
 				plan.SimpleWritesByName[name] = append(plan.SimpleWritesByName[name], id)
@@ -220,13 +223,14 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 			exprCopy := exprStmt
 			id := len(plan.Steps)
 			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:            id,
-				Kind:          globalInputExpr,
-				ExprStmt:      &exprCopy,
-				EffectiveExpr: exprStmt.Expr,
-				Reads:         globalExprReadRefs(exprStmt.Expr),
-				Index:         index,
-				SeedEnv:       maps.Clone(visibleSeeds),
+				ID:                id,
+				Kind:              globalInputExpr,
+				ExprStmt:          &exprCopy,
+				EffectiveExpr:     exprStmt.Expr,
+				Reads:             globalExprReadRefs(exprStmt.Expr),
+				Index:             index,
+				SeedEnv:           maps.Clone(visibleSeeds),
+				VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
 			})
 			continue
 		}
@@ -234,15 +238,16 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
 		id := len(plan.Steps)
 		step := globalInputStep{
-			ID:            id,
-			Kind:          globalInputAssign,
-			Name:          assign.Name,
-			Assign:        &assignCopy,
-			EffectiveExpr: effectiveExpr,
-			Reads:         globalExprReadRefs(effectiveExpr),
-			Index:         index,
-			IsSimple:      !isCompoundAssignOp(assign.Op),
-			SeedEnv:       maps.Clone(visibleSeeds),
+			ID:                id,
+			Kind:              globalInputAssign,
+			Name:              assign.Name,
+			Assign:            &assignCopy,
+			EffectiveExpr:     effectiveExpr,
+			Reads:             globalExprReadRefs(effectiveExpr),
+			Index:             index,
+			IsSimple:          !isCompoundAssignOp(assign.Op),
+			SeedEnv:           maps.Clone(visibleSeeds),
+			VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
 		}
 		plan.Steps = append(plan.Steps, step)
 		plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
@@ -250,6 +255,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 			plan.SimpleWritesByName[step.Name] = append(plan.SimpleWritesByName[step.Name], id)
 		}
 	}
+	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
 }
 

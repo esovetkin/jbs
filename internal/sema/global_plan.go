@@ -30,17 +30,19 @@ type projectedImport struct {
 }
 
 type globalInputStep struct {
-	ID            int
-	Kind          globalInputKind
-	Name          string
-	Assign        *ast.GlobalAssign
-	ExprStmt      *ast.ExprStmt
-	Import        *projectedImport
-	EffectiveExpr ast.Expr
-	Reads         []globalReadRef
-	Index         int
-	IsSimple      bool
-	SeedEnv       map[string]eval.Value
+	ID                int
+	Kind              globalInputKind
+	Name              string
+	Assign            *ast.GlobalAssign
+	ExprStmt          *ast.ExprStmt
+	Import            *projectedImport
+	EffectiveExpr     ast.Expr
+	Reads             []globalReadRef
+	Index             int
+	IsSimple          bool
+	SeedEnv           map[string]eval.Value
+	VisibleNamespaces map[string]*Namespace
+	Names             *eval.NameCatalog
 }
 
 type globalPlan struct {
@@ -57,7 +59,7 @@ type globalExecResult struct {
 	ScalarGlobals       GlobalState
 }
 
-func buildGlobalPlan(prog ast.Program) *globalPlan {
+func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value) *globalPlan {
 	plan := &globalPlan{
 		Steps:              make([]globalInputStep, 0),
 		StepsByName:        make(map[string][]int),
@@ -99,7 +101,52 @@ func buildGlobalPlan(prog ast.Program) *globalPlan {
 			})
 		}
 	}
+	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
+}
+
+func assignGlobalPlanNameCatalogs(plan *globalPlan, seed map[string]eval.Value) {
+	if plan == nil {
+		return
+	}
+	activeSet := make(map[int]struct{}, len(plan.Steps))
+	for _, step := range plan.Steps {
+		activeSet[step.ID] = struct{}{}
+	}
+	prevWrite := make(map[string]int, len(plan.StepsByName))
+	for i := range plan.Steps {
+		step := &plan.Steps[i]
+		visibleSet := make(map[string]struct{}, len(seed)+len(prevWrite)+len(plan.SimpleWritesByName))
+		for name := range seed {
+			if isUnqualifiedVisibleName(name) {
+				visibleSet[name] = struct{}{}
+			}
+		}
+		for name := range prevWrite {
+			if isUnqualifiedVisibleName(name) {
+				visibleSet[name] = struct{}{}
+			}
+		}
+		for name := range plan.SimpleWritesByName {
+			if !isUnqualifiedVisibleName(name) {
+				continue
+			}
+			if _, ok := visibleSet[name]; ok {
+				continue
+			}
+			if _, ok := uniqueForwardSimpleWrite(name, step.ID, plan, activeSet); ok {
+				visibleSet[name] = struct{}{}
+			}
+		}
+		visible := make([]string, 0, len(visibleSet))
+		for name := range visibleSet {
+			visible = append(visible, name)
+		}
+		step.Names = scopeNameCatalog(visible, step.VisibleNamespaces)
+		if step.Name != "" {
+			prevWrite[step.Name] = step.ID
+		}
+	}
 }
 
 func isCompoundAssignOp(op ast.AssignOp) bool {
@@ -178,6 +225,7 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 			value := eval.EvalExprWithOptions(step.EffectiveExpr, evalEnv, diags, eval.ExprOptions{
 				GlobalAssignmentTupleArithmetic: true,
 				Context:                         eval.EvalCtxBindingAssign,
+				Names:                           step.Names,
 			})
 			res.TopLevelExprs = append(res.TopLevelExprs, TopLevelExprResult{
 				Index: step.Index,
@@ -215,6 +263,7 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 			value := eval.EvalExprWithOptions(expr, evalEnv, diags, eval.ExprOptions{
 				GlobalAssignmentTupleArithmetic: true,
 				Context:                         eval.EvalCtxBindingAssign,
+				Names:                           step.Names,
 			})
 			if isModeExpr {
 				value = coerceModeValue(mode, value, step.Assign.Span, diags)
@@ -335,7 +384,7 @@ func execScalarGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.V
 					continue
 				}
 				evalEnv := mergeValueEnv(step.SeedEnv, env)
-				value := eval.EvalExprWithOptions(assign.Expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign})
+				value := eval.EvalExprWithOptions(assign.Expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names})
 				env[assign.Name] = value
 				out.Values[assign.Name] = value
 				delete(out.Modes, assign.Name)
@@ -348,7 +397,7 @@ func execScalarGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.V
 				expr = inner
 			}
 			evalEnv := mergeValueEnv(step.SeedEnv, env)
-			value := eval.EvalExprWithOptions(expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign})
+			value := eval.EvalExprWithOptions(expr, evalEnv, diags, eval.ExprOptions{Context: eval.EvalCtxScalarGlobalAssign, Names: step.Names})
 			if isModeExpr {
 				value = coerceModeValue(mode, value, assign.Span, diags)
 				out.Modes[assign.Name] = mode

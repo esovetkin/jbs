@@ -223,6 +223,8 @@ Supported assignment expressions:
   - `rev(list_or_tuple_expr)`
   - `comb(expr)`
   - `len(value)`
+  - `names()`
+  - `names(value)`
   - `filter(values, mask)`
   - `all(value)`
   - `any(value)`
@@ -233,7 +235,7 @@ Context restriction:
 
 - `range(...)` and `rev(...)` are allowed only in `param` assignment expressions.
 - `tuple(...)` and `list(...)` keep conversion semantics where expression evaluation is allowed.
-- `comb(...)`, `len(...)`, `filter(...)`, `all(...)`, and `any(...)` are also supported in `param` assignment expressions.
+- `comb(...)`, `len(...)`, `names(...)`, `filter(...)`, `all(...)`, and `any(...)` are also supported in `param` assignment expressions.
 
 Qualified access and indexing:
 
@@ -356,9 +358,20 @@ Kernel list helpers in `param` assignments:
 - `range(10,1)` -> `[]`
 - `rev([0,1,2,3,4])` -> `[4,3,2,1,0]`
 - `rev((0,1,2,3,4))` -> `(4,3,2,1,0)`
+- `names()` -> visible variable names in the current scope
+- `names(params)` -> comb column names
+- `names(lib)` -> direct variable names in imported namespace `lib`
 
 `range(stop)` and `range(start, stop)` are integer forms.
 `range(start, stop, step)` accepts int/float numeric arguments.
+
+`names(...)` returns a list of strings:
+
+- `names()` lists visible variable names in the current scope
+- `names(module)` lists direct variable members in that namespace
+- `names(comb)` lists comb column names
+
+For namespace queries, only direct variable members are returned. Nested descendants stay under their own namespace, so `names(lib)` does not include `inner.value`; use `names(lib.inner)` for that case.
 
 ```jbs
 param p_convert {

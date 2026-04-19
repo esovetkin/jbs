@@ -113,6 +113,24 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "a = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "names()")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_comment\", \"jbs_name\", ...]" {
+		t.Fatalf("unexpected names() expr output: %#v", second.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkReportsExpressionError(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "range(,)")
@@ -173,6 +191,28 @@ func TestCommitReplChunkWithEmbeddedJSCNamespace(t *testing.T) {
 	}
 	if len(second.ExprOutput) != 1 || strings.TrimSpace(second.ExprOutput[0]) == "" {
 		t.Fatalf("expected one non-empty expr output, got %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkWithNamespaceNames(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("z = \"ok\"\na = 1\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	first, err := commitReplChunk(cwd, "", "use \"./lib.jbs\" as lib")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "names(lib)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected names(lib) to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"z\"]" {
+		t.Fatalf("unexpected names(lib) output: %#v", second.ExprOutput)
 	}
 }
 

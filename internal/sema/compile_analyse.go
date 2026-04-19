@@ -141,6 +141,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			warnModeExprInCollections(effectiveExpr, diags)
 			value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 				Context: eval.EvalCtxAnalyseAssign,
+				Names:   scopeNameCatalog(visibleNamesFromEnv(env), res.Namespaces),
 			})
 			if hasNestedList(value) {
 				diags.AddError(
@@ -168,6 +169,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		before := len(diags.Items)
 		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 			Context: eval.EvalCtxAnalyseAssign,
+			Names:   scopeNameCatalog(visibleNamesFromEnv(env), res.Namespaces),
 		})
 		if value.Kind != eval.KindString {
 			if hasErrorCodeSince(diags, before, diag.CodeE100) {

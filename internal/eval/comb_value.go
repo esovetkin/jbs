@@ -82,6 +82,16 @@ func CombProject(v Value, cols []string) (Value, bool) {
 	}), true
 }
 
+func CombNames(v Value) []string {
+	if !IsComb(v) {
+		return nil
+	}
+	if len(v.C.Order) > 0 {
+		return uniqueStringsPreserveOrder(v.C.Order)
+	}
+	return RowVariableNames(v.C.Rows)
+}
+
 func containsCombColumn(order []string, name string) bool {
 	for _, col := range order {
 		if col == name {

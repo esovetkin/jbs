@@ -194,3 +194,79 @@ func TestCompileAnalyseBlockUnknownStep(t *testing.T) {
 		t.Fatalf("expected one unknown-step diagnostic, got %d: %s", countDiagCode(diags, "E410"), diags.String())
 	}
 }
+
+func TestCompileAnalyseBlockSupportsNamesBuiltin(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"globalv": eval.Int(1),
+			},
+		},
+		BindingsByName: map[string]*GlobalBinding{
+			"stepSource": {
+				Name:    "stepSource",
+				Shape:   BindingScalar,
+				Order:   []string{"stepVar"},
+				Vars:    map[string][]eval.Value{"stepVar": {eval.String("step")}},
+				Origins: map[string]diag.Span{"stepVar": span},
+				Span:    span,
+			},
+		},
+		DoBlocks: []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{
+			"run": {
+				Effective: map[string]VisibleBinding{
+					"stepVar": {Name: "stepVar", Source: "stepSource", Span: span},
+				},
+			},
+		},
+		Namespaces: map[string]*Namespace{
+			"mod": {
+				Name:     "mod",
+				Bindings: []string{"mod.alpha", "mod.beta", "mod.child.gamma"},
+			},
+		},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{
+				Name: "helperCount",
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+			{
+				Name: "namespaceCount",
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args: []ast.Expr{
+						ast.CallExpr{
+							Callee: ast.IdentExpr{Name: "names", Span: span},
+							Args:   []ast.Expr{ast.IdentExpr{Name: "mod", Span: span}},
+							Span:   span,
+						},
+					},
+					Span: span,
+				},
+				Span: span,
+			},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, diags)
+	if spec == nil {
+		t.Fatalf("expected analyse spec")
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}

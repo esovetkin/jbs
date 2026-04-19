@@ -35,6 +35,7 @@ const (
 type ExprOptions struct {
 	GlobalAssignmentTupleArithmetic bool
 	Context                         EvalContext
+	Names                           *NameCatalog
 }
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
@@ -125,7 +126,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		diags.AddError(diag.CodeE106, "alias expression is only allowed inside comb()", e.Span, "use syntax: comb(expr as name)")
 		return Null()
 	case ast.CallExpr:
-		if name, ok := callName(e.Callee); ok && name == "comb" {
+		if name, ok := callName(e.Callee); ok && (name == "comb" || name == "names") {
 			return evalCall(e.Callee, e.Args, nil, env, e.Span, diags, opts, ctx)
 		}
 		args := make([]Value, 0, len(e.Args))
@@ -241,6 +242,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.Expr, args []Value, env map[string]
 			return Null()
 		}
 		return evalCombCall(rawArgs, env, at, diags, opts, ctx)
+	case "names":
+		return evalNamesCall(rawArgs, env, at, diags, opts, ctx)
 	case "len":
 		return evalLenCall(args, at, diags)
 	case "filter":
@@ -299,6 +302,61 @@ func evalConvert(target string, value Value, at diag.Span, diags *diag.Diagnosti
 	default:
 		return value
 	}
+}
+
+func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) > 1 {
+		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names() or names(expr)")
+		return Null()
+	}
+	if opts.Names == nil {
+		diags.AddError(diag.CodeE106, "names() requires scope metadata in this evaluation context", at, "call names() only in normal compiled expression contexts")
+		return Null()
+	}
+	if len(rawArgs) == 0 {
+		return stringListValue(opts.Names.Visible)
+	}
+	if nsName, ok := namespaceArgName(rawArgs[0], opts.Names); ok {
+		return stringListValue(opts.Names.Namespaces[nsName].Members)
+	}
+	before := len(diags.Items)
+	value := evalExprWithCtx(rawArgs[0], env, diags, opts, ctx)
+	if len(diags.Items) > before {
+		return Null()
+	}
+	if !IsComb(value) {
+		diags.AddError(diag.CodeE106, "names() expects a module namespace or comb value", rawArgs[0].GetSpan(), "use names(), names(module), or names(comb)")
+		return Null()
+	}
+	return stringListValue(CombNames(value))
+}
+
+func namespaceArgName(expr ast.Expr, catalog *NameCatalog) (string, bool) {
+	if catalog == nil {
+		return "", false
+	}
+	switch n := expr.(type) {
+	case ast.IdentExpr:
+		_, ok := catalog.Namespaces[n.Name]
+		return n.Name, ok
+	case ast.QualifiedIdentExpr:
+		if n.Namespace == "" || n.Name == "" {
+			return "", false
+		}
+		key := n.Namespace + "." + n.Name
+		_, ok := catalog.Namespaces[key]
+		return key, ok
+	default:
+		return "", false
+	}
+}
+
+func stringListValue(names []string) Value {
+	items := make([]Value, 0, len(names))
+	for _, name := range names {
+		items = append(items, String(name))
+	}
+	return List(items)
 }
 
 func evalTupleCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {

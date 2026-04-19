@@ -47,6 +47,33 @@ y = ("a","b","c","d")
 12 == len(comb(x*y))
 ```
 
+## `names()`, `names(<module>)`, `names(<comb>)`
+
+`names(...)` returns a list of strings.
+
+- `names()` returns visible variable names in the current scope
+- `names(module)` returns direct variable names in that module namespace
+- `names(comb)` returns comb column names
+
+```jbs
+use jsc
+
+a = range(2)
+b = rev(range(2))
+params = comb(a as x * b as y)
+
+names()
+names(jsc)
+names(params)
+names(params[x])
+```
+
+Rules:
+
+- `names()` returns only variable names, not step names or module aliases
+- `names(module)` returns direct variable members only, not nested descendants
+- `names(comb)` preserves comb column order when available
+
 ## `comb(<expr>)`
 
 XXX link to docs/help_combinations.md

@@ -201,7 +201,7 @@ func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil), nil, nil, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -223,6 +223,53 @@ func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
 	}
 	if !eval.Equal(exec.TopLevelExprs[0].Value, eval.Int(1)) || !eval.Equal(exec.TopLevelExprs[1].Value, eval.Int(2)) {
 		t.Fatalf("unexpected expr result values: %#v", exec.TopLevelExprs)
+	}
+}
+
+func TestBuildGlobalPlanAssignsNameCatalogs(t *testing.T) {
+	span := diag.NewSpan("exprs.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	prog := ast.Program{
+		File: "exprs.jbs",
+		Stmts: []ast.Stmt{
+			ast.GlobalAssign{
+				Name: "x",
+				Op:   ast.AssignEq,
+				Expr: ast.BinaryExpr{
+					Left:  ast.IdentExpr{Name: "y", Span: span},
+					Op:    "+",
+					Right: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+					Span:  span,
+				},
+				Span: span,
+			},
+			ast.GlobalAssign{
+				Name: "y",
+				Op:   ast.AssignEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Span: span,
+			},
+			ast.GlobalAssign{
+				Name: "y",
+				Op:   ast.AssignPlusEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Span: span,
+			},
+			ast.ExprStmt{
+				Expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
+				Span: span,
+			},
+		},
+	}
+
+	plan := buildGlobalPlan(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+		"ns.value": eval.Int(1),
+	})
+	if got := plan.Steps[0].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "y"}) {
+		t.Fatalf("unexpected step-0 visible names: %#v", got)
+	}
+	if got := plan.Steps[3].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "x", "y"}) {
+		t.Fatalf("unexpected final step visible names: %#v", got)
 	}
 }
 

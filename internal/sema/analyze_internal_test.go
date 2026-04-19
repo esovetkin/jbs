@@ -105,6 +105,32 @@ func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 	}
 }
 
+func TestAnalyzeReturnsNamesResults(t *testing.T) {
+	src := "x = 1\nnames()\n"
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 {
+		t.Fatalf("expected one top-level expr result, got %#v", res.TopLevelExprs)
+	}
+	want := eval.List([]eval.Value{
+		eval.String("jbs_comment"),
+		eval.String("jbs_name"),
+		eval.String("jbs_outpath"),
+		eval.String("x"),
+	})
+	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected names() result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+	}
+}
+
 func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")
@@ -130,4 +156,86 @@ func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
 	if !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(41)) {
 		t.Fatalf("unexpected imported top-level expr value: %#v", res.TopLevelExprs[0])
 	}
+}
+
+func TestAnalyzeWithImportsReturnsNamesNamespaceResults(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("value = 41\nother = 7\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "use \"./lib.jbs\" as lib\nnames(lib)\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 {
+		t.Fatalf("expected one imported top-level expr result, got %#v", res.TopLevelExprs)
+	}
+	want := eval.List([]eval.Value{eval.String("other"), eval.String("value")})
+	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected namespace names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+	}
+}
+
+func TestAnalyzeWithImportsNamesNamespaceRespectsVisibilityOrder(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("value = 41\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "names(lib)\nuse \"./lib.jbs\" as lib\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	_ = AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if !diags.HasErrors() {
+		t.Fatalf("expected visibility-order error")
+	}
+	if !hasDiagCode(diags, "E100") {
+		t.Fatalf("expected E100 for namespace before use, got %s", diags.String())
+	}
+}
+
+func TestAnalyzeReturnsCombNamesResults(t *testing.T) {
+	src := "x = range(2)\ny = range(3)\nparams = comb(x * y)\nnames(params[x])\n"
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 {
+		t.Fatalf("expected one comb names result, got %#v", res.TopLevelExprs)
+	}
+	want := eval.List([]eval.Value{eval.String("x")})
+	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected comb names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+	}
+}
+
+func hasDiagCode(diags *diag.Diagnostics, code string) bool {
+	for _, item := range diags.Items {
+		if string(item.Code) == code {
+			return true
+		}
+	}
+	return false
 }
