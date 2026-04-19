@@ -87,6 +87,39 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
 		}
 	})
+
+	t.Run("member access on projected comb returns scalar", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		comb := CombValue(&Comb{
+			Order: []string{"x", "y"},
+			Rows: []Row{
+				{Values: map[string]Cell{
+					"x": {Value: Int(7)},
+					"y": {Value: Int(10)},
+				}},
+			},
+		})
+		got := EvalExprWithOptions(
+			ast.MemberExpr{
+				Base: ast.IndexExpr{
+					Base:  ast.IdentExpr{Name: "m", Span: spanAt(502, 1)},
+					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(502, 3)}},
+					Span:  spanAt(502, 1),
+				},
+				Name: "x",
+				Span: spanAt(502, 1),
+			},
+			map[string]Value{"m": comb},
+			diags,
+			ExprOptions{Context: EvalCtxBindingAssign},
+		)
+		if got.Kind != KindInt || got.I != 7 {
+			t.Fatalf("expected projected member scalar 7, got %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
 }
 
 func TestEvalExprWithCtxCombBinaryPaths(t *testing.T) {
@@ -145,14 +178,7 @@ func TestEvalExprWithCtxCombBinaryPaths(t *testing.T) {
 	})
 }
 
-func TestExprNeedsCombBinaryAdditionalBranches(t *testing.T) {
-	env := map[string]Value{
-		"c": CombValue(&Comb{
-			Order: []string{"x"},
-			Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
-		}),
-	}
-
+func TestBinaryNeedsRelaxedCombEvalAdditionalBranches(t *testing.T) {
 	tests := []struct {
 		name string
 		expr ast.Expr
@@ -164,20 +190,29 @@ func TestExprNeedsCombBinaryAdditionalBranches(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "call with comb in callee tree",
+			name: "call with alias in callee tree",
 			expr: ast.CallExpr{
-				Callee: ast.UnaryExpr{Op: "+", Expr: ast.IdentExpr{Name: "c", Span: spanAt(506, 1)}, Span: spanAt(506, 1)},
+				Callee: ast.UnaryExpr{Op: "+", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(506, 1)}, Alias: "k", Span: spanAt(506, 1)}, Span: spanAt(506, 1)},
 				Args:   []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(506, 3)}},
 				Span:   spanAt(506, 1),
 			},
 			want: true,
 		},
 		{
-			name: "index detects comb in selectors",
+			name: "member recurse through base",
+			expr: ast.MemberExpr{
+				Base: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(507, 1)}, Alias: "m", Span: spanAt(507, 1)},
+				Name: "x",
+				Span: spanAt(507, 1),
+			},
+			want: true,
+		},
+		{
+			name: "index recurse through alias selector",
 			expr: ast.IndexExpr{
 				Base: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(507, 1)},
 				Items: []ast.Expr{
-					ast.IdentExpr{Name: "c", Span: spanAt(507, 3)},
+					ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(507, 3)}, Alias: "sel", Span: spanAt(507, 3)},
 				},
 				Span: spanAt(507, 1),
 			},
@@ -195,7 +230,7 @@ func TestExprNeedsCombBinaryAdditionalBranches(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "tuple no comb returns false",
+			name: "tuple no alias returns false",
 			expr: ast.TupleExpr{Items: []ast.Expr{
 				ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(509, 1)},
 			}},
@@ -203,7 +238,7 @@ func TestExprNeedsCombBinaryAdditionalBranches(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		if got := exprNeedsCombBinary(tc.expr, env); got != tc.want {
+		if got := binaryNeedsRelaxedCombEval(tc.expr); got != tc.want {
 			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, got)
 		}
 	}
@@ -233,7 +268,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows nil expression", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(nil, map[string]Value{}, diags, ExprOptions{}, ctx)
+		rows, ok := evalStrictCombRows(nil, map[string]Value{}, diags, ExprOptions{}, ctx)
 		if ok || rows != nil {
 			t.Fatalf("expected nil,false for nil expr, got rows=%#v ok=%v", rows, ok)
 		}
@@ -241,7 +276,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows duplicate identifiers", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(
+		rows, ok := evalStrictCombRows(
 			ast.BinaryExpr{
 				Left:  ast.IdentExpr{Name: "x", Span: span},
 				Op:    "+",
@@ -260,7 +295,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows unknown identifier", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(ast.IdentExpr{Name: "missing", Span: span}, map[string]Value{}, diags, ExprOptions{}, ctx)
+		rows, ok := evalStrictCombRows(ast.IdentExpr{Name: "missing", Span: span}, map[string]Value{}, diags, ExprOptions{}, ctx)
 		if ok || rows != nil || diagCount(diags, "E100") == 0 {
 			t.Fatalf("expected unknown identifier error, got rows=%#v ok=%v diags=%s", rows, ok, diags.String())
 		}
@@ -268,7 +303,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows qualified identifier", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(
+		rows, ok := evalStrictCombRows(
 			ast.QualifiedIdentExpr{Namespace: "ns", Name: "v", Span: span},
 			map[string]Value{"ns.v": Int(9)},
 			diags,
@@ -288,7 +323,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows comb call leaf success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(
+		rows, ok := evalStrictCombRows(
 			ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "comb", Span: span},
 				Args: []ast.Expr{
@@ -318,7 +353,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows comb call leaf non-comb", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(
+		rows, ok := evalStrictCombRows(
 			ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "comb", Span: span},
 				Args: []ast.Expr{
@@ -338,7 +373,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 
 	t.Run("named rows alias requires non-empty and non-comb", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		rows, ok := evalExprAsNamedCombRows(
+		rows, ok := evalStrictCombRows(
 			ast.AliasExpr{
 				Expr:  ast.NumberExpr{Int: true, IntValue: 1, Span: span},
 				Alias: "",
@@ -354,7 +389,7 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 		}
 
 		diags = &diag.Diagnostics{}
-		rows, ok = evalExprAsNamedCombRows(
+		rows, ok = evalStrictCombRows(
 			ast.AliasExpr{
 				Expr:  ast.IdentExpr{Name: "c", Span: span},
 				Alias: "k",

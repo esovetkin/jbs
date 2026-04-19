@@ -43,6 +43,8 @@ func warnModeExprInCollections(expr ast.Expr, diags *diag.Diagnostics) {
 			}
 		case ast.AliasExpr:
 			walk(n.Expr, inCollection)
+		case ast.MemberExpr:
+			walk(n.Base, inCollection)
 		case ast.UnaryExpr:
 			walk(n.Expr, inCollection)
 		case ast.BinaryExpr:

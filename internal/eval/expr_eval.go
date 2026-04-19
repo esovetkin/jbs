@@ -82,6 +82,21 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", key), e.Span, "import or define the variable before use")
 		return Null()
+	case ast.MemberExpr:
+		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
+		if !IsComb(base) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("member access '.%s' requires a comb base", e.Name), e.Span, "use member access only on comb values")
+			return Null()
+		}
+		col, ok := CombColumn(base, e.Name)
+		if !ok {
+			diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "select an existing comb column")
+			return Null()
+		}
+		if len(col) == 1 {
+			return col[0]
+		}
+		return List(col)
 	case ast.StringExpr:
 		return String(e.Value)
 	case ast.NumberExpr:
@@ -150,9 +165,8 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
-		if opts.Context == EvalCtxBindingAssign && (e.Op == "+" || e.Op == "*") && exprNeedsCombBinary(e, env) {
-			rows, _ := evalExprAsNamedCombRows(e, env, diags, opts, ctx)
-			return combValueFromRows(rows)
+		if opts.Context == EvalCtxBindingAssign && (e.Op == "+" || e.Op == "*") && binaryNeedsRelaxedCombEval(e) {
+			return evalRelaxedCombBinary(e, env, diags, opts, ctx)
 		}
 		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
 		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
@@ -484,75 +498,61 @@ func broadcastMask(maskVals []Value, n int, at diag.Span, diags *diag.Diagnostic
 	return out
 }
 
-func exprNeedsCombBinary(expr ast.Expr, env map[string]Value) bool {
+func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 	if expr == nil {
 		return false
 	}
 	switch e := expr.(type) {
 	case ast.AliasExpr:
 		return true
-	case ast.IdentExpr:
-		if v, ok := env[e.Name]; ok {
-			return IsComb(v)
-		}
-		return false
-	case ast.QualifiedIdentExpr:
-		if ns, ok := env[e.Namespace]; ok && IsComb(ns) {
-			return true
-		}
-		if v, ok := env[e.Namespace+"."+e.Name]; ok {
-			return IsComb(v)
-		}
-		return false
+	case ast.MemberExpr:
+		return binaryNeedsRelaxedCombEval(e.Base)
 	case ast.BinaryExpr:
-		return exprNeedsCombBinary(e.Left, env) || exprNeedsCombBinary(e.Right, env)
+		return binaryNeedsRelaxedCombEval(e.Left) || binaryNeedsRelaxedCombEval(e.Right)
 	case ast.UnaryExpr:
-		return exprNeedsCombBinary(e.Expr, env)
+		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.ModeExpr:
-		return exprNeedsCombBinary(e.Expr, env)
+		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.ConvertExpr:
-		return exprNeedsCombBinary(e.Expr, env)
+		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.CallExpr:
-		if name, ok := callName(e.Callee); ok && name == "comb" {
-			return true
-		}
-		if exprNeedsCombBinary(e.Callee, env) {
+		if binaryNeedsRelaxedCombEval(e.Callee) {
 			return true
 		}
 		for _, arg := range e.Args {
-			if exprNeedsCombBinary(arg, env) {
+			if binaryNeedsRelaxedCombEval(arg) {
 				return true
 			}
 		}
 		return false
 	case ast.IndexExpr:
-		if exprNeedsCombBinary(e.Base, env) {
+		if binaryNeedsRelaxedCombEval(e.Base) {
 			return true
 		}
 		for _, item := range e.Items {
-			if exprNeedsCombBinary(item, env) {
+			if binaryNeedsRelaxedCombEval(item) {
 				return true
 			}
 		}
 		return false
 	case ast.ListExpr:
 		for _, item := range e.Items {
-			if exprNeedsCombBinary(item, env) {
+			if binaryNeedsRelaxedCombEval(item) {
 				return true
 			}
 		}
 		return false
 	case ast.TupleExpr:
 		for _, item := range e.Items {
-			if exprNeedsCombBinary(item, env) {
+			if binaryNeedsRelaxedCombEval(item) {
 				return true
 			}
 		}
 		return false
 	case ast.CompareExpr:
-		return exprNeedsCombBinary(e.Left, env) || exprNeedsCombBinary(e.Right, env)
+		return binaryNeedsRelaxedCombEval(e.Left) || binaryNeedsRelaxedCombEval(e.Right)
 	case ast.ConditionalExpr:
-		return exprNeedsCombBinary(e.Then, env) || exprNeedsCombBinary(e.Cond, env) || exprNeedsCombBinary(e.Else, env)
+		return binaryNeedsRelaxedCombEval(e.Then) || binaryNeedsRelaxedCombEval(e.Cond) || binaryNeedsRelaxedCombEval(e.Else)
 	default:
 		return false
 	}
@@ -563,19 +563,19 @@ func evalCombCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags 
 		diags.AddError(diag.CodeE106, "comb() expects exactly one argument", at, "use comb(expression)")
 		return Null()
 	}
-	rows, _ := evalExprAsNamedCombRows(rawArgs[0], env, diags, opts, ctx)
+	rows, _ := evalStrictCombRows(rawArgs[0], env, diags, opts, ctx)
 	return combValueFromRows(rows)
 }
 
-func evalExprAsNamedCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
+func evalStrictCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
 	if expr == nil {
 		return nil, false
 	}
 	switch e := expr.(type) {
 	case ast.BinaryExpr:
 		if e.Op == "+" || e.Op == "*" {
-			left, okLeft := evalExprAsNamedCombRows(e.Left, env, diags, opts, ctx)
-			right, okRight := evalExprAsNamedCombRows(e.Right, env, diags, opts, ctx)
+			left, okLeft := evalStrictCombRows(e.Left, env, diags, opts, ctx)
+			right, okRight := evalStrictCombRows(e.Right, env, diags, opts, ctx)
 			if !okLeft || !okRight {
 				return nil, false
 			}
@@ -636,6 +636,39 @@ func evalExprAsNamedCombRows(expr ast.Expr, env map[string]Value, diags *diag.Di
 	return nil, false
 }
 
+func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	left, okLeft := evalRelaxedCombOperand(expr.Left, env, diags, opts, ctx)
+	right, okRight := evalRelaxedCombOperand(expr.Right, env, diags, opts, ctx)
+	if !okLeft || !okRight {
+		return Null()
+	}
+	opNode := ast.CombBinary{Op: expr.Op, OpSpan: expr.Span, Span: expr.Span}
+	if expr.Op == "+" {
+		return combValueFromRows(zipRows(left, right, opNode, diags))
+	}
+	return combValueFromRows(productRows(left, right, opNode, diags))
+}
+
+func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
+	if expr == nil {
+		return nil, false
+	}
+	if alias, ok := expr.(ast.AliasExpr); ok {
+		if alias.Alias == "" {
+			diags.AddError(diag.CodeE106, "comb operand alias cannot be empty", alias.Span, "use syntax: expression as name")
+			return nil, false
+		}
+		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
+		if IsComb(value) {
+			diags.AddError(diag.CodeE106, "alias cannot be applied to a comb-valued expression", alias.Span, "apply alias only to non-comb operands")
+			return nil, false
+		}
+		return combRowsFromNamedValue(alias.Alias, value, alias.Span), true
+	}
+	value := evalExprWithCtx(expr, env, diags, opts, ctx)
+	return combRowsFromBinaryOperand(expr, value, env, diags, opts, ctx), true
+}
+
 func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
 	if IsComb(value) {
 		return cloneRows(value.C.Rows)
@@ -665,7 +698,7 @@ func combRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value,
 	case ast.QualifiedIdentExpr:
 		return combRowsFromNamedValue(e.Namespace+"."+e.Name, value, e.Span)
 	case ast.AliasExpr:
-		rows, _ := evalExprAsNamedCombRows(e, env, diags, opts, ctx)
+		rows, _ := evalRelaxedCombOperand(e, env, diags, opts, ctx)
 		return rows
 	default:
 		return combRowsFromValue(value, expr.GetSpan())

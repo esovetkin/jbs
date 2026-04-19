@@ -34,6 +34,8 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 			out[e.Namespace] = struct{}{}
 		}
 		return
+	case ast.MemberExpr:
+		collectExprLocalIdentDeps(e.Base, out)
 	case ast.ModeExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.ListExpr:

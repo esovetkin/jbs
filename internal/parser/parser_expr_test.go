@@ -661,19 +661,22 @@ func TestParsePostfixChainedQualifiedIdentifier(t *testing.T) {
 	}
 }
 
-func TestParsePostfixDotOnNonNamespaceReportsE064(t *testing.T) {
+func TestParsePostfixDotOnNonNamespaceBuildsMemberExpr(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseExprTP("(1).x", diags)
 	expr := tp.parseExpr()
-	q, ok := expr.(ast.QualifiedIdentExpr)
+	member, ok := expr.(ast.MemberExpr)
 	if !ok {
-		t.Fatalf("expected qualified identifier fallback, got %#v", expr)
+		t.Fatalf("expected member expression, got %#v", expr)
 	}
-	if q.Namespace != "" || q.Name != "x" {
-		t.Fatalf("expected fallback qualified identifier .x, got namespace=%q name=%q", q.Namespace, q.Name)
+	if member.Name != "x" {
+		t.Fatalf("expected member name x, got %q", member.Name)
 	}
-	if !hasCode(diags, "E064") {
-		t.Fatalf("expected E064, got: %s", diags.String())
+	if _, ok := member.Base.(ast.NumberExpr); !ok {
+		t.Fatalf("expected number base, got %#v", member.Base)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
 	}
 }
 
@@ -713,6 +716,37 @@ func TestParseIndexExprBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("index followed by member access", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("p0[x].x", diags)
+		expr := tp.parseExpr()
+		member, ok := expr.(ast.MemberExpr)
+		if !ok {
+			t.Fatalf("expected member expression, got %#v", expr)
+		}
+		if member.Name != "x" {
+			t.Fatalf("expected member name x, got %q", member.Name)
+		}
+		idx, ok := member.Base.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index base, got %#v", member.Base)
+		}
+		base, ok := idx.Base.(ast.IdentExpr)
+		if !ok || base.Name != "p0" {
+			t.Fatalf("expected p0 index base, got %#v", idx.Base)
+		}
+		if len(idx.Items) != 1 {
+			t.Fatalf("expected one index selector, got %#v", idx.Items)
+		}
+		sel, ok := idx.Items[0].(ast.IdentExpr)
+		if !ok || sel.Name != "x" {
+			t.Fatalf("expected x selector, got %#v", idx.Items[0])
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
 	t.Run("missing closing bracket reports E055", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		tp := parseExprTP("a[1,2", diags)
@@ -724,6 +758,43 @@ func TestParseIndexExprBranches(t *testing.T) {
 			t.Fatalf("expected E055, got: %s", diags.String())
 		}
 	})
+}
+
+func TestParseMemberAliasAndProjectionCombExpr(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("p0[x].x as y + p1[x]", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	top, ok := expr.(ast.BinaryExpr)
+	if !ok || top.Op != "+" {
+		t.Fatalf("expected top-level + binary expression, got %#v", expr)
+	}
+	leftAlias, ok := top.Left.(ast.AliasExpr)
+	if !ok || leftAlias.Alias != "y" {
+		t.Fatalf("expected left alias y, got %#v", top.Left)
+	}
+	leftMember, ok := leftAlias.Expr.(ast.MemberExpr)
+	if !ok || leftMember.Name != "x" {
+		t.Fatalf("expected left member access .x, got %#v", leftAlias.Expr)
+	}
+	leftIndex, ok := leftMember.Base.(ast.IndexExpr)
+	if !ok {
+		t.Fatalf("expected left member base to be index expr, got %#v", leftMember.Base)
+	}
+	leftBase, ok := leftIndex.Base.(ast.IdentExpr)
+	if !ok || leftBase.Name != "p0" {
+		t.Fatalf("expected left index base p0, got %#v", leftIndex.Base)
+	}
+	rightIndex, ok := top.Right.(ast.IndexExpr)
+	if !ok {
+		t.Fatalf("expected right index expr, got %#v", top.Right)
+	}
+	rightBase, ok := rightIndex.Base.(ast.IdentExpr)
+	if !ok || rightBase.Name != "p1" {
+		t.Fatalf("expected right index base p1, got %#v", rightIndex.Base)
+	}
 }
 
 func TestParseCallArgsBranches(t *testing.T) {

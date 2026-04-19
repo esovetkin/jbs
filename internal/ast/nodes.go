@@ -247,6 +247,15 @@ type QualifiedIdentExpr struct {
 func (e QualifiedIdentExpr) exprNode()          {}
 func (e QualifiedIdentExpr) GetSpan() diag.Span { return e.Span }
 
+type MemberExpr struct {
+	Base Expr
+	Name string
+	Span diag.Span
+}
+
+func (e MemberExpr) exprNode()          {}
+func (e MemberExpr) GetSpan() diag.Span { return e.Span }
+
 type IndexExpr struct {
 	Base  Expr
 	Items []Expr

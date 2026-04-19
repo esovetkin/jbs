@@ -24,6 +24,7 @@ var (
 	_ Stmt     = SubmitBlock{}
 	_ Expr     = IdentExpr{}
 	_ Expr     = QualifiedIdentExpr{}
+	_ Expr     = MemberExpr{}
 	_ Expr     = IndexExpr{}
 	_ Expr     = StringExpr{}
 	_ Expr     = NumberExpr{}
@@ -111,20 +112,21 @@ func TestStmtNodes(t *testing.T) {
 func TestExprNodes(t *testing.T) {
 	ident := IdentExpr{Span: testSpan(15)}
 	qualified := QualifiedIdentExpr{Span: testSpan(16)}
-	index := IndexExpr{Span: testSpan(17)}
-	str := StringExpr{Span: testSpan(18)}
-	number := NumberExpr{Span: testSpan(19)}
-	boolean := BoolExpr{Span: testSpan(20)}
-	list := ListExpr{Span: testSpan(21)}
-	tuple := TupleExpr{Span: testSpan(22)}
-	convert := ConvertExpr{Span: testSpan(23)}
-	call := CallExpr{Span: testSpan(24)}
-	alias := AliasExpr{Span: testSpan(25)}
-	unary := UnaryExpr{Span: testSpan(26)}
-	binary := BinaryExpr{Span: testSpan(27)}
-	compare := CompareExpr{Span: testSpan(28)}
-	conditional := ConditionalExpr{Span: testSpan(29)}
-	mode := ModeExpr{Span: testSpan(30)}
+	member := MemberExpr{Span: testSpan(17)}
+	index := IndexExpr{Span: testSpan(18)}
+	str := StringExpr{Span: testSpan(19)}
+	number := NumberExpr{Span: testSpan(20)}
+	boolean := BoolExpr{Span: testSpan(21)}
+	list := ListExpr{Span: testSpan(22)}
+	tuple := TupleExpr{Span: testSpan(23)}
+	convert := ConvertExpr{Span: testSpan(24)}
+	call := CallExpr{Span: testSpan(25)}
+	alias := AliasExpr{Span: testSpan(26)}
+	unary := UnaryExpr{Span: testSpan(27)}
+	binary := BinaryExpr{Span: testSpan(28)}
+	compare := CompareExpr{Span: testSpan(29)}
+	conditional := ConditionalExpr{Span: testSpan(30)}
+	mode := ModeExpr{Span: testSpan(31)}
 
 	tests := []struct {
 		name string
@@ -134,20 +136,21 @@ func TestExprNodes(t *testing.T) {
 	}{
 		{name: "IdentExpr", call: func() { ident.exprNode() }, node: ident, want: testSpan(15)},
 		{name: "QualifiedIdentExpr", call: func() { qualified.exprNode() }, node: qualified, want: testSpan(16)},
-		{name: "IndexExpr", call: func() { index.exprNode() }, node: index, want: testSpan(17)},
-		{name: "StringExpr", call: func() { str.exprNode() }, node: str, want: testSpan(18)},
-		{name: "NumberExpr", call: func() { number.exprNode() }, node: number, want: testSpan(19)},
-		{name: "BoolExpr", call: func() { boolean.exprNode() }, node: boolean, want: testSpan(20)},
-		{name: "ListExpr", call: func() { list.exprNode() }, node: list, want: testSpan(21)},
-		{name: "TupleExpr", call: func() { tuple.exprNode() }, node: tuple, want: testSpan(22)},
-		{name: "ConvertExpr", call: func() { convert.exprNode() }, node: convert, want: testSpan(23)},
-		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(24)},
-		{name: "AliasExpr", call: func() { alias.exprNode() }, node: alias, want: testSpan(25)},
-		{name: "UnaryExpr", call: func() { unary.exprNode() }, node: unary, want: testSpan(26)},
-		{name: "BinaryExpr", call: func() { binary.exprNode() }, node: binary, want: testSpan(27)},
-		{name: "CompareExpr", call: func() { compare.exprNode() }, node: compare, want: testSpan(28)},
-		{name: "ConditionalExpr", call: func() { conditional.exprNode() }, node: conditional, want: testSpan(29)},
-		{name: "ModeExpr", call: func() { mode.exprNode() }, node: mode, want: testSpan(30)},
+		{name: "MemberExpr", call: func() { member.exprNode() }, node: member, want: testSpan(17)},
+		{name: "IndexExpr", call: func() { index.exprNode() }, node: index, want: testSpan(18)},
+		{name: "StringExpr", call: func() { str.exprNode() }, node: str, want: testSpan(19)},
+		{name: "NumberExpr", call: func() { number.exprNode() }, node: number, want: testSpan(20)},
+		{name: "BoolExpr", call: func() { boolean.exprNode() }, node: boolean, want: testSpan(21)},
+		{name: "ListExpr", call: func() { list.exprNode() }, node: list, want: testSpan(22)},
+		{name: "TupleExpr", call: func() { tuple.exprNode() }, node: tuple, want: testSpan(23)},
+		{name: "ConvertExpr", call: func() { convert.exprNode() }, node: convert, want: testSpan(24)},
+		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(25)},
+		{name: "AliasExpr", call: func() { alias.exprNode() }, node: alias, want: testSpan(26)},
+		{name: "UnaryExpr", call: func() { unary.exprNode() }, node: unary, want: testSpan(27)},
+		{name: "BinaryExpr", call: func() { binary.exprNode() }, node: binary, want: testSpan(28)},
+		{name: "CompareExpr", call: func() { compare.exprNode() }, node: compare, want: testSpan(29)},
+		{name: "ConditionalExpr", call: func() { conditional.exprNode() }, node: conditional, want: testSpan(30)},
+		{name: "ModeExpr", call: func() { mode.exprNode() }, node: mode, want: testSpan(31)},
 	}
 
 	for _, tc := range tests {

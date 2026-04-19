@@ -37,6 +37,15 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 								Items: []ast.Expr{
 									ast.IdentExpr{Name: "a", Span: sp},
 									ast.QualifiedIdentExpr{Namespace: "ns", Name: "skip", Span: sp},
+									ast.MemberExpr{
+										Base: ast.IndexExpr{
+											Base:  ast.IdentExpr{Name: "m", Span: sp},
+											Items: []ast.Expr{ast.IdentExpr{Name: "ignored", Span: sp}},
+											Span:  sp,
+										},
+										Name: "member",
+										Span: sp,
+									},
 									ast.TupleExpr{
 										Items: []ast.Expr{
 											ast.IdentExpr{Name: "b", Span: sp},
@@ -75,7 +84,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 
 	collectExprLocalIdentDeps(expr, deps)
 
-	want := []string{"a", "b", "c", "d", "e", "f", "list", "ns"}
+	want := []string{"a", "b", "c", "d", "e", "f", "ignored", "list", "m", "ns"}
 	if len(deps) != len(want) {
 		t.Fatalf("unexpected dep count: got=%d want=%d deps=%#v", len(deps), len(want), deps)
 	}
@@ -86,6 +95,9 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 	}
 	if _, ok := deps["ns.skip"]; ok {
 		t.Fatalf("qualified member name should not be collected as one symbol: %#v", deps)
+	}
+	if _, ok := deps["member"]; ok {
+		t.Fatalf("member name should not be collected: %#v", deps)
 	}
 }
 

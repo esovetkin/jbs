@@ -574,6 +574,8 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 				}
 				appendRef(globalReadRef{Name: n.Namespace, SeedAlt: seedAlt})
 			}
+		case ast.MemberExpr:
+			walk(n.Base)
 		case ast.ModeExpr:
 			walk(n.Expr)
 		case ast.ListExpr:

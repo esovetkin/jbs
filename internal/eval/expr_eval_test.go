@@ -209,6 +209,162 @@ func TestIndexExprCombProjectionErrors(t *testing.T) {
 	}
 }
 
+func TestMemberExprCombAccess(t *testing.T) {
+	t.Run("projected multi-row member returns list", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		comb := CombValue(&Comb{
+			Order: []string{"x", "y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}, "y": {Value: Int(10)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}, "y": {Value: Int(20)}}},
+			},
+		})
+		got := EvalExprWithOptions(
+			ast.MemberExpr{
+				Base: ast.IndexExpr{
+					Base:  ast.IdentExpr{Name: "p0", Span: spanAt(96, 1)},
+					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(96, 4)}},
+					Span:  spanAt(96, 1),
+				},
+				Name: "x",
+				Span: spanAt(96, 1),
+			},
+			map[string]Value{"p0": comb},
+			diags,
+			ExprOptions{Context: EvalCtxBindingAssign},
+		)
+		if got.Kind != KindList || len(got.L) != 2 || got.L[0].I != 1 || got.L[1].I != 2 {
+			t.Fatalf("expected projected member list [1,2], got %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("non comb member base reports E106", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(
+			ast.MemberExpr{
+				Base: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(97, 1)},
+				Name: "x",
+				Span: spanAt(97, 1),
+			},
+			nil,
+			diags,
+			ExprOptions{Context: EvalCtxBindingAssign},
+		)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null result, got %#v", got)
+		}
+		if diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+}
+
+func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
+	env := map[string]Value{
+		"p0": CombValue(&Comb{
+			Order: []string{"x", "y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}, "y": {Value: Int(50)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}, "y": {Value: Int(60)}}},
+			},
+		}),
+		"p1": CombValue(&Comb{
+			Order: []string{"x", "y"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(10)}, "y": {Value: Int(100)}}},
+				{Values: map[string]Cell{"x": {Value: Int(20)}, "y": {Value: Int(200)}}},
+			},
+		}),
+	}
+
+	t.Run("projected comb operands combine without strict leaf errors", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(
+			ast.BinaryExpr{
+				Left: ast.IndexExpr{
+					Base:  ast.IdentExpr{Name: "p0", Span: spanAt(98, 1)},
+					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(98, 4)}},
+					Span:  spanAt(98, 1),
+				},
+				Op: "+",
+				Right: ast.IndexExpr{
+					Base:  ast.IdentExpr{Name: "p1", Span: spanAt(98, 10)},
+					Items: []ast.Expr{ast.IdentExpr{Name: "y", Span: spanAt(98, 13)}},
+					Span:  spanAt(98, 10),
+				},
+				Span: spanAt(98, 1),
+			},
+			env,
+			diags,
+			ExprOptions{Context: EvalCtxBindingAssign},
+		)
+		if !IsComb(got) || got.C == nil {
+			t.Fatalf("expected comb result, got %#v", got)
+		}
+		if !slices.Equal(got.C.Order, []string{"x", "y"}) {
+			t.Fatalf("expected columns [x y], got %#v", got.C.Order)
+		}
+		if len(got.C.Rows) != 2 {
+			t.Fatalf("expected 2 rows, got %#v", got.C.Rows)
+		}
+		if got.C.Rows[0].Values["x"].Value.I != 1 || got.C.Rows[0].Values["y"].Value.I != 100 {
+			t.Fatalf("unexpected first row values: %#v", got.C.Rows[0].Values)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("member alias combines with projected comb operand", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(
+			ast.BinaryExpr{
+				Left: ast.AliasExpr{
+					Expr: ast.MemberExpr{
+						Base: ast.IndexExpr{
+							Base:  ast.IdentExpr{Name: "p0", Span: spanAt(99, 1)},
+							Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(99, 4)}},
+							Span:  spanAt(99, 1),
+						},
+						Name: "x",
+						Span: spanAt(99, 1),
+					},
+					Alias: "y",
+					Span:  spanAt(99, 1),
+				},
+				Op: "+",
+				Right: ast.IndexExpr{
+					Base:  ast.IdentExpr{Name: "p1", Span: spanAt(99, 14)},
+					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(99, 17)}},
+					Span:  spanAt(99, 14),
+				},
+				Span: spanAt(99, 1),
+			},
+			env,
+			diags,
+			ExprOptions{Context: EvalCtxBindingAssign},
+		)
+		if !IsComb(got) || got.C == nil {
+			t.Fatalf("expected comb result, got %#v", got)
+		}
+		if !slices.Equal(got.C.Order, []string{"x", "y"}) {
+			t.Fatalf("expected columns [x y], got %#v", got.C.Order)
+		}
+		if len(got.C.Rows) != 2 {
+			t.Fatalf("expected 2 rows, got %#v", got.C.Rows)
+		}
+		if got.C.Rows[0].Values["x"].Value.I != 10 || got.C.Rows[0].Values["y"].Value.I != 1 {
+			t.Fatalf("unexpected first row values: %#v", got.C.Rows[0].Values)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
 func TestEvalExprWithCtxModeExprPassthrough(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}

@@ -239,6 +239,8 @@ Qualified access and indexing:
 
 - `a.b` in expressions resolves to a comb-column lookup when `a` is a comb value.
 - `a[x]` and `a[x,y]` project comb values by column names.
+- Postfix access composes left-to-right, so forms such as `a[x].x` are valid.
+- `a[x].x` reads column `x` from the projected comb value.
 
 String arithmetic in assignment expressions:
 
@@ -415,6 +417,8 @@ Repeated identifier use in a single combination expression is rejected (`E036`).
 - Aliases are comb-column metadata only.
 - Alias on a comb-valued operand is rejected.
 - Duplicate output column names are rejected.
+- These strict naming rules apply to `comb(...)` construction only.
+- Ordinary expression `+` and `*` over values that already evaluate to combs use relaxed comb arithmetic instead of the strict `comb(...)` leaf checker.
 
 Examples:
 
@@ -430,6 +434,12 @@ c2 = comb(a * range(2))
 
 # valid: explicit output name for range(...) leaf
 c3 = comb(a * range(2) as b)
+
+# valid: projections are already comb values, so ordinary comb arithmetic works
+c4 = p0[x] + p1[y]
+
+# valid: member access composes after projection
+c5 = p0[x].x as y + p1[x]
 ```
 
 Examples:

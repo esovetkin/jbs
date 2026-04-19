@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 )
 
 func writeCLIFile(t *testing.T, dir, name, content string) string {
@@ -155,6 +156,40 @@ func TestAnalyzeInputExprStmtRespectsSelectiveImportVisibility(t *testing.T) {
 			t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
 		}
 	})
+}
+
+func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
+	cwd := t.TempDir()
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		"p0 = comb(range(10) as x * rev(range(5)) as y)",
+		"p1 = comb(range(5) as x * rev(range(10)) as y)",
+		"",
+		"p0[x] + p1[y]",
+		"p0[x].x",
+		"p0[x].x as y + p1[x]",
+		"",
+	}, "\n"))
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+		t.Fatalf("expected no error diagnostics: %s", diags.String())
+	}
+	if len(bundle.Result.TopLevelExprs) != 3 {
+		t.Fatalf("expected 3 top-level expr results, got %#v", bundle.Result.TopLevelExprs)
+	}
+	if !eval.IsComb(bundle.Result.TopLevelExprs[0].Value) {
+		t.Fatalf("expected first expr result to be comb, got %#v", bundle.Result.TopLevelExprs[0].Value)
+	}
+	if bundle.Result.TopLevelExprs[1].Value.Kind != eval.KindList || len(bundle.Result.TopLevelExprs[1].Value.L) != 10 {
+		t.Fatalf("expected second expr result to be a 10-item list, got %#v", bundle.Result.TopLevelExprs[1].Value)
+	}
+	if !eval.IsComb(bundle.Result.TopLevelExprs[2].Value) {
+		t.Fatalf("expected third expr result to be comb, got %#v", bundle.Result.TopLevelExprs[2].Value)
+	}
 }
 
 func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {

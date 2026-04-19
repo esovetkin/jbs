@@ -683,6 +683,8 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 					Span: n.Span,
 				})
 			}
+		case ast.MemberExpr:
+			walk(n.Base)
 		case ast.ListExpr:
 			for _, it := range n.Items {
 				walk(it)

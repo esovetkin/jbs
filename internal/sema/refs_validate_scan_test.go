@@ -130,6 +130,15 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 				Args: []ast.Expr{
 					ast.ListExpr{Items: []ast.Expr{
 						ast.QualifiedIdentExpr{Namespace: "ns", Name: "item", Span: sp},
+						ast.MemberExpr{
+							Base: ast.IndexExpr{
+								Base:  ast.IdentExpr{Name: "member_base", Span: sp},
+								Items: []ast.Expr{ast.IdentExpr{Name: "member_index", Span: sp}},
+								Span:  sp,
+							},
+							Name: "member_name",
+							Span: sp,
+						},
 						ast.ConvertExpr{Expr: ast.IdentExpr{Name: "convert", Span: sp}, Span: sp},
 					}, Span: sp},
 				},
@@ -142,7 +151,7 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 	}
 
 	got := refNames(collectExprIdentRefs(expr))
-	want := []string{"left", "call", "ns", "convert", "base", "index", "compare_left", "then", "mode"}
+	want := []string{"left", "call", "ns", "member_base", "member_index", "convert", "base", "index", "compare_left", "then", "mode"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected ident refs: got=%#v want=%#v", got, want)
 	}

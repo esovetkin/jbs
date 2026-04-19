@@ -37,8 +37,20 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 				ast.UnaryExpr{
 					Op: "-",
 					Expr: ast.CompareExpr{
-						Left: ast.ConvertExpr{Target: "str", Expr: ast.IdentExpr{Name: "c", Span: span}, Span: span},
-						Op:   "==",
+						Left: ast.ConvertExpr{
+							Target: "str",
+							Expr: ast.MemberExpr{
+								Base: ast.IndexExpr{
+									Base:  ast.IdentExpr{Name: "g", Span: span},
+									Items: []ast.Expr{ast.IdentExpr{Name: "selector_ignored", Span: span}},
+									Span:  span,
+								},
+								Name: "member_ignored",
+								Span: span,
+							},
+							Span: span,
+						},
+						Op: "==",
 						Right: ast.ConditionalExpr{
 							Then: ast.IdentExpr{Name: "d", Span: span},
 							Cond: ast.BoolExpr{Value: true, Span: span},
@@ -71,7 +83,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 
 	out := map[string]struct{}{}
 	collectGlobalExprDeps(expr, out)
-	gotCollected := []string{"b", "c", "d", "f", "ns", "self"}
+	gotCollected := []string{"b", "d", "f", "g", "ns", "self"}
 	for _, name := range gotCollected {
 		if _, ok := out[name]; !ok {
 			t.Fatalf("expected collected dependency %q, got %#v", name, out)
@@ -83,9 +95,15 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	if _, ok := out["index_ignored"]; ok {
 		t.Fatalf("did not expect index item to be collected, got %#v", out)
 	}
+	if _, ok := out["selector_ignored"]; ok {
+		t.Fatalf("did not expect member selector to be collected, got %#v", out)
+	}
+	if _, ok := out["member_ignored"]; ok {
+		t.Fatalf("did not expect member name to be collected, got %#v", out)
+	}
 
 	gotDeps := globalExprDependencies(expr, "self")
-	wantDeps := []string{"b", "c", "d", "f", "ns"}
+	wantDeps := []string{"b", "d", "f", "g", "ns"}
 	if !reflect.DeepEqual(gotDeps, wantDeps) {
 		t.Fatalf("unexpected global dependencies: got=%#v want=%#v", gotDeps, wantDeps)
 	}
@@ -322,7 +340,11 @@ func TestGlobalExprReadNames(t *testing.T) {
 		Left: ast.QualifiedIdentExpr{Namespace: "lib", Name: "value", Span: span},
 		Op:   "+",
 		Right: ast.IndexExpr{
-			Base: ast.QualifiedIdentExpr{Namespace: "jobs", Name: "x", Span: span},
+			Base: ast.MemberExpr{
+				Base: ast.QualifiedIdentExpr{Namespace: "jobs", Name: "x", Span: span},
+				Name: "member_ignored",
+				Span: span,
+			},
 			Items: []ast.Expr{
 				ast.IdentExpr{Name: "ignored", Span: span},
 			},

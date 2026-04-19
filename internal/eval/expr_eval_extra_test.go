@@ -408,17 +408,7 @@ func TestEvalRangeFloatBranches(t *testing.T) {
 	}
 }
 
-func TestExprNeedsCombBinaryCoverage(t *testing.T) {
-	comb := CombValue(&Comb{
-		Order: []string{"x"},
-		Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
-	})
-	env := map[string]Value{
-		"c":      comb,
-		"ns.col": comb,
-		"n":      Int(1),
-	}
-
+func TestBinaryNeedsRelaxedCombEvalCoverage(t *testing.T) {
 	cases := []struct {
 		name string
 		expr ast.Expr
@@ -426,25 +416,23 @@ func TestExprNeedsCombBinaryCoverage(t *testing.T) {
 	}{
 		{name: "nil", expr: nil, want: false},
 		{name: "alias", expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "k"}, want: true},
-		{name: "ident comb", expr: ast.IdentExpr{Name: "c"}, want: true},
-		{name: "ident non comb", expr: ast.IdentExpr{Name: "n"}, want: false},
-		{name: "qualified ns comb", expr: ast.QualifiedIdentExpr{Namespace: "c", Name: "x"}, want: true},
-		{name: "qualified dotted comb", expr: ast.QualifiedIdentExpr{Namespace: "ns", Name: "col"}, want: true},
-		{name: "binary recurse", expr: ast.BinaryExpr{Left: ast.NumberExpr{Int: true, IntValue: 1}, Op: "+", Right: ast.IdentExpr{Name: "c"}}, want: true},
-		{name: "unary recurse", expr: ast.UnaryExpr{Op: "-", Expr: ast.IdentExpr{Name: "c"}}, want: true},
-		{name: "mode recurse", expr: ast.ModeExpr{Mode: "python", Expr: ast.IdentExpr{Name: "c"}}, want: true},
-		{name: "convert recurse", expr: ast.ConvertExpr{Target: "list", Expr: ast.IdentExpr{Name: "c"}}, want: true},
-		{name: "call comb", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "comb"}, Args: []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}}}, want: true},
-		{name: "call recurse args", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "tuple"}, Args: []ast.Expr{ast.IdentExpr{Name: "c"}}}, want: true},
-		{name: "index recurse", expr: ast.IndexExpr{Base: ast.IdentExpr{Name: "c"}, Items: []ast.Expr{ast.IdentExpr{Name: "x"}}}, want: true},
-		{name: "list recurse", expr: ast.ListExpr{Items: []ast.Expr{ast.IdentExpr{Name: "c"}}}, want: true},
-		{name: "tuple recurse", expr: ast.TupleExpr{Items: []ast.Expr{ast.IdentExpr{Name: "c"}}}, want: true},
-		{name: "compare recurse", expr: ast.CompareExpr{Left: ast.IdentExpr{Name: "c"}, Op: "==", Right: ast.NumberExpr{Int: true, IntValue: 1}}, want: true},
-		{name: "conditional recurse", expr: ast.ConditionalExpr{Then: ast.IdentExpr{Name: "c"}, Cond: ast.BoolExpr{Value: true}, Else: ast.NumberExpr{Int: true, IntValue: 0}}, want: true},
+		{name: "ident non alias", expr: ast.IdentExpr{Name: "n"}, want: false},
+		{name: "qualified non alias", expr: ast.QualifiedIdentExpr{Namespace: "ns", Name: "col"}, want: false},
+		{name: "binary recurse", expr: ast.BinaryExpr{Left: ast.NumberExpr{Int: true, IntValue: 1}, Op: "+", Right: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2}, Alias: "c"}}, want: true},
+		{name: "unary recurse", expr: ast.UnaryExpr{Op: "-", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
+		{name: "mode recurse", expr: ast.ModeExpr{Mode: "python", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
+		{name: "convert recurse", expr: ast.ConvertExpr{Target: "list", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
+		{name: "call recurse args", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "tuple"}, Args: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}}, want: true},
+		{name: "index recurse", expr: ast.IndexExpr{Base: ast.NumberExpr{Int: true, IntValue: 1}, Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2}, Alias: "x"}}}, want: true},
+		{name: "member recurse", expr: ast.MemberExpr{Base: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}, Name: "x"}, want: true},
+		{name: "list recurse", expr: ast.ListExpr{Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}}, want: true},
+		{name: "tuple recurse", expr: ast.TupleExpr{Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}}, want: true},
+		{name: "compare recurse", expr: ast.CompareExpr{Left: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}, Op: "==", Right: ast.NumberExpr{Int: true, IntValue: 1}}, want: true},
+		{name: "conditional recurse", expr: ast.ConditionalExpr{Then: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}, Cond: ast.BoolExpr{Value: true}, Else: ast.NumberExpr{Int: true, IntValue: 0}}, want: true},
 		{name: "default", expr: ast.NumberExpr{Int: true, IntValue: 1}, want: false},
 	}
 	for _, tc := range cases {
-		if got := exprNeedsCombBinary(tc.expr, env); got != tc.want {
+		if got := binaryNeedsRelaxedCombEval(tc.expr); got != tc.want {
 			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, got)
 		}
 	}

@@ -362,7 +362,7 @@ func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {
 	for {
 		switch p.peek().Type {
 		case lexer.TokenDot:
-			p.next()
+			dotTok := p.next()
 			memberTok := p.expect(lexer.TokenIdent, diag.CodeE064, "expected identifier after '.'")
 			switch n := expr.(type) {
 			case ast.IdentExpr:
@@ -379,16 +379,10 @@ func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {
 					Span:      diag.Merge(n.Span, memberTok.Span),
 				}
 			default:
-				p.diags.AddError(
-					diag.CodeE064,
-					"expected identifier namespace before '.'",
-					memberTok.Span,
-					"use syntax: namespace.member",
-				)
-				expr = ast.QualifiedIdentExpr{
-					Namespace: "",
-					Name:      memberTok.Value,
-					Span:      diag.Merge(expr.GetSpan(), memberTok.Span),
+				expr = ast.MemberExpr{
+					Base: expr,
+					Name: memberTok.Value,
+					Span: diag.Merge(expr.GetSpan(), diag.Merge(dotTok.Span, memberTok.Span)),
 				}
 			}
 		case lexer.TokenLParen:

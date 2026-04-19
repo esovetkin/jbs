@@ -40,6 +40,8 @@ func collectGlobalExprDeps(expr ast.Expr, out map[string]struct{}) {
 		if e.Namespace != "" {
 			out[e.Namespace] = struct{}{}
 		}
+	case ast.MemberExpr:
+		collectGlobalExprDeps(e.Base, out)
 	case ast.ModeExpr:
 		collectGlobalExprDeps(e.Expr, out)
 	case ast.ListExpr:
