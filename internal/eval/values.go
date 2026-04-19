@@ -12,14 +12,15 @@ import (
 type Kind string
 
 const (
-	KindNull   Kind = "null"
-	KindInt    Kind = "int"
-	KindFloat  Kind = "float"
-	KindString Kind = "string"
-	KindBool   Kind = "bool"
-	KindList   Kind = "list"
-	KindTuple  Kind = "tuple"
-	KindComb   Kind = "comb"
+	KindNull     Kind = "null"
+	KindInt      Kind = "int"
+	KindFloat    Kind = "float"
+	KindString   Kind = "string"
+	KindBool     Kind = "bool"
+	KindList     Kind = "list"
+	KindTuple    Kind = "tuple"
+	KindComb     Kind = "comb"
+	KindFunction Kind = "function"
 )
 
 type Comb struct {
@@ -35,6 +36,7 @@ type Value struct {
 	B    bool
 	L    []Value
 	C    *Comb
+	Fn   *FunctionValue
 }
 
 func Null() Value           { return Value{Kind: KindNull} }
@@ -47,6 +49,7 @@ func Tuple(v []Value) Value { return Value{Kind: KindTuple, L: v} }
 func CombValue(v *Comb) Value {
 	return Value{Kind: KindComb, C: v}
 }
+func Function(v *FunctionValue) Value { return Value{Kind: KindFunction, Fn: v} }
 
 func IsTuple(v Value) bool {
 	return v.Kind == KindTuple
@@ -88,6 +91,8 @@ func (v Value) String() string {
 			return "comb()"
 		}
 		return fmt.Sprintf("comb(rows=%d,cols=%d)", len(v.C.Rows), len(v.C.Order))
+	case KindFunction:
+		return "<function>"
 	default:
 		return ""
 	}
@@ -161,6 +166,8 @@ func Equal(a, b Value) bool {
 			}
 		}
 		return true
+	case KindFunction:
+		return a.Fn == b.Fn
 	default:
 		return true
 	}

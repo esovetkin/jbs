@@ -1820,7 +1820,6 @@ func TestEvalCallUnsupportedCallee(t *testing.T) {
 		ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(73, 1)},
 		nil,
 		nil,
-		nil,
 		spanAt(73, 1),
 		diags,
 		ExprOptions{Context: EvalCtxBindingAssign},

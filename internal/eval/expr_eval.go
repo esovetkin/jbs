@@ -45,11 +45,15 @@ func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Valu
 }
 
 func EvalExprWithOptions(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions) Value {
-	return evalExprWithCtx(expr, env, diags, opts, &evalCtx{overflowWarned: make(map[string]struct{})})
+	return evalExprWithCtx(expr, env, diags, opts, &evalCtx{
+		overflowWarned: make(map[string]struct{}),
+		frame:          NewRootFrame(env),
+	})
 }
 
 type evalCtx struct {
 	overflowWarned map[string]struct{}
+	frame          *Frame
 }
 
 func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -58,13 +62,16 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	}
 	switch e := expr.(type) {
 	case ast.IdentExpr:
-		if v, ok := env[e.Name]; ok {
+		if v, ok := lookupValue(e.Name, env, e.Span, diags, ctx); ok {
 			return v
 		}
-		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
 		return Null()
 	case ast.QualifiedIdentExpr:
-		if ns, ok := env[e.Namespace]; ok {
+		if ns, found, assigned := lookupLocalOrCapturedValue(e.Namespace, env, ctx); found {
+			if !assigned {
+				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", e.Namespace), e.Span, "assign the local before reading it")
+				return Null()
+			}
 			if IsComb(ns) {
 				col, exists := CombColumn(ns, e.Name)
 				if !exists {
@@ -80,7 +87,11 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			return Null()
 		}
 		key := e.Namespace + "." + e.Name
-		if v, ok := env[key]; ok {
+		if v, found, assigned := lookupLocalOrCapturedValue(key, env, ctx); found {
+			if !assigned {
+				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", key), e.Span, "assign the local before reading it")
+				return Null()
+			}
 			return v
 		}
 		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", key), e.Span, "import or define the variable before use")
@@ -124,18 +135,13 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.ConvertExpr:
 		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalConvert(e.Target, value, e.Span, diags)
+	case ast.FunctionExpr:
+		return newFunctionValue(e, ctx.frame, opts)
 	case ast.AliasExpr:
 		diags.AddError(diag.CodeE106, "alias expression is only allowed inside comb()", e.Span, "use syntax: comb(expr as name)")
 		return Null()
 	case ast.CallExpr:
-		if name, ok := callName(e.Callee); ok && (name == "comb" || name == "names") {
-			return evalCall(e.Callee, e.Args, nil, env, e.Span, diags, opts, ctx)
-		}
-		args := make([]Value, 0, len(e.Args))
-		for _, it := range e.Args {
-			args = append(args, evalExprWithCtx(it.Expr, env, diags, opts, ctx))
-		}
-		return evalCall(e.Callee, e.Args, args, env, e.Span, diags, opts, ctx)
+		return evalCall(e.Callee, e.Args, env, e.Span, diags, opts, ctx)
 	case ast.IndexExpr:
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
 		if !IsComb(base) {
@@ -231,10 +237,15 @@ var kernelFuncs = map[string]kernelFunc{
 	},
 }
 
-func evalCall(callee ast.Expr, rawArgs []ast.CallArg, args []Value, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	name, ok := callName(callee)
+func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if fn, ok, fallback := resolveCallable(callee, env, diags, opts, ctx); ok {
+		return executeFunctionCall(fn, rawArgs, env, at, diags, opts, ctx)
+	} else if !fallback {
+		return Null()
+	}
+	name, ok := builtinCallName(callee)
 	if !ok {
-		diags.AddError(diag.CodeE199, "unsupported function callee", callee.GetSpan(), "use a simple function name")
+		diags.AddError(diag.CodeE199, "expression is not callable", callee.GetSpan(), "call a function value or supported builtin")
 		return Null()
 	}
 	switch name {
@@ -246,6 +257,12 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, args []Value, env map[stri
 		return evalCombCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "names":
 		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
+	}
+	args := make([]Value, 0, len(rawArgs))
+	for _, arg := range rawArgs {
+		args = append(args, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
+	}
+	switch name {
 	case "read_csv":
 		return evalReadCSVCall(args, at, diags, opts)
 	case "int", "float", "str":
@@ -271,6 +288,88 @@ func callArgExprs(args []ast.CallArg) []ast.Expr {
 		out = append(out, arg.Expr)
 	}
 	return out
+}
+
+func lookupLocalOrCapturedValue(name string, env map[string]Value, ctx *evalCtx) (Value, bool, bool) {
+	if name == "" {
+		return Null(), false, false
+	}
+	if ctx != nil && ctx.frame != nil {
+		if cell, ok := ctx.frame.LookupCell(name); ok {
+			return cell.Value, true, cell.Assigned
+		}
+	}
+	v, ok := env[name]
+	return v, ok, ok
+}
+
+func lookupValue(name string, env map[string]Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) (Value, bool) {
+	if ctx != nil && ctx.frame != nil {
+		return ctx.frame.Read(name, at, diags)
+	}
+	if v, ok := env[name]; ok {
+		return v, true
+	}
+	diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "import or define the variable before use")
+	return Null(), false
+}
+
+func resolveCallable(callee ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (*FunctionValue, bool, bool) {
+	if name, ok := builtinCallName(callee); ok {
+		if value, found, assigned := lookupLocalOrCapturedValue(name, env, ctx); found {
+			if !assigned {
+				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", name), callee.GetSpan(), "assign the local before reading it")
+				return nil, false, false
+			}
+			if value.Kind == KindFunction && value.Fn != nil {
+				return value.Fn, true, false
+			}
+			diags.AddError(diag.CodeE199, "expression is not callable", callee.GetSpan(), "call a function value or supported builtin")
+			return nil, false, false
+		}
+		return nil, false, true
+	}
+	if ident, ok := callee.(ast.IdentExpr); ok {
+		if value, found, assigned := lookupLocalOrCapturedValue(ident.Name, env, ctx); found {
+			if !assigned {
+				diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", ident.Name), callee.GetSpan(), "assign the local before reading it")
+				return nil, false, false
+			}
+			if value.Kind == KindFunction && value.Fn != nil {
+				return value.Fn, true, false
+			}
+			diags.AddError(diag.CodeE199, "expression is not callable", callee.GetSpan(), "call a function value or supported builtin")
+			return nil, false, false
+		}
+		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", ident.Name), callee.GetSpan(), "use a supported builtin or define a function value before calling it")
+		return nil, false, false
+	}
+	before := len(diags.Items)
+	value := evalExprWithCtx(callee, env, diags, opts, ctx)
+	if len(diags.Items) > before {
+		return nil, false, false
+	}
+	if value.Kind != KindFunction || value.Fn == nil {
+		diags.AddError(diag.CodeE199, "expression is not callable", callee.GetSpan(), "call a function value or supported builtin")
+		return nil, false, false
+	}
+	return value.Fn, true, false
+}
+
+func builtinCallName(callee ast.Expr) (string, bool) {
+	ident, ok := callee.(ast.IdentExpr)
+	if !ok || ident.Name == "" {
+		return "", false
+	}
+	if _, ok := kernelFuncs[ident.Name]; ok {
+		return ident.Name, true
+	}
+	switch ident.Name {
+	case "comb", "names", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
+		return ident.Name, true
+	default:
+		return "", false
+	}
 }
 
 func callName(callee ast.Expr) (string, bool) {
@@ -740,9 +839,8 @@ func evalStrictCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnos
 			return productRows(left, right, opNode, diags), true
 		}
 	case ast.IdentExpr:
-		v, ok := env[e.Name]
+		v, ok := lookupValue(e.Name, env, e.Span, diags, ctx)
 		if !ok {
-			diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "import or define the variable before use")
 			return nil, false
 		}
 		return combRowsFromNamedValue(e.Name, v, e.Span), true
@@ -1124,6 +1222,10 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 	if op == "&" || op == "|" {
 		return evalLogicalBinary(op, l, r, at, diags)
 	}
+	if l.Kind == KindFunction || r.Kind == KindFunction {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' does not accept function values", op), at, "call the function first or remove it from the arithmetic expression")
+		return Null()
+	}
 
 	if IsComb(l) || IsComb(r) {
 		switch op {
@@ -1375,6 +1477,10 @@ func evalCompare(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) V
 			out = append(out, evalCompare(op, ls[i%len(ls)], rs[i%len(rs)], at, diags))
 		}
 		return List(out)
+	}
+	if l.Kind == KindFunction || r.Kind == KindFunction {
+		diags.AddError(diag.CodeE110, fmt.Sprintf("comparison '%s' does not accept function values", op), at, "call the function first or compare non-function values")
+		return Bool(false)
 	}
 
 	switch op {

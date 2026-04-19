@@ -24,8 +24,9 @@ import (
 )
 
 type Cell struct {
-	Value  Value
-	Origin diag.Span
+	Value    Value
+	Origin   diag.Span
+	Assigned bool
 }
 
 type Row struct {
