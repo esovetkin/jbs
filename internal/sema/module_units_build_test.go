@@ -185,3 +185,46 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 		t.Fatalf("expected x dependency metadata to be preserved, got %#v", unit.LocalBindingsByName["x"])
 	}
 }
+
+func TestBuildEntryModuleScopeKeepsOnlyEntryTopLevelExprResults(t *testing.T) {
+	span := diag.NewSpan("mods.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	entryRef := imports.ModuleRef{ID: "entry", Label: "entry.jbs"}
+	childRef := imports.ModuleRef{ID: "child", Label: "child.jbs"}
+	loadRes := &imports.LoadResult{
+		Entry: entryRef,
+		Modules: map[string]*imports.ModuleInfo{
+			entryRef.ID: {
+				Ref: entryRef,
+				Program: ast.Program{File: entryRef.Label, Stmts: []ast.Stmt{
+					ast.UseStmt{Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "child", Span: span}, Alias: "child", Span: span},
+					ast.ExprStmt{
+						Expr: ast.QualifiedIdentExpr{Namespace: "child", Name: "value", Span: span},
+						Span: span,
+					},
+				}},
+				Uses: []imports.ResolvedUse{
+					{Kind: imports.UseNamespace, Alias: "child", Source: childRef, Span: span, Index: 0},
+				},
+			},
+			childRef.ID: {
+				Ref: childRef,
+				Program: ast.Program{File: childRef.Label, Stmts: []ast.Stmt{
+					ast.GlobalAssign{Name: "value", Op: ast.AssignEq, Expr: numberExpr(span, 7), Span: span},
+					ast.ExprStmt{Expr: ast.IdentExpr{Name: "value", Span: span}, Span: span},
+				}},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	scope := buildEntryModuleScope(loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, diags)
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(scope.TopLevelExprs) != 1 {
+		t.Fatalf("expected only entry expr results, got %#v", scope.TopLevelExprs)
+	}
+	if !eval.Equal(scope.TopLevelExprs[0].Value, eval.Int(7)) {
+		t.Fatalf("unexpected entry expr result: %#v", scope.TopLevelExprs[0])
+	}
+}

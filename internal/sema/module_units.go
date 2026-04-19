@@ -17,6 +17,7 @@ type moduleScope struct {
 	Globals             GlobalState
 	GlobalVarByName     map[string]*GlobalVar
 	GlobalVarOrder      []string
+	TopLevelExprs       []TopLevelExprResult
 	LocalBindings       []*GlobalBinding
 	LocalBindingsByName map[string]*GlobalBinding
 	Bindings            []*GlobalBinding
@@ -74,6 +75,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
+	scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 
 	for _, use := range info.Uses {
 		if use.Kind != imports.UseNamespace {
@@ -211,6 +213,21 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 		}
 		assign, ok := stmt.(ast.GlobalAssign)
 		if !ok {
+			exprStmt, ok := stmt.(ast.ExprStmt)
+			if !ok {
+				continue
+			}
+			exprCopy := exprStmt
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:            id,
+				Kind:          globalInputExpr,
+				ExprStmt:      &exprCopy,
+				EffectiveExpr: exprStmt.Expr,
+				Reads:         globalExprReadRefs(exprStmt.Expr),
+				Index:         index,
+				SeedEnv:       maps.Clone(visibleSeeds),
+			})
 			continue
 		}
 		assignCopy := assign
@@ -414,6 +431,7 @@ func emptyModuleScope() *moduleScope {
 		Globals:             GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
 		GlobalVarByName:     make(map[string]*GlobalVar),
 		GlobalVarOrder:      make([]string, 0),
+		TopLevelExprs:       make([]TopLevelExprResult, 0),
 		LocalBindings:       make([]*GlobalBinding, 0),
 		LocalBindingsByName: make(map[string]*GlobalBinding),
 		Bindings:            make([]*GlobalBinding, 0),
@@ -440,6 +458,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
+	out.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
 	out.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
 	out.Submits = append([]ast.SubmitBlock(nil), scope.Submits...)
 	out.AnalyseBlocks = append([]ast.AnalyseBlock(nil), scope.AnalyseBlocks...)
@@ -493,6 +512,15 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 	next.Rows = cloneCombRows(binding.Rows, binding.Span)
 	next.DependsOn = append([]string(nil), binding.DependsOn...)
 	return &next
+}
+
+func cloneTopLevelExprResults(in []TopLevelExprResult) []TopLevelExprResult {
+	if len(in) == 0 {
+		return []TopLevelExprResult{}
+	}
+	out := make([]TopLevelExprResult, len(in))
+	copy(out, in)
+	return out
 }
 
 func mergeValueEnv(base map[string]eval.Value, extras map[string]eval.Value) map[string]eval.Value {

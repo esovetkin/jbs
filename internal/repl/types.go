@@ -6,9 +6,14 @@ type CheckFunc func(source string) (diagText string, hasErrors bool, err error)
 
 type YAMLFunc func(source string) (yamlText string, diagText string, hasErrors bool, err error)
 
-type InspectFunc func(source string, name string) (text string, ok bool, err error)
+type CommitResult struct {
+	Source     string
+	ExprOutput []string
+	DiagText   string
+	HasErrors  bool
+}
 
-type EvalExprFunc func(source string, expr string) (resultText string, diagText string, handled bool, hasErrors bool, err error)
+type CommitFunc func(source string, chunk string) (CommitResult, error)
 
 type LineReader interface {
 	Readline() (string, error)
@@ -25,7 +30,6 @@ type Options struct {
 	HistoryFile string
 	Check       CheckFunc
 	YAML        YAMLFunc
-	Inspect     InspectFunc
-	EvalExpr    EvalExprFunc
+	Commit      CommitFunc
 	NewReader   ReaderFactory
 }

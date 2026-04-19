@@ -16,8 +16,8 @@ func TestScanContinuationState(t *testing.T) {
 	}{
 		{name: "simple_complete", src: `x = 1`, wantNeedsMore: false},
 		{name: "open_brace", src: "do run {", wantNeedsMore: true, wantBraceDepth: 1},
-		{name: "open_paren", src: "x = (1, 2", wantNeedsMore: true, wantParenDepth: 1},
-		{name: "open_bracket", src: "x = [1, 2", wantNeedsMore: true, wantBrackDepth: 1},
+		{name: "open_paren", src: "x = (1, 2", wantNeedsMore: false, wantParenDepth: 1},
+		{name: "open_bracket", src: "x = [1, 2", wantNeedsMore: false, wantBrackDepth: 1},
 		{name: "open_single", src: "x = 'abc", wantNeedsMore: true, wantSingle: true},
 		{name: "open_double", src: "x = \"abc", wantNeedsMore: true, wantDouble: true},
 		{name: "line_continuation", src: "x = 1 \\", wantNeedsMore: true, wantLineCont: true},

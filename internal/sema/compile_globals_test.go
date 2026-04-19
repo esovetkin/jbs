@@ -154,6 +154,60 @@ func TestCompileUserGlobalsSkipsBuiltinsAllowsReassignAndTracksDeps(t *testing.T
 	}
 }
 
+func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
+	span := diag.NewSpan("exprs.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	prog := ast.Program{
+		File: "exprs.jbs",
+		Stmts: []ast.Stmt{
+			ast.GlobalAssign{
+				Name: "x",
+				Op:   ast.AssignEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Span: span,
+			},
+			ast.ExprStmt{
+				Expr: ast.IdentExpr{Name: "x", Span: span},
+				Span: span,
+			},
+			ast.GlobalAssign{
+				Name: "x",
+				Op:   ast.AssignPlusEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Span: span,
+			},
+			ast.ExprStmt{
+				Expr: ast.IdentExpr{Name: "x", Span: span},
+				Span: span,
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	exec := execGlobalPlan(buildGlobalPlan(prog), nil, nil, diags)
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	gotGlobals, order := globalVarsFromExec(exec)
+	if !reflect.DeepEqual(order, []string{"x"}) {
+		t.Fatalf("unexpected global order: %#v", order)
+	}
+	if len(gotGlobals) != 1 {
+		t.Fatalf("expected only x to become a global, got %#v", gotGlobals)
+	}
+	if gotGlobals["x"] == nil || !eval.Equal(gotGlobals["x"].Value, eval.Int(2)) {
+		t.Fatalf("expected x=2 after reassignment, got %#v", gotGlobals["x"])
+	}
+	if len(exec.TopLevelExprs) != 2 {
+		t.Fatalf("expected two top-level expr results, got %#v", exec.TopLevelExprs)
+	}
+	if exec.TopLevelExprs[0].Index != 1 || exec.TopLevelExprs[1].Index != 3 {
+		t.Fatalf("unexpected expr result indices: %#v", exec.TopLevelExprs)
+	}
+	if !eval.Equal(exec.TopLevelExprs[0].Value, eval.Int(1)) || !eval.Equal(exec.TopLevelExprs[1].Value, eval.Int(2)) {
+		t.Fatalf("unexpected expr result values: %#v", exec.TopLevelExprs)
+	}
+}
+
 func TestGlobalVarSeriesBindingFromGlobalVarAndCloneCombRows(t *testing.T) {
 	span := diag.NewSpan("globals.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 

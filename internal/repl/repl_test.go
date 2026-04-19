@@ -47,22 +47,26 @@ func fakeFactory(fr *fakeReader) ReaderFactory {
 	}
 }
 
-func defaultInspectForTest(source string, name string) (string, bool, error) {
-	return "", false, nil
+func defaultCommitForTest(source string, chunk string) (CommitResult, error) {
+	return CommitResult{Source: appendAcceptedForTest(source, chunk), ExprOutput: []string{}}, nil
 }
 
-func defaultEvalExprForTest(source string, expr string) (string, string, bool, bool, error) {
-	return "", "", false, false, nil
-}
-
-func TestRunExitsOnEOF(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{{err: io.EOF}},
+func appendAcceptedForTest(accepted string, chunk string) string {
+	if strings.TrimSpace(chunk) == "" {
+		return accepted
 	}
-	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
+	if accepted == "" {
+		return chunk
+	}
+	if strings.HasSuffix(accepted, "\n") {
+		return accepted + chunk
+	}
+	return accepted + "\n" + chunk
+}
+
+func baseOptions(t *testing.T, reader *fakeReader) Options {
+	t.Helper()
+	return Options{
 		Cwd:       t.TempDir(),
 		NewReader: fakeFactory(reader),
 		Check: func(source string) (string, bool, error) {
@@ -71,9 +75,17 @@ func TestRunExitsOnEOF(t *testing.T) {
 		YAML: func(source string) (string, string, bool, error) {
 			return "name: test\n", "", false, nil
 		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+		Commit: defaultCommitForTest,
+	}
+}
+
+func TestRunExitsOnEOF(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -83,28 +95,12 @@ func TestRunExitsOnEOF(t *testing.T) {
 }
 
 func TestRunCommitsAndShowPrintsAcceptedSource(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -114,104 +110,43 @@ func TestRunCommitsAndShowPrintsAcceptedSource(t *testing.T) {
 }
 
 func TestRunErrorsRollbackAcceptedSource(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "ERROR", true, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		return CommitResult{Source: source, DiagText: "ERROR E100 in.jbs:1:1", HasErrors: true}, nil
+	}
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
 	if !strings.Contains(out.String(), "(empty)") {
 		t.Fatalf("expected empty show output, got: %q", out.String())
 	}
-	if !strings.Contains(err.String(), "ERROR") {
+	if !strings.Contains(err.String(), "ERROR E100") {
 		t.Fatalf("expected diagnostics in stderr, got: %q", err.String())
 	}
 }
 
-func TestRunWarningsCommitAcceptedSource(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
-	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if !strings.Contains(out.String(), "x = 1") {
-		t.Fatalf("expected accepted source after warning, got: %q", out.String())
-	}
-	if strings.TrimSpace(err.String()) != "" {
-		t.Fatalf("did not expect diagnostics output, got: %q", err.String())
-	}
-}
-
 func TestRunInterruptClearsPendingInput(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "do run {"},
-			{err: readline.ErrInterrupt},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: "do run {"}, {err: readline.ErrInterrupt}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	checkCalled := false
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			checkCalled = true
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	commitCalled := false
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		commitCalled = true
+		return defaultCommitForTest(source, chunk)
+	}
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	if checkCalled {
-		t.Fatalf("did not expect check callback for interrupted incomplete input")
+	if commitCalled {
+		t.Fatalf("did not expect commit callback for interrupted incomplete input")
 	}
 	if !strings.Contains(out.String(), "(empty)") {
 		t.Fatalf("expected empty accepted source after interrupt, got: %q", out.String())
@@ -219,28 +154,12 @@ func TestRunInterruptClearsPendingInput(t *testing.T) {
 }
 
 func TestRunYAMLCommand(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: ":yaml"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":yaml"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -251,28 +170,13 @@ func TestRunYAMLCommand(t *testing.T) {
 
 func TestRunSaveCommandWritesFile(t *testing.T) {
 	cwd := t.TempDir()
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: ":save out.yaml"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":save out.yaml"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       cwd,
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Cwd = cwd
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -287,27 +191,12 @@ func TestRunSaveCommandWritesFile(t *testing.T) {
 }
 
 func TestRunUnknownCommand(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: ":unknown"},
-			{err: io.EOF},
-		},
-	}
+	reader := &fakeReader{events: []fakeEvent{{line: ":unknown"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -318,24 +207,13 @@ func TestRunUnknownCommand(t *testing.T) {
 
 func TestRunUsesLocalHistoryPathByDefault(t *testing.T) {
 	cwd := t.TempDir()
-	reader := &fakeReader{
-		events: []fakeEvent{{err: io.EOF}},
-	}
+	reader := &fakeReader{events: []fakeEvent{{err: io.EOF}}}
 	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       cwd,
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect:  defaultInspectForTest,
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Cwd = cwd
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
@@ -345,300 +223,100 @@ func TestRunUsesLocalHistoryPathByDefault(t *testing.T) {
 	}
 }
 
-func TestRunBareIdentifierPrintsInspectedValue(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x = 1"},
-			{line: "x"},
-			{err: io.EOF},
-		},
-	}
+func TestRunExprLinePrintsValueAndCommits(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: "x"}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	checkCount := 0
-	inspectCount := 0
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			checkCount++
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: func(source string, name string) (string, bool, error) {
-			inspectCount++
-			if name == "x" {
-				return "1", true, nil
-			}
-			return "", false, nil
-		},
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		result := CommitResult{Source: appendAcceptedForTest(source, chunk), ExprOutput: []string{}}
+		if strings.TrimSpace(chunk) == "x" {
+			result.ExprOutput = []string{"1"}
+		}
+		return result, nil
+	}
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if checkCount != 1 {
-		t.Fatalf("expected exactly one check call for assignment, got %d", checkCount)
-	}
-	if inspectCount != 1 {
-		t.Fatalf("expected exactly one inspect call, got %d", inspectCount)
 	}
 	if !strings.Contains(out.String(), "\n1\n") {
-		t.Fatalf("expected inspected value in stdout, got: %q", out.String())
+		t.Fatalf("expected expression value in stdout, got: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "x = 1\nx") {
+		t.Fatalf("expected expr line to be committed into accepted source, got: %q", out.String())
 	}
 }
 
-func TestRunBareIdentifierUnknownPrintsMessage(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "missing"},
-			{err: io.EOF},
-		},
-	}
+func TestRunMultilineBlockWaitsForClosingBrace(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "do run {"}, {line: "echo hi"}, {line: "}"}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	checkCalled := false
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			checkCalled = true
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: func(source string, name string) (string, bool, error) {
-			return "", false, nil
-		},
-		EvalExpr: defaultEvalExprForTest,
-	})
+	commitCalls := 0
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		commitCalls++
+		if chunk != "do run {\necho hi\n}" {
+			t.Fatalf("unexpected committed block chunk: %q", chunk)
+		}
+		return defaultCommitForTest(source, chunk)
+	}
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	if checkCalled {
-		t.Fatalf("did not expect check callback for bare-identifier inspect")
+	if commitCalls != 1 {
+		t.Fatalf("expected one commit after closing brace, got %d", commitCalls)
 	}
-	if !strings.Contains(err.String(), "unknown variable 'missing'") {
-		t.Fatalf("expected unknown-variable message, got: %q", err.String())
+	if !strings.Contains(out.String(), "do run {\necho hi\n}") {
+		t.Fatalf("expected committed block in show output, got: %q", out.String())
 	}
 }
 
-func TestRunBareIdentifierIgnoredWhenPendingMultiline(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "do run {"},
-			{line: "x"},
-			{err: readline.ErrInterrupt},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
+func TestRunTopLevelExprMultilineRequiresBackslash(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "1 + \\"}, {line: "2"}, {err: io.EOF}}}
 	var out, err strings.Builder
-	inspectCalled := false
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: func(source string, name string) (string, bool, error) {
-			inspectCalled = true
-			return "unexpected", true, nil
-		},
-		EvalExpr: defaultEvalExprForTest,
-	})
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		if chunk != "1 + \\\n2" {
+			t.Fatalf("unexpected multiline expr chunk: %q", chunk)
+		}
+		return CommitResult{Source: appendAcceptedForTest(source, chunk), ExprOutput: []string{"3"}}, nil
+	}
+	code := Run(opts)
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	if inspectCalled {
-		t.Fatalf("did not expect inspect callback while multiline input is pending")
+	if !strings.Contains(out.String(), "\n3\n") {
+		t.Fatalf("expected multiline expr result in stdout, got: %q", out.String())
+	}
+}
+
+func TestRunOpenParenDoesNotTriggerContinuation(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "range("}, {line: ":show"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	commitCalls := 0
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		commitCalls++
+		return CommitResult{Source: source, DiagText: "ERROR E058 <repl>:1:1", HasErrors: true}, nil
+	}
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if commitCalls != 1 {
+		t.Fatalf("expected immediate commit attempt for open-paren expr, got %d", commitCalls)
+	}
+	if !strings.Contains(err.String(), "ERROR E058") {
+		t.Fatalf("expected parse diagnostic in stderr, got: %q", err.String())
 	}
 	if !strings.Contains(out.String(), "(empty)") {
 		t.Fatalf("expected accepted source to remain empty, got: %q", out.String())
-	}
-}
-
-func TestRunInspectFailurePrintsMessage(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "x"},
-			{err: io.EOF},
-		},
-	}
-	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: func(source string, name string) (string, bool, error) {
-			return "", false, io.ErrUnexpectedEOF
-		},
-		EvalExpr: defaultEvalExprForTest,
-	})
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if !strings.Contains(err.String(), "inspect failed:") {
-		t.Fatalf("expected inspect failure message, got: %q", err.String())
-	}
-}
-
-func TestRunStandaloneExpressionPrintsValueAndDoesNotCommit(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "range(10)"},
-			{line: ":show"},
-			{err: io.EOF},
-		},
-	}
-	var out, err strings.Builder
-	checkCalled := false
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			checkCalled = true
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: defaultInspectForTest,
-		EvalExpr: func(source string, expr string) (string, string, bool, bool, error) {
-			if expr != "range(10)" {
-				t.Fatalf("unexpected expression text: %q", expr)
-			}
-			return "[0, 1, 2, ...]", "", true, false, nil
-		},
-	})
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if checkCalled {
-		t.Fatalf("did not expect statement check for handled expression")
-	}
-	if !strings.Contains(out.String(), "[0, 1, 2, ...]") {
-		t.Fatalf("expected expression result in stdout, got: %q", out.String())
-	}
-	if !strings.Contains(out.String(), "(empty)") {
-		t.Fatalf("expected expression input to not be committed, got: %q", out.String())
-	}
-}
-
-func TestRunStandaloneExpressionDiagnostic(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "range(, )"},
-			{err: io.EOF},
-		},
-	}
-	var out, err strings.Builder
-	checkCalled := false
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			checkCalled = true
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: defaultInspectForTest,
-		EvalExpr: func(source string, expr string) (string, string, bool, bool, error) {
-			return "", "ERROR E058 expr.jbs:1:1", true, true, nil
-		},
-	})
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if checkCalled {
-		t.Fatalf("did not expect statement check for handled expression with diagnostics")
-	}
-	if !strings.Contains(err.String(), "ERROR E058") {
-		t.Fatalf("expected expression diagnostic in stderr, got: %q", err.String())
-	}
-}
-
-func TestRunStandaloneExpressionMultiline(t *testing.T) {
-	reader := &fakeReader{
-		events: []fakeEvent{
-			{line: "range("},
-			{line: "10)"},
-			{err: io.EOF},
-		},
-	}
-	var out, err strings.Builder
-	code := Run(Options{
-		Stdout:    &out,
-		Stderr:    &err,
-		Cwd:       t.TempDir(),
-		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "", "", false, nil
-		},
-		Inspect: defaultInspectForTest,
-		EvalExpr: func(source string, expr string) (string, string, bool, bool, error) {
-			if expr != "range(\n10)" {
-				t.Fatalf("unexpected multiline expression text: %q", expr)
-			}
-			return "[0, 1, 2, ...]", "", true, false, nil
-		},
-	})
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if !strings.Contains(out.String(), "[0, 1, 2, ...]") {
-		t.Fatalf("expected multiline expression result, got: %q", out.String())
-	}
-}
-
-func TestIsBareIdentifierInput(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-		ok   bool
-	}{
-		{in: "a", want: "a", ok: true},
-		{in: "_x1", want: "_x1", ok: true},
-		{in: "a1", want: "a1", ok: true},
-		{in: " a ", want: "a", ok: true},
-		{in: "", want: "", ok: false},
-		{in: "1a", want: "", ok: false},
-		{in: "a.b", want: "", ok: false},
-		{in: "a b", want: "", ok: false},
-		{in: "a=1", want: "", ok: false},
-		{in: ":show", want: "", ok: false},
-	}
-
-	for _, tc := range cases {
-		got, ok := isBareIdentifierInput(tc.in)
-		if ok != tc.ok || got != tc.want {
-			t.Fatalf("isBareIdentifierInput(%q)=(%q,%v), want (%q,%v)", tc.in, got, ok, tc.want, tc.ok)
-		}
 	}
 }

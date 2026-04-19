@@ -60,6 +60,33 @@ func (p *Parser) parseGlobalAssign(start diag.Position) ast.GlobalAssign {
 	return ast.GlobalAssign(asn)
 }
 
+func (p *Parser) parseTopLevelExprStmt(start diag.Position) ast.ExprStmt {
+	stmt, stmtStart := p.readTopLevelStatement()
+	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipStmtSeparators()
+	expr := tp.parseExpr()
+	tp.skipStmtSeparators()
+	if tp.peek().Type != lexer.TokenEOF {
+		tok := tp.peek()
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after expression",
+			tok.Span,
+			"remove unsupported trailing syntax after the expression",
+		)
+		tp.consumeUntilStmtEnd()
+	}
+	span := diag.NewSpan(p.file, start, start)
+	if expr != nil {
+		span = expr.GetSpan()
+	}
+	return ast.ExprStmt{
+		Expr: expr,
+		Span: span,
+	}
+}
+
 func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 	stmt, stmtStart := p.readTopLevelStatement()
 	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)

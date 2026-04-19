@@ -56,6 +56,7 @@ func TestIsTopLevelAssignmentStart(t *testing.T) {
 		{src: `use jsc`, want: false},
 		{src: `1x = 2`, want: false},
 		{src: `name`, want: false},
+		{src: `jsc.systemname`, want: false},
 	}
 
 	for _, tt := range tests {
@@ -95,6 +96,51 @@ func TestParseGlobalAssignSuccess(t *testing.T) {
 	}
 	if _, ok := got.Expr.(ast.StringExpr); !ok {
 		t.Fatalf("expected string expression, got %#v", got.Expr)
+	}
+}
+
+func TestParseTopLevelExprStmtSuccess(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("jsc.systemname\n", diags)
+	start := p.pos()
+	got := p.parseTopLevelExprStmt(start)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if _, ok := got.Expr.(ast.QualifiedIdentExpr); !ok {
+		t.Fatalf("expected qualified identifier expression, got %#v", got.Expr)
+	}
+	if got.Span.IsZero() {
+		t.Fatalf("expected non-zero statement span")
+	}
+}
+
+func TestParseTopLevelExprStmtLineContinuation(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("1 + \\\n2\n", diags)
+	start := p.pos()
+	got := p.parseTopLevelExprStmt(start)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if _, ok := got.Expr.(ast.BinaryExpr); !ok {
+		t.Fatalf("expected binary expression, got %#v", got.Expr)
+	}
+	if p.pos().Line != 3 || p.pos().Column != 1 {
+		t.Fatalf("unexpected parser position after continued expression: %+v", p.pos())
+	}
+}
+
+func TestParseTopLevelExprStmtTrailingTokens(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("unknownblock x\n", diags)
+	start := p.pos()
+	got := p.parseTopLevelExprStmt(start)
+	if got.Expr == nil {
+		t.Fatalf("expected expression node")
+	}
+	if !hasDiag(diags, "E061") {
+		t.Fatalf("expected E061, got: %s", diags.String())
 	}
 }
 

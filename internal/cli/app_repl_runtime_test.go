@@ -75,94 +75,125 @@ func TestFormatReplValueCombFallbackColumnOrder(t *testing.T) {
 	}
 }
 
-func TestEvaluateReplExpressionHandled(t *testing.T) {
+func TestCommitReplChunkAssignmentProducesNoOutput(t *testing.T) {
 	cwd := t.TempDir()
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, "a = range(5)", "len(a)")
+	commit, err := commitReplChunk(cwd, "", "a = range(5)")
 	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
+		t.Fatalf("unexpected commit error: %v", err)
 	}
-	if !handled {
-		t.Fatalf("expected expression to be handled")
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
 	}
-	if hasErrors {
-		t.Fatalf("expected no expression errors, diag=%q", diagText)
+	if len(commit.ExprOutput) != 0 {
+		t.Fatalf("expected no expr output for assignment, got %#v", commit.ExprOutput)
 	}
-	if strings.TrimSpace(diagText) != "" {
-		t.Fatalf("expected empty diagnostics, got %q", diagText)
-	}
-	if result != "5" {
-		t.Fatalf("unexpected expression result: got=%q want=%q", result, "5")
+	if commit.Source != "a = range(5)" {
+		t.Fatalf("unexpected committed source: %q", commit.Source)
 	}
 }
 
-func TestEvaluateReplExpressionFallbackForStatement(t *testing.T) {
+func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	cwd := t.TempDir()
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, "", "x = 1")
+	first, err := commitReplChunk(cwd, "", "a = range(5)")
 	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
+		t.Fatalf("unexpected first commit error: %v", err)
 	}
-	if handled {
-		t.Fatalf("expected statement-shaped input to fall back; result=%q diag=%q hasErrors=%v", result, diagText, hasErrors)
+	second, err := commitReplChunk(cwd, first.Source, "len(a)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected no expression errors, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "5" {
+		t.Fatalf("unexpected expr output: %#v", second.ExprOutput)
+	}
+	if second.Source != "a = range(5)\nlen(a)" {
+		t.Fatalf("unexpected committed source: %q", second.Source)
 	}
 }
 
-func TestEvaluateReplExpressionReportsExpressionError(t *testing.T) {
+func TestCommitReplChunkReportsExpressionError(t *testing.T) {
 	cwd := t.TempDir()
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, "", "range(,)")
+	commit, err := commitReplChunk(cwd, "", "range(,)")
 	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
+		t.Fatalf("unexpected commit error: %v", err)
 	}
-	if !handled {
-		t.Fatalf("expected malformed expression to be handled in expression path")
+	if !commit.HasErrors {
+		t.Fatalf("expected expression errors, commit=%#v", commit)
 	}
-	if !hasErrors {
-		t.Fatalf("expected expression errors, result=%q diag=%q", result, diagText)
+	if !strings.Contains(commit.DiagText, "E058") {
+		t.Fatalf("expected E058 in diagnostics, got %q", commit.DiagText)
 	}
-	if !strings.Contains(diagText, "E058") {
-		t.Fatalf("expected E058 in diagnostics, got %q", diagText)
+	if commit.Source != "" {
+		t.Fatalf("expected failed commit to preserve prior source, got %q", commit.Source)
 	}
 }
 
-func TestEvaluateReplExpressionReportsSourceErrors(t *testing.T) {
-	cwd := t.TempDir()
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, "do s {", "range(2)")
-	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
-	}
-	if !handled {
-		t.Fatalf("expected source parse failure to be handled")
-	}
-	if !hasErrors {
-		t.Fatalf("expected source errors, result=%q diag=%q", result, diagText)
-	}
-	if strings.TrimSpace(diagText) == "" {
-		t.Fatalf("expected non-empty diagnostics for source failure")
-	}
-}
-
-func TestEvaluateReplExpressionWithUseImport(t *testing.T) {
+func TestCommitReplChunkWithNamespaceImport(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")
-	if err := os.WriteFile(libPath, []byte("v = 41\n"), 0o644); err != nil {
+	if err := os.WriteFile(libPath, []byte("z = \"ok\"\n"), 0o644); err != nil {
 		t.Fatalf("write lib: %v", err)
 	}
-	source := "use v from \"./lib.jbs\"\n" +
-		"x = v + 1\n"
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, source, "x")
+	first, err := commitReplChunk(cwd, "", "use \"./lib.jbs\" as lib")
 	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
+		t.Fatalf("unexpected first commit error: %v", err)
 	}
-	if !handled {
-		t.Fatalf("expected expression to be handled")
+	if first.HasErrors || len(first.ExprOutput) != 0 {
+		t.Fatalf("expected import commit without output, got %#v", first)
 	}
-	if hasErrors {
-		t.Fatalf("expected no errors, diag=%q", diagText)
+	second, err := commitReplChunk(cwd, first.Source, "lib.z")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
 	}
-	if strings.TrimSpace(diagText) != "" {
-		t.Fatalf("expected empty diagnostics, got %q", diagText)
+	if second.HasErrors {
+		t.Fatalf("expected namespace expr to succeed, diag=%q", second.DiagText)
 	}
-	if result != "42" {
-		t.Fatalf("unexpected expression result: got=%q want=%q", result, "42")
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "ok" {
+		t.Fatalf("unexpected namespace expr output: %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkWithEmbeddedJSCNamespace(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "use jsc")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors || len(first.ExprOutput) != 0 {
+		t.Fatalf("expected namespace import commit without output, got %#v", first)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "jsc.systemname")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected embedded namespace expr to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || strings.TrimSpace(second.ExprOutput[0]) == "" {
+		t.Fatalf("expected one non-empty expr output, got %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkMixedMultiLineCommit(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("z = 7\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	commit, err := commitReplChunk(cwd, "", "use \"./lib.jbs\" as lib\nlib.z")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected mixed commit to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "7" {
+		t.Fatalf("unexpected mixed commit expr output: %#v", commit.ExprOutput)
+	}
+	if commit.Source != "use \"./lib.jbs\" as lib\nlib.z" {
+		t.Fatalf("unexpected mixed commit source: %q", commit.Source)
 	}
 }
 
@@ -194,20 +225,16 @@ func TestAnalyzeSourceAllowsUseInReplPath(t *testing.T) {
 	}
 }
 
-func TestEvaluateReplExpressionUseImportFailureDiagnostics(t *testing.T) {
+func TestCommitReplChunkUseImportFailureDiagnostics(t *testing.T) {
 	cwd := t.TempDir()
-	source := "use v from \"./missing.jbs\"\n"
-	result, diagText, handled, hasErrors, err := evaluateReplExpression(cwd, source, "1")
+	commit, err := commitReplChunk(cwd, "", "use v from \"./missing.jbs\"")
 	if err != nil {
-		t.Fatalf("unexpected evaluation error: %v", err)
+		t.Fatalf("unexpected commit error: %v", err)
 	}
-	if !handled {
-		t.Fatalf("expected handled expression path")
+	if !commit.HasErrors {
+		t.Fatalf("expected errors for missing import, commit=%#v", commit)
 	}
-	if !hasErrors {
-		t.Fatalf("expected errors for missing import, result=%q diag=%q", result, diagText)
-	}
-	if strings.TrimSpace(diagText) == "" {
+	if strings.TrimSpace(commit.DiagText) == "" {
 		t.Fatalf("expected non-empty diagnostics")
 	}
 }

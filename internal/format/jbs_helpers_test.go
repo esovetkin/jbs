@@ -75,6 +75,21 @@ func TestFormatGlobalAssignDefaults(t *testing.T) {
 	}
 }
 
+func TestFormatExprStmt(t *testing.T) {
+	src := []rune("  x + 1  \n")
+	stmt := ast.ExprStmt{
+		Span: diag.Span{
+			Start: diag.Position{Offset: 0},
+			End:   diag.Position{Offset: 9},
+		},
+	}
+	got := formatExprStmt(stmt, src)
+	want := []string{"x + 1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("formatExprStmt mismatch: got=%v want=%v", got, want)
+	}
+}
+
 func TestFormatSubmitBlockRendersFieldFallback(t *testing.T) {
 	submit := ast.SubmitBlock{
 		Name: "run",

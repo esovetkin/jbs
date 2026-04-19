@@ -2,12 +2,10 @@
 //
 // take lexer output/source, parse a full JBS file into an abstract
 // syntax tree `ast.Program`, dispatch top-level statements
-// (do/submit/analyse/use/global assignment) and do syntax diagnostics
+// (do/submit/analyse/use/global assignment/expression) and do syntax diagnostics
 package parser
 
 import (
-	"fmt"
-
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 )
@@ -45,37 +43,27 @@ func (p *Parser) parseProgram() ast.Program {
 			continue
 		}
 		word, ok := p.peekWord()
-		if !ok {
-			p.diags.AddError(diag.CodeE010,
-				"expected block keyword (do/submit/analyse/use)",
-				diag.NewSpan(p.file, start, start),
-				"start a block with do, submit, analyse, or use",
-			)
-			p.advance()
-			continue
+		if ok {
+			switch word {
+			case "do":
+				p.consumeWord()
+				stmts = append(stmts, p.parseDoBlock(start))
+				continue
+			case "submit":
+				p.consumeWord()
+				stmts = append(stmts, p.parseSubmitBlock(start))
+				continue
+			case "analyse":
+				p.consumeWord()
+				stmts = append(stmts, p.parseAnalyseBlock(start))
+				continue
+			case "use":
+				p.consumeWord()
+				stmts = append(stmts, p.parseUseStmt(start))
+				continue
+			}
 		}
-
-		switch word {
-		case "do":
-			p.consumeWord()
-			stmts = append(stmts, p.parseDoBlock(start))
-		case "submit":
-			p.consumeWord()
-			stmts = append(stmts, p.parseSubmitBlock(start))
-		case "analyse":
-			p.consumeWord()
-			stmts = append(stmts, p.parseAnalyseBlock(start))
-		case "use":
-			p.consumeWord()
-			stmts = append(stmts, p.parseUseStmt(start))
-		default:
-			end := p.consumeWord()
-			p.diags.AddError(diag.CodeE011,
-				fmt.Sprintf("unknown block keyword '%s'", word),
-				diag.NewSpan(p.file, start, end),
-				"valid keywords are do, submit, analyse, use",
-			)
-		}
+		stmts = append(stmts, p.parseTopLevelExprStmt(start))
 	}
 
 	prog := ast.Program{

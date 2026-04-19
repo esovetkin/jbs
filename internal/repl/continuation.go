@@ -14,8 +14,6 @@ type ContinuationState struct {
 
 func (s ContinuationState) NeedsMoreInput() bool {
 	return s.BraceDepth > 0 ||
-		s.ParenDepth > 0 ||
-		s.BracketDepth > 0 ||
 		s.InSingle ||
 		s.InDouble ||
 		s.LineContinue

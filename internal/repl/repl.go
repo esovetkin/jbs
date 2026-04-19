@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/chzyer/readline"
 )
@@ -40,7 +39,7 @@ func Run(opts Options) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	if opts.Check == nil || opts.YAML == nil || opts.Inspect == nil || opts.EvalExpr == nil {
+	if opts.Check == nil || opts.YAML == nil || opts.Commit == nil {
 		fmt.Fprintln(stderr, "repl evaluator is not configured")
 		return 1
 	}
@@ -121,22 +120,6 @@ func Run(opts Options) int {
 			continue
 		}
 		if state.pending == "" {
-			if name, ok := isBareIdentifierInput(trimmed); ok {
-				text, found, err := opts.Inspect(state.accepted, name)
-				if err != nil {
-					fmt.Fprintf(stderr, "inspect failed: %v\n", err)
-					continue
-				}
-				if !found {
-					fmt.Fprintf(stderr, "unknown variable '%s'\n", name)
-					continue
-				}
-				fmt.Fprintln(stdout, text)
-				continue
-			}
-		}
-
-		if state.pending == "" {
 			state.pending = line
 		} else {
 			state.pending += "\n" + line
@@ -145,35 +128,20 @@ func Run(opts Options) int {
 			continue
 		}
 
-		resultText, diagText, handled, hasErrors, err := opts.EvalExpr(state.accepted, state.pending)
+		commit, err := opts.Commit(state.accepted, state.pending)
 		if err != nil {
 			fmt.Fprintf(stderr, "repl evaluation failed: %v\n", err)
 			state.pending = ""
 			continue
 		}
-		if handled {
-			if strings.TrimSpace(diagText) != "" {
-				fmt.Fprintln(stderr, diagText)
+		if strings.TrimSpace(commit.DiagText) != "" {
+			fmt.Fprintln(stderr, commit.DiagText)
+		}
+		if !commit.HasErrors {
+			state.accepted = commit.Source
+			for _, line := range commit.ExprOutput {
+				fmt.Fprintln(stdout, line)
 			}
-			if !hasErrors && strings.TrimSpace(resultText) != "" {
-				fmt.Fprintln(stdout, resultText)
-			}
-			state.pending = ""
-			continue
-		}
-
-		candidate := appendChunk(state.accepted, state.pending)
-		diagText, hasErrors, err = opts.Check(candidate)
-		if err != nil {
-			fmt.Fprintf(stderr, "repl evaluation failed: %v\n", err)
-			state.pending = ""
-			continue
-		}
-		if strings.TrimSpace(diagText) != "" {
-			fmt.Fprintln(stderr, diagText)
-		}
-		if !hasErrors {
-			state.accepted = candidate
 		}
 		state.pending = ""
 	}
@@ -224,31 +192,6 @@ func appendChunk(accepted string, chunk string) string {
 		return accepted + chunk
 	}
 	return accepted + "\n" + chunk
-}
-
-func isBareIdentifierInput(s string) (string, bool) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", false
-	}
-	runes := []rune(s)
-	if !isIdentStart(runes[0]) {
-		return "", false
-	}
-	for _, r := range runes[1:] {
-		if !isIdentPart(r) {
-			return "", false
-		}
-	}
-	return s, true
-}
-
-func isIdentStart(r rune) bool {
-	return r == '_' || unicode.IsLetter(r)
-}
-
-func isIdentPart(r rune) bool {
-	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func handleCommand(

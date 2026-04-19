@@ -231,3 +231,27 @@ func TestHasNestedList(t *testing.T) {
 		}
 	}
 }
+
+func TestUniqueForwardSimpleWriteIgnoresProjectedImports(t *testing.T) {
+	plan := &globalPlan{
+		Steps: []globalInputStep{
+			{ID: 0, Kind: globalInputExpr, EffectiveExpr: ast.IdentExpr{Name: "x"}},
+			{ID: 1, Kind: globalInputProjectedImport, Name: "x", IsSimple: true},
+			{ID: 2, Kind: globalInputAssign, Name: "y", IsSimple: true},
+			{ID: 3, Kind: globalInputAssign, Name: "z", IsSimple: true},
+		},
+		SimpleWritesByName: map[string][]int{
+			"x": {1},
+			"y": {2},
+			"z": {3},
+		},
+	}
+	activeSet := map[int]struct{}{0: {}, 1: {}, 2: {}, 3: {}}
+
+	if depID, ok := uniqueForwardSimpleWrite("x", 0, plan, activeSet); ok {
+		t.Fatalf("did not expect projected import to qualify for forward binding, got depID=%d", depID)
+	}
+	if depID, ok := uniqueForwardSimpleWrite("y", 0, plan, activeSet); !ok || depID != 2 {
+		t.Fatalf("expected local simple assignment to qualify for forward binding, got depID=%d ok=%v", depID, ok)
+	}
+}

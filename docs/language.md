@@ -31,7 +31,7 @@ sep           := (NEWLINE | ";" | comment)+
 trivia        := (NEWLINE | comment)*
 opt_comment   := comment?
 comment       := "#" COMMENT_TEXT
-stmt          := use_stmt | global_assign | let_block | param_block | do_block | submit_block | analyse_block
+stmt          := use_stmt | global_assign | expr_stmt | let_block | param_block | do_block | submit_block | analyse_block
 
 use_stmt      := "use" (
                    IDENT
@@ -42,6 +42,7 @@ ident_list    := IDENT ("," IDENT)*
 use_source    := IDENT | STRING
 
 global_assign := IDENT "=" expr opt_comment
+expr_stmt     := expr opt_comment
 
 let_block     := "let" IDENT let_header_item* "{" let_item* "}"
 let_header_item := NEWLINE | comment
@@ -108,10 +109,26 @@ digit       := "0" | ... | "9"
 
 ## Statement Separators
 
-In structural blocks (`let`, `param`, `analyse`, `submit`) and top-level global assignments, statements can be separated by a newline or `;`.
+At the top level, structural statements, global assignments, and bare expression lines can be separated by a newline or `;`.
 
-Multiline expressions require explicit backslash-newline continuation (`\n`).
+Multiline top-level expressions require explicit backslash-newline continuation (`\n`).
 Implicit operator-based newline continuation is not supported.
+
+Example:
+
+```jbs
+use jsc
+jsc.systemname
+x = (1, 2)
+x
+```
+
+Bare top-level expression lines:
+
+- are parsed and semantically evaluated
+- do not create globals or steps
+- are visible to the REPL as printed results
+- are ignored by normal file-mode YAML output
 
 ## Comments
 

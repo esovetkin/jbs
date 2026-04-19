@@ -86,11 +86,18 @@ type Namespace struct {
 	Steps    []string
 }
 
+type TopLevelExprResult struct {
+	Index int
+	Span  diag.Span
+	Value eval.Value
+}
+
 type Result struct {
 	Program         ast.Program
 	Globals         GlobalState
 	GlobalVarByName map[string]*GlobalVar
 	GlobalVarOrder  []string
+	TopLevelExprs   []TopLevelExprResult
 	Bindings        []*GlobalBinding
 	BindingsByName  map[string]*GlobalBinding
 	Namespaces      map[string]*Namespace

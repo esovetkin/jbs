@@ -17,7 +17,6 @@ import (
 	jbsformat "jbs/internal/format"
 	"jbs/internal/imports"
 	"jbs/internal/lower"
-	"jbs/internal/parser"
 	"jbs/internal/printparam"
 	jbsrepl "jbs/internal/repl"
 	"jbs/internal/sema"
@@ -235,69 +234,69 @@ func runRepl(stdout, stderr io.Writer) int {
 		}
 		return string(out), diagText, false, nil
 	}
-	inspect := func(source, name string) (string, bool, error) {
-		diags := &diag.Diagnostics{}
-		bundle, err := analyzeSource("<repl>", source, cwd, diags)
-		if err != nil {
-			return "", false, err
-		}
-		if gv := bundle.Result.GlobalVarByName[name]; gv != nil {
-			return formatReplValue(gv.Value), true, nil
-		}
-		return "", false, nil
-	}
-	evalExpr := func(source, exprText string) (string, string, bool, bool, error) {
-		return evaluateReplExpression(cwd, source, exprText)
+	commit := func(source, chunk string) (jbsrepl.CommitResult, error) {
+		return commitReplChunk(cwd, source, chunk)
 	}
 	return jbsrepl.Run(jbsrepl.Options{
-		Stdout:   stdout,
-		Stderr:   stderr,
-		Cwd:      cwd,
-		Check:    check,
-		YAML:     yaml,
-		Inspect:  inspect,
-		EvalExpr: evalExpr,
+		Stdout: stdout,
+		Stderr: stderr,
+		Cwd:    cwd,
+		Check:  check,
+		YAML:   yaml,
+		Commit: commit,
 	})
 }
 
-func evaluateReplExpression(cwd, source, exprText string) (string, string, bool, bool, error) {
+func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
+	result := jbsrepl.CommitResult{
+		Source:     source,
+		ExprOutput: []string{},
+	}
+	candidate := appendReplChunk(source, chunk)
 	diags := &diag.Diagnostics{}
-	bundle, err := analyzeSource("<repl>", source, cwd, diags)
+	bundle, err := analyzeSource("<repl>", candidate, cwd, diags)
 	if err != nil {
-		return "", "", true, true, err
+		return result, err
 	}
-	sourceErrs := filterDiagnosticsBySeverity(diags, diag.SeverityError)
-	if len(sourceErrs.Items) > 0 {
-		return "", formatDiagnosticsWithSources(sourceErrs, bundle.Sources, bundle.Program.File), true, true, nil
+	errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
+	if len(errorDiags.Items) > 0 {
+		result.DiagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
+		result.HasErrors = true
+		return result, nil
 	}
-
-	exprDiags := &diag.Diagnostics{}
-	expr, handled := parser.ParseStandaloneExpr("<repl-expr>", exprText, diag.NewPos(0, 1, 1), exprDiags)
-	if !handled {
-		return "", "", false, false, nil
-	}
-	exprErrs := filterDiagnosticsBySeverity(exprDiags, diag.SeverityError)
-	if len(exprErrs.Items) > 0 {
-		return "", formatDiagnostics(exprErrs, exprText), true, true, nil
-	}
-
-	env := lower.BuiltinGlobalValues()
-	for name, gv := range bundle.Result.GlobalVarByName {
-		if gv == nil {
-			continue
+	prevExprCount := 0
+	if strings.TrimSpace(source) != "" {
+		prevDiags := &diag.Diagnostics{}
+		prevBundle, err := analyzeSource("<repl>", source, cwd, prevDiags)
+		if err != nil {
+			return result, err
 		}
-		env[name] = gv.Value
+		prevErrors := filterDiagnosticsBySeverity(prevDiags, diag.SeverityError)
+		if len(prevErrors.Items) > 0 {
+			result.DiagText = formatDiagnosticsWithSources(prevErrors, prevBundle.Sources, prevBundle.Program.File)
+			result.HasErrors = true
+			return result, nil
+		}
+		prevExprCount = len(prevBundle.Result.TopLevelExprs)
 	}
-	evalDiags := &diag.Diagnostics{}
-	value := eval.EvalExprWithOptions(expr, env, evalDiags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-	})
-	evalErrs := filterDiagnosticsBySeverity(evalDiags, diag.SeverityError)
-	if len(evalErrs.Items) > 0 {
-		return "", formatDiagnostics(evalErrs, exprText), true, true, nil
+	for i := prevExprCount; i < len(bundle.Result.TopLevelExprs); i++ {
+		result.ExprOutput = append(result.ExprOutput, formatReplValue(bundle.Result.TopLevelExprs[i].Value))
 	}
-	return formatReplValue(value), "", true, false, nil
+	result.Source = candidate
+	return result, nil
+}
+
+func appendReplChunk(accepted string, chunk string) string {
+	if strings.TrimSpace(chunk) == "" {
+		return accepted
+	}
+	if accepted == "" {
+		return chunk
+	}
+	if strings.HasSuffix(accepted, "\n") {
+		return accepted + chunk
+	}
+	return accepted + "\n" + chunk
 }
 
 const replMaxPreviewItems = 3

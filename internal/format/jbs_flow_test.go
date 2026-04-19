@@ -117,6 +117,34 @@ n = "N: %d" in "out.log"
 	}
 }
 
+func TestJBSFormatsTopLevelExprLines(t *testing.T) {
+	src := `
+use jsc
+  jsc.systemname
+x=(1, 2)
+ x
+`
+	var diags diag.Diagnostics
+	got, err := JBS("exprs.jbs", src, &diags)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	checks := []string{
+		"use jsc",
+		"jsc.systemname",
+		"x = (1, 2)",
+		"x",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("formatted output missing %q\n--- output ---\n%s", needle, got)
+		}
+	}
+}
+
 func TestSplitSegmentLinesAndComments(t *testing.T) {
 	if got := splitSegmentLines("a\nb\n"); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("unexpected split with trailing newline: %v", got)

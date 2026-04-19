@@ -31,6 +31,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		Globals:         GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
 		GlobalVarByName: make(map[string]*GlobalVar),
 		GlobalVarOrder:  make([]string, 0),
+		TopLevelExprs:   make([]TopLevelExprResult, 0),
 		Bindings:        make([]*GlobalBinding, 0),
 		BindingsByName:  make(map[string]*GlobalBinding),
 		Namespaces:      make(map[string]*Namespace),
@@ -53,6 +54,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
+		scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 		for _, name := range scope.GlobalVarOrder {
 			gv := scope.GlobalVarByName[name]
 			if gv == nil {
@@ -97,6 +99,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	res.GlobalVarByName, res.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
+	res.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
 	for _, binding := range scope.Bindings {
 		next := cloneBinding(binding)
 		res.Bindings = append(res.Bindings, next)

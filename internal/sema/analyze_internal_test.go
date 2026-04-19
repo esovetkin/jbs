@@ -1,10 +1,13 @@
 package sema
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/imports"
 	"jbs/internal/parser"
 )
 
@@ -79,5 +82,52 @@ analyse run {
 	}
 	if res.Analyse[0].Block.StepName != "run" {
 		t.Fatalf("unexpected analyse target step: %#v", res.Analyse[0])
+	}
+}
+
+func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
+	src := "x = 1\nx\n"
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 {
+		t.Fatalf("expected one top-level expr result, got %#v", res.TopLevelExprs)
+	}
+	if res.TopLevelExprs[0].Index != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(1)) {
+		t.Fatalf("unexpected top-level expr result: %#v", res.TopLevelExprs[0])
+	}
+}
+
+func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte("value = 41\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "use \"./lib.jbs\" as lib\nlib.value\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name":    eval.String("bench"),
+		"jbs_outpath": eval.String("out"),
+		"jbs_comment": eval.String(""),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 {
+		t.Fatalf("expected one imported top-level expr result, got %#v", res.TopLevelExprs)
+	}
+	if !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(41)) {
+		t.Fatalf("unexpected imported top-level expr value: %#v", res.TopLevelExprs[0])
 	}
 }

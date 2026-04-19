@@ -135,6 +135,14 @@ type GlobalAssign struct {
 func (g GlobalAssign) stmtNode()          {}
 func (g GlobalAssign) GetSpan() diag.Span { return g.Span }
 
+type ExprStmt struct {
+	Expr Expr
+	Span diag.Span
+}
+
+func (e ExprStmt) stmtNode()          {}
+func (e ExprStmt) GetSpan() diag.Span { return e.Span }
+
 type AnalyseBlock struct {
 	StepName    string
 	WithItems   []WithItem

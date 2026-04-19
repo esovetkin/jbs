@@ -91,3 +91,60 @@ func TestPrintHelpTopic(t *testing.T) {
 		t.Fatalf("expected unknown help topic to fail")
 	}
 }
+
+func TestRunCheckWithTopLevelExprLinesProducesNoExprOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"use jsc",
+		"jsc.systemname",
+		"x = (1, 2)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"x",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "" {
+		t.Fatalf("expected no stdout output from top-level expr lines in check mode, got %q", stdout.String())
+	}
+}
+
+func TestRunYAMLIgnoresTopLevelExprOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		"use jsc",
+		"jsc.systemname",
+		"x = (1, 2)",
+		"do run with x {",
+		"  echo ${x}",
+		"}",
+		"x",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "name:") {
+		t.Fatalf("expected yaml output, got %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "juwelsbooster") {
+		t.Fatalf("did not expect bare expr output to leak into yaml, got %q", stdout.String())
+	}
+}

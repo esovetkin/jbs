@@ -9,9 +9,9 @@
 - Primary prompt: `jbs> `
 - Continuation prompt: `...> `
 
-Input is evaluated only when it is complete. Completion waits for:
+Input is committed only when it is complete. Completion waits for:
 
-- balanced `{}`, `()`, and `[]`
+- balanced `{}`
 - closed single/double quotes
 - no trailing backslash continuation
 
@@ -23,22 +23,28 @@ jbs> do run {
 ...> }
 ```
 
+Bare expression lines are part of normal top-level source. They are evaluated in the current module-aware session scope and then appended to the accepted session source.
+
 You can inspect a global variable by entering its bare name:
 
 ```jbs
-jbs> a
+jbs> x = range(10)
+jbs> x
 [0, 1, 2, ...]
 ```
 
-You can also evaluate a standalone expression directly:
+Namespace imports work the same way:
 
 ```jbs
-jbs> range(10)
-[0, 1, 2, ...]
+jbs> use jsc
+jbs> jsc.systemname
+# prints the imported value of jsc.systemname
 ```
 
-Standalone expression evaluation prints the result but does not append anything to the accepted session source.  
-Assignments and blocks still go through the normal commit path.
+Top-level expression continuation is line-oriented, like file mode:
+
+- `1 + \` followed by the next line continues the same expression chunk
+- open `(` or `[` alone do not keep the prompt in continuation mode
 
 ## Using `use` in REPL
 
@@ -85,3 +91,5 @@ Notes:
 - `:save` writes atomically (temporary file + rename).
 - `:save` paths are resolved relative to the REPL process working directory when given as relative paths.
 - REPL output prints errors only; warnings are suppressed in interactive mode.
+- assignments, imports, and blocks do not print values automatically
+- bare expression line output is ignored by normal file compilation; only REPL prints it

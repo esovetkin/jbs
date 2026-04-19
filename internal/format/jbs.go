@@ -251,6 +251,8 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 	switch s := stmt.(type) {
 	case ast.GlobalAssign:
 		return formatGlobalAssign(s, srcRunes)
+	case ast.ExprStmt:
+		return formatExprStmt(s, srcRunes)
 	case ast.UseStmt:
 		return formatUseStmt(s)
 	case ast.DoBlock:
@@ -262,6 +264,14 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 	default:
 		return nil
 	}
+}
+
+func formatExprStmt(stmt ast.ExprStmt, srcRunes []rune) []string {
+	exprText := strings.TrimSpace(spanText(srcRunes, stmt.Span))
+	if exprText == "" {
+		return nil
+	}
+	return []string{exprText}
 }
 
 func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {

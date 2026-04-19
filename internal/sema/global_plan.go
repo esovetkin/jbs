@@ -18,6 +18,7 @@ type globalInputKind string
 
 const (
 	globalInputAssign          globalInputKind = "assign"
+	globalInputExpr            globalInputKind = "expr"
 	globalInputProjectedImport globalInputKind = "projected_import"
 )
 
@@ -33,6 +34,7 @@ type globalInputStep struct {
 	Kind          globalInputKind
 	Name          string
 	Assign        *ast.GlobalAssign
+	ExprStmt      *ast.ExprStmt
 	Import        *projectedImport
 	EffectiveExpr ast.Expr
 	Reads         []globalReadRef
@@ -51,6 +53,7 @@ type globalExecResult struct {
 	UserGlobals         GlobalState
 	UserGlobalVarByName map[string]*GlobalVar
 	UserGlobalOrder     []string
+	TopLevelExprs       []TopLevelExprResult
 	ScalarGlobals       GlobalState
 }
 
@@ -61,27 +64,39 @@ func buildGlobalPlan(prog ast.Program) *globalPlan {
 		SimpleWritesByName: make(map[string][]int),
 	}
 	for index, stmt := range prog.Stmts {
-		assign, ok := stmt.(ast.GlobalAssign)
-		if !ok {
-			continue
-		}
-		assignCopy := assign
-		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
-		id := len(plan.Steps)
-		step := globalInputStep{
-			ID:            id,
-			Kind:          globalInputAssign,
-			Name:          assign.Name,
-			Assign:        &assignCopy,
-			EffectiveExpr: effectiveExpr,
-			Reads:         globalExprReadRefs(effectiveExpr),
-			Index:         index,
-			IsSimple:      !isCompoundAssignOp(assign.Op),
-		}
-		plan.Steps = append(plan.Steps, step)
-		plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
-		if step.IsSimple {
-			plan.SimpleWritesByName[step.Name] = append(plan.SimpleWritesByName[step.Name], id)
+		switch n := stmt.(type) {
+		case ast.GlobalAssign:
+			assign := n
+			assignCopy := assign
+			effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
+			id := len(plan.Steps)
+			step := globalInputStep{
+				ID:            id,
+				Kind:          globalInputAssign,
+				Name:          assign.Name,
+				Assign:        &assignCopy,
+				EffectiveExpr: effectiveExpr,
+				Reads:         globalExprReadRefs(effectiveExpr),
+				Index:         index,
+				IsSimple:      !isCompoundAssignOp(assign.Op),
+			}
+			plan.Steps = append(plan.Steps, step)
+			plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
+			if step.IsSimple {
+				plan.SimpleWritesByName[step.Name] = append(plan.SimpleWritesByName[step.Name], id)
+			}
+		case ast.ExprStmt:
+			exprStmt := n
+			exprCopy := exprStmt
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:            id,
+				Kind:          globalInputExpr,
+				ExprStmt:      &exprCopy,
+				EffectiveExpr: exprStmt.Expr,
+				Reads:         globalExprReadRefs(exprStmt.Expr),
+				Index:         index,
+			})
 		}
 	}
 	return plan
@@ -108,6 +123,7 @@ func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarS
 		},
 		UserGlobalVarByName: make(map[string]*GlobalVar),
 		UserGlobalOrder:     make([]string, 0),
+		TopLevelExprs:       make([]TopLevelExprResult, 0),
 		ScalarGlobals: GlobalState{
 			Values: maps.Clone(scalarSeed),
 			Modes:  make(map[string]string),
@@ -121,10 +137,16 @@ func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarS
 		scalarSeed = map[string]eval.Value{}
 	}
 	userInclude := func(step globalInputStep) bool {
+		if step.Kind == globalInputExpr {
+			return true
+		}
 		_, known := generalSeed[step.Name]
 		return !known
 	}
 	scalarInclude := func(step globalInputStep) bool {
+		if step.Kind == globalInputExpr {
+			return false
+		}
 		_, known := scalarSeed[step.Name]
 		return known
 	}
@@ -139,7 +161,7 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 	env := maps.Clone(seed)
 	seenOrder := make(map[string]bool)
 	for _, step := range plan.Steps {
-		if !include(step) || seenOrder[step.Name] {
+		if !include(step) || step.Name == "" || seenOrder[step.Name] {
 			continue
 		}
 		seenOrder[step.Name] = true
@@ -148,6 +170,20 @@ func execUserGlobalSteps(plan *globalPlan, order []int, seed map[string]eval.Val
 	for _, id := range order {
 		step := plan.Steps[id]
 		switch step.Kind {
+		case globalInputExpr:
+			if step.ExprStmt == nil || step.EffectiveExpr == nil {
+				continue
+			}
+			evalEnv := mergeValueEnv(step.SeedEnv, env)
+			value := eval.EvalExprWithOptions(step.EffectiveExpr, evalEnv, diags, eval.ExprOptions{
+				GlobalAssignmentTupleArithmetic: true,
+				Context:                         eval.EvalCtxBindingAssign,
+			})
+			res.TopLevelExprs = append(res.TopLevelExprs, TopLevelExprResult{
+				Index: step.Index,
+				Span:  step.ExprStmt.Span,
+				Value: value,
+			})
 		case globalInputProjectedImport:
 			if step.Import == nil || step.Import.SourceBinding == nil {
 				continue
@@ -374,8 +410,10 @@ func buildGlobalSchedule(plan *globalPlan, seed map[string]eval.Value, include f
 	}
 	for _, id := range active {
 		step := plan.Steps[id]
-		if prevID, ok := prevWrite[step.Name]; ok {
-			addDep(prevID, id)
+		if step.Name != "" {
+			if prevID, ok := prevWrite[step.Name]; ok {
+				addDep(prevID, id)
+			}
 		}
 		for _, read := range step.Reads {
 			depID, ok := bindGlobalReadDependency(step, read, id, prevWrite, plan, activeSet, seed)
@@ -383,7 +421,9 @@ func buildGlobalSchedule(plan *globalPlan, seed map[string]eval.Value, include f
 				addDep(depID, id)
 			}
 		}
-		prevWrite[step.Name] = id
+		if step.Name != "" {
+			prevWrite[step.Name] = id
+		}
 	}
 	remaining := make(map[int]struct{}, len(active))
 	for _, id := range active {
@@ -466,6 +506,9 @@ func uniqueForwardSimpleWrite(name string, stepID int, plan *globalPlan, activeS
 		if _, ok := activeSet[id]; !ok {
 			continue
 		}
+		if !stepEligibleForForwardBinding(plan.Steps[id]) {
+			continue
+		}
 		if found >= 0 {
 			return 0, false
 		}
@@ -475,6 +518,10 @@ func uniqueForwardSimpleWrite(name string, stepID int, plan *globalPlan, activeS
 		return 0, false
 	}
 	return found, true
+}
+
+func stepEligibleForForwardBinding(step globalInputStep) bool {
+	return step.Kind == globalInputAssign && step.IsSimple
 }
 
 func globalExprReadNames(expr ast.Expr) []string {

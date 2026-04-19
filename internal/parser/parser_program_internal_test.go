@@ -10,6 +10,8 @@ func TestParseProgramDispatchAndSpan(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	src := `
 jbs_name = "bench"
+x = (1, 2)
+x
 do run {
   echo hi
 }
@@ -22,10 +24,10 @@ analyse run {
   n = "N: %d" in "out.log"
   (n)
 }
-`
+	`
 	prog := Parse("in.jbs", src, diags)
-	if len(prog.Stmts) != 4 {
-		t.Fatalf("expected 4 top-level statements, got %d (%#v)", len(prog.Stmts), prog.Stmts)
+	if len(prog.Stmts) != 6 {
+		t.Fatalf("expected 6 top-level statements, got %d (%#v)", len(prog.Stmts), prog.Stmts)
 	}
 	if prog.File != "in.jbs" {
 		t.Fatalf("unexpected program file: %q", prog.File)
@@ -38,17 +40,17 @@ analyse run {
 	}
 }
 
-func TestParseProgramUnknownTokenAndKeywordBranches(t *testing.T) {
+func TestParseProgramReportsExpressionErrorsForMalformedTopLevelInput(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	src := "@\nunknownblock x\n"
 	prog := Parse("in.jbs", src, diags)
-	if len(prog.Stmts) != 0 {
-		t.Fatalf("expected no valid statements for malformed source, got %#v", prog.Stmts)
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected two expression statements for malformed source, got %#v", prog.Stmts)
 	}
-	if !hasDiag(diags, "E010") {
-		t.Fatalf("expected E010 for non-word token at top level, got: %s", diags.String())
+	if !hasDiag(diags, "E058") {
+		t.Fatalf("expected E058 for invalid expression token, got: %s", diags.String())
 	}
-	if !hasDiag(diags, "E011") {
-		t.Fatalf("expected E011 for unknown block keyword, got: %s", diags.String())
+	if !hasDiag(diags, "E061") {
+		t.Fatalf("expected E061 for trailing tokens in malformed expr line, got: %s", diags.String())
 	}
 }

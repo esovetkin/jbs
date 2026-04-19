@@ -125,6 +125,38 @@ func TestAnalyzeInputSelectiveImportOrderIsStableForDependentGlobals(t *testing.
 	}
 }
 
+func TestAnalyzeInputExprStmtRespectsSelectiveImportVisibility(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "x = 41\n")
+
+	t.Run("before_use_fails", func(t *testing.T) {
+		mainPath := writeCLIFile(t, cwd, "before.jbs", "x\nuse x from \"./lib.jbs\"\n")
+		diags := &diag.Diagnostics{}
+		_, err := analyzeInput(mainPath, diags)
+		if err != nil {
+			t.Fatalf("analyzeInput failed: %v", err)
+		}
+		if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) == 0 {
+			t.Fatalf("expected error diagnostics when expr line appears before selective import")
+		}
+	})
+
+	t.Run("after_use_succeeds", func(t *testing.T) {
+		mainPath := writeCLIFile(t, cwd, "after.jbs", "use x from \"./lib.jbs\"\nx\n")
+		diags := &diag.Diagnostics{}
+		bundle, err := analyzeInput(mainPath, diags)
+		if err != nil {
+			t.Fatalf("analyzeInput failed: %v", err)
+		}
+		if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
+			t.Fatalf("expected no error diagnostics: %s", diags.String())
+		}
+		if len(bundle.Result.TopLevelExprs) != 1 || bundle.Result.TopLevelExprs[0].Value.I != 41 {
+			t.Fatalf("unexpected top-level expr results: %#v", bundle.Result.TopLevelExprs)
+		}
+	})
+}
+
 func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	cwd := t.TempDir()
 	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = comb(x)\n")
