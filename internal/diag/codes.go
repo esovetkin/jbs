@@ -49,6 +49,7 @@ const (
 	CodeE064 Code = "E064"
 	CodeE065 Code = "E065"
 	CodeE066 Code = "E066"
+	CodeE067 Code = "E067"
 	CodeE071 Code = "E071"
 	CodeE072 Code = "E072"
 	CodeE073 Code = "E073"
@@ -161,7 +162,7 @@ func initCatalog() map[Code]CodeMeta {
 		CodeE030, CodeE031, CodeE032, CodeE033, CodeE034, CodeE035,
 		CodeE040, CodeE041,
 		CodeE050, CodeE051, CodeE052, CodeE053, CodeE054, CodeE055,
-		CodeE058, CodeE059, CodeE060, CodeE061, CodeE062, CodeE063, CodeE064, CodeE065, CodeE066,
+		CodeE058, CodeE059, CodeE060, CodeE061, CodeE062, CodeE063, CodeE064, CodeE065, CodeE066, CodeE067,
 		CodeE077,
 		CodeE080, CodeE081, CodeE082, CodeE083,
 		CodeE416, CodeE417, CodeE418,

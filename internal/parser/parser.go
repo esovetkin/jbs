@@ -42,6 +42,10 @@ func (p *Parser) parseProgram() ast.Program {
 			stmts = append(stmts, p.parseGlobalAssign(start))
 			continue
 		}
+		if keyword, ok := p.legacyTopLevelBlockKeyword(); ok {
+			stmts = append(stmts, p.parseLegacyTopLevelBlock(keyword, start))
+			continue
+		}
 		word, ok := p.peekWord()
 		if ok {
 			switch word {

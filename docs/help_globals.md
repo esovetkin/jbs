@@ -1,11 +1,18 @@
 # jbs help globals
 
 ```jbs
-# JBS global defaults
+# Canonical top-level forms:
+# - use
+# - top-level assignment
+# - top-level expression statement
+# - do
+# - submit
+# - analyse
+#
+# Globals are introduced only by top-level assignments.
+# A global may hold scalar data, tuple/list data, comb(...) table data,
+# or a function value.
 
-# Top-level assignments define all variables used by the script.
-# Variables become visible in do/submit only when imported with `with`.
-# Use comb(...) to create parameter-space objects.
 # jbs_name and jbs_outpath must be plain string literals.
 # Statements can be separated by a newline or ';'.
 # Multiline expressions require explicit backslash-newline continuation.
@@ -19,4 +26,9 @@ jbs_outpath = "out"
 
 # Benchmark comment (root `comment` field). maps_to: root:comment. mode: -
 jbs_comment = ""
+
+# Ordinary globals:
+sizes = (1, 2, 4)
+labels = ("small", "medium", "large")
+cases = comb(labels + sizes)
 ```

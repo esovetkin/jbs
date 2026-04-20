@@ -77,6 +77,54 @@ func TestWriteFileAtomicAndRunFmtNoChange(t *testing.T) {
 	}
 }
 
+func TestRunFmtStrictAcceptsCanonicalSyntax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`x = (1, 2)`,
+		`cases = comb(x)`,
+		`do run`,
+		`        with cases`,
+		`{`,
+		`        echo "${x}"`,
+		`}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected strict formatter to accept canonical syntax, code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunFmtStrictRejectsLegacyTopLevelParamBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`param cases {`,
+		`  x = (1, 2)`,
+		`  x`,
+		`}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected strict formatter to reject legacy syntax, code=%d stderr=%s", code, stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "ERROR E067") || !strings.Contains(errText, "legacy top-level block 'param' is no longer supported") {
+		t.Fatalf("expected targeted legacy diagnostic, got %q", errText)
+	}
+}
+
 func TestPrintHelpTopic(t *testing.T) {
 	var out bytes.Buffer
 	if err := printHelpTopic(&out, "use"); err != nil {

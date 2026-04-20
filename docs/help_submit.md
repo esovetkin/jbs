@@ -26,8 +26,7 @@ Allowed step header keys:
 
 ## Common submit fields
 
-```
-        # expression keys
+```jbs
         account = "myacct"
         queue = "batch"
         nodes = 2
@@ -40,7 +39,6 @@ Allowed step header keys:
         mail = "me@example.org"
         notification = "END,FAIL"
 
-        # raw block
         preprocess = {
                 echo "before run"
         }
@@ -51,22 +49,18 @@ Allowed step header keys:
         executable = "/bin/bash"
         args_exec = "-lc hostname"
 
-        # raw block
         postprocess = {
                 echo "after run"
- ```
-
-
-- `account`, `queue`, `nodes`, `tasks`, `threadspertask`, `timelimit`
-- `outlogfile`, `outerrfile`, `gres`, `mail`, `notification`
-- `measurement`, `starter`, `args_starter`, `executable`, `args_exec`
-- `preprocess`, `postprocess`
+        }
+```
 
 ## Notes
 
-- Variables are visible only through `with` imports (plus inherited vars from `after`).
-- `submit ... use ...` merges helper defaults with last-win policy.
-- Missing/empty key warnings are emitted for important scheduler fields.
+- `with` imports row-varying data used by the submit body
+- `submit ... use ...` imports scalar defaults from a scalar global or from a module namespace
+- later `use` sources win on collisions and emit warning `W072`
+- raw submit keys are `preprocess` and `postprocess`
+- missing or empty important scheduler keys emit warnings
 
 ## Example
 
@@ -75,15 +69,24 @@ nnodes = (1, 2)
 case = ("ddp", "fsdp")
 cases = comb(case + nnodes)
 
+use "./submit_defaults.jbs" as defaults
+
 submit train
+        use defaults
         with cases
 {
-        account = "myacct"
-        queue = "batch"
         nodes = "${nnodes}"
         executable = "/bin/bash"
         args_exec = "-lc 'echo case=${case} nodes=${nnodes}'"
 }
+```
+
+`submit_defaults.jbs` can export scalar defaults such as:
+
+```jbs
+account = "myacct"
+queue = "batch"
+starter = "srun"
 ```
 
 ## Lookup: submit keys -> `#SBATCH` headers
@@ -113,16 +116,10 @@ From `platform.xml:executesub`, the replacements are:
 - `threadspertask` -> `#NTHREADS#`
 - `timelimit` -> `#TIME_LIMIT#`
 - `outlogfile` -> `#STDOUTLOGFILE#`
-- `outerrfile` -> `#STDERRLOGFILE#` (platform variable name)
+- `outerrfile` -> `#STDERRLOGFILE#`
 - `queue` -> `#QUEUE#`
 - `gres` -> `#GRES#`
-- `account` -> `#ACCOUNT_CONFIG#` via:
-  - `account_slurm = "#SBATCH --account=$account"` if `account` is non-empty; otherwise empty
-
-Other useful placeholders:
-- `#BENCHNAME#` comes from JUBE internals:
-  - `${jube_benchmark_name}_${jube_step_name}_${jube_wp_id}`
-- `$jube_benchmark_home`, `$jube_wp_abspath`, and other [JUBE variables](https://apps.fz-juelich.de/jsc/jube/docu/glossar.html#term-jube_variables)
+- `account` -> `#ACCOUNT_CONFIG#`
 
 ## Lookup: launch line replacement
 
@@ -132,61 +129,10 @@ In `submit.job.in`, the runtime line is:
 #MEASUREMENT# #STARTER# #ARGS_STARTER# #EXECUTABLE# #ARGS_EXECUTABLE#
 ```
 
-From `platform.xml:executesub`:
+The replacements are:
 
 - `measurement` -> `#MEASUREMENT#`
 - `starter` -> `#STARTER#`
 - `args_starter` -> `#ARGS_STARTER#`
 - `executable` -> `#EXECUTABLE#`
 - `args_exec` -> `#ARGS_EXECUTABLE#`
-
-The final command is built by token replacement in that order.
-
-Example:
-
-```jbs
-submit run
-{
-        measurement = "time -p"
-        starter = "srun"
-        args_starter = ""
-        executable = "/bin/bash"
-        args_exec = "-lc 'python train.py --epochs 1'"
-}
-```
-
-Resulting launch line in the generated `submit.job`:
-
-```bash
-time -p srun --mpi=pmix /bin/bash -lc 'python train.py --epochs 1'
-```
-
-## `preprocess` and `postprocess`
-
-`preprocess` and `postprocess` are raw blocks inserted as-is into the template:
-
-- `preprocess` -> `#PREPROCESS#`
-- `postprocess` -> `#POSTPROCESS#`
-
-Example:
-
-```jbs
-submit run
-{
-        preprocess = {
-                module purge
-                module load CUDA
-        }
-
-        executable = "/bin/bash"
-        args_exec = "-lc 'hostname'"
-
-        postprocess = {
-                echo "finished"
-        }
-}
-```
-
-## Example: practical GPU submit block
-
-XXX

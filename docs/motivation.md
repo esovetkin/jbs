@@ -79,13 +79,11 @@ A simple Cartesian product is easy in YAML. The real difficulty starts when you 
 Example JBS parameter logic:
 
 ```jbs
-param pm {
-  a = (1,2)
-  b = ("b0","b1","b2")
-  c = ("c0","c1","c2")
-  d = (true,false)
-  a * (b + c) * d
-}
+a = (1,2)
+b = ("b0","b1","b2")
+c = ("c0","c1","c2")
+d = (true,false)
+pm = comb(a * (b + c) * d)
 
 do step0 with (a,b) from pm {
   echo "a=${a} b=${b}" > s0.out
@@ -184,7 +182,7 @@ dependency cycle detected: a -> b -> a
 ### Missing import for used variable
 
 ```jbs
-param p { a = (1,2); a }
+a = (1,2)
 do s { echo ${a} }
 ```
 
@@ -195,14 +193,12 @@ WARNING W311
 variable 'a' is referenced in step 's' but not imported via with-clause
 ```
 
-### Exposed param variable never used
+### Exposed imported variable never used
 
 ```jbs
-param p {
-  a = (1,2)
-  b = ("x","y")
-  a + b
-}
+p_a = (1,2)
+p_b = ("x","y")
+p = comb(p_a + p_b)
 do s with a from p { echo ${a} }
 ```
 
@@ -210,7 +206,7 @@ Diagnostic:
 
 ```text
 WARNING W310
-exposed variable 'b' from param 'p' is never used in any do/submit block
+exposed variable 'b' from global 'p' is never used in any do/submit/analyse block
 ```
 
 These checks prevent many mistakes before `jube-autorun` starts creating workpackages or submitting jobs.

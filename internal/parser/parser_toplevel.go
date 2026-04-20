@@ -2,6 +2,7 @@
 package parser
 
 import (
+	"fmt"
 	"unicode"
 
 	"jbs/internal/ast"
@@ -260,6 +261,77 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 		Alias:  names[0],
 		Span:   span,
 	}
+}
+
+func (p *Parser) legacyTopLevelBlockKeyword() (string, bool) {
+	stmt, stmtStart := p.peekTopLevelStatement()
+	if stmt == "" {
+		return "", false
+	}
+	previewDiags := &diag.Diagnostics{}
+	tokens := lexer.LexFrom(p.file, stmt, stmtStart, previewDiags)
+	if len(tokens) == 0 {
+		return "", false
+	}
+
+	idx := 0
+	for idx < len(tokens) {
+		tt := tokens[idx].Type
+		if tt != lexer.TokenNewline && tt != lexer.TokenSemicolon && tt != lexer.TokenComment {
+			break
+		}
+		idx++
+	}
+	if idx >= len(tokens) {
+		return "", false
+	}
+
+	first := tokens[idx]
+	if first.Type != lexer.TokenIdent || (first.Value != "let" && first.Value != "param") {
+		return "", false
+	}
+	idx++
+	if idx >= len(tokens) || tokens[idx].Type != lexer.TokenIdent {
+		return "", false
+	}
+	for idx < len(tokens) {
+		if tokens[idx].Type == lexer.TokenLBrace {
+			return first.Value, true
+		}
+		idx++
+	}
+	return "", false
+}
+
+func (p *Parser) parseLegacyTopLevelBlock(keyword string, start diag.Position) ast.ExprStmt {
+	_, _ = p.readTopLevelStatement()
+	span := legacyKeywordSpan(p.file, start, keyword)
+	hint := "rewrite it as one or more top-level assignments"
+	if keyword == "param" {
+		hint = "rewrite it as a top-level assignment that evaluates to a comb/table value"
+	}
+	if keyword == "let" {
+		hint = "rewrite it as one or more top-level assignments or move shared values into a module used via `use`"
+	}
+	p.diags.AddError(
+		diag.CodeE067,
+		fmt.Sprintf("legacy top-level block '%s' is no longer supported", keyword),
+		span,
+		hint,
+	)
+	return ast.ExprStmt{Span: span}
+}
+
+func legacyKeywordSpan(file string, start diag.Position, keyword string) diag.Span {
+	end := diag.NewPos(start.Offset+len(keyword), start.Line, start.Column+len(keyword))
+	return diag.NewSpan(file, start, end)
+}
+
+func (p *Parser) peekTopLevelStatement() (string, diag.Position) {
+	startPos := p.pos()
+	startOff := p.off
+	stmtEnd, _ := scanTopLevelStatementOffsets(p.src, startOff)
+	return string(p.src[startOff:stmtEnd]), startPos
 }
 
 func (p *Parser) readTopLevelStatement() (string, diag.Position) {

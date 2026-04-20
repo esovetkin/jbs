@@ -185,8 +185,7 @@ Rules:
 
 ## `comb(<expr>)`
 
-XXX link to docs/help_combinations.md
-treat an expression as a combination expression
+`comb(...)` builds a table-like value from combination algebra.
 
 ```jbs
 x = [1,2]
@@ -194,6 +193,18 @@ y = [3,4]
 # XXX x+y == (4,6)
 x+y == [4,6]
 len(comb(x + y)) == 2
+```
+
+Use a top-level assignment to keep the result and import it into steps:
+
+```jbs
+cases = comb(x * y)
+
+do run
+        with cases
+{
+        echo "${x} ${y}"
+}
 ```
 
 ## `filter(<list/tuple/comb>, <mask>)`

@@ -97,7 +97,16 @@ Interactive mode:
   jbs repl
 ```
 
-A JBS program now uses top-level global assignments for all declarations. Sequence and matrix-like parameter spaces are represented as first-class `comb` values. `do` and `submit` blocks import visible variables explicitly through `with`. At the end, `analyse` builds result tables from parsed files.
+A JBS program uses six canonical top-level statement forms:
+
+- `use`
+- top-level assignment
+- top-level expression statement
+- `do`
+- `submit`
+- `analyse`
+
+Top-level assignments define reusable globals, including `comb(...)` parameter-space values and function values. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
 
 Top-level assignments define global variables. Use `comb(...)` to build a parameter-space object and import it in steps.
 
@@ -121,7 +130,7 @@ make_adder = function(delta) {
 add2 = make_adder(2)
 ```
 
-They can be passed around in expressions and imported from modules, but they are not valid `with`/`submit use`/`analyse with` data sources.
+They can be passed around in expressions and imported from modules, but they are not valid `with` / `submit use` / `analyse with` data sources.
 
 ### `do <name> [with ...] [after ...] [<key>=<int> ...] { ... }`
 
@@ -131,13 +140,13 @@ Read more in `jbs help do` or [docs/help_do.md](docs/help_do.md).
 
 ### `submit <name> [with ...] [after ...] [use ...] [<key>=<int> ...] { key = value ... }`
 
-The `submit` block configures job-system settings, so it is less straightforward than `do`. JBS currently supports only Slurm job templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
+The `submit` block configures job-system settings, so it is less straightforward than `do`. `with` imports row-varying data. `submit ... use ...` imports scalar defaults from globals or module namespaces. JBS currently supports only Slurm job templates (see [slurm/platform.xml](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/platform.xml) and [slurm/submit.job.in](https://github.com/FZJ-JSC/JUBE/blob/master/platform/slurm/submit.job.in)).
 
 Read more in `jbs help submit` or [docs/help_submit.md](docs/help_submit.md).
 
 ### `analyse <step_name> [with ...] { ... }`
 
-`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Pattern variables are defined in extraction expressions or imported via `with` (scalar-only).
+`analyse` defines JUBE `analyser` and `result` sections. You must target an existing `do` or `submit` step. `analyse` inherits variables visible in that step. Pattern variables are defined in extraction expressions or imported via `with` (scalar string bindings only).
 
 ```jbs
 analyse <step_name>
@@ -181,7 +190,7 @@ jbs> add(41)
 42
 ```
 
-Bare expression lines print in REPL only. File-mode compilation ignores their display output.
+Top-level expression statements are legal in files and in REPL. File-mode compilation ignores their display output, so they are mainly useful for REPL work and quick local checks.
 
 See [docs/language.md](docs/language.md) for the JBS grammar and semantics.
 

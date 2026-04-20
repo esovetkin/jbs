@@ -2,7 +2,7 @@
 
 The `use` statement imports reusable definitions from embedded or local `.jbs` scripts.
 
-`use` is JBS-only syntax. During compilation, all imported content is merged into one generated JUBE YAML file.
+`use` is JBS-only syntax. During compilation, imported modules are resolved and analyzed together with the entry file before one YAML document is produced.
 
 ## Syntax
 
@@ -25,45 +25,44 @@ After importing a module, `with` also supports namespace-qualified references:
 use test_lib
 
 do s
-        with x from test_lib.p
+        with x from test_lib.cases
 {
         echo ${x}
 }
 ```
 
-You can also use comb-style slicing on imported parameter-space symbols:
+You can also use comb-style slicing on imported table symbols:
 
 ```jbs
 use test_lib
 
 do s0
-        with test_lib.p[x, y]
+        with test_lib.cases[x, y]
 {
         echo ${x} ${y}
 }
 ```
 
 Resolution rules:
+
 - `use <module>`:
   - first resolves embedded `shared/<module>.jbs`
   - if missing, resolves local `./<module>.jbs` from the directory where `jbs` is invoked
-- `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory (or absolute if given)
+- `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory, or absolute if given
 - quoted paths must end with `.jbs`
 
 Importable symbols:
-- `let`
-- `param`
-- `do`
-- `submit`
-- top-level global assignments (by variable name)
 
-When you import a `do`/`submit` step symbol, JBS also imports its required dependencies:
+- top-level global assignments, including function-valued globals
+- `do` steps
+- `submit` steps
+- module namespaces created by namespace imports
+
+When you import a `do` or `submit` symbol, JBS also imports its required dependencies:
 
 - transitive `after` steps
 - referenced `with` sources
-- referenced submit-header `use` let namespaces
-
-This ensures the final YAML file includes everything required.
+- referenced submit-header `use` sources
 
 `analyse` is not importable by symbol name.
 
@@ -74,27 +73,34 @@ Name collisions during import are hard errors, including:
 - transitive imported dependency collisions
 - alias collisions
 
-## Example: `submit` defaults from a let namespace
+## Example: submit defaults from a module namespace
 
 ```jbs
-use submit_defaults from jsc
+use "./submit_defaults.jbs" as defaults
 
 submit run
-        use submit_defaults
-        with params
+        use defaults
 {
-        nodes = "${nnodes}"   # explicit field overrides defaults
+        executable = "/bin/bash"
         args_exec = "-lc hostname"
 }
+```
+
+`submit_defaults.jbs` can export scalar defaults such as:
+
+```jbs
+account = "myacct"
+queue = "batch"
+starter = "srun"
 ```
 
 Rules:
 
 - submit headers can contain one or more `use` clauses
-- non-submit variables from defaults namespaces are retained as internal helper parameters (`_jk__<step>_<name>`) in the generated submit parameter set
+- non-submit variables from defaults namespaces are retained as internal helper parameters in the generated submit parameter set
 - submit values that reference those helper variables are rewritten to helper aliases
 - explicit submit fields override imported defaults
-- if multiple namespaces define the same submit key or helper variable name, JBS applies last-wins precedence and emits warning `W072`
+- if multiple sources define the same submit key or helper variable name, JBS applies last-wins precedence and emits warning `W072`
 
 ## `jbs embed`
 

@@ -42,6 +42,8 @@ func TestIsTopLevelAssignmentStart(t *testing.T) {
 		want bool
 	}{
 		{src: `jbs_name = "x"`, want: true},
+		{src: `let = "x"`, want: true},
+		{src: `param = "x"`, want: true},
 		{src: `jbs_name+= "x"`, want: true},
 		{src: `jbs_name -= "x"`, want: true},
 		{src: `jbs_name *= "x"`, want: true},

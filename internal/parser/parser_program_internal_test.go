@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
@@ -90,5 +91,97 @@ function(a) {
 	}
 	if _, ok := call.Callee.(ast.FunctionExpr); !ok {
 		t.Fatalf("expected function literal callee, got %#v", call.Callee)
+	}
+}
+
+func TestParseProgramReportsLegacyLetBlock(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	src := "let defaults {\n  queue = \"batch\"\n}\n"
+	prog := Parse("in.jbs", src, diags)
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %#v", prog.Stmts)
+	}
+	if !hasDiag(diags, "E067") {
+		t.Fatalf("expected E067 for legacy let block, got: %s", diags.String())
+	}
+	if hasDiag(diags, "E058") || hasDiag(diags, "E061") {
+		t.Fatalf("did not expect generic expression fallout for legacy let block, got: %s", diags.String())
+	}
+	if got := len(diags.Items); got != 1 {
+		t.Fatalf("expected exactly one diagnostic, got %d: %s", got, diags.String())
+	}
+	if msg := diags.String(); !strings.Contains(msg, "legacy top-level block 'let' is no longer supported") {
+		t.Fatalf("unexpected legacy let diagnostic text: %s", msg)
+	}
+}
+
+func TestParseProgramReportsLegacyParamBlock(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	src := "param cases {\n  x = (1, 2)\n  x\n}\n"
+	prog := Parse("in.jbs", src, diags)
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %#v", prog.Stmts)
+	}
+	if !hasDiag(diags, "E067") {
+		t.Fatalf("expected E067 for legacy param block, got: %s", diags.String())
+	}
+	if hasDiag(diags, "E058") || hasDiag(diags, "E061") {
+		t.Fatalf("did not expect generic expression fallout for legacy param block, got: %s", diags.String())
+	}
+	if got := len(diags.Items); got != 1 {
+		t.Fatalf("expected exactly one diagnostic, got %d: %s", got, diags.String())
+	}
+	if msg := diags.String(); !strings.Contains(msg, "legacy top-level block 'param' is no longer supported") {
+		t.Fatalf("unexpected legacy param diagnostic text: %s", msg)
+	}
+}
+
+func TestParseProgramRecoversAfterLegacyBlocks(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	src := `
+param cases {
+  x = (1, 2)
+  x
+}
+let defaults {
+  queue = "batch"
+}
+do run {
+  echo ok
+}
+`
+	prog := Parse("in.jbs", src, diags)
+	if len(prog.Stmts) != 3 {
+		t.Fatalf("expected three top-level statements, got %#v", prog.Stmts)
+	}
+	count := 0
+	for _, item := range diags.Items {
+		if item.Code == "E067" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Fatalf("expected two legacy diagnostics, got %d: %s", count, diags.String())
+	}
+	if _, ok := prog.Stmts[2].(ast.DoBlock); !ok {
+		t.Fatalf("expected parser to recover and keep trailing do block, got %#v", prog.Stmts[2])
+	}
+}
+
+func TestParseProgramDoesNotTreatLetOrParamAssignmentsAsLegacyBlocks(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	src := "let = 1\nparam = 2\n"
+	prog := Parse("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected two assignments, got %#v", prog.Stmts)
+	}
+	if _, ok := prog.Stmts[0].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected first statement to stay a global assignment, got %#v", prog.Stmts[0])
+	}
+	if _, ok := prog.Stmts[1].(ast.GlobalAssign); !ok {
+		t.Fatalf("expected second statement to stay a global assignment, got %#v", prog.Stmts[1])
 	}
 }
