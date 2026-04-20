@@ -1,0 +1,5 @@
+ERROR E023 /home/jackson/jülich/jbs_review2/tests/with_from_migration.jbs:5:14
+legacy with-clause syntax `x from cases` is no longer supported
+     5 |         with x from cases
+       |              ^^^^^^^^^^^^
+Hint: rewrite `with x from cases` as `with cases[x]`

@@ -130,7 +130,7 @@ They can be passed around in expressions and imported from modules, but they are
 
 ### `do <name> [with ...] [after ...] [<key>=<int> ...] { ... }`
 
-`do` defines the step computation via a shell script with the variables from parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)). [Step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) are defined by `after`. Circular dependencies are not allowed.
+`do` defines the step computation via a shell script with the variables from parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)). Canonical step imports are `with source` and `with source[col0, col1]`. [Step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) are defined by `after`, and dependent steps still inherit predecessor-visible variables through those dependencies. Circular dependencies are not allowed.
 
 Read more in `jbs help do` or [docs/help_do.md](docs/help_do.md).
 

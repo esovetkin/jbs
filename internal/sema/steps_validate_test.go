@@ -87,16 +87,16 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 			{
 				Name: "run",
 				WithItems: []ast.WithItem{
-					{Name: "a", From: "srcA", Span: span},
-					{Name: "a", From: "srcB", Span: span},
-					{Name: "missing_var", From: "srcA", Span: span},
+					{Source: "srcA", Selectors: []string{"a"}, Span: span},
+					{Source: "srcB", Selectors: []string{"a"}, Span: span},
+					{Source: "srcA", Selectors: []string{"missing_var"}, Span: span},
 				},
 				Span: span,
 			},
 			{
 				Name: "fn_step",
 				WithItems: []ast.WithItem{
-					{Name: "fn", Span: span},
+					{Source: "fn", Span: span},
 				},
 				Span: span,
 			},
@@ -105,7 +105,7 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 			{
 				Name: "submit",
 				WithItems: []ast.WithItem{
-					{Name: "missing_source", Span: span},
+					{Source: "missing_source", Span: span},
 				},
 				Span: span,
 			},

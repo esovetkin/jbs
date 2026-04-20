@@ -22,8 +22,8 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 		def := defs[stepName]
 		reported := make(map[string]struct{})
 		reportConflict := func(name string, left VisibleBinding, right VisibleBinding, at diag.Span, relation string) {
-			a := left.Source
-			b := right.Source
+			a := stepScopeConflictKey(left)
+			b := stepScopeConflictKey(right)
 			if a == b {
 				return
 			}
@@ -35,13 +35,14 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 				return
 			}
 			reported[key] = struct{}{}
+			message, hint := stepScopeConflictMessage(stepName, name, left, right)
 			diags.AddError(
 				diag.CodeE214,
-				fmt.Sprintf("conflicting variable '%s' for step '%s' from globals '%s' and '%s'", name, stepName, left.Source, right.Source),
+				message,
 				at,
-				"import each variable name from only one global binding",
-				diag.RelatedSpan{Message: "first conflicting source", Span: left.Span},
-				diag.RelatedSpan{Message: "second conflicting source", Span: right.Span},
+				hint,
+				diag.RelatedSpan{Message: stepScopeConflictRelated(left), Span: left.Span},
+				diag.RelatedSpan{Message: stepScopeConflictRelated(right), Span: right.Span},
 			)
 		}
 
@@ -58,6 +59,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 				continue
 			}
 			for name, origin := range depPlan.Effective {
+				origin.ViaStep = dep
 				if prev, exists := inherited[name]; exists {
 					if prev.Source != origin.Source {
 						reportConflict(name, prev, origin, def.Span, "inherited")
@@ -73,10 +75,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			Globals:    res.Globals.Values,
 			Namespaces: res.Namespaces,
 		}
-		expandedWith, _ := resolver.ExpandWithItems(def.WithItems, ResolveOptions{
-			Context:                   ImportIntoStep,
-			EnableMixedSourceFallback: true,
-		})
+		expandedWith, _ := resolver.ExpandWithItems(def.WithItems, ResolveOptions{Context: ImportIntoStep})
 
 		explicitDelta := make([]ScopeImport, 0)
 		selected := make(map[string]VisibleBinding)
@@ -109,6 +108,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 				}
 				if prev, exists := selected[name]; exists {
 					if prev.Source != current.Source {
+						reportConflict(name, prev, current, expanded.Span, "explicit")
 						continue
 					}
 					continue
@@ -156,6 +156,61 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 		}
 	}
 	res.StepScopeByName = plans
+}
+
+func stepScopeConflictKey(binding VisibleBinding) string {
+	if binding.ViaStep != "" {
+		return "after:" + binding.ViaStep + ":" + binding.Source
+	}
+	return "with:" + binding.Source
+}
+
+func stepScopeConflictRelated(binding VisibleBinding) string {
+	if binding.ViaStep != "" {
+		return fmt.Sprintf("visible via `after %s`", binding.ViaStep)
+	}
+	return fmt.Sprintf("imported via `with %s`", binding.Source)
+}
+
+func stepScopeConflictMessage(stepName, variable string, left VisibleBinding, right VisibleBinding) (string, string) {
+	switch {
+	case left.ViaStep != "" && right.ViaStep != "":
+		return fmt.Sprintf(
+				"conflicting variable '%s' for step '%s': inherited via `after` from predecessor steps '%s' and '%s'",
+				variable,
+				stepName,
+				left.ViaStep,
+				right.ViaStep,
+			),
+			"ensure only one predecessor makes this visible name available"
+	case left.ViaStep != "":
+		return fmt.Sprintf(
+				"conflicting variable '%s' for step '%s': `with` import from '%s' collides with name inherited via `after %s`",
+				variable,
+				stepName,
+				right.Source,
+				left.ViaStep,
+			),
+			"rename the imported variable at the source or avoid importing the same visible name twice"
+	case right.ViaStep != "":
+		return fmt.Sprintf(
+				"conflicting variable '%s' for step '%s': `with` import from '%s' collides with name inherited via `after %s`",
+				variable,
+				stepName,
+				left.Source,
+				right.ViaStep,
+			),
+			"rename the imported variable at the source or avoid importing the same visible name twice"
+	default:
+		return fmt.Sprintf(
+				"conflicting variable '%s' for step '%s': imported via `with` from '%s' and '%s'",
+				variable,
+				stepName,
+				left.Source,
+				right.Source,
+			),
+			"import each variable name from only one source"
+	}
 }
 
 func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {

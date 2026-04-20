@@ -32,42 +32,26 @@ func TestBindingResolverExpandWithItemsInStepContext(t *testing.T) {
 		},
 	}
 	items := []ast.WithItem{
-		{Rejected: true, Name: "named", Span: span},
-		{Name: "named", Span: span},
-		{Name: "named", Alias: "alias_name", Span: span},
-		{Name: "x", From: "named", Alias: "xx", Span: span},
-		{Name: "fallback", From: "named", Span: span},
-		{Name: "nope", From: "named", Span: span},
-		{Name: "missing", Span: span},
-		{SourceExpr: "named", SourceSlice: []string{"x"}, CombAlias: "slice_alias", Span: span},
-		{SourceExpr: "named", SourceSlice: []string{"missing"}, Span: span},
+		{Source: "named", Span: span},
+		{Source: "named", Selectors: []string{"x"}, Span: span},
+		{Source: "fallback", Span: span},
+		{Source: "missing", Span: span},
+		{Source: "named", Selectors: []string{"missing"}, Span: span},
 	}
 
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
-		Context:                   ImportIntoStep,
-		EnableMixedSourceFallback: true,
-	})
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoStep})
 
-	if len(expanded) != 5 {
-		t.Fatalf("expected 5 expanded items, got %d: %#v", len(expanded), expanded)
+	if len(expanded) != 3 {
+		t.Fatalf("expected 3 expanded items, got %d: %#v", len(expanded), expanded)
 	}
-	if !expanded[0].Full || expanded[0].Source != "named" || expanded[0].SourceExpr != "named" {
+	if !expanded[0].Full || expanded[0].Source != "named" {
 		t.Fatalf("unexpected full import expansion: %#v", expanded[0])
 	}
-	if !expanded[1].Full || expanded[1].SourceExpr != "alias_name" {
-		t.Fatalf("expected aliased full import source expression, got %#v", expanded[1])
+	if expanded[1].Full || expanded[1].Source != "named" || len(expanded[1].Vars) != 1 || expanded[1].Vars[0] != (ExpandedWithVar{Visible: "x", SourceVar: "x"}) {
+		t.Fatalf("unexpected projected import expansion: %#v", expanded[1])
 	}
-	if expanded[2].Full || len(expanded[2].Vars) != 1 || expanded[2].Vars[0].Visible != "xx" || expanded[2].Vars[0].SourceVar != "x" {
-		t.Fatalf("unexpected single-var import expansion: %#v", expanded[2])
-	}
-	if !expanded[3].Full || expanded[3].Source != "fallback" || expanded[3].SourceExpr != "fallback" {
-		t.Fatalf("expected mixed-source fallback full import, got %#v", expanded[3])
-	}
-	if expanded[4].Source != "named" || expanded[4].Full || expanded[4].SourceExpr != "named" || expanded[4].CombAlias != "slice_alias" {
-		t.Fatalf("unexpected source-slice expansion metadata: %#v", expanded[4])
-	}
-	if !reflect.DeepEqual(expanded[4].SliceOrder, []string{"x"}) {
-		t.Fatalf("unexpected source-slice order: %#v", expanded[4].SliceOrder)
+	if !expanded[2].Full || expanded[2].Source != "fallback" {
+		t.Fatalf("unexpected scalar full import expansion: %#v", expanded[2])
 	}
 
 	gotKinds := make([]ResolveIssueKind, 0, len(issues))
@@ -75,7 +59,6 @@ func TestBindingResolverExpandWithItemsInStepContext(t *testing.T) {
 		gotKinds = append(gotKinds, issue.Kind)
 	}
 	wantKinds := []ResolveIssueKind{
-		IssueUnknownVar,
 		IssueUnknownSource,
 		IssueUnknownVar,
 	}
@@ -97,15 +80,12 @@ func TestBindingResolverExpandWithItemsInAnalyseContext(t *testing.T) {
 		},
 	}
 	items := []ast.WithItem{
-		{Name: "table", Span: span},
-		{SourceExpr: "table", SourceSlice: []string{"x"}, Span: span},
-		{Name: "table", From: "named", Span: span},
+		{Source: "table", Span: span},
+		{Source: "table", Selectors: []string{"x"}, Span: span},
+		{Source: "named", Selectors: []string{"missing"}, Span: span},
 	}
 
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
-		Context:                   ImportIntoAnalyse,
-		EnableMixedSourceFallback: true,
-	})
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoAnalyse})
 
 	if len(expanded) != 0 {
 		t.Fatalf("expected no expanded items in analyse context for disallowed bindings, got %#v", expanded)
@@ -115,7 +95,6 @@ func TestBindingResolverExpandWithItemsInAnalyseContext(t *testing.T) {
 		gotKinds = append(gotKinds, issue.Kind)
 	}
 	wantKinds := []ResolveIssueKind{
-		IssueDisallowedBinding,
 		IssueDisallowedBinding,
 		IssueDisallowedBinding,
 		IssueUnknownVar,
@@ -167,8 +146,8 @@ func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {
 		t.Fatalf("expected namespace source to report disallowed-binding, got binding=%#v issue=%#v", got, issue)
 	}
 
-	expanded := expandFullBinding(ast.WithItem{Name: "ordered", Alias: "alias_name", Span: span}, ordered)
-	if !expanded.Full || expanded.Source != "ordered" || expanded.SourceExpr != "alias_name" {
+	expanded := expandFullBinding(ast.WithItem{Source: "ordered", Span: span}, ordered)
+	if !expanded.Full || expanded.Source != "ordered" {
 		t.Fatalf("unexpected expanded full binding metadata: %#v", expanded)
 	}
 	if !reflect.DeepEqual(expanded.Vars, []ExpandedWithVar{
@@ -178,7 +157,7 @@ func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {
 		t.Fatalf("expected vars in binding order [b,a], got %#v", expanded.Vars)
 	}
 
-	sortedExpanded := expandFullBinding(ast.WithItem{Name: "table", Span: span}, &GlobalBinding{
+	sortedExpanded := expandFullBinding(ast.WithItem{Source: "table", Span: span}, &GlobalBinding{
 		Name:  "table",
 		Shape: BindingTable,
 		Vars: map[string][]eval.Value{

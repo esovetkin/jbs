@@ -127,12 +127,12 @@ func resolveImportedVars(items []ast.WithItem, bindings map[string]*GlobalBindin
 	}
 
 	for _, item := range items {
-		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
-			src := bindings[item.SourceExpr]
-			if src == nil {
-				continue
-			}
-			for _, sel := range item.SourceSlice {
+		src := bindings[item.Source]
+		if src == nil {
+			continue
+		}
+		if len(item.Selectors) > 0 {
+			for _, sel := range item.Selectors {
 				if _, ok := src.Vars[sel]; !ok {
 					continue
 				}
@@ -140,32 +140,8 @@ func resolveImportedVars(items []ast.WithItem, bindings map[string]*GlobalBindin
 			}
 			continue
 		}
-		if item.From == "" {
-			src := bindings[item.Name]
-			if src == nil {
-				continue
-			}
-			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-				add(name, name, src.Name, item.Span)
-			}
-			continue
-		}
-		src := bindings[item.From]
-		if src == nil {
-			continue
-		}
-		if _, ok := src.Vars[item.Name]; ok {
-			visible := item.Name
-			if item.Alias != "" {
-				visible = item.Alias
-			}
-			add(visible, item.Name, src.Name, item.Span)
-			continue
-		}
-		if fallback := bindings[item.Name]; fallback != nil {
-			for _, name := range planutil.SourceVarNames(fallback.Order, fallback.Vars) {
-				add(name, name, fallback.Name, item.Span)
-			}
+		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
+			add(name, name, src.Name, item.Span)
 		}
 	}
 	return out

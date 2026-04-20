@@ -25,7 +25,7 @@ After importing a module, `with` also supports namespace-qualified references:
 use test_lib
 
 do s
-        with x from test_lib.cases
+        with test_lib.cases[x]
 {
         echo ${x}
 }

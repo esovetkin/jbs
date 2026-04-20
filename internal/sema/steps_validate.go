@@ -145,10 +145,7 @@ func validateWithItems(
 		Globals:    res.Globals.Values,
 		Namespaces: res.Namespaces,
 	}
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
-		Context:                   ImportIntoStep,
-		EnableMixedSourceFallback: true,
-	})
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoStep})
 	emitWithIssues(diags, stepValidateWithDiagPolicy(), issues)
 
 	tracker := newImportConflictTracker()
@@ -160,9 +157,9 @@ func validateWithItems(
 			}
 			diags.AddError(
 				diag.CodeE214,
-				fmt.Sprintf("conflicting variable '%s' imported from sources '%s' and '%s'", v.Visible, prev.Source, item.Source),
+				fmt.Sprintf("conflicting variable '%s' imported via `with` from sources '%s' and '%s'", v.Visible, prev.Source, item.Source),
 				item.Span,
-				"import each variable name from only one source",
+				"import each visible name from only one source",
 				diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
 			)
 		}

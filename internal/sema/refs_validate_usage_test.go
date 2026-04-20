@@ -123,7 +123,7 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 			},
 		},
 		Program: ast.Program{Stmts: []ast.Stmt{
-			ast.AnalyseBlock{StepName: "step_used", WithItems: []ast.WithItem{{Name: "pattern", Span: patternSpan}}, Span: bodySpan},
+			ast.AnalyseBlock{StepName: "step_used", WithItems: []ast.WithItem{{Source: "pattern", Span: patternSpan}}, Span: bodySpan},
 		}},
 		SubmitByName: map[string]*SubmitSpec{},
 	}

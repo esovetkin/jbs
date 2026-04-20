@@ -858,14 +858,8 @@ func prefixWithItems(items []ast.WithItem, prefix string) []ast.WithItem {
 	out := make([]ast.WithItem, len(items))
 	for i, item := range items {
 		next := item
-		if next.From != "" {
-			next.From = prefix + "." + next.From
-		}
-		if next.SourceExpr != "" {
-			next.SourceExpr = prefix + "." + next.SourceExpr
-		}
-		if next.From == "" && next.SourceExpr == "" {
-			next.Name = prefix + "." + next.Name
+		if next.Source != "" {
+			next.Source = prefix + "." + next.Source
 		}
 		out[i] = next
 	}

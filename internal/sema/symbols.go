@@ -115,6 +115,7 @@ type VisibleBinding struct {
 	Name      string
 	SourceVar string
 	Source    string
+	ViaStep   string
 	Span      diag.Span
 }
 

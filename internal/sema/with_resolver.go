@@ -8,8 +8,7 @@ import (
 )
 
 type ResolveOptions struct {
-	Context                   ImportContext
-	EnableMixedSourceFallback bool
+	Context ImportContext
 }
 
 type ExpandedWithVar struct {
@@ -18,13 +17,10 @@ type ExpandedWithVar struct {
 }
 
 type ExpandedWithItem struct {
-	Source     string
-	Vars       []ExpandedWithVar
-	Full       bool
-	SourceExpr string
-	CombAlias  string
-	SliceOrder []string
-	Span       diag.Span
+	Source string
+	Vars   []ExpandedWithVar
+	Full   bool
+	Span   diag.Span
 }
 
 type ResolveIssueKind int
@@ -54,91 +50,38 @@ func (r BindingResolver) ExpandWithItems(items []ast.WithItem, opts ResolveOptio
 	issues := make([]ResolveIssue, 0)
 
 	for _, item := range items {
-		if item.Rejected {
-			continue
-		}
-		if item.SourceExpr != "" && len(item.SourceSlice) > 0 {
-			src, issue := r.resolveBinding(item.SourceExpr, item, opts)
-			if issue != nil {
-				issues = append(issues, *issue)
-				continue
-			}
-			vars := make([]ExpandedWithVar, 0, len(item.SourceSlice))
-			ok := true
-			for _, sel := range item.SourceSlice {
-				if _, exists := src.Vars[sel]; !exists {
-					issues = append(issues, ResolveIssue{
-						Kind:     IssueUnknownVar,
-						Item:     item,
-						Source:   item.SourceExpr,
-						Variable: sel,
-						Span:     item.Span,
-					})
-					ok = false
-					continue
-				}
-				vars = append(vars, ExpandedWithVar{Visible: sel, SourceVar: sel})
-			}
-			if !ok {
-				continue
-			}
-			expanded = append(expanded, ExpandedWithItem{
-				Source:     src.Name,
-				Vars:       vars,
-				SourceExpr: item.SourceExpr,
-				CombAlias:  item.CombAlias,
-				SliceOrder: append([]string(nil), item.SourceSlice...),
-				Span:       item.Span,
-			})
-			continue
-		}
-		if item.From == "" {
-			src, issue := r.resolveBinding(item.Name, item, opts)
-			if issue != nil {
-				issues = append(issues, *issue)
-				continue
-			}
-			expanded = append(expanded, expandFullBinding(item, src))
-			continue
-		}
-
-		src, issue := r.resolveBinding(item.From, item, opts)
+		src, issue := r.resolveBinding(item.Source, item, opts)
 		if issue != nil {
 			issues = append(issues, *issue)
 			continue
 		}
-		if _, ok := src.Vars[item.Name]; ok {
-			visible := item.Name
-			if item.Alias != "" {
-				visible = item.Alias
-			}
-			expanded = append(expanded, ExpandedWithItem{
-				Source: src.Name,
-				Vars: []ExpandedWithVar{{
-					Visible:   visible,
-					SourceVar: item.Name,
-				}},
-				Span: item.Span,
-			})
+		if len(item.Selectors) == 0 {
+			expanded = append(expanded, expandFullBinding(item, src))
 			continue
 		}
-		if opts.EnableMixedSourceFallback {
-			fallback, fallbackIssue := r.resolveBinding(item.Name, item, opts)
-			if fallbackIssue != nil {
-				if fallbackIssue.Kind != IssueUnknownSource {
-					issues = append(issues, *fallbackIssue)
-				}
-			} else if fallback != nil {
-				expanded = append(expanded, expandFullBinding(item, fallback))
+		vars := make([]ExpandedWithVar, 0, len(item.Selectors))
+		ok := true
+		for _, sel := range item.Selectors {
+			if _, exists := src.Vars[sel]; !exists {
+				issues = append(issues, ResolveIssue{
+					Kind:     IssueUnknownVar,
+					Item:     item,
+					Source:   item.Source,
+					Variable: sel,
+					Span:     item.Span,
+				})
+				ok = false
 				continue
 			}
+			vars = append(vars, ExpandedWithVar{Visible: sel, SourceVar: sel})
 		}
-		issues = append(issues, ResolveIssue{
-			Kind:     IssueUnknownVar,
-			Item:     item,
-			Source:   item.From,
-			Variable: item.Name,
-			Span:     item.Span,
+		if !ok {
+			continue
+		}
+		expanded = append(expanded, ExpandedWithItem{
+			Source: src.Name,
+			Vars:   vars,
+			Span:   item.Span,
 		})
 	}
 	return expanded, issues
@@ -194,15 +137,10 @@ func expandFullBinding(item ast.WithItem, binding *GlobalBinding) ExpandedWithIt
 			SourceVar: name,
 		})
 	}
-	sourceExpr := item.Name
-	if item.Alias != "" {
-		sourceExpr = item.Alias
-	}
 	return ExpandedWithItem{
-		Source:     binding.Name,
-		Vars:       vars,
-		Full:       true,
-		SourceExpr: sourceExpr,
-		Span:       item.Span,
+		Source: binding.Name,
+		Vars:   vars,
+		Full:   true,
+		Span:   item.Span,
 	}
 }

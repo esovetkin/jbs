@@ -385,7 +385,7 @@ func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = table(x = x)\n")
 	src := "use \"./lib.jbs\" as lib\n" +
 		"do s\n" +
-		"        with x from lib.jobs\n" +
+		"        with lib.jobs[x]\n" +
 		"{\n" +
 		"        echo ${x}\n" +
 		"}\n"

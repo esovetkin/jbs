@@ -168,6 +168,65 @@ func TestRunFmtStrictRejectsTopLevelCompoundAssignment(t *testing.T) {
 	}
 }
 
+func TestRunFmtStrictRejectsLegacyWithFromSyntax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`x = (1, 2)`,
+		`cases = table(x = x)`,
+		`do run`,
+		`        with x from cases`,
+		`{`,
+		`        echo "${x}"`,
+		`}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected strict formatter to reject legacy with-from syntax, code=%d stderr=%s", code, stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "ERROR E023") || !strings.Contains(errText, "rewrite `with x from cases` as `with cases[x]`") {
+		t.Fatalf("expected targeted with-from migration diagnostic, got %q", errText)
+	}
+}
+
+func TestRunFmtStrictRejectsInheritKeyword(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`x = (1, 2)`,
+		`cases = table(x = x)`,
+		`do prep`,
+		`        with cases[x]`,
+		`{`,
+		`        echo "${x}"`,
+		`}`,
+		`do run`,
+		`        inherit prep`,
+		`{`,
+		`        echo hi`,
+		`}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected strict formatter to reject inherit keyword, code=%d stderr=%s", code, stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "ERROR E023") || !strings.Contains(errText, "JBS does not use `inherit`; `after` already carries predecessor-visible names") {
+		t.Fatalf("expected targeted inherit rejection diagnostic, got %q", errText)
+	}
+}
+
 func TestPrintHelpTopic(t *testing.T) {
 	var out bytes.Buffer
 	if err := printHelpTopic(&out, "use"); err != nil {

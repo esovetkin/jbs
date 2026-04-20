@@ -9,7 +9,7 @@ import (
 func TestParseDoBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("do run after prep with x from p max_async=1 procs=2 iterations=3 {\n  echo ${x}\n}\n", diags)
+		p := newTopLevelParser("do run after prep with p[x] max_async=1 procs=2 iterations=3 {\n  echo ${x}\n}\n", diags)
 		start := p.pos()
 		p.consumeWord()
 		block := p.parseDoBlock(start)
@@ -19,7 +19,7 @@ func TestParseDoBlockBranches(t *testing.T) {
 		if len(block.After) != 1 || block.After[0] != "prep" {
 			t.Fatalf("unexpected after list: %#v", block.After)
 		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Name != "x" || block.WithItems[0].From != "p" {
+		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected with-items: %#v", block.WithItems)
 		}
 		if block.MaxAsync == nil || *block.MaxAsync != 1 || block.Procs == nil || *block.Procs != 2 || block.Iterations == nil || *block.Iterations != 3 {
@@ -65,7 +65,7 @@ func TestParseDoBlockBranches(t *testing.T) {
 func TestParseSubmitBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		src := "submit run after prep use defs with x from p max_async=1 procs=2 iterations=3 {\n  account = \"a\"\n  queue = \"q\"\n  args_exec = \"-lc hostname\"\n}\n"
+		src := "submit run after prep use defs with p[x] max_async=1 procs=2 iterations=3 {\n  account = \"a\"\n  queue = \"q\"\n  args_exec = \"-lc hostname\"\n}\n"
 		p := newTopLevelParser(src, diags)
 		start := p.pos()
 		p.consumeWord()
@@ -79,7 +79,7 @@ func TestParseSubmitBlockBranches(t *testing.T) {
 		if len(block.UseNames) != 1 || block.UseNames[0] != "defs" {
 			t.Fatalf("unexpected submit use list: %#v", block.UseNames)
 		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Name != "x" || block.WithItems[0].From != "p" {
+		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected submit with-items: %#v", block.WithItems)
 		}
 		if block.MaxAsync == nil || *block.MaxAsync != 1 || block.Procs == nil || *block.Procs != 2 || block.Iterations == nil || *block.Iterations != 3 {
@@ -128,7 +128,7 @@ func TestParseSubmitBlockBranches(t *testing.T) {
 func TestParseAnalyseBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		src := "analyse run with x from p {\n  n = \"Number: %d\" in \"out.log\"\n  (x, n as \"N\")\n}\n"
+		src := "analyse run with p[x] {\n  n = \"Number: %d\" in \"out.log\"\n  (x, n as \"N\")\n}\n"
 		p := newTopLevelParser(src, diags)
 		start := p.pos()
 		p.consumeWord()
@@ -136,7 +136,7 @@ func TestParseAnalyseBlockBranches(t *testing.T) {
 		if block.StepName != "run" {
 			t.Fatalf("unexpected analyse step name: %#v", block)
 		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Name != "x" || block.WithItems[0].From != "p" {
+		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected analyse with-items: %#v", block.WithItems)
 		}
 		if len(block.Assignments) != 1 || len(block.Columns) != 2 {
@@ -163,7 +163,7 @@ func TestParseAnalyseBlockBranches(t *testing.T) {
 
 	t.Run("missing opening brace", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("analyse run with x from p", diags)
+		p := newTopLevelParser("analyse run with p[x]", diags)
 		start := p.pos()
 		p.consumeWord()
 		block := p.parseAnalyseBlock(start)

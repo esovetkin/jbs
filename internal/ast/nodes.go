@@ -85,22 +85,9 @@ func (u UseStmt) stmtNode()          {}
 func (u UseStmt) GetSpan() diag.Span { return u.Span }
 
 type WithItem struct {
-	Name  string
-	From  string
-	Alias string
-	// SourceExpr carries the import source for source-slice syntax
-	// (for example `with p[x,y]` or `with (x,y) in p`).
-	SourceExpr string
-	// SourceSlice carries selected variable names from SourceExpr for
-	// source-slice syntax.
-	SourceSlice []string
-	// CombAlias carries optional comb-object alias for source-slice
-	// imports (for example `with p[x,y] as a`).
-	CombAlias string
-	// Rejected marks items that failed qualified import normalization.
-	// Semantic with-resolution skips these to avoid duplicate root-cause diagnostics.
-	Rejected bool
-	Span     diag.Span
+	Source    string
+	Selectors []string
+	Span      diag.Span
 }
 
 func (w WithItem) GetSpan() diag.Span { return w.Span }

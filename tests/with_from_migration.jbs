@@ -1,0 +1,8 @@
+x = (1, 2)
+cases = table(x = x)
+
+do run
+        with x from cases
+{
+        echo ${x}
+}

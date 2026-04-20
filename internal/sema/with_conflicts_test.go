@@ -1,6 +1,7 @@
 package sema
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/diag"
@@ -43,5 +44,24 @@ func TestImportConflictTrackerAdd(t *testing.T) {
 	}
 	if prev, conflict, first := tracker.Add("z", "z0", spanB); !conflict || first || prev.Source != "z1" {
 		t.Fatalf("expected repeated z conflict to be deduplicated, got prev=%+v conflict=%v first=%v", prev, conflict, first)
+	}
+}
+
+func TestStepScopeConflictMessageDistinguishesAfterAndWith(t *testing.T) {
+	message, hint := stepScopeConflictMessage("run", "id",
+		VisibleBinding{Source: "cases", ViaStep: "prep"},
+		VisibleBinding{Source: "other"},
+	)
+	if !strings.Contains(message, "`with` import from 'other' collides with name inherited via `after prep`") {
+		t.Fatalf("unexpected conflict message: %q", message)
+	}
+	if hint == "" {
+		t.Fatalf("expected non-empty conflict hint")
+	}
+	if got := stepScopeConflictRelated(VisibleBinding{Source: "cases", ViaStep: "prep"}); got != "visible via `after prep`" {
+		t.Fatalf("unexpected inherited related text: %q", got)
+	}
+	if got := stepScopeConflictRelated(VisibleBinding{Source: "other"}); got != "imported via `with other`" {
+		t.Fatalf("unexpected with related text: %q", got)
 	}
 }

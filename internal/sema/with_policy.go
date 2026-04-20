@@ -110,7 +110,7 @@ func paramWithDiagPolicy() WithDiagPolicy {
 func stepValidateWithDiagPolicy() WithDiagPolicy {
 	policy := baseWithDiagPolicy()
 	policy.UnknownSource = unknownSourceFormat(func(issue ResolveIssue) string {
-		if issue.Item.From == "" {
+		if len(issue.Item.Selectors) == 0 {
 			return "import an existing global binding"
 		}
 		return "import from an existing global binding"

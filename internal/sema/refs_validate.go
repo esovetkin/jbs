@@ -236,9 +236,9 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		}
 		diags.AddWarning(
 			diag.CodeW311,
-			fmt.Sprintf("variable '%s' is referenced in step '%s' but not imported via with-clause", ref.Name, stepName),
+			fmt.Sprintf("variable '%s' is referenced in step '%s' but is not visible through `with` or predecessor inheritance", ref.Name, stepName),
 			ref.Span,
-			"add `with <source>` or `with <variable> from <source>`",
+			"add `with <source>` or `with <source>[<variable>]`, or inherit it from a predecessor via `after`",
 			related...,
 		)
 	}

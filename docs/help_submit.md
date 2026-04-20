@@ -7,7 +7,7 @@
 ```jbs
 submit <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <var> from <source2>, ...]
+        [with <source>, <source2>[<col0>, <col1>, ...], ...]
         [use <name0>, <name1>, ...]
         [<key>=<int> ...]
 {
@@ -57,6 +57,7 @@ Allowed step header keys:
 ## Notes
 
 - `with` imports row-varying data used by the submit body
+- `after` still carries predecessor-visible variables into dependent submit steps; there is no separate `inherit` clause
 - `submit ... use ...` imports scalar defaults from a scalar global or from a module namespace
 - later `use` sources win on collisions and emit warning `W072`
 - raw submit keys are `preprocess` and `postprocess`

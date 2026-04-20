@@ -9,7 +9,7 @@ In JUBE terms, JBS lowers `do` into JUBE [`step` sections](https://apps.fz-jueli
 ```jbs
 do <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <var> from <source2>, ...]
+        [with <source>, <source2>[<col0>, <col1>, ...], ...]
         [<key>=<int> ...]
 {
         # shell commands
@@ -25,7 +25,7 @@ do <name>
 
 ### `after`: step dependency declarations
 
-`after` defines execution dependencies. A dependent step also inherits variables visible in predecessor steps. If the same visible name would come from different sources, JBS reports an error.
+`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. There is no separate `inherit` clause. If the same visible name would come from different sources, JBS reports an error.
 
 ### `with`: import data bindings into the step
 
@@ -34,15 +34,16 @@ do <name>
 Examples:
 
 - `with cases`
-- `with x from cases`
-- `with (x, y) from cases`
+- `with cases[x]`
+- `with cases[x, y]`
 - `with defaults.rows[x, y]`
 
 Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
 - importing a table source such as `with cases` exposes all of its columns
-- importing multiple sources creates the expected JUBE product across those sources
+- importing selected columns such as `with cases[x, y]` exposes only those names
+- importing multiple sources such as `with cases[x], env[host]` creates the expected JUBE product across those sources
 - name collisions across imported or inherited variables are errors
 
 ### `${jube_...}`: useful JUBE variables inside `do`
@@ -70,14 +71,14 @@ d = ("x", "y")
 extra_cases = table(d = d)
 
 do step0
-        with (a, b) from base_cases
+        with base_cases[a, b]
 {
         echo "${a} ${b}" > prepared.txt
 }
 
 do step1
         after step0
-        with d from extra_cases
+        with extra_cases[d]
 {
         test -f ../step0/work/prepared.txt
         echo "${a} ${b} ${d}"
@@ -88,4 +89,4 @@ In that example:
 
 - `step1` waits for `step0`
 - `a` and `b` come from inherited visibility through `after step0`
-- `d` is added by the explicit `with d from extra_cases`
+- `d` is added by the explicit `with extra_cases[d]`

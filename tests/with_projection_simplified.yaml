@@ -1,0 +1,75 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Synthetic subset parameterset for step 'prep' derived from 'cases' for variable-only imports
+  - name: _js__prep__cases__x
+    parameter:
+      - name: _ji__prep__cases__x
+        type: int
+        mode: text
+        _: 0,1
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
+      - name: _jr__prep__cases__x
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1"}["${_ji__prep__cases__x}"]'
+      - name: x
+        mode: python
+        _: '[1,2][$_ji__prep__cases__x]'
+
+  # Synthetic subset parameterset for step 'run' derived from 'cases' for variable-only imports
+  - name: _js__run__cases__y
+    parameter:
+      - name: _ji__run__cases__y
+        type: int
+        mode: text
+        separator: ','
+        _: $_jr__prep__cases__x
+      - name: _jr__run__cases__y
+        mode: text
+        _: ${_ji__run__cases__y}
+      - name: "y"
+        mode: python
+        _: '["a","b"][$_ji__run__cases__y]'
+
+  # Synthetic subset parameterset for step 'run' derived from 'env' for variable-only imports
+  - name: _js__run__env__host
+    parameter:
+      - name: _ji__run__env__host
+        type: int
+        mode: text
+        _: 0,1
+      # Internal helper: grouped source row IDs stay opaque with separator #### for after-step narrowing
+      - name: _jr__run__env__host
+        mode: python
+        separator: '####'
+        _: '{"0":"0","1":"1"}["${_ji__run__env__host}"]'
+      - name: host
+        mode: python
+        _: '["h0","h1"][$_ji__run__env__host]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'prep'
+  - name: prep
+    use:
+      - _js__prep__cases__x
+    do:
+      - |
+        echo ${x}
+
+  # Step generated from do block 'run'; inherits from prep:
+  # - x
+  - name: run
+    depend: prep
+    use:
+      - _js__run__cases__y
+      - _js__run__env__host
+    do:
+      - |
+        echo ${x} ${y} ${host}

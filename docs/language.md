@@ -369,26 +369,32 @@ Supported forms:
 
 - `with cases`
 - `with cases, more_cases`
-- `with x from cases`
-- `with x from lib.cases`
-- `with (x, y) from cases`
+- `with cases[x]`
+- `with lib.cases[x]`
 - `with cases[x, y]`
-- `with cases[x, y] as pair`
-- `with (x, y) in cases`
+- `with cases[x, y], env[host]`
 
 Rules for `do` and `submit`:
 
 - variables are visible only through explicit `with` imports or inherited `after` dependencies
 - importing a full table source exposes all of its columns
-- importing individual variables generates a synthetic subset parameter set during lowering
+- importing selected variables with `with source[col0, col1]` generates a synthetic subset parameter set during lowering
 - conflicting visible names from different sources are errors
-- `after` also carries inherited visible bindings from dependency steps
+- `after` also carries inherited visible bindings from dependency steps, including names already inherited by those predecessors
 
 Rules for `analyse`:
 
 - `analyse with ...` is scalar-only
 - imported values must be string data bindings
 - function-valued globals are rejected
+
+### Migration from Legacy `with ... from ...`
+
+Older `with` spellings such as `with x from cases` and `with (x, y) from cases` are no longer canonical.
+
+- rewrite `with x from cases` as `with cases[x]`
+- rewrite `with (x, y) from cases` as `with cases[x, y]`
+- JBS does not use an `inherit` clause; predecessor-visible names still come from `after`
 
 ## `do`
 
@@ -397,7 +403,7 @@ Rules for `analyse`:
 ```jbs
 do <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <var> from <source2>, ...]
+        [with <source>, <source2>[<col0>, <col1>, ...], ...]
         [<key>=<int> ...]
 {
         # shell commands
@@ -419,7 +425,7 @@ Allowed step header options:
 ```jbs
 submit <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <var> from <source2>, ...]
+        [with <source>, <source2>[<col0>, <col1>, ...], ...]
         [use <name0>, <name1>, ...]
         [<key>=<int> ...]
 {

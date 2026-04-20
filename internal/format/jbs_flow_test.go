@@ -63,7 +63,7 @@ jbs_outpath="out"
 # use comment
 use "./lib.jbs" as m
 do prep
-   with p[x,y] as pair
+   with p[x,y]
    max_async=2 procs=4 iterations=1
 {
 echo one \
@@ -72,7 +72,7 @@ two
 submit run
         after prep
         use defaults
-        with p0, x from p1
+        with p0, p1[x]
 {
 queue="batch"
 preprocess = {
@@ -101,7 +101,7 @@ n = "N: %d" in "out.log"
 		`# use comment`,
 		`use "./lib.jbs" as m`,
 		`do prep`,
-		`        with p[x,y] as pair`,
+		`        with p[x,y]`,
 		`        max_async=2 procs=4 iterations=1`,
 		`submit run`,
 		`        after prep`,
@@ -293,14 +293,12 @@ func TestCollectStmtRangesAndSlice(t *testing.T) {
 func TestHeaderClauseRenderingCoverage(t *testing.T) {
 	with := []ast.WithItem{
 		{
-			SourceExpr:  "p",
-			SourceSlice: []string{"x", "y"},
-			CombAlias:   "pair",
+			Source:    "p",
+			Selectors: []string{"x", "y"},
 		},
 		{
-			Name:  "x",
-			From:  "p0",
-			Alias: "x0",
+			Source:    "p0",
+			Selectors: []string{"x"},
 		},
 	}
 	clauses := buildRenderedHeaderClauses(
@@ -314,7 +312,7 @@ func TestHeaderClauseRenderingCoverage(t *testing.T) {
 	if len(clauses) != 4 {
 		t.Fatalf("unexpected clause count: %d", len(clauses))
 	}
-	if got := clauses[2].Text; got != "with p[x,y] as pair, x from p0 as x0" {
+	if got := clauses[2].Text; got != "with p[x,y], p0[x]" {
 		t.Fatalf("unexpected with clause: %q", got)
 	}
 	if got := clauses[3].Text; got != "max_async=2 procs=4 iterations=1" {
@@ -336,7 +334,7 @@ func TestActiveBlockFormatters(t *testing.T) {
 	doBlock := ast.DoBlock{
 		Name:       "run",
 		After:      []string{"setup"},
-		WithItems:  []ast.WithItem{{Name: "p"}},
+		WithItems:  []ast.WithItem{{Source: "p"}},
 		MaxAsync:   intPtr(2),
 		Procs:      intPtr(3),
 		Iterations: intPtr(1),
@@ -355,7 +353,7 @@ func TestActiveBlockFormatters(t *testing.T) {
 
 	analyseBlock := ast.AnalyseBlock{
 		StepName:  "run",
-		WithItems: []ast.WithItem{{Name: "p"}},
+		WithItems: []ast.WithItem{{Source: "p"}},
 		BodyRaw:   "n = \"N: %d\" in \"out.log\"\n(n)",
 	}
 	analyseLines := formatAnalyseBlock(analyseBlock)

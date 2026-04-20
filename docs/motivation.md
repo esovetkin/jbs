@@ -85,11 +85,11 @@ c = ("c0","c1","c2")
 d = (true,false)
 pm = comb(a * (b + c) * d)
 
-do step0 with (a,b) from pm {
+do step0 with pm[a, b] {
   echo "a=${a} b=${b}" > s0.out
 }
 
-do step1 after step0 with (c,d) from pm {
+do step1 after step0 with pm[c, d] {
   echo "a=${a} b=${b} c=${c} d=${d}" > s1.out
 }
 ```
@@ -190,7 +190,7 @@ Diagnostic:
 
 ```text
 WARNING W311
-variable 'a' is referenced in step 's' but not imported via with-clause
+variable 'a' is referenced in step 's' but is not visible through `with` or predecessor inheritance
 ```
 
 ### Exposed imported variable never used
@@ -199,7 +199,7 @@ variable 'a' is referenced in step 's' but not imported via with-clause
 p_a = (1,2)
 p_b = ("x","y")
 p = comb(p_a + p_b)
-do s with a from p { echo ${a} }
+do s with p[a] { echo ${a} }
 ```
 
 Diagnostic:

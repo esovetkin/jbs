@@ -173,12 +173,12 @@ func TestParseStepHeaderOption(t *testing.T) {
 func TestParseOptionalDoAndSubmitHeaderClauses(t *testing.T) {
 	t.Run("do header parses clauses and options then stops at unknown", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("after prep with x from p max_async=3 procs=4 iterations=5 unknown", diags)
+		p := newTopLevelParser("after prep with p[x] max_async=3 procs=4 iterations=5 unknown", diags)
 		after, withItems, opts := p.parseOptionalDoHeaderClauses()
 		if len(after) != 1 || after[0] != "prep" {
 			t.Fatalf("unexpected after: %#v", after)
 		}
-		if len(withItems) != 1 || withItems[0].Name != "x" || withItems[0].From != "p" {
+		if len(withItems) != 1 || withItems[0].Source != "p" || len(withItems[0].Selectors) != 1 || withItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected with items: %#v", withItems)
 		}
 		if opts.MaxAsync == nil || *opts.MaxAsync != 3 || opts.Procs == nil || *opts.Procs != 4 || opts.Iterations == nil || *opts.Iterations != 5 {
@@ -195,7 +195,7 @@ func TestParseOptionalDoAndSubmitHeaderClauses(t *testing.T) {
 
 	t.Run("submit header parses after/use/with/options", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("after prep0,prep1 use defaults,gpu with x from p max_async=1 procs=2 iterations=3 tail", diags)
+		p := newTopLevelParser("after prep0,prep1 use defaults,gpu with p[x] max_async=1 procs=2 iterations=3 tail", diags)
 		after, useNames, withItems, opts := p.parseOptionalSubmitHeaderClauses()
 		if len(after) != 2 || after[0] != "prep0" || after[1] != "prep1" {
 			t.Fatalf("unexpected after: %#v", after)
@@ -203,7 +203,7 @@ func TestParseOptionalDoAndSubmitHeaderClauses(t *testing.T) {
 		if len(useNames) != 2 || useNames[0] != "defaults" || useNames[1] != "gpu" {
 			t.Fatalf("unexpected use names: %#v", useNames)
 		}
-		if len(withItems) != 1 || withItems[0].Name != "x" || withItems[0].From != "p" {
+		if len(withItems) != 1 || withItems[0].Source != "p" || len(withItems[0].Selectors) != 1 || withItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected with items: %#v", withItems)
 		}
 		if opts.MaxAsync == nil || *opts.MaxAsync != 1 || opts.Procs == nil || *opts.Procs != 2 || opts.Iterations == nil || *opts.Iterations != 3 {
@@ -221,7 +221,7 @@ func TestParseOptionalDoAndSubmitHeaderClauses(t *testing.T) {
 
 func TestParseOptionalAfterAndWith(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("after a,b with x from p with y from q tail", diags)
+	p := newTopLevelParser("after a,b with p[x] with q[y] tail", diags)
 	after, withItems := p.parseOptionalAfterAndWith()
 	if len(after) != 2 || after[0] != "a" || after[1] != "b" {
 		t.Fatalf("unexpected after list: %#v", after)
@@ -229,7 +229,7 @@ func TestParseOptionalAfterAndWith(t *testing.T) {
 	if len(withItems) != 2 {
 		t.Fatalf("unexpected with items length: %#v", withItems)
 	}
-	if withItems[0].Name != "x" || withItems[0].From != "p" || withItems[1].Name != "y" || withItems[1].From != "q" {
+	if withItems[0].Source != "p" || withItems[0].Selectors[0] != "x" || withItems[1].Source != "q" || withItems[1].Selectors[0] != "y" {
 		t.Fatalf("unexpected with items: %#v", withItems)
 	}
 	word, ok := p.peekWord()
@@ -238,5 +238,20 @@ func TestParseOptionalAfterAndWith(t *testing.T) {
 	}
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestParseOptionalHeaderClausesRejectInherit(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("after prep inherit base with cases[id] tail", diags)
+	after, withItems, _ := p.parseOptionalDoHeaderClauses()
+	if len(after) != 1 || after[0] != "prep" {
+		t.Fatalf("unexpected after clauses: %#v", after)
+	}
+	if len(withItems) != 1 || withItems[0].Source != "cases" || withItems[0].Selectors[0] != "id" {
+		t.Fatalf("unexpected with items: %#v", withItems)
+	}
+	if !hasDiag(diags, "E023") {
+		t.Fatalf("expected inherit rejection diagnostic, got: %s", diags.String())
 	}
 }

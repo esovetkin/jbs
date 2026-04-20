@@ -289,10 +289,7 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 	resolver := BindingResolver{Bindings: res.BindingsByName}
 	resolver.Globals = res.Globals.Values
 	resolver.Namespaces = res.Namespaces
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{
-		Context:                   ImportIntoAnalyse,
-		EnableMixedSourceFallback: true,
-	})
+	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoAnalyse})
 	if opts.EmitDiagnostics && diags != nil {
 		emitWithIssues(diags, analyseWithDiagPolicy(), issues)
 	}

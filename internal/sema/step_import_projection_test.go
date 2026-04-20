@@ -132,15 +132,12 @@ func TestResolveImportedVars(t *testing.T) {
 		}, nil),
 	}
 	items := []ast.WithItem{
-		{Name: "p", Span: span},
-		{Name: "p", Span: span},
-		{Name: "a", From: "p", Span: span},
-		{Name: "a", From: "p", Alias: "aa", Span: span},
-		{Name: "x", From: "p", Span: span},
-		{Name: "no_fallback", From: "p", Span: span},
-		{Name: "z", From: "missing", Span: span},
-		{Name: "missing_full", Span: span},
-		{SourceExpr: "p", SourceSlice: []string{"b", "missing"}, Span: span},
+		{Source: "p", Span: span},
+		{Source: "p", Span: span},
+		{Source: "p", Selectors: []string{"a"}, Span: span},
+		{Source: "missing", Selectors: []string{"z"}, Span: span},
+		{Source: "missing_full", Span: span},
+		{Source: "p", Selectors: []string{"b", "missing"}, Span: span},
 	}
 
 	got := resolveImportedVars(items, bindings)
@@ -149,15 +146,6 @@ func TestResolveImportedVars(t *testing.T) {
 	}
 	if len(got["b"]) != 1 || got["b"][0].SourceVar != "b" || got["b"][0].Source != "p" {
 		t.Fatalf("expected source-slice/full import for b, got %#v", got["b"])
-	}
-	if len(got["aa"]) != 1 || got["aa"][0].SourceVar != "a" {
-		t.Fatalf("expected aliased import for aa, got %#v", got["aa"])
-	}
-	if len(got["v"]) != 1 || got["v"][0].Source != "x" {
-		t.Fatalf("expected fallback full import from x, got %#v", got["v"])
-	}
-	if _, ok := got["no_fallback"]; ok {
-		t.Fatalf("did not expect unknown variable without fallback to be imported, got %#v", got["no_fallback"])
 	}
 	if _, ok := got["z"]; ok {
 		t.Fatalf("did not expect unknown source to be imported, got %#v", got["z"])

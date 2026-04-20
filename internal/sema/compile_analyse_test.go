@@ -57,7 +57,8 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 			},
 		},
 		BindingsByName: map[string]*GlobalBinding{
-			"pattern": scalarBinding("pattern", "pattern", eval.String("%d"), span),
+			"pattern":     scalarBinding("pattern", "pattern", eval.String("%d"), span),
+			"pattern_dup": scalarBinding("pattern_dup", "pattern", eval.String("%w"), span),
 			"empty": {
 				Name:    "empty",
 				Shape:   BindingScalar,
@@ -70,12 +71,11 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 		},
 	}
 	items := []ast.WithItem{
-		{Name: "pattern", Span: span},
-		{Name: "pattern", From: "pattern", Alias: "dup", Span: span},
-		{Name: "other", From: "other", Alias: "dup", Span: span},
-		{Name: "empty", Span: span},
-		{Name: "fn", Span: span},
-		{Name: "missing", Span: span},
+		{Source: "pattern", Span: span},
+		{Source: "pattern_dup", Selectors: []string{"pattern"}, Span: span},
+		{Source: "empty", Span: span},
+		{Source: "fn", Span: span},
+		{Source: "missing", Span: span},
 	}
 
 	diags := &diag.Diagnostics{}
@@ -83,8 +83,8 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
 		t.Fatalf("expected pattern import, got %#v", got["pattern"])
 	}
-	if imported, ok := got["dup"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
-		t.Fatalf("expected first conflicting import to win, got %#v", got["dup"])
+	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
+		t.Fatalf("expected first conflicting import to win, got %#v", got["pattern"])
 	}
 	if _, ok := got["empty"]; ok {
 		t.Fatalf("did not expect empty non-string analyse import to be retained, got %#v", got["empty"])
@@ -133,7 +133,7 @@ func TestCompileAnalyseBlock(t *testing.T) {
 	block := ast.AnalyseBlock{
 		StepName: "run",
 		WithItems: []ast.WithItem{
-			{Name: "pattern", Span: span},
+			{Source: "pattern", Span: span},
 		},
 		Assignments: []ast.AnalyseAssign{
 			{Name: "stepVar", Expr: ast.StringExpr{Value: "helper", Span: span}, Span: span},

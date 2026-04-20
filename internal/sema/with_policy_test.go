@@ -84,10 +84,10 @@ func TestWithPolicyMappingsAndDefaults(t *testing.T) {
 
 	stepPolicy := stepValidateWithDiagPolicy()
 	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{}}); got != "import an existing global binding" {
-		t.Fatalf("unexpected step-policy unknown-source hint without from: %q", got)
+		t.Fatalf("unexpected step-policy unknown-source hint for full import: %q", got)
 	}
-	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{From: "src"}}); got != "import from an existing global binding" {
-		t.Fatalf("unexpected step-policy unknown-source hint with from: %q", got)
+	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{Source: "src", Selectors: []string{"x"}}}); got != "import from an existing global binding" {
+		t.Fatalf("unexpected step-policy unknown-source hint for projection: %q", got)
 	}
 	if stepPolicy.DisallowedBinding.Code != diag.CodeE420 {
 		t.Fatalf("expected step-policy disallowed-binding code E420, got %q", stepPolicy.DisallowedBinding.Code)
@@ -110,20 +110,20 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 	issues := []ResolveIssue{
 		{
 			Kind:   IssueUnknownSource,
-			Item:   ast.WithItem{Name: "missing", Span: span},
+			Item:   ast.WithItem{Source: "missing", Span: span},
 			Source: "missing",
 			Span:   span,
 		},
 		{
 			Kind:     IssueUnknownVar,
-			Item:     ast.WithItem{Name: "x", From: "named", Span: span},
+			Item:     ast.WithItem{Source: "named", Selectors: []string{"x"}, Span: span},
 			Source:   "named",
 			Variable: "x",
 			Span:     span,
 		},
 		{
 			Kind:   IssueDisallowedBinding,
-			Item:   ast.WithItem{Name: "table", Span: span},
+			Item:   ast.WithItem{Source: "table", Span: span},
 			Source: "table",
 			Span:   span,
 		},
@@ -160,7 +160,7 @@ func TestEmitWithIssuesSkipsUnknownIssueKind(t *testing.T) {
 	emitWithIssues(diags, stepValidateWithDiagPolicy(), []ResolveIssue{
 		{
 			Kind:   ResolveIssueKind(999),
-			Item:   ast.WithItem{Name: "x", Span: span},
+			Item:   ast.WithItem{Source: "x", Span: span},
 			Source: "x",
 			Span:   span,
 		},

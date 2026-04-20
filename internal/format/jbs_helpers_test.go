@@ -237,13 +237,12 @@ func TestRenderHeaderCommentLineAndWithClause(t *testing.T) {
 		t.Fatalf("comment line indentation mismatch, got %q", got)
 	}
 	with := []ast.WithItem{
-		{Name: "p"},
-		{Name: "x", Alias: "y"},
-		{Name: "z", From: "p0"},
-		{Name: "q", From: "p1", Alias: "r"},
+		{Source: "p"},
+		{Source: "cases", Selectors: []string{"x", "y"}},
+		{Source: "env", Selectors: []string{"host"}},
 	}
 	got := renderWithClause(with)
-	want := "p, x as y, z from p0, q from p1 as r"
+	want := "p, cases[x,y], env[host]"
 	if got != want {
 		t.Fatalf("renderWithClause mismatch: got=%q want=%q", got, want)
 	}
