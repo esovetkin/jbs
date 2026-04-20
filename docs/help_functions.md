@@ -81,7 +81,7 @@ Rules:
 - `int(...)` accepts `int`, `float`, `bool`, and integer strings
 - `int(...)` truncates float input toward zero
 - `float(...)` accepts `int`, `float`, `bool`, and finite numeric strings
-- `int(...)` and `float(...)` reject list/tuple/comb values
+- `int(...)` and `float(...)` reject list/tuple/table values
 - `str(...)` stringifies the whole value
 - `str([1,2])` returns one string value, not a list of strings
 
@@ -108,9 +108,9 @@ rev(range(3)) == [2,1,0]
 rev((0,1,2)) == (2,1,0)
 ```
 
-## `len(<string/tuple/list/comb>)`
+## `len(<string/tuple/list/table>)`
 
-`len` returns the length of a string/tuple/list and number of rows in a comb
+`len` returns the length of a string/tuple/list and the number of rows in a table
 
 ```jbs
 3 == len((1,2,3))
@@ -118,41 +118,40 @@ rev((0,1,2)) == (2,1,0)
 # one unicode character is one character
 1 == len("😛")
 
-x = (1,2,3)
-y = ("a","b","c","d")
-12 == len(comb(x*y))
+grid = product(table(x = (1,2,3)), table(y = ("a","b","c","d")))
+12 == len(grid)
 ```
 
-## `names()`, `names(<module>)`, `names(<comb>)`
+## `names()`, `names(<module>)`, `names(<table>)`
 
 `names(...)` returns a list of strings.
 
 - `names()` returns visible variable names in the current scope
 - `names(module)` returns direct variable names in that module namespace
-- `names(comb)` returns comb column names
+- `names(table)` returns table column names
 
 ```jbs
 use jsc
 
-a = range(2)
-b = rev(range(2))
-params = comb(a as x * b as y)
+ids = range(2)
+labels = ("a", "b")
+params = table(id = ids, label = labels)
 
 names()
 names(jsc)
 names(params)
-names(params[x])
+names(select(params, id))
 ```
 
 Rules:
 
 - `names()` returns only variable names, not step names or module aliases
 - `names(module)` returns direct variable members only, not nested descendants
-- `names(comb)` preserves comb column order when available
+- `names(table)` preserves table column order when available
 
 ## `read_csv(<path>)`
 
-`read_csv(...)` reads a CSV or TSV file and returns one `comb` value.
+`read_csv(...)` reads a CSV or TSV file and returns one table value.
 
 ```jbs
 cases = read_csv("./cases.csv")
@@ -167,7 +166,7 @@ Rules:
 
 - `read_csv(...)` takes exactly one string argument
 - the first row is the header row
-- header names must be unique valid comb column names such as `x`, `system_name`, or `ns.value`
+- header names must be unique valid table column names such as `x`, `system_name`, or `ns.value`
 - both quoted and unquoted fields are supported
 - `.csv` files use `,`
 - `.tsv` files use a tab
@@ -184,22 +183,48 @@ Rules:
   - imported module calls resolve relative to that module file
   - REPL calls resolve relative to the current working directory
 
-## `comb(<expr>)`
+## `table(...)`
 
-`comb(...)` builds a table-like value from combination algebra.
+`table(...)` builds one table from named columns.
 
 ```jbs
-x = [1,2]
-y = [3,4]
-# XXX x+y == (4,6)
-x+y == [4,6]
-len(comb(x + y)) == 2
+cases = table(
+        id = (1, 2),
+        label = ("a", "b"),
+)
 ```
 
-Use a top-level assignment to keep the result and import it into steps:
+Rules:
+
+- every argument must be named
+- each name becomes one output column
+- all columns must have the same length
+- `table(...)` does not broadcast columns
+
+## `zip(...)`
+
+`zip(...)` combines tables row-by-row.
 
 ```jbs
-cases = comb(x * y)
+env = zip(
+        table(host = ("h0", "h1")),
+        table(port = (8080, 8081)),
+)
+```
+
+Rules:
+
+- every argument must be a table value
+- row counts must match exactly
+- duplicate column names are rejected
+- `zip(...)` does not broadcast rows
+
+## `product(...)`
+
+`product(...)` builds the Cartesian product of one or more tables.
+
+```jbs
+cases = product(table(x = x), table(y = y))
 
 do run
         with cases
@@ -208,9 +233,37 @@ do run
 }
 ```
 
-## `filter(<list/tuple/comb>, <mask>)`
+Rules:
 
-take subsets of a list, tuple, or a comb
+- every argument must be a table value
+- duplicate column names are rejected
+- column order follows argument order
+
+## `select(...)`
+
+`select(...)` projects a subset of columns from a table.
+
+```jbs
+grid = product(table(id = (1, 2)), table(replica = (0, 1)))
+view = select(grid, id, replica)
+```
+
+Rules:
+
+- the first argument must be a table value
+- selectors are identifiers such as `id` or qualified identifiers such as `ns.value`
+- selector order is preserved
+
+## Legacy `comb(...)`
+
+Legacy `comb(...)` still works during migration, but it emits warning `W103`.
+
+- prefer `table(...)`, `zip(...)`, `product(...)`, and `select(...)` in new code
+- alias-only leaves (`expr as name`) belong to the deprecated `comb(...)` surface, not the canonical table API
+
+## `filter(<list/tuple/table>, <mask>)`
+
+take subsets of a list, tuple, or a table
 
 ```jbs
 x = range(10)
@@ -221,7 +274,7 @@ filter(x, [true, false]) == [0,2,4,6,8]
 # boolean casting applies
 filter(x, ["a", "", 1, 0]) == [0,2,4,6,8]
 
-a = comb(x + ("a","b","c") as y)
+a = table(x = x, y = ("a","b","c","a","b","c","a","b","c","a"))
 filter(a, a.y == "a") == [0,3,6,9]
 ```
 

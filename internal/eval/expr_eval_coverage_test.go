@@ -411,6 +411,209 @@ func TestEvalCombCallAndNamedRowsCoverage(t *testing.T) {
 	})
 }
 
+func TestEvalTableBuiltinsCoverage(t *testing.T) {
+	span := spanAt(519, 1)
+	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}
+
+	t.Run("table requires named args", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalTableCall(
+			[]ast.CallArg{{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: span}, Span: span}},
+			map[string]Value{},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected table() named-arg error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+
+	t.Run("table rejects duplicate names and mismatched lengths", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalTableCall(
+			[]ast.CallArg{
+				{Name: "x", Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: span}, Span: span},
+				{Name: "x", Expr: ast.NumberExpr{Int: true, IntValue: 2, Span: span}, Span: span},
+			},
+			map[string]Value{},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected duplicate-name error, got value=%#v diags=%s", got, diags.String())
+		}
+
+		diags = &diag.Diagnostics{}
+		got = evalTableCall(
+			[]ast.CallArg{
+				{Name: "x", Expr: ast.IdentExpr{Name: "xs", Span: span}, Span: span},
+				{Name: "y", Expr: ast.IdentExpr{Name: "ys", Span: span}, Span: span},
+			},
+			map[string]Value{
+				"xs": Tuple([]Value{Int(1), Int(2)}),
+				"ys": Tuple([]Value{Int(3)}),
+			},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected length-mismatch error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+
+	t.Run("table rejects table-valued columns", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalTableCall(
+			[]ast.CallArg{
+				{Name: "x", Expr: ast.IdentExpr{Name: "grid", Span: span}, Span: span},
+			},
+			map[string]Value{
+				"grid": CombValue(&Comb{
+					Order: []string{"x"},
+					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+				}),
+			},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected table-valued column error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+
+	t.Run("zip validates argument shape and row counts", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalZipCall(
+			[]ast.CallArg{{Name: "bad", Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span}},
+			map[string]Value{"a": CombValue(&Comb{})},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected zip() named-arg error, got value=%#v diags=%s", got, diags.String())
+		}
+
+		a := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows: []Row{
+				{Values: map[string]Cell{"x": {Value: Int(1)}}},
+				{Values: map[string]Cell{"x": {Value: Int(2)}}},
+			},
+		})
+		b := CombValue(&Comb{
+			Order: []string{"y"},
+			Rows:  []Row{{Values: map[string]Cell{"y": {Value: Int(3)}}}},
+		})
+		diags = &diag.Diagnostics{}
+		got = evalZipCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span},
+				{Expr: ast.IdentExpr{Name: "b", Span: span}, Span: span},
+			},
+			map[string]Value{"a": a, "b": b},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected zip() row mismatch error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+
+	t.Run("zip and product reject duplicate columns", func(t *testing.T) {
+		dupA := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+		})
+		dupB := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(2)}}}},
+		})
+
+		diags := &diag.Diagnostics{}
+		got := evalZipCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span},
+				{Expr: ast.IdentExpr{Name: "b", Span: span}, Span: span},
+			},
+			map[string]Value{"a": dupA, "b": dupB},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected zip() duplicate-column error, got value=%#v diags=%s", got, diags.String())
+		}
+
+		diags = &diag.Diagnostics{}
+		got = evalProductCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span},
+				{Expr: ast.IdentExpr{Name: "b", Span: span}, Span: span},
+			},
+			map[string]Value{"a": dupA, "b": dupB},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected product() duplicate-column error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+
+	t.Run("select validates selectors", func(t *testing.T) {
+		table := CombValue(&Comb{
+			Order: []string{"x"},
+			Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+		})
+
+		diags := &diag.Diagnostics{}
+		got := evalSelectCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "table", Span: span}, Span: span},
+				{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: span}, Span: span},
+			},
+			map[string]Value{"table": table},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected select() selector-shape error, got value=%#v diags=%s", got, diags.String())
+		}
+
+		diags = &diag.Diagnostics{}
+		got = evalSelectCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "table", Span: span}, Span: span},
+				{Expr: ast.IdentExpr{Name: "missing", Span: span}, Span: span},
+			},
+			map[string]Value{"table": table},
+			span,
+			diags,
+			ExprOptions{},
+			ctx,
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected select() unknown-column error, got value=%#v diags=%s", got, diags.String())
+		}
+	})
+}
+
 func TestEvalBinaryVectorAndCompareCoverage(t *testing.T) {
 	span := spanAt(520, 1)
 	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}

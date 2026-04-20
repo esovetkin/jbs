@@ -38,7 +38,7 @@ func TestFormatReplValueListTupleTruncation(t *testing.T) {
 	}
 }
 
-func TestFormatReplValueCombSummary(t *testing.T) {
+func TestFormatReplValueTableSummary(t *testing.T) {
 	comb := eval.CombValue(&eval.Comb{
 		Order: []string{"a", "b"},
 		Rows: []eval.Row{
@@ -49,7 +49,7 @@ func TestFormatReplValueCombSummary(t *testing.T) {
 		},
 	})
 	got := formatReplValue(comb)
-	if !strings.Contains(got, "comb(rows=4") {
+	if !strings.Contains(got, "table(rows=4") {
 		t.Fatalf("expected rows summary, got: %q", got)
 	}
 	if !strings.Contains(got, "cols=[a, b]") {
@@ -60,7 +60,7 @@ func TestFormatReplValueCombSummary(t *testing.T) {
 	}
 }
 
-func TestFormatReplValueCombFallbackColumnOrder(t *testing.T) {
+func TestFormatReplValueTableFallbackColumnOrder(t *testing.T) {
 	comb := eval.CombValue(&eval.Comb{
 		Rows: []eval.Row{{
 			Values: map[string]eval.Cell{

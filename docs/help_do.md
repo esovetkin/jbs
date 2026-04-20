@@ -41,7 +41,7 @@ Examples:
 Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
-- importing a comb source such as `with cases` exposes all of its columns
+- importing a table source such as `with cases` exposes all of its columns
 - importing multiple sources creates the expected JUBE product across those sources
 - name collisions across imported or inherited variables are errors
 
@@ -64,10 +64,10 @@ Use `$jube_benchmark_home` when you need files near the benchmark definition rat
 ```jbs
 a = (1, 2)
 b = ("a", "b")
-base_cases = comb(a + b)
+base_cases = table(a = a, b = b)
 
 d = ("x", "y")
-extra_cases = comb(d)
+extra_cases = table(d = d)
 
 do step0
         with (a, b) from base_cases

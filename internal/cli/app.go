@@ -320,7 +320,7 @@ func formatReplValue(v eval.Value) string {
 	case eval.KindTuple:
 		return formatReplSequence("(", ")", v.L)
 	case eval.KindComb:
-		return formatReplComb(v.C)
+		return formatReplTable(v.C)
 	default:
 		return v.String()
 	}
@@ -348,7 +348,7 @@ func formatReplInlineValue(v eval.Value) string {
 	case eval.KindTuple:
 		return formatReplSequence("(", ")", v.L)
 	case eval.KindComb:
-		return formatReplComb(v.C)
+		return formatReplTable(v.C)
 	case eval.KindString:
 		return strconv.Quote(v.S)
 	default:
@@ -356,9 +356,9 @@ func formatReplInlineValue(v eval.Value) string {
 	}
 }
 
-func formatReplComb(c *eval.Comb) string {
+func formatReplTable(c *eval.Comb) string {
 	if c == nil {
-		return "comb(rows=0, cols=[], head=[])"
+		return "table(rows=0, cols=[], head=[])"
 	}
 	cols := slices.Clone(c.Order)
 	if len(cols) == 0 {
@@ -395,7 +395,7 @@ func formatReplComb(c *eval.Comb) string {
 	if len(c.Rows) > headLimit {
 		headRows = append(headRows, "...")
 	}
-	return "comb(rows=" + strconv.Itoa(len(c.Rows)) +
+	return "table(rows=" + strconv.Itoa(len(c.Rows)) +
 		", cols=[" + strings.Join(cols, ", ") +
 		"], head=[" + strings.Join(headRows, ", ") + "])"
 }

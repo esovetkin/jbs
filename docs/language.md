@@ -21,7 +21,7 @@ Example:
 use "./lib/math.jbs" as math
 
 jbs_name = "bench"
-cases = comb(id + label)
+cases = table(id = id, label = label)
 
 do run
         with cases
@@ -130,7 +130,7 @@ Top-level assignments define reusable global values. A global may hold:
 
 - scalar data
 - tuple or list data
-- `comb(...)` table data
+- table data built by `table(...)`, `zip(...)`, `product(...)`, `select(...)`, or `read_csv(...)`
 - function values
 - imported values projected into the current module
 
@@ -158,7 +158,7 @@ jbs_outpath = "results"
 
 sizes = (1, 2, 4)
 labels = ("small", "medium", "large")
-cases = comb(labels + sizes)
+cases = table(label = labels, size = sizes)
 
 seed0 = 1
 seed1 = seed0 + 1
@@ -219,7 +219,7 @@ Supported expression forms include:
 - conditional `a if cond else b`
 - function literals and call expressions
 - mode expressions: `shell(...)`, `python(...)`
-- alias expressions `expr as IDENT` inside comb construction
+- legacy alias expressions `expr as IDENT` inside deprecated `comb(...)` construction
 
 Builtins:
 
@@ -230,7 +230,10 @@ Builtins:
 - `str(...)`
 - `range(...)`
 - `rev(...)`
-- `comb(...)`
+- `table(...)`
+- `zip(...)`
+- `product(...)`
+- `select(...)`
 - `len(...)`
 - `names()`, `names(value)`
 - `read_csv(path)`
@@ -264,30 +267,89 @@ Rules:
 - function-valued globals are valid in expression contexts
 - function-valued globals are not valid `with` sources, `submit ... use ...` sources, or `analyse with ...` imports
 
-### `comb(...)`
+### Table Values
 
-`comb(...)` evaluates combination algebra and returns a table-like value that can be imported into `do` and `submit`.
+JBS now uses explicit table operations instead of operator-overloaded `comb` algebra.
 
-- `A * B` is Cartesian product
-- `A + B` is zip-like direct sum with cyclic broadcasting
-- `*` binds tighter than `+`
-- duplicate output column names are rejected
-- unnamed non-identifier leaves are rejected; use `as` to name them
+### `table(...)`
+
+`table(...)` constructs one table from named columns.
+
+- column names come from named arguments
+- all columns must have the same length
+- `table(...)` does not broadcast columns
+- positional arguments are rejected
+
+Example:
+
+```jbs
+ids = (1, 2)
+labels = ("a", "b")
+cases = table(id = ids, label = labels)
+```
+
+### `zip(...)`
+
+`zip(...)` combines existing tables row-by-row.
+
+- every argument must be a table value
+- row counts must match exactly
+- duplicate column names are rejected
+- `zip(...)` does not broadcast rows
+
+Example:
+
+```jbs
+env = zip(
+        table(host = ("h0", "h1")),
+        table(port = (8080, 8081)),
+)
+```
+
+### `product(...)`
+
+`product(...)` builds the Cartesian product of one or more tables.
+
+- every argument must be a table value
+- duplicate column names are rejected
+- column order follows argument order
 
 Example:
 
 ```jbs
 x = (1, 2)
 y = ("a", "b", "c")
-cases = comb(x * y)
+cases = product(table(x = x), table(y = y))
 ```
+
+### `select(...)`
+
+`select(...)` projects a subset of columns from a table.
+
+- the first argument must be a table value
+- the remaining arguments are identifier selectors
+- selector order is preserved
+
+Example:
+
+```jbs
+grid = product(table(id = (1, 2)), table(replica = (0, 1)))
+view = select(grid, id, replica)
+```
+
+### Legacy `comb(...)`
+
+Legacy `comb(...)` is still accepted during migration, but it is deprecated and emits warning `W103`.
+
+- prefer `table(...)`, `zip(...)`, `product(...)`, and `select(...)` in new code
+- alias-only leaves (`expr as name`) are part of the deprecated `comb(...)` surface, not the canonical table API
 
 ### `read_csv(...)`
 
-`read_csv(...)` reads CSV or TSV data and returns one `comb` value.
+`read_csv(...)` reads CSV or TSV data and returns one table value.
 
 - the first row is the header row
-- header names must be unique valid comb column names
+- header names must be unique valid table column names
 - relative paths resolve from the source file that contains the call
 - type inference is per column across the full file
 
@@ -317,7 +379,7 @@ Supported forms:
 Rules for `do` and `submit`:
 
 - variables are visible only through explicit `with` imports or inherited `after` dependencies
-- importing a full comb source exposes all of its columns
+- importing a full table source exposes all of its columns
 - importing individual variables generates a synthetic subset parameter set during lowering
 - conflicting visible names from different sources are errors
 - `after` also carries inherited visible bindings from dependency steps

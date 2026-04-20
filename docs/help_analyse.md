@@ -36,7 +36,7 @@ Rules:
 a = ("a",) * 3
 i = [1,2,3]
 x = i / 2
-cases = comb(a + i + x)
+cases = table(a = a, i = i, x = x)
 pat_number = "Number: %d"
 
 do s

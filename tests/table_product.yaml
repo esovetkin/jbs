@@ -1,0 +1,31 @@
+# From jbs_name
+name: jbs_benchmark
+
+# From jbs_outpath
+outpath: out
+
+# Parameter sets used to create workpackage combinations
+parameterset:
+  # Table-valued global 'cases'
+  - name: cases
+    parameter:
+      - name: _ji_cases
+        type: int
+        mode: text
+        _: 0,1,2,3,4,5
+      - name: x
+        mode: python
+        _: '[1,1,1,2,2,2][$_ji_cases]'
+      - name: y
+        mode: python
+        _: '["a","b","c","a","b","c"][$_ji_cases]'
+
+# Steps executed by JUBE
+step:
+  # Step generated from do block 'run'
+  - name: run
+    use:
+      - cases
+    do:
+      - |
+        echo ${x} ${y}

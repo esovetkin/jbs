@@ -88,9 +88,9 @@ func (v Value) String() string {
 		return "(" + strings.Join(parts, ",") + ")"
 	case KindComb:
 		if v.C == nil {
-			return "comb()"
+			return "table()"
 		}
-		return fmt.Sprintf("comb(rows=%d,cols=%d)", len(v.C.Rows), len(v.C.Order))
+		return fmt.Sprintf("table(rows=%d,cols=%d)", len(v.C.Rows), len(v.C.Order))
 	case KindFunction:
 		return "<function>"
 	default:

@@ -1,4 +1,4 @@
-// track local variable dependencies in combination-building expressions
+// track local variable dependencies in table-building expressions
 package sema
 
 import (
@@ -242,9 +242,9 @@ func warnUnusedGlobalContributors(assigns map[string]localAssignMeta, order []st
 		}
 		diags.AddWarning(
 			diag.CodeW312,
-			"global helper variable '"+name+"' is declared but does not contribute to the final combination expression",
+			"global helper variable '"+name+"' is declared but does not contribute to the final table expression",
 			meta.Span,
-			"remove it, or reference it (directly or transitively) in the final combination expression",
+			"remove it, or reference it (directly or transitively) in the final table expression",
 		)
 	}
 	for _, name := range importedOrder {
@@ -260,7 +260,7 @@ func warnUnusedGlobalContributors(assigns map[string]localAssignMeta, order []st
 			diag.CodeW312,
 			fmt.Sprintf("imported variable '%s' from source '%s' does not contribute to the final expression", name, meta.Source),
 			meta.Span,
-			"remove it from imports or reference it (directly or transitively) in the final combination expression",
+			"remove it from imports or reference it (directly or transitively) in the final table expression",
 		)
 	}
 }

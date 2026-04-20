@@ -1,22 +1,15 @@
-a = (0, 1, 2, 3, 4, 5)
-b = ("a", "b", "c")
-c = ("x", "z")
-d = (true, false)
-p0 = comb(d * (a + b) + c)
-
-a = ("a", "b")
-b = (0, 1, 2, 3)
-p1 = comb(a + b)
+p0 = table(d = (true, false)) * (table(a = range(6)) + table(b = ("a", "b", "c"))) * table(c=("x","z"))
+p1 = table(a = ("a", "b")) + table(b = range(4))
 
 do step0
-        with a from p0
+        with p0[a]
 {
         echo "a=${a}" > step0.out
 }
 
 do step1
         after step0
-        with (b, c) from p0
+        with p0[b,c]
 {
         echo "a=${a}" > step1.out
         echo "b=${b}" >> step1.out
@@ -25,7 +18,7 @@ do step1
 
 do step2
         after step0
-        with b from p1, d from p0
+        with p1[b], p0[d]
 {
         echo "a=${a}" > step2.out
         echo "b=${b}" >> step2.out
@@ -34,7 +27,7 @@ do step2
 
 do step3
         after step2
-        with c from p0
+        with p0[c]
 {
         echo "a=${a}" > step3.out
         echo "b=${b}" >> step3.out
@@ -44,7 +37,7 @@ do step3
 
 do step4
         after step1
-        with d from p0
+        with p0[d]
 {
         echo "a=${a}" > step4.out
         echo "c=${c}" >> step4.out

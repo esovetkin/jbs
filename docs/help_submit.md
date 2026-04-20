@@ -67,7 +67,7 @@ Allowed step header keys:
 ```jbs
 nnodes = (1, 2)
 case = ("ddp", "fsdp")
-cases = comb(case + nnodes)
+cases = table(case = case, nnodes = nnodes)
 
 use "./submit_defaults.jbs" as defaults
 

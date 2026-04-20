@@ -242,8 +242,8 @@ func TestAnalyzeWithImportsNamesNamespaceRespectsVisibilityOrder(t *testing.T) {
 	}
 }
 
-func TestAnalyzeReturnsCombNamesResults(t *testing.T) {
-	src := "x = range(2)\ny = range(3)\nparams = comb(x * y)\nnames(params[x])\n"
+func TestAnalyzeReturnsTableNamesResults(t *testing.T) {
+	src := "x = range(2)\ny = range(3)\nparams = product(table(x = x), table(y = y))\nnames(select(params, x))\n"
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
@@ -255,11 +255,11 @@ func TestAnalyzeReturnsCombNamesResults(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	if len(res.TopLevelExprs) != 1 {
-		t.Fatalf("expected one comb names result, got %#v", res.TopLevelExprs)
+		t.Fatalf("expected one table names result, got %#v", res.TopLevelExprs)
 	}
 	want := eval.List([]eval.Value{eval.String("x")})
 	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
-		t.Fatalf("unexpected comb names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
+		t.Fatalf("unexpected table names result: got=%#v want=%#v", res.TopLevelExprs[0].Value, want)
 	}
 }
 

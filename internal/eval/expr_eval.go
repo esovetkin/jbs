@@ -88,7 +88,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 				}
 				return List(col)
 			}
-			diags.AddError(diag.CodeE106, fmt.Sprintf("qualified access '%s.%s' requires a comb namespace", e.Namespace, e.Name), e.Span, "use qualified access only on comb values in expressions")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("qualified access '%s.%s' requires a table namespace", e.Namespace, e.Name), e.Span, "use qualified access only on table values in expressions")
 			return Null()
 		}
 		key := e.Namespace + "." + e.Name
@@ -104,12 +104,12 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.MemberExpr:
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
 		if !IsComb(base) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("member access '.%s' requires a comb base", e.Name), e.Span, "use member access only on comb values")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("member access '.%s' requires a table base", e.Name), e.Span, "use member access only on table values")
 			return Null()
 		}
 		col, ok := CombColumn(base, e.Name)
 		if !ok {
-			diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "select an existing comb column")
+			diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", e.Name), e.Span, "select an existing table column")
 			return Null()
 		}
 		if len(col) == 1 {
@@ -143,14 +143,14 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.FunctionExpr:
 		return newFunctionValue(e, ctx.frame, opts)
 	case ast.AliasExpr:
-		diags.AddError(diag.CodeE106, "alias expression is only allowed inside comb()", e.Span, "use syntax: comb(expr as name)")
+		diags.AddError(diag.CodeE106, "alias expression is only allowed inside legacy comb()", e.Span, "replace it with table(name = expr) or a named table operation")
 		return Null()
 	case ast.CallExpr:
 		return evalCall(e.Callee, e.Args, env, e.Span, diags, opts, ctx)
 	case ast.IndexExpr:
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
 		if !IsComb(base) {
-			diags.AddError(diag.CodeE106, "index expression requires a comb base", e.Span, "use syntax: comb_value[col] or comb_value[col0,col1]")
+			diags.AddError(diag.CodeE106, "index expression requires a table base", e.Span, "use syntax: table_value[col] or table_value[col0,col1]")
 			return Null()
 		}
 		selectors := make([]string, 0, len(e.Items))
@@ -161,17 +161,17 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			case ast.QualifiedIdentExpr:
 				selectors = append(selectors, n.Namespace+"."+n.Name)
 			default:
-				diags.AddError(diag.CodeE106, "comb index selectors must be identifiers", item.GetSpan(), "use syntax: comb_value[col] or comb_value[col0,col1]")
+				diags.AddError(diag.CodeE106, "table index selectors must be identifiers", item.GetSpan(), "use syntax: table_value[col] or table_value[col0,col1]")
 				return Null()
 			}
 		}
 		if len(selectors) == 0 {
-			diags.AddError(diag.CodeE106, "comb index selectors cannot be empty", e.Span, "use at least one selector inside []")
+			diags.AddError(diag.CodeE106, "table index selectors cannot be empty", e.Span, "use at least one selector inside []")
 			return Null()
 		}
 		projected, ok := CombProject(base, selectors)
 		if !ok {
-			diags.AddError(diag.CodeE106, "invalid comb projection selector", e.Span, "select existing comb columns only")
+			diags.AddError(diag.CodeE106, "invalid table projection selector", e.Span, "select existing table columns only")
 			return Null()
 		}
 		return projected
@@ -259,7 +259,16 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in top-level global assignments", at, "use this function only in top-level global assignment expressions")
 			return Null()
 		}
+		diags.AddWarning(diag.CodeW103, "comb() is deprecated; use table(), zip(), product(), or select()", at, "rewrite legacy combination algebra with explicit table operations")
 		return evalCombCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
+	case "table":
+		return evalTableCall(rawArgs, env, at, diags, opts, ctx)
+	case "zip":
+		return evalZipCall(rawArgs, env, at, diags, opts, ctx)
+	case "product":
+		return evalProductCall(rawArgs, env, at, diags, opts, ctx)
+	case "select":
+		return evalSelectCall(rawArgs, env, at, diags, opts, ctx)
 	case "names":
 		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "map":
@@ -375,7 +384,7 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 		return ident.Name, true
 	}
 	switch ident.Name {
-	case "comb", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
+	case "comb", "table", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
 		return ident.Name, true
 	default:
 		return "", false
@@ -521,7 +530,7 @@ func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags
 		return Null()
 	}
 	if !IsComb(value) {
-		diags.AddError(diag.CodeE106, "names() expects a module namespace or comb value", rawArgs[0].GetSpan(), "use names(), names(module), or names(comb)")
+		diags.AddError(diag.CodeE106, "names() expects a module namespace or table value", rawArgs[0].GetSpan(), "use names(), names(module), or names(table)")
 		return Null()
 	}
 	return stringListValue(CombNames(value))
@@ -563,7 +572,7 @@ func evalTupleCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	value := args[0]
 	switch value.Kind {
 	case KindComb:
-		diags.AddError(diag.CodeE106, "tuple() does not accept comb values", at, "project comb columns before tuple() conversion")
+		diags.AddError(diag.CodeE106, "tuple() does not accept table values", at, "project table columns before tuple() conversion")
 		return Null()
 	case KindList, KindTuple:
 		return Tuple(slicesCloneValues(value.L))
@@ -580,7 +589,7 @@ func evalListCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	value := args[0]
 	switch value.Kind {
 	case KindComb:
-		diags.AddError(diag.CodeE106, "list() does not accept comb values", at, "project comb columns before list() conversion")
+		diags.AddError(diag.CodeE106, "list() does not accept table values", at, "project table columns before list() conversion")
 		return Null()
 	case KindList, KindTuple:
 		return List(slicesCloneValues(value.L))
@@ -603,7 +612,7 @@ func evalLenCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	case KindComb:
 		return Int(int64(CombRowCount(v)))
 	default:
-		diags.AddError(diag.CodeE106, "len() expects list/tuple/string/comb value", at, "use len() with supported value kinds")
+		diags.AddError(diag.CodeE106, "len() expects list/tuple/string/table value", at, "use len() with supported value kinds")
 		return Null()
 	}
 }
@@ -648,7 +657,7 @@ func evalFilterCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 			Rows:  outRows,
 		})
 	default:
-		diags.AddError(diag.CodeE106, "filter() expects list/tuple/comb as first argument", at, "use filter() with list, tuple, or comb values")
+		diags.AddError(diag.CodeE106, "filter() expects list/tuple/table as first argument", at, "use filter() with list, tuple, or table values")
 		return Null()
 	}
 }
@@ -660,7 +669,7 @@ func evalAllAnyCall(kind string, args []Value, at diag.Span, diags *diag.Diagnos
 	}
 	v := args[0]
 	if v.Kind == KindComb {
-		diags.AddError(diag.CodeE106, kind+"() does not accept comb values", at, "project comb columns before using "+kind+"()")
+		diags.AddError(diag.CodeE106, kind+"() does not accept table values", at, "project table columns before using "+kind+"()")
 		return Null()
 	}
 	values := toSeriesOrScalar(v)
@@ -864,7 +873,7 @@ func evalStrictCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnos
 		}
 		v := evalExprWithCtx(e, env, diags, opts, ctx)
 		if !IsComb(v) {
-			diags.AddError(diag.CodeE106, "comb leaf expression must evaluate to a comb value", e.Span, "use comb(...) as a comb-producing leaf")
+			diags.AddError(diag.CodeE106, "comb leaf expression must evaluate to a table value", e.Span, "use table(), zip(), product(), select(), read_csv(), or legacy comb() as a table-producing leaf")
 			return nil, false
 		}
 		return cloneRows(v.C.Rows), true
@@ -875,7 +884,7 @@ func evalStrictCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnos
 		}
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		if IsComb(v) {
-			diags.AddError(diag.CodeE106, "alias cannot be applied to a comb-valued expression", e.Span, "apply alias only to non-comb leaves")
+			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", e.Span, "apply alias only to non-table leaves")
 			return nil, false
 		}
 		return combRowsFromNamedValue(e.Alias, v, e.Span), true
@@ -913,7 +922,7 @@ func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Dia
 		}
 		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
 		if IsComb(value) {
-			diags.AddError(diag.CodeE106, "alias cannot be applied to a comb-valued expression", alias.Span, "apply alias only to non-comb operands")
+			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", alias.Span, "apply alias only to non-table operands")
 			return nil, false
 		}
 		return combRowsFromNamedValue(alias.Alias, value, alias.Span), true
@@ -1248,7 +1257,7 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 			}
 			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
 		default:
-			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for comb values", op), at, "use '+' or '*' with comb values")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for table values", op), at, "use zip(), product(), select(), or filter() with table values")
 			return Null()
 		}
 	}

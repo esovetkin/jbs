@@ -382,7 +382,7 @@ func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
 
 func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	cwd := t.TempDir()
-	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = comb(x)\n")
+	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = table(x = x)\n")
 	src := "use \"./lib.jbs\" as lib\n" +
 		"do s\n" +
 		"        with x from lib.jobs\n" +
@@ -419,7 +419,7 @@ func TestRunPrintParamWithImportedModule(t *testing.T) {
 		"{\n"+
 		"        echo ${x} ${y}\n"+
 		"}\n")
-	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\ny = (\"a\", \"b\")\njobs = comb(x + y)\n")
+	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\ny = (\"a\", \"b\")\njobs = table(x = x, y = y)\n")
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"printparam", "-t", "pretty", mainPath}, &stdout, &stderr)
@@ -444,7 +444,7 @@ func TestRunYAMLWithImportedModule(t *testing.T) {
 		"{\n"+
 		"        echo ${x}\n"+
 		"}\n")
-	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = comb(x)\n")
+	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = table(x = x)\n")
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"--output", "-", mainPath}, &stdout, &stderr)

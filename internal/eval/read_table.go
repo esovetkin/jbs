@@ -166,12 +166,12 @@ func validateDelimitedHeader(header []string, at diag.Span, diags *diag.Diagnost
 	seen := make(map[string]struct{}, len(header))
 	for _, name := range header {
 		if name == "" {
-			diags.AddError(diag.CodeE106, "read_csv() empty column name is not allowed", at, "use non-empty comb column names in the header row")
+			diags.AddError(diag.CodeE106, "read_csv() empty column name is not allowed", at, "use non-empty table column names in the header row")
 			ok = false
 			continue
 		}
 		if !isValidCombColumnName(name) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("read_csv() invalid comb column name '%s'", name), at, "use identifier-like names such as x, system_name, or ns.value")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("read_csv() invalid table column name '%s'", name), at, "use identifier-like names such as x, system_name, or ns.value")
 			ok = false
 			continue
 		}

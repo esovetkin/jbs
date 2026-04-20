@@ -15,7 +15,7 @@
 # - define each top-level name once
 # - introduce a new name instead of rebinding or using += / -= / *= / /= / %=
 #
-# A global may hold scalar data, tuple/list data, comb(...) table data,
+# A global may hold scalar data, tuple/list data, table data,
 # or a function value.
 
 # jbs_name and jbs_outpath must be plain string literals.
@@ -35,7 +35,7 @@ jbs_comment = ""
 # Ordinary globals:
 sizes = (1, 2, 4)
 labels = ("small", "medium", "large")
-cases = comb(labels + sizes)
+cases = table(label = labels, size = sizes)
 
 # Preferred derived-value style:
 seed0 = 1

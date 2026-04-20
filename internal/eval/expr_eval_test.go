@@ -1178,8 +1178,8 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		if diagCount(diags, "E106") != 1 {
 			t.Fatalf("expected one E106, got: %s", diags.String())
 		}
-		if !strings.Contains(diags.String(), "tuple() does not accept comb values") {
-			t.Fatalf("expected tuple comb rejection message, got: %s", diags.String())
+		if !strings.Contains(diags.String(), "tuple() does not accept table values") {
+			t.Fatalf("expected tuple table rejection message, got: %s", diags.String())
 		}
 	})
 
@@ -1196,8 +1196,8 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		if diagCount(diags, "E106") != 1 {
 			t.Fatalf("expected one E106, got: %s", diags.String())
 		}
-		if !strings.Contains(diags.String(), "list() does not accept comb values") {
-			t.Fatalf("expected list comb rejection message, got: %s", diags.String())
+		if !strings.Contains(diags.String(), "list() does not accept table values") {
+			t.Fatalf("expected list table rejection message, got: %s", diags.String())
 		}
 	})
 
@@ -1214,8 +1214,8 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		if diagCount(diags, "E106") != 1 {
 			t.Fatalf("expected one E106, got: %s", diags.String())
 		}
-		if !strings.Contains(diags.String(), "tuple() does not accept comb values") {
-			t.Fatalf("expected tuple convert comb rejection message, got: %s", diags.String())
+		if !strings.Contains(diags.String(), "tuple() does not accept table values") {
+			t.Fatalf("expected tuple convert table rejection message, got: %s", diags.String())
 		}
 	})
 
@@ -1232,8 +1232,8 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		if diagCount(diags, "E106") != 1 {
 			t.Fatalf("expected one E106, got: %s", diags.String())
 		}
-		if !strings.Contains(diags.String(), "list() does not accept comb values") {
-			t.Fatalf("expected list convert comb rejection message, got: %s", diags.String())
+		if !strings.Contains(diags.String(), "list() does not accept table values") {
+			t.Fatalf("expected list convert table rejection message, got: %s", diags.String())
 		}
 	})
 }
@@ -1399,7 +1399,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 			want: String("[1,2]"),
 		},
 		{
-			name: "str from comb",
+			name: "str from table",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "str"},
 				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
@@ -1411,7 +1411,7 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
 				}),
 			},
-			want: String("comb(rows=1,cols=1)"),
+			want: String("table(rows=1,cols=1)"),
 		},
 	}
 
@@ -2057,6 +2057,143 @@ func TestCombCallOutsideParamAssignDoesNotEvaluateArgsEagerly(t *testing.T) {
 	}
 	if strings.Contains(diags.String(), "tuple '*' requires tuple * integer") {
 		t.Fatalf("unexpected eager argument evaluation diagnostic: %s", diags.String())
+	}
+}
+
+func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
+	span := spanAt(88, 1)
+	env := map[string]Value{
+		"ids":      Tuple([]Value{Int(1), Int(2)}),
+		"labels":   Tuple([]Value{String("a"), String("b")}),
+		"replicas": Tuple([]Value{Int(0), Int(1)}),
+		"hosts":    Tuple([]Value{String("h0"), String("h1")}),
+		"ports":    Tuple([]Value{Int(8080), Int(8081)}),
+	}
+
+	casesExpr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "table", Span: span},
+		Args: []ast.CallArg{
+			{Name: "id", Expr: ast.IdentExpr{Name: "ids", Span: span}, Span: span},
+			{Name: "label", Expr: ast.IdentExpr{Name: "labels", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+	replicasExpr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "table", Span: span},
+		Args: []ast.CallArg{
+			{Name: "replica", Expr: ast.IdentExpr{Name: "replicas", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+	zipExpr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "zip", Span: span},
+		Args: []ast.CallArg{
+			{Expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "table", Span: span},
+				Args: []ast.CallArg{
+					{Name: "host", Expr: ast.IdentExpr{Name: "hosts", Span: span}, Span: span},
+				},
+				Span: span,
+			}, Span: span},
+			{Expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "table", Span: span},
+				Args: []ast.CallArg{
+					{Name: "port", Expr: ast.IdentExpr{Name: "ports", Span: span}, Span: span},
+				},
+				Span: span,
+			}, Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	cases := EvalExprWithOptions(casesExpr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected table() diagnostics: %s", diags.String())
+	}
+	if !IsComb(cases) {
+		t.Fatalf("expected table value from table(), got %#v", cases)
+	}
+	if !slices.Equal(cases.C.Order, []string{"id", "label"}) {
+		t.Fatalf("unexpected table column order: %#v", cases.C.Order)
+	}
+	if len(cases.C.Rows) != 2 {
+		t.Fatalf("expected 2 rows from table(), got %#v", cases.C.Rows)
+	}
+
+	diags = &diag.Diagnostics{}
+	grid := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "product", Span: span},
+		Args: []ast.CallArg{
+			{Expr: ast.IdentExpr{Name: "cases", Span: span}, Span: span},
+			{Expr: replicasExpr, Span: span},
+		},
+		Span: span,
+	}, map[string]Value{"cases": cases, "replicas": env["replicas"]}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected product() diagnostics: %s", diags.String())
+	}
+	if !IsComb(grid) || len(grid.C.Rows) != 4 {
+		t.Fatalf("expected 4-row product table, got %#v", grid)
+	}
+	if !slices.Equal(grid.C.Order, []string{"id", "label", "replica"}) {
+		t.Fatalf("unexpected product() column order: %#v", grid.C.Order)
+	}
+
+	diags = &diag.Diagnostics{}
+	view := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "select", Span: span},
+		Args: []ast.CallArg{
+			{Expr: ast.IdentExpr{Name: "grid", Span: span}, Span: span},
+			{Expr: ast.IdentExpr{Name: "id", Span: span}, Span: span},
+			{Expr: ast.IdentExpr{Name: "replica", Span: span}, Span: span},
+		},
+		Span: span,
+	}, map[string]Value{"grid": grid}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected select() diagnostics: %s", diags.String())
+	}
+	if !IsComb(view) || !slices.Equal(view.C.Order, []string{"id", "replica"}) {
+		t.Fatalf("unexpected select() result: %#v", view)
+	}
+	if len(view.C.Rows) != 4 {
+		t.Fatalf("expected 4 selected rows, got %#v", view.C.Rows)
+	}
+
+	diags = &diag.Diagnostics{}
+	zipped := EvalExprWithOptions(zipExpr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected zip() diagnostics: %s", diags.String())
+	}
+	if !IsComb(zipped) || !slices.Equal(zipped.C.Order, []string{"host", "port"}) {
+		t.Fatalf("unexpected zip() result: %#v", zipped)
+	}
+	if len(zipped.C.Rows) != 2 {
+		t.Fatalf("expected 2 zipped rows, got %#v", zipped.C.Rows)
+	}
+}
+
+func TestCombCallWarnsDeprecated(t *testing.T) {
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(89, 1)},
+		Args: ast.PosCallArgs(
+			ast.IdentExpr{Name: "x", Span: spanAt(89, 7)},
+		),
+		Span: spanAt(89, 1),
+	}
+	env := map[string]Value{
+		"x": Tuple([]Value{Int(1), Int(2)}),
+	}
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if !IsComb(got) {
+		t.Fatalf("expected legacy comb() to keep working during migration, got %#v", got)
+	}
+	if diagCount(diags, "W103") != 1 {
+		t.Fatalf("expected one deprecation warning for comb(), got: %s", diags.String())
+	}
+	if diags.HasErrors() {
+		t.Fatalf("did not expect comb() deprecation to be an error: %s", diags.String())
 	}
 }
 

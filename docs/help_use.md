@@ -31,7 +31,7 @@ do s
 }
 ```
 
-You can also use comb-style slicing on imported table symbols:
+You can also use table-style slicing on imported table symbols:
 
 ```jbs
 use test_lib

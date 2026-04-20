@@ -15,14 +15,9 @@ Here is a small example. The following script runs `ex_step` six times (without 
 x = (1, 2)
 a = ("a", "b", "c")
 
-# `comb` evaluates `a*x` as combination expression resulting in a table-like object.
-#
-# variables ${a} and ${x} can be used whenever ex_parset is included in `do` or `submit`
-#
-# `a + x` is like Python's zip
-# `a * x` is an outer product
-# `(a + b) * c` also works
-ex_parset = comb(a * x)
+# Build one explicit table and then take the Cartesian product.
+# Variables ${a} and ${x} become visible whenever ex_parset is imported via `with`.
+ex_parset = product(table(a = a), table(x = x))
 
 # the `do` sections define the shell code to run
 # the `submit` sections define a sbatch script to submit
@@ -43,10 +38,6 @@ analyse ex_step {
         (a as "name of a column", x, number, letter)
 }
 % jbs taster.jbs -o taster.yaml
-% awk '!/^[[:space:]]*(#|$)/' taster.jbs | wc
-      9      31     218
-% awk '!/^[[:space:]]*(#|$)/' taster.yaml | wc
-     41     101    1128
 % jube-autorun taster.yaml
 ...
 ```
@@ -106,18 +97,20 @@ A JBS program uses six canonical top-level statement forms:
 - `submit`
 - `analyse`
 
-Top-level assignments define reusable globals, including `comb(...)` parameter-space values and function values. They are single-assignment bindings: top-level code uses plain `=`, defines each name once, and introduces a new name instead of rebinding with `+=` or a later `=`. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
+Top-level assignments define reusable globals, including explicit table values and function values. They are single-assignment bindings: top-level code uses plain `=`, defines each name once, and introduces a new name instead of rebinding with `+=` or a later `=`. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
 
-Top-level assignments define global variables. Use `comb(...)` to build a parameter-space object and import it in steps.
+Top-level assignments define global variables. Use `table(...)`, `zip(...)`, `product(...)`, and `select(...)` to build parameter-space objects and import them in steps.
 
 ```jbs
 x = (1, 2)
 model = ("a", "b", "c")
-cases = comb(model * x)
+cases = product(table(model = model), table(x = x))
 seed0 = 1
 seed1 = seed0 + 1
 seed2 = seed1 + 1
 ```
+
+Use `table(...)` for one table, `zip(...)` for row-wise merge, `product(...)` for Cartesian product, and `select(...)` for projection. Legacy `comb(...)` still works during migration, but it emits a deprecation warning.
 
 Read more in `jbs help globals` or [docs/help_globals.md](docs/help_globals.md).
 

@@ -177,12 +177,12 @@ func TestValueStringComb(t *testing.T) {
 		want string
 	}{
 		{
-			name: "comb nil payload",
+			name: "table nil payload",
 			in:   CombValue(nil),
-			want: "comb()",
+			want: "table()",
 		},
 		{
-			name: "comb with rows and cols",
+			name: "table with rows and cols",
 			in: CombValue(&Comb{
 				Order: []string{"a", "b"},
 				Rows: []Row{
@@ -191,7 +191,7 @@ func TestValueStringComb(t *testing.T) {
 					{Values: map[string]Cell{"a": {Value: Int(3)}, "b": {Value: String("z")}}},
 				},
 			}),
-			want: "comb(rows=3,cols=2)",
+			want: "table(rows=3,cols=2)",
 		},
 	}
 	for _, tt := range tests {
