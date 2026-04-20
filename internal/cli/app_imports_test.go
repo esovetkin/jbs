@@ -20,6 +20,18 @@ func writeCLIFile(t *testing.T, dir, name, content string) string {
 	return path
 }
 
+func cliHasDiagCode(diags *diag.Diagnostics, code string) bool {
+	if diags == nil {
+		return false
+	}
+	for _, item := range diags.Items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAnalyzeInputWithImports(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := writeCLIFile(t, cwd, "lib.jbs", "value = 3\n")
@@ -65,6 +77,27 @@ func TestAnalyzeInputSelectiveImportRequiresANewLocalName(t *testing.T) {
 	}
 	if gv := bundle.Result.GlobalVarByName["x1"]; gv == nil || gv.Value.I != 2 {
 		t.Fatalf("expected explicit successor binding x1=2, got %#v", gv)
+	}
+}
+
+func TestAnalyzeInputRejectsBareLocalImportWithMigrationHint(t *testing.T) {
+	cwd := t.TempDir()
+	writeCLIFile(t, cwd, "lib.jbs", "value = 3\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use value from lib\na = value + 1\n")
+
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(mainPath, diags)
+	if err != nil {
+		t.Fatalf("analyzeInput failed: %v", err)
+	}
+	if bundle == nil {
+		t.Fatalf("expected analysis bundle even with diagnostics")
+	}
+	if !cliHasDiagCode(diags, "E537") {
+		t.Fatalf("expected E537 diagnostic, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "rewrite it as `use value from \"./lib.jbs\"` for the local file") {
+		t.Fatalf("expected bare-local migration hint, got: %s", diags.String())
 	}
 }
 

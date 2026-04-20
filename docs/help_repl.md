@@ -97,7 +97,9 @@ jbs> submit run
 
 Path resolution:
 
+- bare `use jsc`-style imports resolve embedded modules only
 - `use "./lib.jbs" as lib` resolves relative to the REPL working directory (`<cwd>` where `jbs repl` was started)
+- `use value from "./lib.jbs"` follows the same REPL-relative rule for the in-memory entry module
 - nested quoted imports resolve relative to the importer module path
 
 ## Key bindings

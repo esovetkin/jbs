@@ -186,7 +186,7 @@ names()
 
 ## `use`
 
-`use` imports reusable definitions from embedded or local `.jbs` modules.
+`use` imports reusable definitions from embedded modules and quoted local `.jbs` modules.
 
 ```jbs
 use jsc
@@ -197,13 +197,18 @@ use add from "./lib/math.jbs"
 
 Rules:
 
-- `use <module>` resolves embedded `shared/<module>.jbs` first, then local `./<module>.jbs` relative to the current working directory
+- `use <module>` resolves embedded `shared/<module>.jbs` only
+- installed bare modules are not implemented yet, so bare names currently mean embedded modules only
 - `use "<path>.jbs" as alias` resolves the path relative to the importing file
-- selective imports use `from` and may target either a bare module name or a quoted path
+- selective imports use `from` and may target either an embedded bare module name or a quoted path
+- local files must always be imported by quoted path such as `use "./defaults.jbs" as defaults` or `use queue from "./defaults.jbs"`
+- chained quoted imports resolve from each importer's own base directory, not from the process working directory
 - namespace imports expose members as `alias.name`
 - selective imports project chosen members into local scope
 - importing a `do` or `submit` symbol also pulls in its required step dependencies
 - `analyse` blocks are not importable by symbol name
+
+Migration rule: bare import names are for embedded modules; local files must be quoted paths.
 
 ## Expressions
 

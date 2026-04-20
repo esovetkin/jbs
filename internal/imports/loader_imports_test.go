@@ -17,13 +17,13 @@ func TestLoadResultBuildsResolvedUseGraph(t *testing.T) {
 		"a_value = child.child_value + 1",
 	}, "\n"))
 	entry := writeTestFile(t, dir, "entry.jbs", strings.Join([]string{
-		"use a",
-		"use a_value from a",
+		"use \"./a.jbs\" as a",
+		"use a_value from \"./a.jbs\"",
 		"root = a_value",
 	}, "\n"))
 
 	diags := &diag.Diagnostics{}
-	res, err := LoadAndExpand(entry, dir, diags)
+	res, err := LoadAndExpand(entry, t.TempDir(), diags)
 	if err != nil {
 		t.Fatalf("LoadAndExpand failed: %v", err)
 	}
@@ -117,8 +117,8 @@ func TestLoadResultDetectsDuplicateAliasCollision(t *testing.T) {
 
 func TestLoadResultReportsModuleCyclesWithChain(t *testing.T) {
 	dir := t.TempDir()
-	writeTestFile(t, dir, "a.jbs", "use b\n")
-	entry := writeTestFile(t, dir, "b.jbs", "use a\n")
+	writeTestFile(t, dir, "a.jbs", "use \"./b.jbs\" as b\n")
+	entry := writeTestFile(t, dir, "b.jbs", "use \"./a.jbs\" as a\n")
 
 	diags := &diag.Diagnostics{}
 	_, err := LoadAndExpand(entry, dir, diags)
@@ -137,8 +137,8 @@ func TestResolvedUseOrderPreservesStatementOrder(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "lib.jbs", "x = 1\ny = 2\n")
 	entry := writeTestFile(t, dir, "entry.jbs", strings.Join([]string{
-		"use lib",
-		"use x, y from lib",
+		"use \"./lib.jbs\" as lib",
+		"use x, y from \"./lib.jbs\"",
 		"use \"./lib.jbs\" as again",
 	}, "\n"))
 

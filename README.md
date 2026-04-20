@@ -160,7 +160,7 @@ Read more in `jbs help analyse` or [docs/help_analyse.md](docs/help_analyse.md).
 
 ### `use ...`
 
-`use` imports reusable definitions from embedded or local `.jbs` scripts.
+`use` imports reusable definitions from embedded modules and quoted local `.jbs` scripts.
 
 ```jbs
 use jsc
@@ -169,6 +169,8 @@ use submit_defaults from jsc
 use add from "./lib/math.jbs"
 use "./lib/math.jbs" as math
 ```
+
+Bare import names are for embedded modules only; local files must be quoted paths resolved from the importing file.
 
 Namespace imports expose function-valued globals as `math.add(...)`; selective imports project them into local expression scope as ordinary globals.
 

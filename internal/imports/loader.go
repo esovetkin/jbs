@@ -1,6 +1,6 @@
 // implement top-level `use` imports by resolving modules into a graph.
 //
-// The loader resolves embedded/local file modules, parses them, resolves
+// The loader resolves embedded and quoted file modules, parses them, resolves
 // top-level `use` statements into namespace/selective edges, detects module
 // cycles, and returns per-module source text for diagnostics. Semantic import
 // behavior is handled later in sema; the loader no longer flattens imported
@@ -8,6 +8,7 @@
 package imports
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ func LoadAndExpand(entryPath string, cwd string, diags *diag.Diagnostics) (*Load
 // LoadAndExpandSource resolves `use` imports for an in-memory entry module.
 //
 // The source is parsed under entryLabel and uses baseDir as importer base for
-// quoted path imports. Bare module resolution still uses cwd.
+// quoted path imports. Bare module resolution only checks embedded modules.
 func LoadAndExpandSource(entryLabel string, source string, baseDir string, cwd string, diags *diag.Diagnostics) (*LoadResult, error) {
 	r, err := newResolver(cwd, diags)
 	if err != nil {
@@ -247,7 +248,22 @@ func normalizeEmbeddedName(name string) string {
 	return n
 }
 
-func (r *resolver) resolveBareModule(name string) (ModuleRef, error) {
+type bareModuleResolutionError struct {
+	Name      string
+	LocalPath string
+}
+
+func (e *bareModuleResolutionError) Error() string {
+	if e == nil {
+		return "bare module resolution failed"
+	}
+	if e.LocalPath != "" {
+		return fmt.Sprintf("bare import '%s' matches local file '%s'", e.Name, e.LocalPath)
+	}
+	return fmt.Sprintf("bare import '%s' does not resolve to an embedded module", e.Name)
+}
+
+func (r *resolver) resolveBareModule(name string, importerBaseDir string) (ModuleRef, error) {
 	n := strings.TrimSpace(name)
 	if n == "" {
 		return ModuleRef{}, fmt.Errorf("empty module name")
@@ -255,8 +271,69 @@ func (r *resolver) resolveBareModule(name string) (ModuleRef, error) {
 	if shared.Has(n) {
 		return r.loadEmbeddedModule(n)
 	}
-	local := filepath.Join(r.cwd, n+".jbs")
-	return r.loadFileModule(local)
+	if localPath, ok := sameNamedLocalModule(importerBaseDir, r.cwd, n); ok {
+		return ModuleRef{}, &bareModuleResolutionError{Name: n, LocalPath: localPath}
+	}
+	return ModuleRef{}, &bareModuleResolutionError{Name: n}
+}
+
+func sameNamedLocalModule(importerBaseDir string, cwd string, name string) (string, bool) {
+	baseDir := strings.TrimSpace(importerBaseDir)
+	if baseDir == "" {
+		baseDir = cwd
+	}
+	if baseDir == "" {
+		return "", false
+	}
+	candidate := filepath.Clean(filepath.Join(baseDir, name+".jbs"))
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return candidate, true
+}
+
+func bareImportReplacement(useStmt ast.UseStmt) string {
+	path := "./" + useStmt.Source.Value + ".jbs"
+	if len(useStmt.Names) == 0 {
+		alias := strings.TrimSpace(useStmt.Alias)
+		if alias == "" {
+			alias = useStmt.Source.Value
+		}
+		return fmt.Sprintf("use %q as %s", path, alias)
+	}
+	return fmt.Sprintf("use %s from %q", strings.Join(useStmt.Names, ", "), path)
+}
+
+func bareImportHint(useStmt ast.UseStmt, localPath string) string {
+	replacement := bareImportReplacement(useStmt)
+	if localPath != "" {
+		return fmt.Sprintf("rewrite it as `%s` for the local file", replacement)
+	}
+	return fmt.Sprintf("bare import names are for embedded modules only; use `%s` for local files", replacement)
+}
+
+func (r *resolver) reportResolveUseError(useStmt ast.UseStmt, err error) {
+	var bareErr *bareModuleResolutionError
+	if errors.As(err, &bareErr) {
+		code := diag.CodeE531
+		if bareErr.LocalPath != "" {
+			code = diag.CodeE537
+		}
+		r.diags.AddError(
+			code,
+			fmt.Sprintf("bare import '%s' does not resolve to an embedded module", bareErr.Name),
+			useStmt.Span,
+			bareImportHint(useStmt, bareErr.LocalPath),
+		)
+		return
+	}
+	r.diags.AddError(
+		diag.CodeE531,
+		fmt.Sprintf("failed to resolve import source '%s': %v", useStmt.Source.Value, err),
+		useStmt.Span,
+		"check module name/path and file availability",
+	)
 }
 
 func (r *resolver) resolvePathModule(path string, importerBaseDir string, at diag.Span) (ModuleRef, error) {
@@ -296,7 +373,7 @@ func (r *resolver) resolveUseSource(currentAliases map[string]ModuleRef, importe
 				return ref, nil
 			}
 		}
-		return r.resolveBareModule(src.Value)
+		return r.resolveBareModule(src.Value, importerBaseDir)
 	default:
 		return ModuleRef{}, fmt.Errorf("unknown use source kind")
 	}
@@ -330,12 +407,7 @@ func (r *resolver) resolveModule(ref ModuleRef, stack []ModuleRef, at diag.Span)
 		}
 		sourceRef, err := r.resolveUseSource(aliases, raw.BaseDir, useStmt.Source)
 		if err != nil {
-			r.diags.AddError(
-				diag.CodeE531,
-				fmt.Sprintf("failed to resolve import source '%s': %v", useStmt.Source.Value, err),
-				useStmt.Span,
-				"check module name/path and file availability",
-			)
+			r.reportResolveUseError(useStmt, err)
 			continue
 		}
 		if len(useStmt.Names) == 0 {

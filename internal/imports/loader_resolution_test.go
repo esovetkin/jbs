@@ -1,6 +1,7 @@
 package imports
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,11 +109,11 @@ func TestResolveBareModuleBranches(t *testing.T) {
 		sources: map[string]string{},
 	}
 
-	if _, err := r.resolveBareModule("   "); err == nil {
+	if _, err := r.resolveBareModule("   ", r.cwd); err == nil {
 		t.Fatalf("expected empty module name to fail")
 	}
 
-	embedded, err := r.resolveBareModule("jsc")
+	embedded, err := r.resolveBareModule("jsc", r.cwd)
 	if err != nil {
 		t.Fatalf("resolveBareModule embedded module failed: %v", err)
 	}
@@ -121,12 +122,49 @@ func TestResolveBareModuleBranches(t *testing.T) {
 	}
 
 	writeTestFile(t, r.cwd, "localmod.jbs", "value = 1\n")
-	local, err := r.resolveBareModule("localmod")
-	if err != nil {
-		t.Fatalf("resolveBareModule local module failed: %v", err)
+	_, err = r.resolveBareModule("localmod", r.cwd)
+	if err == nil {
+		t.Fatalf("expected bare local module import to fail")
 	}
-	if want := filepath.Join(r.cwd, "localmod.jbs"); local.Label != want {
-		t.Fatalf("expected local module label %q, got %q", want, local.Label)
+	var bareErr *bareModuleResolutionError
+	if !errors.As(err, &bareErr) {
+		t.Fatalf("expected bareModuleResolutionError, got %T (%v)", err, err)
+	}
+	if want := filepath.Join(r.cwd, "localmod.jbs"); bareErr.LocalPath != want {
+		t.Fatalf("expected bare local module candidate %q, got %#v", want, bareErr)
+	}
+}
+
+func TestLoadAndExpandNestedQuotedImportsIgnoreProcessCwd(t *testing.T) {
+	projectDir := t.TempDir()
+	unrelatedCwd := t.TempDir()
+	libDir := filepath.Join(projectDir, "lib", "nested")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested lib: %v", err)
+	}
+	writeTestFile(t, libDir, "b.jbs", "base = 41\n")
+	writeTestFile(t, filepath.Join(projectDir, "lib"), "a.jbs", "use base from \"./nested/b.jbs\"\nvalue = base + 1\n")
+	entry := writeTestFile(t, projectDir, "main.jbs", "use value from \"./lib/a.jbs\"\nresult = value\n")
+
+	diags := &diag.Diagnostics{}
+	res, err := LoadAndExpand(entry, unrelatedCwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpand failed: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("expected non-nil load result")
+	}
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	for _, want := range []string{
+		entry,
+		filepath.Join(projectDir, "lib", "a.jbs"),
+		filepath.Join(projectDir, "lib", "nested", "b.jbs"),
+	} {
+		if _, ok := res.Sources[want]; !ok {
+			t.Fatalf("expected source %q in load result, got %#v", want, res.Sources)
+		}
 	}
 }
 

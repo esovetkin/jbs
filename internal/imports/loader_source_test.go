@@ -15,7 +15,7 @@ func TestLoadAndExpandSourceSupportsSelectiveEmbeddedAndLocalImports(t *testing.
 
 	src := strings.Join([]string{
 		"use queue from jsc",
-		"use local_value from mylib",
+		"use local_value from \"./mylib.jbs\"",
 		"result = local_value",
 	}, "\n")
 	diags := &diag.Diagnostics{}
@@ -44,8 +44,9 @@ func TestLoadAndExpandSourceSupportsSelectiveEmbeddedAndLocalImports(t *testing.
 }
 
 func TestLoadAndExpandSourceResolvesNestedQuotedImportsRelativeToImporter(t *testing.T) {
+	projectDir := t.TempDir()
 	cwd := t.TempDir()
-	subDir := filepath.Join(cwd, "sub")
+	subDir := filepath.Join(projectDir, "sub")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("mkdir subdir: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestLoadAndExpandSourceResolvesNestedQuotedImportsRelativeToImporter(t *tes
 		"result = value",
 	}, "\n")
 	diags := &diag.Diagnostics{}
-	res, err := LoadAndExpandSource("<repl>", src, cwd, cwd, diags)
+	res, err := LoadAndExpandSource("<repl>", src, projectDir, cwd, diags)
 	if err != nil {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
@@ -79,6 +80,26 @@ func TestLoadAndExpandSourceResolvesNestedQuotedImportsRelativeToImporter(t *tes
 	}
 	if hasErrorDiagnostics(diags) {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestLoadAndExpandSourceRejectsBareLocalImports(t *testing.T) {
+	cwd := t.TempDir()
+	writeTestFile(t, cwd, "mylib.jbs", "local_value = 9\n")
+
+	diags := &diag.Diagnostics{}
+	res, err := LoadAndExpandSource("<repl>", "use local_value from mylib\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("unexpected loader error: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("expected non-nil result even with diagnostics")
+	}
+	if !hasDiagCode(diags, "E537") {
+		t.Fatalf("expected E537 diagnostic, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "rewrite it as `use local_value from \"./mylib.jbs\"` for the local file") {
+		t.Fatalf("expected exact migration hint, got: %s", diags.String())
 	}
 }
 

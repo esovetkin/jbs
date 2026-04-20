@@ -1,13 +1,13 @@
 # jbs help use
 
-The `use` statement imports reusable definitions from embedded or local `.jbs` scripts.
+The `use` statement imports reusable definitions from embedded modules and quoted local `.jbs` scripts.
 
 `use` is JBS-only syntax. During compilation, imported modules are resolved and analyzed together with the entry file before one YAML document is produced.
 
 ## Syntax
 
 ```jbs
-# Bare module import (embedded has priority over local ./<name>.jbs)
+# Bare module import (embedded modules only)
 use <module>
 
 # Path import with alias
@@ -22,7 +22,7 @@ use <name> from "<path>.jbs"
 After importing a module, `with` also supports namespace-qualified references:
 
 ```jbs
-use test_lib
+use "./test_lib.jbs" as test_lib
 
 do s
         with test_lib.cases[x]
@@ -34,7 +34,7 @@ do s
 You can also use table-style slicing on imported table symbols:
 
 ```jbs
-use test_lib
+use "./test_lib.jbs" as test_lib
 
 do s0
         with test_lib.cases[x, y]
@@ -45,11 +45,22 @@ do s0
 
 Resolution rules:
 
-- `use <module>`:
-  - first resolves embedded `shared/<module>.jbs`
-  - if missing, resolves local `./<module>.jbs` from the directory where `jbs` is invoked
+- `use <module>` resolves embedded `shared/<module>.jbs` only
+- bare installed modules are not implemented yet, so bare names currently mean embedded modules only
+- local files must be quoted paths: `use "./file.jbs" as alias` or `use name from "./file.jbs"`
 - `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory, or absolute if given
+- nested quoted imports resolve from each importer's own directory, not from the shell working directory
 - quoted paths must end with `.jbs`
+
+Representative nested resolution:
+
+```text
+root/main.jbs          -> use "./lib/a.jbs" as a
+root/lib/a.jbs         -> use value from "./nested/b.jbs"
+root/lib/nested/b.jbs
+```
+
+Migration rule: bare import names are for embedded modules; local files must be quoted paths.
 
 Importable symbols:
 
