@@ -89,6 +89,39 @@ func TestBuildChoicesBranches(t *testing.T) {
 	}
 }
 
+func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
+	sources := map[string]*sema.GlobalBinding{"p0": hiddenProjectionBinding()}
+	state := emptyState()
+	state.SourceRows["p0"] = []int{0, 1, 12, 13}
+
+	choices := buildChoices(state, sourceGroup{
+		Source: "p0",
+		Vars: []sourceVar{
+			{Visible: "b", SourceVar: "b"},
+			{Visible: "c", SourceVar: "c"},
+		},
+	}, sources)
+	want := []sourceChoice{
+		{
+			Rows: []int{0, 1},
+			Values: map[string]eval.Value{
+				"b": eval.String("a"),
+				"c": eval.String("x"),
+			},
+		},
+		{
+			Rows: []int{12, 13},
+			Values: map[string]eval.Value{
+				"b": eval.String("a"),
+				"c": eval.String("z"),
+			},
+		},
+	}
+	if !reflect.DeepEqual(choices, want) {
+		t.Fatalf("expected inherited regrouping by projected values, got %#v want %#v", choices, want)
+	}
+}
+
 func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	sources := map[string]*sema.GlobalBinding{
@@ -231,4 +264,122 @@ func TestBuildEndToEnd(t *testing.T) {
 	if len(table.Rows[4].Values) != 0 || len(table.Rows[5].Values) != 0 {
 		t.Fatalf("expected empty values for nil-plan submit rows, got %#v %#v", table.Rows[4].Values, table.Rows[5].Values)
 	}
+}
+
+func TestBuildEndToEndRegroupsHiddenDimensions(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &sema.Result{
+		StepOrder: []string{"step0", "step1"},
+		DoBlocks: []ast.DoBlock{
+			{Name: "step0", Span: span},
+			{Name: "step1", After: []string{"step0"}, Span: span},
+		},
+		BindingsByName: map[string]*sema.GlobalBinding{
+			"p0": hiddenProjectionBinding(),
+		},
+		StepScopeByName: map[string]*sema.StepScopePlan{
+			"step0": {
+				StepName: "step0",
+				ExplicitDelta: []sema.ScopeImport{
+					{Source: "p0", Visible: "a", SourceVar: "a", Span: span},
+				},
+				Effective: map[string]sema.VisibleBinding{
+					"a": {Name: "a", Source: "p0", SourceVar: "a", Span: span},
+				},
+			},
+			"step1": {
+				StepName:       "step1",
+				InheritedSteps: []string{"step0"},
+				Inherited: map[string]sema.VisibleBinding{
+					"a": {Name: "a", Source: "p0", SourceVar: "a", ViaStep: "step0", Span: span},
+				},
+				ExplicitDelta: []sema.ScopeImport{
+					{Source: "p0", Visible: "b", SourceVar: "b", Span: span},
+					{Source: "p0", Visible: "c", SourceVar: "c", Span: span},
+				},
+				Effective: map[string]sema.VisibleBinding{
+					"a": {Name: "a", Source: "p0", SourceVar: "a", ViaStep: "step0", Span: span},
+					"b": {Name: "b", Source: "p0", SourceVar: "b", Span: span},
+					"c": {Name: "c", Source: "p0", SourceVar: "c", Span: span},
+				},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := countRowsForStep(table.Rows, "step0"); got != 6 {
+		t.Fatalf("expected 6 step0 rows, got %d", got)
+	}
+	if got := countRowsForStep(table.Rows, "step1"); got != 12 {
+		t.Fatalf("expected 12 step1 rows, got %d", got)
+	}
+	if got := countVisibleTuple(table.Rows, "step1", "0", "a", "x"); got != 1 {
+		t.Fatalf("expected one visible tuple for step1 (0,a,x), got %d", got)
+	}
+}
+
+func hiddenProjectionBinding() *sema.GlobalBinding {
+	aVals := make([]eval.Value, 0, 24)
+	bVals := make([]eval.Value, 0, 24)
+	cVals := make([]eval.Value, 0, 24)
+	dVals := make([]eval.Value, 0, 24)
+	pairs := []struct {
+		a int64
+		b string
+	}{
+		{a: 0, b: "a"},
+		{a: 1, b: "b"},
+		{a: 2, b: "c"},
+		{a: 3, b: "a"},
+		{a: 4, b: "b"},
+		{a: 5, b: "c"},
+	}
+	for _, c := range []string{"x", "z"} {
+		for _, pair := range pairs {
+			for _, d := range []bool{true, false} {
+				aVals = append(aVals, eval.Int(pair.a))
+				bVals = append(bVals, eval.String(pair.b))
+				cVals = append(cVals, eval.String(c))
+				dVals = append(dVals, eval.Bool(d))
+			}
+		}
+	}
+	return &sema.GlobalBinding{
+		Name:  "p0",
+		Shape: sema.BindingTable,
+		Order: []string{"a", "b", "c", "d"},
+		Vars: map[string][]eval.Value{
+			"a": aVals,
+			"b": bVals,
+			"c": cVals,
+			"d": dVals,
+		},
+	}
+}
+
+func countRowsForStep(rows []Row, stepName string) int {
+	count := 0
+	for _, row := range rows {
+		if row.StepName == stepName {
+			count++
+		}
+	}
+	return count
+}
+
+func countVisibleTuple(rows []Row, stepName, a, b, c string) int {
+	count := 0
+	for _, row := range rows {
+		if row.StepName != stepName {
+			continue
+		}
+		if row.Values["p0.a"] == a && row.Values["p0.b"] == b && row.Values["p0.c"] == c {
+			count++
+		}
+	}
+	return count
 }

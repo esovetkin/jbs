@@ -6,7 +6,6 @@ package lower
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 
 	"jbs/internal/diag"
@@ -16,7 +15,7 @@ import (
 
 type stepUseResolution struct {
 	Use        []interface{}
-	SourceRows map[string]string
+	SourceRows map[string]sourceRowContext
 }
 
 type subsetVarSpec struct {
@@ -37,6 +36,7 @@ func (ctx *lowerContext) resolveStepUsesForStep(stepName string, aliases map[str
 func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []string, items []sema.ScopeImport, aliases map[string]string) stepUseResolution {
 	uses := make([]interface{}, 0)
 	grouped := make(map[string][]subsetVarSpec)
+	groupedFull := make(map[string]bool)
 	groupOrder := make([]string, 0)
 	seenDirect := make(map[string]struct{})
 	sourceRows := ctx.inheritedRowsForStep(stepName, inheritedSteps)
@@ -45,7 +45,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	for _, item := range items {
 		if item.Full {
 			if src := bindings[item.Source]; src != nil {
-				if src.Shape == sema.BindingTable && sourceRows[item.Source] == "" && !sourceNeedsAlias(src, aliases) {
+				if src.Shape == sema.BindingTable && sourceRows[item.Source].VarName == "" && !sourceNeedsAlias(src, aliases) {
 					ctx.ensureSourceParameterSet(item.Source)
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
@@ -57,6 +57,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 					grouped[item.Source] = make([]subsetVarSpec, 0)
 					groupOrder = append(groupOrder, item.Source)
 				}
+				groupedFull[item.Source] = true
 				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 					if slices.ContainsFunc(grouped[item.Source], func(v subsetVarSpec) bool { return v.Visible == name }) {
 						continue
@@ -98,21 +99,21 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	for _, source := range groupOrder {
 		src := bindings[source]
 		if src != nil && src.Shape == sema.BindingScalar {
-			subset, rowsVar := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
+			subset, rowContext := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
 			if subset != "" {
 				uses = append(uses, subset)
 			}
-			if rowsVar != "" {
-				sourceRows[source] = rowsVar
+			if rowContext.VarName != "" {
+				sourceRows[source] = rowContext
 			}
 			continue
 		}
-		subset, rowsVar := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], sourceRows[source])
+		subset, rowContext := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], groupedFull[source], sourceRows[source])
 		if subset != "" {
 			uses = append(uses, subset)
 		}
-		if rowsVar != "" {
-			sourceRows[source] = rowsVar
+		if rowContext.VarName != "" {
+			sourceRows[source] = rowContext
 		}
 	}
 	return stepUseResolution{
@@ -168,19 +169,19 @@ func sourceNeedsAlias(src *sema.GlobalBinding, aliases map[string]string) bool {
 	return false
 }
 
-func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[string]string {
-	out := make(map[string]string)
+func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[string]sourceRowContext {
+	out := make(map[string]sourceRowContext)
 	conflicts := make(map[string]struct{})
 	for _, dep := range inheritedSteps {
 		depRows := ctx.stepSourceRows[dep]
 		if len(depRows) == 0 {
 			continue
 		}
-		for source, rowsVar := range depRows {
-			if rowsVar == "" {
+		for source, rowContext := range depRows {
+			if rowContext.VarName == "" {
 				continue
 			}
-			if prev, exists := out[source]; exists && prev != rowsVar {
+			if prev, exists := out[source]; exists && !equalSourceRowContext(prev, rowContext) {
 				if _, reported := conflicts[source]; !reported {
 					ctx.diags.AddError(
 						diag.CodeE232,
@@ -197,7 +198,7 @@ func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []
 			if _, bad := conflicts[source]; bad {
 				continue
 			}
-			out[source] = rowsVar
+			out[source] = cloneSourceRowContext(rowContext)
 		}
 	}
 	return out
@@ -217,6 +218,24 @@ func (ctx *lowerContext) stepSpan(stepName string) diag.Span {
 	return diag.Span{}
 }
 
-func cloneStringMap(src map[string]string) map[string]string {
-	return maps.Clone(src)
+func equalSourceRowContext(a, b sourceRowContext) bool {
+	return a.VarName == b.VarName && slices.Equal(a.Groups, b.Groups)
+}
+
+func cloneSourceRowContext(in sourceRowContext) sourceRowContext {
+	return sourceRowContext{
+		VarName: in.VarName,
+		Groups:  slices.Clone(in.Groups),
+	}
+}
+
+func cloneSourceRowContextMap(src map[string]sourceRowContext) map[string]sourceRowContext {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]sourceRowContext, len(src))
+	for key, value := range src {
+		out[key] = cloneSourceRowContext(value)
+	}
+	return out
 }

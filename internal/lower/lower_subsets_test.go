@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"reflect"
 	"testing"
 
 	"jbs/internal/diag"
@@ -11,19 +12,20 @@ import (
 func TestEnsureSubsetParameterSetForStepCacheAndMissingSource(t *testing.T) {
 	ctx := newStepUseContext(&sema.Result{BindingsByName: map[string]*sema.GlobalBinding{}})
 
-	name, rows := ctx.ensureSubsetParameterSetForStep("run", "missing", []subsetVarSpec{{Visible: "x"}}, "")
-	if name != "" || rows != "" {
-		t.Fatalf("expected empty subset result for missing source, got name=%q rows=%q", name, rows)
+	name, rows := ctx.ensureSubsetParameterSetForStep("run", "missing", []subsetVarSpec{{Visible: "x"}}, false, sourceRowContext{})
+	if name != "" || rows.VarName != "" || len(rows.Groups) != 0 {
+		t.Fatalf("expected empty subset result for missing source, got name=%q rows=%#v", name, rows)
 	}
 	if len(ctx.doc.ParameterSet) != 0 {
 		t.Fatalf("did not expect emitted parameter sets for missing source, got %#v", ctx.doc.ParameterSet)
 	}
 
-	cachedKey := subsetKey{Step: "run", Source: "p", Vars: "x=src=>emit", InheritedRows: "rows_prev"}
-	ctx.subsetNames[cachedKey] = subsetInfo{Name: "cached_subset", RowsVar: "cached_rows"}
-	name, rows = ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "x", SourceVar: "src", Emitted: "emit"}}, "rows_prev")
-	if name != "cached_subset" || rows != "cached_rows" {
-		t.Fatalf("expected cached subset tuple, got name=%q rows=%q", name, rows)
+	inherited := sourceRowContext{VarName: "rows_prev", Groups: []string{"0,1"}}
+	cachedKey := subsetKey{Step: "run", Source: "p", Vars: "x=src=>emit", Full: false, InheritedRows: sourceRowContextKey(inherited)}
+	ctx.subsetNames[cachedKey] = subsetInfo{Name: "cached_subset", RowContext: sourceRowContext{VarName: "cached_rows", Groups: []string{"2,3"}}}
+	name, rows = ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "x", SourceVar: "src", Emitted: "emit"}}, false, inherited)
+	if name != "cached_subset" || !reflect.DeepEqual(rows, sourceRowContext{VarName: "cached_rows", Groups: []string{"2,3"}}) {
+		t.Fatalf("expected cached subset tuple, got name=%q rows=%#v", name, rows)
 	}
 }
 
@@ -43,12 +45,12 @@ func TestEnsureSubsetParameterSetForStepWithoutInheritedRows(t *testing.T) {
 		},
 	}})
 
-	name, rowsVar := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{
+	name, rows := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{
 		{Visible: "a", Emitted: "_alias_a"},
 		{Visible: "b", SourceVar: "src_b"},
-	}, "")
-	if name == "" || rowsVar == "" {
-		t.Fatalf("expected generated subset identifiers, got name=%q rows=%q", name, rowsVar)
+	}, false, sourceRowContext{})
+	if name == "" || rows.VarName == "" {
+		t.Fatalf("expected generated subset identifiers, got name=%q rows=%#v", name, rows)
 	}
 	if len(ctx.doc.ParameterSet) != 1 {
 		t.Fatalf("expected one emitted subset parameterset, got %#v", ctx.doc.ParameterSet)
@@ -65,6 +67,9 @@ func TestEnsureSubsetParameterSetForStepWithoutInheritedRows(t *testing.T) {
 	}
 	if ps.Parameter[1].Separator != ReservedSeparator {
 		t.Fatalf("expected reserved separator for row groups, got %q", ps.Parameter[1].Separator)
+	}
+	if !reflect.DeepEqual(rows, sourceRowContext{VarName: ps.Parameter[1].Name, Groups: []string{"0"}}) {
+		t.Fatalf("unexpected row context for direct subset: %#v", rows)
 	}
 
 	foundAliasedA := false
@@ -103,7 +108,7 @@ func TestEnsureSubsetParameterSetForStepOriginSelection(t *testing.T) {
 		},
 	}})
 
-	_, _ = ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}, {Visible: "b", SourceVar: "src_b"}}, "")
+	_, _ = ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}, {Visible: "b", SourceVar: "src_b"}}, false, sourceRowContext{})
 	if got := countLowerDiag(ctx.diags, diag.CodeE231); got != 2 {
 		t.Fatalf("expected two shell-varying diagnostics, got %d: %s", got, ctx.diags.String())
 	}
@@ -143,22 +148,90 @@ func TestEnsureSubsetParameterSetForStepWithInheritedRows(t *testing.T) {
 		},
 	}})
 
-	name, rowsVar := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}, {Visible: "b", SourceVar: "src_b"}}, "rows_prev")
-	if name == "" || rowsVar == "" {
-		t.Fatalf("expected emitted subset with rows variable in inherited context, got name=%q rows=%q", name, rowsVar)
+	name, rows := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}, {Visible: "b", SourceVar: "src_b"}}, false, sourceRowContext{
+		VarName: "rows_prev",
+		Groups:  []string{"0,1"},
+	})
+	if name == "" || rows.VarName == "" {
+		t.Fatalf("expected emitted subset with rows variable in inherited context, got name=%q rows=%#v", name, rows)
 	}
 	ps := ctx.doc.ParameterSet[0]
 	if len(ps.Parameter) < 4 {
 		t.Fatalf("expected inherited subset idx, rows, and payload, got %#v", ps.Parameter)
 	}
-	if ps.Parameter[0].Separator != "," || ps.Parameter[0].Value != "$rows_prev" {
-		t.Fatalf("expected inherited idx parameter to split incoming rows, got %#v", ps.Parameter[0])
+	if ps.Parameter[0].Mode != "python" || ps.Parameter[0].Separator != "," {
+		t.Fatalf("expected inherited idx parameter to regroup incoming rows, got %#v", ps.Parameter[0])
 	}
-	if ps.Parameter[1].Mode != "text" || ps.Parameter[1].Value != "${"+ps.Parameter[0].Name+"}" {
+	if value, ok := ps.Parameter[0].Value.(SingleQuoted); !ok || string(value) != `{"0,1":"0,1"}["${rows_prev}"]` {
+		t.Fatalf("unexpected inherited idx mapping: %#v", ps.Parameter[0].Value)
+	}
+	if ps.Parameter[1].Mode != "python" || ps.Parameter[1].Separator != ReservedSeparator {
 		t.Fatalf("unexpected inherited rows helper parameter: %#v", ps.Parameter[1])
+	}
+	if value, ok := ps.Parameter[1].Value.(SingleQuoted); !ok || string(value) != `{"0":"0","1":"1"}["${`+ps.Parameter[0].Name+`}"]` {
+		t.Fatalf("unexpected inherited rows helper mapping: %#v", ps.Parameter[1].Value)
+	}
+	if !reflect.DeepEqual(rows, sourceRowContext{VarName: ps.Parameter[1].Name, Groups: []string{"0", "1"}}) {
+		t.Fatalf("unexpected inherited row context: %#v", rows)
 	}
 	if got := countLowerDiag(ctx.diags, diag.CodeE231); got != 2 {
 		t.Fatalf("expected two shell-varying diagnostics in contextual payload, got %d: %s", got, ctx.diags.String())
+	}
+}
+
+func TestEnsureSubsetParameterSetForStepRegroupsInheritedRows(t *testing.T) {
+	ctx := newStepUseContext(&sema.Result{BindingsByName: map[string]*sema.GlobalBinding{
+		"p0": hiddenProjectionBindingForLower(),
+	}})
+
+	name, rows := ctx.ensureSubsetParameterSetForStep("step1", "p0", []subsetVarSpec{
+		{Visible: "b"},
+		{Visible: "c"},
+	}, false, sourceRowContext{
+		VarName: "rows_prev",
+		Groups:  []string{"0,1,12,13", "2,3,14,15"},
+	})
+	if name == "" || rows.VarName == "" {
+		t.Fatalf("expected inherited projection subset identifiers, got name=%q rows=%#v", name, rows)
+	}
+	if !reflect.DeepEqual(rows.Groups, []string{"0,1", "12,13", "2,3", "14,15"}) {
+		t.Fatalf("unexpected regrouped row context: %#v", rows)
+	}
+	ps := ctx.doc.ParameterSet[0]
+	if got, ok := ps.Parameter[0].Value.(SingleQuoted); !ok || string(got) != `{"0,1,12,13":"0,12","2,3,14,15":"2,14"}["${rows_prev}"]` {
+		t.Fatalf("unexpected inherited projection idx mapping: %#v", ps.Parameter[0].Value)
+	}
+	if got, ok := ps.Parameter[1].Value.(SingleQuoted); !ok || string(got) != `{"0":"0,1","12":"12,13","2":"2,3","14":"14,15"}["${`+ps.Parameter[0].Name+`}"]` {
+		t.Fatalf("unexpected inherited projection rows mapping: %#v", ps.Parameter[1].Value)
+	}
+}
+
+func TestEnsureSubsetParameterSetForStepPreservesRowsForInheritedFullImport(t *testing.T) {
+	ctx := newStepUseContext(&sema.Result{BindingsByName: map[string]*sema.GlobalBinding{
+		"p0": hiddenProjectionBindingForLower(),
+	}})
+
+	name, rows := ctx.ensureSubsetParameterSetForStep("step1", "p0", []subsetVarSpec{
+		{Visible: "a"},
+		{Visible: "b"},
+		{Visible: "c"},
+		{Visible: "d"},
+	}, true, sourceRowContext{
+		VarName: "rows_prev",
+		Groups:  []string{"0,1,12,13"},
+	})
+	if name == "" || rows.VarName == "" {
+		t.Fatalf("expected inherited full subset identifiers, got name=%q rows=%#v", name, rows)
+	}
+	if !reflect.DeepEqual(rows.Groups, []string{"0", "1", "12", "13"}) {
+		t.Fatalf("expected inherited full import to preserve row-level groups, got %#v", rows)
+	}
+	ps := ctx.doc.ParameterSet[0]
+	if got, ok := ps.Parameter[0].Value.(SingleQuoted); !ok || string(got) != `{"0,1,12,13":"0,1,12,13"}["${rows_prev}"]` {
+		t.Fatalf("unexpected inherited full idx mapping: %#v", ps.Parameter[0].Value)
+	}
+	if got, ok := ps.Parameter[1].Value.(SingleQuoted); !ok || string(got) != `{"0":"0","1":"1","12":"12","13":"13"}["${`+ps.Parameter[0].Name+`}"]` {
+		t.Fatalf("unexpected inherited full rows mapping: %#v", ps.Parameter[1].Value)
 	}
 }
 
@@ -173,12 +246,12 @@ func TestEnsureSubsetParameterSetForStepNameSuffixOnCollision(t *testing.T) {
 	}})
 	ctx.names["_js__run__p__a"] = struct{}{}
 
-	name, rowsVar := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}}, "")
+	name, rows := ctx.ensureSubsetParameterSetForStep("run", "p", []subsetVarSpec{{Visible: "a"}}, false, sourceRowContext{})
 	if name != "_js__run__p__a_1" {
 		t.Fatalf("expected unique subset name suffix on collision, got %q", name)
 	}
-	if rowsVar != "_jr__run__p__a_1" {
-		t.Fatalf("expected rows var to inherit collision suffix, got %q", rowsVar)
+	if rows.VarName != "_jr__run__p__a_1" {
+		t.Fatalf("expected rows var to inherit collision suffix, got %q", rows.VarName)
 	}
 	if len(ctx.doc.ParameterSet) != 1 || ctx.doc.ParameterSet[0].Name != name {
 		t.Fatalf("expected emitted subset to use unique name, got %#v", ctx.doc.ParameterSet)
@@ -189,15 +262,15 @@ func TestEnsureScalarLetSubsetParameterSetForStepCacheAndMissingSource(t *testin
 	ctx := newStepUseContext(&sema.Result{BindingsByName: map[string]*sema.GlobalBinding{}})
 
 	name, rows := ctx.ensureScalarLetSubsetParameterSetForStep("run", "missing", []subsetVarSpec{{Visible: "x"}})
-	if name != "" || rows != "" {
-		t.Fatalf("expected empty result for missing scalar source, got name=%q rows=%q", name, rows)
+	if name != "" || rows.VarName != "" || len(rows.Groups) != 0 {
+		t.Fatalf("expected empty result for missing scalar source, got name=%q rows=%#v", name, rows)
 	}
 
-	cachedKey := subsetKey{Step: "run", Source: "l", Vars: "x=src=>emit", InheritedRows: ""}
-	ctx.subsetNames[cachedKey] = subsetInfo{Name: "cached_scalar_subset", RowsVar: ""}
+	cachedKey := subsetKey{Step: "run", Source: "l", Vars: "x=src=>emit", Full: false, InheritedRows: ""}
+	ctx.subsetNames[cachedKey] = subsetInfo{Name: "cached_scalar_subset"}
 	name, rows = ctx.ensureScalarLetSubsetParameterSetForStep("run", "l", []subsetVarSpec{{Visible: "x", SourceVar: "src", Emitted: "emit"}})
-	if name != "cached_scalar_subset" || rows != "" {
-		t.Fatalf("expected cached scalar subset, got name=%q rows=%q", name, rows)
+	if name != "cached_scalar_subset" || rows.VarName != "" || len(rows.Groups) != 0 {
+		t.Fatalf("expected cached scalar subset, got name=%q rows=%#v", name, rows)
 	}
 }
 
@@ -222,8 +295,8 @@ func TestEnsureScalarLetSubsetParameterSetForStepSourceVarFallbackAndModes(t *te
 		{Visible: "c", SourceVar: "src_sh"},
 		{Visible: "d", SourceVar: "empty"},
 	})
-	if name == "" || rows != "" {
-		t.Fatalf("expected scalar subset name and empty rows var, got name=%q rows=%q", name, rows)
+	if name == "" || rows.VarName != "" || len(rows.Groups) != 0 {
+		t.Fatalf("expected scalar subset name and empty rows var, got name=%q rows=%#v", name, rows)
 	}
 	if len(ctx.doc.ParameterSet) != 1 {
 		t.Fatalf("expected one emitted scalar subset, got %#v", ctx.doc.ParameterSet)
@@ -245,5 +318,44 @@ func TestEnsureScalarLetSubsetParameterSetForStepSourceVarFallbackAndModes(t *te
 	}
 	if p, ok := params["d"]; !ok || p.Mode != "text" || p.Value != "" {
 		t.Fatalf("expected empty source to lower as empty text value, got %#v", p)
+	}
+}
+
+func hiddenProjectionBindingForLower() *sema.GlobalBinding {
+	aVals := make([]eval.Value, 0, 24)
+	bVals := make([]eval.Value, 0, 24)
+	cVals := make([]eval.Value, 0, 24)
+	dVals := make([]eval.Value, 0, 24)
+	pairs := []struct {
+		a int64
+		b string
+	}{
+		{a: 0, b: "a"},
+		{a: 1, b: "b"},
+		{a: 2, b: "c"},
+		{a: 3, b: "a"},
+		{a: 4, b: "b"},
+		{a: 5, b: "c"},
+	}
+	for _, c := range []string{"x", "z"} {
+		for _, pair := range pairs {
+			for _, d := range []bool{true, false} {
+				aVals = append(aVals, eval.Int(pair.a))
+				bVals = append(bVals, eval.String(pair.b))
+				cVals = append(cVals, eval.String(c))
+				dVals = append(dVals, eval.Bool(d))
+			}
+		}
+	}
+	return &sema.GlobalBinding{
+		Name:  "p0",
+		Shape: sema.BindingTable,
+		Order: []string{"a", "b", "c", "d"},
+		Vars: map[string][]eval.Value{
+			"a": aVals,
+			"b": bVals,
+			"c": cVals,
+			"d": dVals,
+		},
 	}
 }

@@ -1,7 +1,7 @@
 package lower
 
 import (
-	"maps"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -30,7 +30,7 @@ func newStepUseContext(res *sema.Result) *lowerContext {
 		names:                     map[string]struct{}{},
 		sourceParameterSetEmitted: map[string]struct{}{},
 		subsetNames:               map[subsetKey]subsetInfo{},
-		stepSourceRows:            map[string]map[string]string{},
+		stepSourceRows:            map[string]map[string]sourceRowContext{},
 	}
 }
 
@@ -252,14 +252,21 @@ func TestInheritedRowsForStepAndStepSpanFallback(t *testing.T) {
 		DoBlocks: []ast.DoBlock{{Name: "dep1", Span: depSpan1}, {Name: "run", Span: runSpan}},
 		Submits:  []ast.SubmitBlock{{Name: "dep2", Span: depSpan2}},
 	})
-	ctx.stepSourceRows = map[string]map[string]string{
-		"dep1": {"same": "rows_same", "conflict": "rows_a"},
-		"dep2": {"same": "rows_same", "conflict": "rows_b", "empty": ""},
+	ctx.stepSourceRows = map[string]map[string]sourceRowContext{
+		"dep1": {
+			"same":     {VarName: "rows_same", Groups: []string{"0,1"}},
+			"conflict": {VarName: "rows_a", Groups: []string{"0,1"}},
+		},
+		"dep2": {
+			"same":     {VarName: "rows_same", Groups: []string{"0,1"}},
+			"conflict": {VarName: "rows_b", Groups: []string{"0,1"}},
+			"empty":    {},
+		},
 	}
 
 	got := ctx.inheritedRowsForStep("run", []string{"dep1", "dep2"})
-	want := map[string]string{"same": "rows_same"}
-	if !maps.Equal(got, want) {
+	want := map[string]sourceRowContext{"same": {VarName: "rows_same", Groups: []string{"0,1"}}}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected inherited row map: got=%#v want=%#v", got, want)
 	}
 	if countLowerDiag(ctx.diags, diag.CodeE232) != 1 {
@@ -273,18 +280,24 @@ func TestInheritedRowsForStepAndStepSpanFallback(t *testing.T) {
 	}
 }
 
-func TestCloneStringMap(t *testing.T) {
-	src := map[string]string{"a": "1"}
-	clone := cloneStringMap(src)
-	if !maps.Equal(clone, src) {
-		t.Fatalf("expected cloneStringMap to copy content, got %#v want %#v", clone, src)
+func TestCloneSourceRowContextMap(t *testing.T) {
+	src := map[string]sourceRowContext{"a": {VarName: "rows_a", Groups: []string{"0,1"}}}
+	clone := cloneSourceRowContextMap(src)
+	if !reflect.DeepEqual(clone, src) {
+		t.Fatalf("expected cloneSourceRowContextMap to copy content, got %#v want %#v", clone, src)
 	}
-	clone["a"] = "2"
-	clone["b"] = "3"
-	if src["a"] != "1" || src["b"] != "" {
-		t.Fatalf("expected cloneStringMap to produce an independent map, src=%#v clone=%#v", src, clone)
+	clone["a"] = sourceRowContext{VarName: "rows_b", Groups: []string{"2,3"}}
+	clone["b"] = sourceRowContext{VarName: "rows_c", Groups: []string{"4,5"}}
+	if src["a"].VarName != "rows_a" || len(src) != 1 {
+		t.Fatalf("expected cloneSourceRowContextMap to produce an independent map, src=%#v clone=%#v", src, clone)
 	}
-	if got := cloneStringMap(nil); got != nil {
+	if got := cloneSourceRowContextMap(nil); got != nil {
 		t.Fatalf("expected nil clone for nil map, got %#v", got)
+	}
+	if !equalSourceRowContext(sourceRowContext{VarName: "rows", Groups: []string{"0,1"}}, sourceRowContext{VarName: "rows", Groups: []string{"0,1"}}) {
+		t.Fatalf("expected equalSourceRowContext to match identical contexts")
+	}
+	if equalSourceRowContext(sourceRowContext{VarName: "rows", Groups: []string{"0,1"}}, sourceRowContext{VarName: "rows", Groups: []string{"0"}}) {
+		t.Fatalf("expected equalSourceRowContext to reject mismatched groups")
 	}
 }

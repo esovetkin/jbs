@@ -324,6 +324,39 @@ func pythonStringMapLookupExpr(keys []int, values []string, varName string) stri
 	return "{" + strings.Join(parts, ",") + "}" + "[\"${" + varName + "}\"]"
 }
 
+func pythonStringLookupExpr(keys, values []string, varName string) string {
+	parts := make([]string, 0, len(keys))
+	for i := range keys {
+		key := strconv.Quote(keys[i])
+		value := ""
+		if i < len(values) {
+			value = values[i]
+		}
+		parts = append(parts, key+":"+strconv.Quote(value))
+	}
+	return "{" + strings.Join(parts, ",") + "}" + "[\"${" + varName + "}\"]"
+}
+
+func parseIntIndices(raw string) []int {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
 func pythonLiteral(v eval.Value) string {
 	switch v.Kind {
 	case eval.KindNull:

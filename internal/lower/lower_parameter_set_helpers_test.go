@@ -114,6 +114,12 @@ func TestPythonExpressionsAndLiteral(t *testing.T) {
 	if got := pythonStringMapLookupExpr([]int{0, 2}, []string{"alpha"}, "slot"); got != `{"0":"alpha","2":""}["${slot}"]` {
 		t.Fatalf("unexpected pythonStringMapLookupExpr: %q", got)
 	}
+	if got := pythonStringLookupExpr([]string{"0,1", "2,3"}, []string{"0", "2"}, "rows_prev"); got != `{"0,1":"0","2,3":"2"}["${rows_prev}"]` {
+		t.Fatalf("unexpected pythonStringLookupExpr: %q", got)
+	}
+	if got := parseIntIndices("0, 2, bad, 4"); !reflect.DeepEqual(got, []int{0, 2, 4}) {
+		t.Fatalf("unexpected parseIntIndices: %#v", got)
+	}
 
 	tests := []struct {
 		in   eval.Value

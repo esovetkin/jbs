@@ -469,6 +469,48 @@ func TestRunPrintParamWithImportedModule(t *testing.T) {
 	}
 }
 
+func TestRunPrintParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
+	cwd := t.TempDir()
+	mainPath := writeCLIFile(t, cwd, "repro.jbs", ""+
+		"a = table(a=range(6))\n"+
+		"b = table(b = (\"a\", \"b\", \"c\"))\n"+
+		"c = table(c = (\"x\",\"z\"))\n"+
+		"d = table(d = (true, false))\n"+
+		"p0 = c*(a+b)*d\n\n"+
+		"do step0\n"+
+		"        with p0[a]\n"+
+		"{\n"+
+		"        echo \"a=${a}\" > step0.out\n"+
+		"}\n\n"+
+		"do step1\n"+
+		"        after step0\n"+
+		"        with p0[b,c]\n"+
+		"{\n"+
+		"        echo \"a=${a}\" > step1.out\n"+
+		"        echo \"b=${b}\" >> step1.out\n"+
+		"        echo \"c=${c}\" >> step1.out\n"+
+		"}\n")
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"printparam", "-t", "csv", mainPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful printparam run, code=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if got := strings.Count(out, ",do: step0"); got != 6 {
+		t.Fatalf("expected 6 step0 rows, got %d\n%s", got, out)
+	}
+	if got := strings.Count(out, ",do: step1"); got != 12 {
+		t.Fatalf("expected 12 step1 rows, got %d\n%s", got, out)
+	}
+	if got := strings.Count(out, "0,a,x,do: step1"); got != 1 {
+		t.Fatalf("expected one visible tuple for step1 0,a,x, got %d\n%s", got, out)
+	}
+	if !strings.Contains(stderr.String(), "WARNING W310") {
+		t.Fatalf("expected warning diagnostics for unused d, got %q", stderr.String())
+	}
+}
+
 func TestRunYAMLWithImportedModule(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\n"+

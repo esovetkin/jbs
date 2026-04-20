@@ -332,60 +332,29 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Glo
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
-	if rows, ok := state.SourceRows[group.Source]; ok && len(rows) > 0 {
-		choices := make([]sourceChoice, 0, len(rows))
-		for _, idx := range rows {
+	allowedRows, constrained := state.SourceRows[group.Source]
+	if constrained {
+		filtered := make([]int, 0, len(allowedRows))
+		for _, idx := range allowedRows {
 			if idx < 0 || idx >= rowCount {
 				continue
 			}
-			vals := make(map[string]eval.Value, len(visibleNames))
-			for _, name := range visibleNames {
-				series := valuesByName[name]
-				value := eval.Null()
-				if idx < len(series) {
-					value = series[idx]
-				}
-				vals[name] = value
-			}
-			choices = append(choices, sourceChoice{
-				Rows:   []int{idx},
-				Values: vals,
-			})
+			filtered = append(filtered, idx)
 		}
-		return choices
+		allowedRows = filtered
+		if len(allowedRows) == 0 {
+			return nil
+		}
+	} else {
+		allowedRows = planutil.SequentialIndices(rowCount)
 	}
 
-	if group.Full {
-		choices := make([]sourceChoice, 0, rowCount)
-		for idx := 0; idx < rowCount; idx++ {
-			vals := make(map[string]eval.Value, len(visibleNames))
-			for _, name := range visibleNames {
-				series := valuesByName[name]
-				value := eval.Null()
-				if idx < len(series) {
-					value = series[idx]
-				}
-				vals[name] = value
-			}
-			choices = append(choices, sourceChoice{
-				Rows:   []int{idx},
-				Values: vals,
-			})
-		}
-		return choices
-	}
-
-	groups := planutil.BuildRowGroups(visibleNames, valuesByName, rowCount, valueKey)
-	choices := make([]sourceChoice, 0, len(groups))
-	for _, grp := range groups {
+	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full, valueKey)
+	choices := make([]sourceChoice, 0, len(projected))
+	for _, grp := range projected {
 		vals := make(map[string]eval.Value, len(visibleNames))
 		for _, name := range visibleNames {
-			series := valuesByName[name]
-			value := eval.Null()
-			if grp.Rep >= 0 && grp.Rep < len(series) {
-				value = series[grp.Rep]
-			}
-			vals[name] = value
+			vals[name] = valueAt(valuesByName[name], grp.Rep)
 		}
 		choices = append(choices, sourceChoice{
 			Rows:   slices.Clone(grp.Rows),
@@ -393,6 +362,13 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Glo
 		})
 	}
 	return choices
+}
+
+func valueAt(series []eval.Value, idx int) eval.Value {
+	if idx < 0 || idx >= len(series) {
+		return eval.Null()
+	}
+	return series[idx]
 }
 
 func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpState, bool) {

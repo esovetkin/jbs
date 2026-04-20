@@ -18,7 +18,7 @@ func ToJUBEYAML(res *sema.Result, diags *diag.Diagnostics) Document {
 		names:                     make(map[string]struct{}),
 		sourceParameterSetEmitted: make(map[string]struct{}),
 		subsetNames:               make(map[subsetKey]subsetInfo),
-		stepSourceRows:            make(map[string]map[string]string),
+		stepSourceRows:            make(map[string]map[string]sourceRowContext),
 		patternSetIndexByGroup:    make(map[string]int),
 		analyserNames:             make(map[string]string),
 	}

@@ -12,7 +12,7 @@ import (
 	"jbs/internal/planutil"
 )
 
-func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, inheritedRowsVar string) (string, string) {
+func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec, full bool, inherited sourceRowContext) (string, sourceRowContext) {
 	varKeys := make([]string, 0, len(vars))
 	for _, v := range vars {
 		varKeys = append(varKeys, v.Visible+"="+v.SourceVar+"=>"+subsetEmittedName(v))
@@ -21,17 +21,18 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		Step:          stepName,
 		Source:        source,
 		Vars:          strings.Join(varKeys, ","),
-		InheritedRows: inheritedRowsVar,
+		Full:          full,
+		InheritedRows: sourceRowContextKey(inherited),
 	}
 	if existing, ok := ctx.subsetNames[k]; ok {
-		return existing.Name, existing.RowsVar
+		return existing.Name, cloneSourceRowContext(existing.RowContext)
 	}
 
 	src := ctx.res.BindingsByName[source]
 	if src == nil {
 		// Semantic analysis already reports unknown parameter set imports with
 		// precise spans. Skip lower-stage duplicate diagnostics.
-		return "", ""
+		return "", sourceRowContext{}
 	}
 
 	rowCount := planutil.SourceRowCount(src.Order, src.Vars)
@@ -69,8 +70,9 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 	}
 
 	params := make([]Parameter, 0, len(vars)+2)
-	if inheritedRowsVar == "" {
-		groups := planutil.BuildRowGroups(visibleNames, valuesByName, rowCount, pythonLiteral)
+	rowContext := sourceRowContext{}
+	if inherited.VarName == "" {
+		groups := planutil.BuildProjectedRowGroups(planutil.SequentialIndices(rowCount), visibleNames, valuesByName, full, pythonLiteral)
 		repIndices := make([]int, 0, len(groups))
 		rowGroupStrings := make([]string, 0, len(groups))
 		for _, group := range groups {
@@ -103,21 +105,26 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			return src.Span
 		}, ctx.diags)
 		params = append(params, applyEmittedNames(payload, emittedByVisible)...)
+		rowContext = sourceRowContext{
+			VarName: rowsVar,
+			Groups:  rowGroupStrings,
+		}
 	} else {
+		parentGroups, parentValues, repIndices, rowGroupStrings := buildInheritedProjectedGroups(inherited.Groups, visibleNames, valuesByName, rowCount, full)
 		params = append(params, Parameter{
-			Name: idxName,
-			Type: "int",
-			Mode: "text",
-			// In inherited context we intentionally split grouped row IDs.
+			Name:      idxName,
+			Type:      "int",
+			Mode:      "python",
 			Separator: ",",
-			Value:     "$" + inheritedRowsVar,
+			Value:     SingleQuoted(pythonStringLookupExpr(parentGroups, parentValues, inherited.VarName)),
 		})
 		params = append(params, Parameter{
-			Name:  rowsVar,
-			Mode:  "text",
-			Value: "${" + idxName + "}",
+			Name:      rowsVar,
+			Mode:      "python",
+			Separator: ReservedSeparator,
+			Value:     SingleQuoted(pythonStringMapLookupExpr(repIndices, rowGroupStrings, idxName)),
 		})
-		payload := lowerContextualPayloadParameters(visibleNames, valuesByName, modeByName, idxRef, func(varName string) diag.Span {
+		payload := lowerIndexedPayloadParameters(visibleNames, valuesByName, modeByName, repIndices, idxRef, func(varName string) diag.Span {
 			sourceVar := sourceVarByVisible[varName]
 			if span, ok := src.Origins[sourceVar]; ok {
 				return span
@@ -125,6 +132,10 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 			return src.Span
 		}, ctx.diags)
 		params = append(params, applyEmittedNames(payload, emittedByVisible)...)
+		rowContext = sourceRowContext{
+			VarName: rowsVar,
+			Groups:  rowGroupStrings,
+		}
 	}
 
 	ctx.doc.ParameterSet = append(ctx.doc.ParameterSet, ParameterSet{
@@ -137,11 +148,11 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 		},
 	})
 	ctx.names[name] = struct{}{}
-	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: rowsVar}
-	return name, rowsVar
+	ctx.subsetNames[k] = subsetInfo{Name: name, RowContext: rowContext}
+	return name, cloneSourceRowContext(rowContext)
 }
 
-func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec) (string, string) {
+func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, source string, vars []subsetVarSpec) (string, sourceRowContext) {
 	varKeys := make([]string, 0, len(vars))
 	for _, v := range vars {
 		varKeys = append(varKeys, v.Visible+"="+v.SourceVar+"=>"+subsetEmittedName(v))
@@ -150,15 +161,16 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		Step:          stepName,
 		Source:        source,
 		Vars:          strings.Join(varKeys, ","),
+		Full:          false,
 		InheritedRows: "",
 	}
 	if existing, ok := ctx.subsetNames[k]; ok {
-		return existing.Name, existing.RowsVar
+		return existing.Name, cloneSourceRowContext(existing.RowContext)
 	}
 
 	src := ctx.res.BindingsByName[source]
 	if src == nil {
-		return "", ""
+		return "", sourceRowContext{}
 	}
 
 	visibleNames := make([]string, 0, len(vars))
@@ -205,6 +217,37 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 		},
 	})
 	ctx.names[name] = struct{}{}
-	ctx.subsetNames[k] = subsetInfo{Name: name, RowsVar: ""}
-	return name, ""
+	ctx.subsetNames[k] = subsetInfo{Name: name}
+	return name, sourceRowContext{}
+}
+
+func sourceRowContextKey(in sourceRowContext) string {
+	if in.VarName == "" {
+		return ""
+	}
+	return in.VarName + "|" + strings.Join(in.Groups, ReservedSeparator)
+}
+
+func buildInheritedProjectedGroups(parentGroups []string, visibleNames []string, valuesByName map[string][]eval.Value, rowCount int, full bool) ([]string, []string, []int, []string) {
+	parentValues := make([]string, 0, len(parentGroups))
+	repIndices := make([]int, 0)
+	rowGroupStrings := make([]string, 0)
+	for _, parentGroup := range parentGroups {
+		allowedRows := make([]int, 0)
+		for _, idx := range parseIntIndices(parentGroup) {
+			if idx < 0 || idx >= rowCount {
+				continue
+			}
+			allowedRows = append(allowedRows, idx)
+		}
+		projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, full, pythonLiteral)
+		parentRepIndices := make([]int, 0, len(projected))
+		for _, group := range projected {
+			parentRepIndices = append(parentRepIndices, group.Rep)
+			repIndices = append(repIndices, group.Rep)
+			rowGroupStrings = append(rowGroupStrings, joinIntIndices(group.Rows))
+		}
+		parentValues = append(parentValues, joinIntIndices(parentRepIndices))
+	}
+	return append([]string(nil), parentGroups...), parentValues, repIndices, rowGroupStrings
 }

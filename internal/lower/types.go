@@ -198,12 +198,18 @@ type subsetKey struct {
 	Step          string
 	Source        string
 	Vars          string
+	Full          bool
 	InheritedRows string
 }
 
+type sourceRowContext struct {
+	VarName string
+	Groups  []string
+}
+
 type subsetInfo struct {
-	Name    string
-	RowsVar string
+	Name       string
+	RowContext sourceRowContext
 }
 
 type lowerContext struct {
@@ -213,7 +219,7 @@ type lowerContext struct {
 	names                     map[string]struct{}
 	sourceParameterSetEmitted map[string]struct{}
 	subsetNames               map[subsetKey]subsetInfo
-	stepSourceRows            map[string]map[string]string
+	stepSourceRows            map[string]map[string]sourceRowContext
 	patternSetIndexByGroup    map[string]int
 	analyserNames             map[string]string
 }

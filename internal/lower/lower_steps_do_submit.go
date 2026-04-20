@@ -39,7 +39,7 @@ func (ctx *lowerContext) lowerDo(block ast.DoBlock) Step {
 	aliases := ctx.stepAliasMap(block.Name, false)
 	resolution := ctx.resolveStepUsesForStep(block.Name, aliases)
 	step.Use = resolution.Use
-	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
+	ctx.stepSourceRows[block.Name] = cloneSourceRowContextMap(resolution.SourceRows)
 
 	body := normalizeRawLiteral(block.Body)
 	body = rewriteShellRefs(body, aliases)
@@ -108,7 +108,7 @@ func (ctx *lowerContext) lowerSubmit(block ast.SubmitBlock, submitSet string, al
 		step.Depend = strings.Join(block.After, ",")
 	}
 	resolution := ctx.resolveStepUsesForStep(block.Name, aliases)
-	ctx.stepSourceRows[block.Name] = cloneStringMap(resolution.SourceRows)
+	ctx.stepSourceRows[block.Name] = cloneSourceRowContextMap(resolution.SourceRows)
 	use := append([]interface{}{}, resolution.Use...)
 	use = append(use,
 		submitSet,

@@ -136,7 +136,7 @@ func TestLowerDoBuildsStepAndTracksSourceRows(t *testing.T) {
 				},
 			},
 		}},
-		stepSourceRows: map[string]map[string]string{},
+		stepSourceRows: map[string]map[string]sourceRowContext{},
 	}
 	block := ast.DoBlock{
 		Name:       "run",
@@ -190,7 +190,7 @@ func TestLowerSubmitBuildsStepUseAndOperations(t *testing.T) {
 				},
 			},
 		}},
-		stepSourceRows: map[string]map[string]string{},
+		stepSourceRows: map[string]map[string]sourceRowContext{},
 	}
 	block := ast.SubmitBlock{
 		Name:       "run",
