@@ -20,6 +20,7 @@ Rules:
 - parameters are comma-separated and may have defaults
 - call sites may mix positional and named arguments, but positional arguments must come first
 - local assignments inside the body are local to that function and shadow captured or global names
+- local assignments may still use compound operators; that mutability is function-local, not top-level
 - nested functions capture outer locals lexically
 
 Examples:

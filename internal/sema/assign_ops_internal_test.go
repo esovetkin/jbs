@@ -1,10 +1,12 @@
 package sema
 
 import (
+	"reflect"
 	"testing"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
+	"jbs/internal/eval"
 )
 
 func TestMapAssignOpToBinary(t *testing.T) {
@@ -57,5 +59,28 @@ func TestAssignmentExprBranches(t *testing.T) {
 	}
 	if bin.Right != rhs {
 		t.Fatalf("expected rhs to be preserved in binary expression, got %#v", bin.Right)
+	}
+}
+
+func TestTopLevelCompoundAssignmentRejectedButFunctionLocalCompoundAssignmentStillWorks(t *testing.T) {
+	prog := parseSemaProgram(t, "assign_ops.jbs", `
+bump = function(x) {
+	x += 1
+	x
+}
+result = bump(1)
+seed += 1
+`)
+
+	diags := &diag.Diagnostics{}
+	out, order := compileUserGlobals(prog, nil, diags)
+	if countDiagCode(diags, "E307") != 1 {
+		t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
+	}
+	if !reflect.DeepEqual(order, []string{"bump", "result"}) {
+		t.Fatalf("unexpected compiled global order: %#v", order)
+	}
+	if out["result"] == nil || !eval.Equal(out["result"].Value, eval.Int(2)) {
+		t.Fatalf("expected local += inside function body to remain valid, got %#v", out["result"])
 	}
 }

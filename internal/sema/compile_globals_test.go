@@ -20,6 +20,29 @@ func parseSemaProgram(t *testing.T, file, src string) ast.Program {
 	return prog
 }
 
+func TestCompileUserGlobalsRejectsDuplicateTopLevelDefinition(t *testing.T) {
+	prog := parseSemaProgram(t, "dup.jbs", `
+x = 1
+x = 2
+y = x + 1
+`)
+
+	diags := &diag.Diagnostics{}
+	out, order := compileUserGlobals(prog, nil, diags)
+	if countDiagCode(diags, "E306") != 1 {
+		t.Fatalf("expected one duplicate top-level binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
+	}
+	if len(diags.Items) == 0 || len(diags.Items[0].Related) == 0 || diags.Items[0].Related[0].Message != "first definition" {
+		t.Fatalf("expected duplicate diagnostic to point at first definition, got %#v", diags.Items)
+	}
+	if !reflect.DeepEqual(order, []string{"x", "y"}) {
+		t.Fatalf("unexpected global order: %#v", order)
+	}
+	if !eval.Equal(out["x"].Value, eval.Int(1)) || !eval.Equal(out["y"].Value, eval.Int(2)) {
+		t.Fatalf("expected duplicate definition to leave first binding active, got x=%#v y=%#v", out["x"], out["y"])
+	}
+}
+
 func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 
@@ -120,7 +143,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	}
 }
 
-func TestCompileUserGlobalsSkipsBuiltinsAllowsReassignAndTracksDeps(t *testing.T) {
+func TestCompileUserGlobalsSkipsBuiltinsRejectsTopLevelCompoundAssignAndTracksDeps(t *testing.T) {
 	span := diag.NewSpan("globals.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	prog := ast.Program{
 		File: "globals.jbs",
@@ -160,8 +183,8 @@ func TestCompileUserGlobalsSkipsBuiltinsAllowsReassignAndTracksDeps(t *testing.T
 
 	diags := &diag.Diagnostics{}
 	out, order := compileUserGlobals(prog, map[string]eval.Value{"builtin": eval.Int(7)}, diags)
-	if len(diags.Items) != 0 {
-		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	if countDiagCode(diags, "E307") != 1 {
+		t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
 	}
 	if _, ok := out["builtin"]; ok {
 		t.Fatalf("expected builtin assignment to be skipped, got %#v", out["builtin"])
@@ -169,8 +192,8 @@ func TestCompileUserGlobalsSkipsBuiltinsAllowsReassignAndTracksDeps(t *testing.T
 	if !reflect.DeepEqual(order, []string{"x", "y"}) {
 		t.Fatalf("unexpected global order: %#v", order)
 	}
-	if !eval.Equal(out["x"].Value, eval.Int(3)) {
-		t.Fatalf("expected reassigned x value 3, got %#v", out["x"].Value)
+	if !eval.Equal(out["x"].Value, eval.Int(1)) {
+		t.Fatalf("expected original x value 1 to remain, got %#v", out["x"].Value)
 	}
 	if out["x"].Mode != "" {
 		t.Fatalf("expected empty mode for x, got %q", out["x"].Mode)
@@ -180,6 +203,9 @@ func TestCompileUserGlobalsSkipsBuiltinsAllowsReassignAndTracksDeps(t *testing.T
 	}
 	if !reflect.DeepEqual(out["y"].DependsOn, []string{"x"}) {
 		t.Fatalf("expected y to depend on x, got %#v", out["y"].DependsOn)
+	}
+	if !eval.Equal(out["y"].Value, eval.Int(2)) {
+		t.Fatalf("expected y to use the first x binding, got %#v", out["y"].Value)
 	}
 }
 
@@ -199,32 +225,35 @@ func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
 				Span: span,
 			},
 			ast.GlobalAssign{
-				Name: "x",
-				Op:   ast.AssignPlusEq,
-				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Name: "y",
+				Op:   ast.AssignEq,
+				Expr: ast.NumberExpr{Int: true, IntValue: 2, Raw: "2", Span: span},
 				Span: span,
 			},
 			ast.ExprStmt{
-				Expr: ast.IdentExpr{Name: "x", Span: span},
+				Expr: ast.IdentExpr{Name: "y", Span: span},
 				Span: span,
 			},
 		},
 	}
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	gotGlobals, order := globalVarsFromExec(exec)
-	if !reflect.DeepEqual(order, []string{"x"}) {
+	if !reflect.DeepEqual(order, []string{"x", "y"}) {
 		t.Fatalf("unexpected global order: %#v", order)
 	}
-	if len(gotGlobals) != 1 {
-		t.Fatalf("expected only x to become a global, got %#v", gotGlobals)
+	if len(gotGlobals) != 2 {
+		t.Fatalf("expected x and y to become globals, got %#v", gotGlobals)
 	}
-	if gotGlobals["x"] == nil || !eval.Equal(gotGlobals["x"].Value, eval.Int(2)) {
-		t.Fatalf("expected x=2 after reassignment, got %#v", gotGlobals["x"])
+	if gotGlobals["x"] == nil || !eval.Equal(gotGlobals["x"].Value, eval.Int(1)) {
+		t.Fatalf("expected x=1, got %#v", gotGlobals["x"])
+	}
+	if gotGlobals["y"] == nil || !eval.Equal(gotGlobals["y"].Value, eval.Int(2)) {
+		t.Fatalf("expected y=2, got %#v", gotGlobals["y"])
 	}
 	if len(exec.TopLevelExprs) != 2 {
 		t.Fatalf("expected two top-level expr results, got %#v", exec.TopLevelExprs)
@@ -259,12 +288,6 @@ func TestBuildGlobalPlanAssignsNameCatalogs(t *testing.T) {
 				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
 				Span: span,
 			},
-			ast.GlobalAssign{
-				Name: "y",
-				Op:   ast.AssignPlusEq,
-				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
-				Span: span,
-			},
 			ast.ExprStmt{
 				Expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "names", Span: span}, Span: span},
 				Span: span,
@@ -272,14 +295,18 @@ func TestBuildGlobalPlanAssignsNameCatalogs(t *testing.T) {
 		},
 	}
 
+	diags := &diag.Diagnostics{}
 	plan := buildGlobalPlan(prog, map[string]eval.Value{
 		"jbs_name": eval.String("bench"),
 		"ns.value": eval.Int(1),
-	}, "")
-	if got := plan.Steps[0].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "y"}) {
+	}, "", diags)
+	if len(diags.Items) != 0 {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got := plan.Steps[0].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "x", "y"}) {
 		t.Fatalf("unexpected step-0 visible names: %#v", got)
 	}
-	if got := plan.Steps[3].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "x", "y"}) {
+	if got := plan.Steps[2].Names.Visible; !reflect.DeepEqual(got, []string{"jbs_name", "x", "y"}) {
 		t.Fatalf("unexpected final step visible names: %#v", got)
 	}
 }
@@ -484,14 +511,14 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 		}
 		diags := &diag.Diagnostics{}
 		out, order := compileUserGlobals(prog, nil, diags)
-		if countDiagCode(diags, "E100") == 0 {
-			t.Fatalf("expected unresolved forward read diagnostics, got: %s", diags.String())
+		if countDiagCode(diags, "E306") != 1 {
+			t.Fatalf("expected one duplicate-binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
 		}
 		if !reflect.DeepEqual(order, []string{"x", "y"}) {
 			t.Fatalf("unexpected global order: %#v", order)
 		}
-		if !eval.Equal(out["y"].Value, eval.Int(2)) {
-			t.Fatalf("expected last y assignment to win, got %#v", out["y"])
+		if !eval.Equal(out["x"].Value, eval.Int(2)) || !eval.Equal(out["y"].Value, eval.Int(1)) {
+			t.Fatalf("expected first y binding to remain authoritative, got x=%#v y=%#v", out["x"], out["y"])
 		}
 	})
 
@@ -515,11 +542,11 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 		}
 		diags := &diag.Diagnostics{}
 		out, _ := compileUserGlobals(prog, nil, diags)
-		if countDiagCode(diags, "E100") == 0 {
-			t.Fatalf("expected invalid first compound write to stay unresolved, got: %s", diags.String())
+		if countDiagCode(diags, "E307") != 1 {
+			t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
 		}
 		if !eval.Equal(out["x"].Value, eval.Int(2)) {
-			t.Fatalf("expected final direct assignment to win, got %#v", out["x"])
+			t.Fatalf("expected later plain definition to provide x, got %#v", out["x"])
 		}
 	})
 }
@@ -572,27 +599,30 @@ make = function(delta) {
 add2 = make(2)
 result = add2(3)
 result
-seed += 10
+seed1 = seed + 10
 result
 `)
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	gotGlobals, order := globalVarsFromExec(exec)
-	if !reflect.DeepEqual(order, []string{"seed", "make", "add2", "result"}) {
+	if !reflect.DeepEqual(order, []string{"seed", "make", "add2", "result", "seed1"}) {
 		t.Fatalf("unexpected global order: %#v", order)
 	}
 	if gotGlobals["add2"] == nil || gotGlobals["add2"].Value.Kind != eval.KindFunction {
 		t.Fatalf("expected returned-closure global add2, got %#v", gotGlobals["add2"])
 	}
-	if gotGlobals["seed"] == nil || !eval.Equal(gotGlobals["seed"].Value, eval.Int(11)) {
-		t.Fatalf("expected compound assignment to chain through previous write, got %#v", gotGlobals["seed"])
+	if gotGlobals["seed"] == nil || !eval.Equal(gotGlobals["seed"].Value, eval.Int(1)) {
+		t.Fatalf("expected original seed binding to remain unchanged, got %#v", gotGlobals["seed"])
+	}
+	if gotGlobals["seed1"] == nil || !eval.Equal(gotGlobals["seed1"].Value, eval.Int(11)) {
+		t.Fatalf("expected explicit successor binding seed1=11, got %#v", gotGlobals["seed1"])
 	}
 	if gotGlobals["result"] == nil || !eval.Equal(gotGlobals["result"].Value, eval.Int(6)) {
-		t.Fatalf("expected result=6 before later seed rewrite, got %#v", gotGlobals["result"])
+		t.Fatalf("expected result=6 before later explicit seed1 binding, got %#v", gotGlobals["result"])
 	}
 	if !reflect.DeepEqual(gotGlobals["result"].DependsOn, []string{"add2", "make", "seed"}) {
 		t.Fatalf("expected result runtime deps to include closure chain, got %#v", gotGlobals["result"].DependsOn)

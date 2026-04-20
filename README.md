@@ -106,7 +106,7 @@ A JBS program uses six canonical top-level statement forms:
 - `submit`
 - `analyse`
 
-Top-level assignments define reusable globals, including `comb(...)` parameter-space values and function values. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
+Top-level assignments define reusable globals, including `comb(...)` parameter-space values and function values. They are single-assignment bindings: top-level code uses plain `=`, defines each name once, and introduces a new name instead of rebinding with `+=` or a later `=`. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
 
 Top-level assignments define global variables. Use `comb(...)` to build a parameter-space object and import it in steps.
 
@@ -114,6 +114,9 @@ Top-level assignments define global variables. Use `comb(...)` to build a parame
 x = (1, 2)
 model = ("a", "b", "c")
 cases = comb(model * x)
+seed0 = 1
+seed1 = seed0 + 1
+seed2 = seed1 + 1
 ```
 
 Read more in `jbs help globals` or [docs/help_globals.md](docs/help_globals.md).

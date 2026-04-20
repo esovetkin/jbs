@@ -67,7 +67,7 @@ use_stmt      := "use" (
 ident_list    := IDENT ("," IDENT)*
 use_source    := IDENT | STRING
 
-global_assign := IDENT assign_op expr opt_comment
+global_assign := IDENT "=" expr opt_comment
 expr_stmt     := expr opt_comment
 assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 
@@ -144,7 +144,11 @@ Rules:
 
 - `jbs_name` and `jbs_outpath` must be plain string literals
 - globals are introduced only by top-level assignment
-- compound assignment is allowed where assignment statements are valid
+- top-level bindings are immutable and must use plain `=`
+- each top-level name may be defined once
+- top-level evaluation is still dependency-based, so a global may read another global defined later in the file as long as that later name is defined exactly once
+- top-level compound assignment reports `E307`
+- duplicate top-level definitions report `E306`
 
 Example:
 
@@ -155,6 +159,10 @@ jbs_outpath = "results"
 sizes = (1, 2, 4)
 labels = ("small", "medium", "large")
 cases = comb(labels + sizes)
+
+seed0 = 1
+seed1 = seed0 + 1
+seed2 = seed1 + 1
 ```
 
 ## Top-Level Expression Statements
@@ -252,6 +260,7 @@ Rules:
 - functions can be assigned, returned, passed, stored, and imported
 - nested functions capture outer locals lexically
 - local assignments inside a function body stay local to that function
+- local assignments may still use `=` or compound operators; that mutability does not extend to the top level
 - function-valued globals are valid in expression contexts
 - function-valued globals are not valid `with` sources, `submit ... use ...` sources, or `analyse with ...` imports
 
@@ -440,5 +449,10 @@ All diagnostics include source locations.
 Relevant parser/alignment diagnostics in this core language:
 
 - `E067`: legacy top-level `let` / `param` block encountered
+
+Relevant semantic diagnostics for top-level bindings:
+
+- `E306`: duplicate top-level binding
+- `E307`: top-level compound assignment is not allowed
 
 The full catalog is documented in [docs/diagnostics.md](diagnostics.md).

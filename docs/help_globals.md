@@ -10,6 +10,11 @@
 # - analyse
 #
 # Globals are introduced only by top-level assignments.
+# Top-level bindings are immutable:
+# - use plain '='
+# - define each top-level name once
+# - introduce a new name instead of rebinding or using += / -= / *= / /= / %=
+#
 # A global may hold scalar data, tuple/list data, comb(...) table data,
 # or a function value.
 
@@ -31,4 +36,9 @@ jbs_comment = ""
 sizes = (1, 2, 4)
 labels = ("small", "medium", "large")
 cases = comb(labels + sizes)
+
+# Preferred derived-value style:
+seed0 = 1
+seed1 = seed0 + 1
+seed2 = seed1 + 1
 ```

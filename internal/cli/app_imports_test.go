@@ -47,10 +47,10 @@ func TestAnalyzeInputWithImports(t *testing.T) {
 	}
 }
 
-func TestAnalyzeInputSelectiveImportCanBeOverwrittenLocally(t *testing.T) {
+func TestAnalyzeInputSelectiveImportRequiresANewLocalName(t *testing.T) {
 	cwd := t.TempDir()
 	writeCLIFile(t, cwd, "b.jbs", "x = 1\n")
-	mainPath := writeCLIFile(t, cwd, "main.jbs", "use x from \"./b.jbs\"\nx += 1\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", "use x from \"./b.jbs\"\nx1 = x + 1\n")
 
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(mainPath, diags)
@@ -60,8 +60,11 @@ func TestAnalyzeInputSelectiveImportCanBeOverwrittenLocally(t *testing.T) {
 	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
 		t.Fatalf("expected no error diagnostics: %s", diags.String())
 	}
-	if gv := bundle.Result.GlobalVarByName["x"]; gv == nil || gv.Value.I != 2 {
-		t.Fatalf("expected overwritten imported value x=2, got %#v", gv)
+	if gv := bundle.Result.GlobalVarByName["x"]; gv == nil || gv.Value.I != 1 {
+		t.Fatalf("expected imported value x=1 to remain available, got %#v", gv)
+	}
+	if gv := bundle.Result.GlobalVarByName["x1"]; gv == nil || gv.Value.I != 2 {
+		t.Fatalf("expected explicit successor binding x1=2, got %#v", gv)
 	}
 }
 

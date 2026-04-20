@@ -125,6 +125,28 @@ func TestRunFmtStrictRejectsLegacyTopLevelParamBlock(t *testing.T) {
 	}
 }
 
+func TestRunFmtStrictRejectsTopLevelCompoundAssignment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`seed = 1`,
+		`seed += 1`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected strict formatter to reject top-level compound assignment, code=%d stderr=%s", code, stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "ERROR E307") || !strings.Contains(errText, "top-level binding 'seed' cannot use '+='") {
+		t.Fatalf("expected targeted top-level compound-assignment diagnostic, got %q", errText)
+	}
+}
+
 func TestPrintHelpTopic(t *testing.T) {
 	var out bytes.Buffer
 	if err := printHelpTopic(&out, "use"); err != nil {

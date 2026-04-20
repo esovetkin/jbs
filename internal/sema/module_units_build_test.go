@@ -181,19 +181,13 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 							Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
 							Span: span,
 						},
-						ast.GlobalAssign{
-							Name: "y",
-							Op:   ast.AssignPlusEq,
-							Expr: ast.NumberExpr{Int: true, IntValue: 2, Raw: "2", Span: span},
-							Span: span,
-						},
 					},
 				},
 			},
 		},
 	}
 	unit := compileModule(ref, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{}, map[string]*moduleScope{}, map[string]bool{})
-	if !eval.Equal(unit.Env["x"], eval.Int(2)) || !eval.Equal(unit.Env["y"], eval.Int(3)) {
+	if !eval.Equal(unit.Env["x"], eval.Int(2)) || !eval.Equal(unit.Env["y"], eval.Int(1)) {
 		t.Fatalf("unexpected planned module env: %#v", unit.Env)
 	}
 	if unit.LocalBindingsByName["x"] == nil || unit.LocalBindingsByName["y"] == nil {
@@ -201,6 +195,51 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 	}
 	if !reflect.DeepEqual(unit.LocalBindingsByName["x"].DependsOn, []string{"y"}) {
 		t.Fatalf("expected x dependency metadata to be preserved, got %#v", unit.LocalBindingsByName["x"])
+	}
+}
+
+func TestCompileModuleRejectsSelectiveImportLocalCollision(t *testing.T) {
+	span := diag.NewSpan("mods.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	ref := imports.ModuleRef{ID: "entry", Label: "entry.jbs"}
+	depRef := imports.ModuleRef{ID: "dep", Label: "dep.jbs"}
+	loadRes := &imports.LoadResult{
+		Entry: ref,
+		Modules: map[string]*imports.ModuleInfo{
+			ref.ID: {
+				Ref: ref,
+				Program: ast.Program{
+					File: ref.Label,
+					Stmts: []ast.Stmt{
+						ast.UseStmt{Names: []string{"x"}, Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "dep", Span: span}, Span: span},
+						ast.GlobalAssign{Name: "x", Op: ast.AssignEq, Expr: numberExpr(span, 2), Span: span},
+					},
+				},
+				Uses: []imports.ResolvedUse{
+					{Kind: imports.UseSelective, Names: []string{"x"}, Source: depRef, Span: span, Index: 0},
+				},
+			},
+			depRef.ID: {
+				Ref: depRef,
+				Program: ast.Program{
+					File: depRef.Label,
+					Stmts: []ast.Stmt{
+						ast.GlobalAssign{Name: "x", Op: ast.AssignEq, Expr: numberExpr(span, 1), Span: span},
+					},
+				},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	unit := compileModule(ref, loadRes, nil, diags, map[string]*moduleScope{}, map[string]bool{})
+	if countDiagCode(diags, "E306") != 1 {
+		t.Fatalf("expected one duplicate top-level binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
+	}
+	if !eval.Equal(unit.Env["x"], eval.Int(1)) {
+		t.Fatalf("expected first projected import binding to remain visible, got %#v", unit.Env["x"])
+	}
+	if unit.LocalBindingsByName["x"] == nil || !eval.Equal(unit.LocalBindingsByName["x"].Value, eval.Int(1)) {
+		t.Fatalf("expected imported binding x to survive local collision, got %#v", unit.LocalBindingsByName["x"])
 	}
 }
 

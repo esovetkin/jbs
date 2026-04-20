@@ -119,13 +119,117 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 }
 
 func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*moduleScope, prefixedByIndex map[int]*moduleScope, baseSeed map[string]eval.Value, diags *diag.Diagnostics) *globalPlan {
+	prep := planModuleBindings(info, childByIndex, diags)
 	plan := &globalPlan{
-		Steps:              make([]globalInputStep, 0),
-		StepsByName:        make(map[string][]int),
-		SimpleWritesByName: make(map[string][]int),
+		Steps:             make([]globalInputStep, 0),
+		StepByName:        make(map[string]int),
+		LocalVisibleNames: append([]string(nil), prep.LocalVisibleNames...),
 	}
 	if info == nil {
 		return plan
+	}
+	useByIndex := make(map[int]imports.ResolvedUse, len(info.Uses))
+	for _, use := range info.Uses {
+		useByIndex[use.Index] = use
+	}
+	visibleSeeds := map[string]eval.Value{}
+	visibleNamespaces := map[string]*Namespace{}
+
+	for index, stmt := range info.Program.Stmts {
+		if use, ok := useByIndex[index]; ok {
+			if use.Kind == imports.UseNamespace {
+				mergeIntoValueEnv(visibleSeeds, prefixedByIndex[index].Env)
+				visibleNamespaces = mergeVisibleNamespaces(visibleNamespaces, prefixedByIndex[index].Namespaces)
+				continue
+			}
+			for _, name := range use.Names {
+				imp := prep.AcceptedImports[projectedImportDecisionKey{Index: index, Name: name}]
+				if imp == nil {
+					continue
+				}
+				id := len(plan.Steps)
+				seedEnv := maps.Clone(visibleSeeds)
+				plan.Steps = append(plan.Steps, globalInputStep{
+					ID:                id,
+					Kind:              globalInputProjectedImport,
+					Name:              name,
+					Import:            imp,
+					Index:             index,
+					SeedEnv:           seedEnv,
+					VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+					BaseDir:           info.BaseDir,
+					ForwardVisible:    false,
+				})
+				plan.StepByName[name] = id
+			}
+			continue
+		}
+		assign, ok := stmt.(ast.GlobalAssign)
+		if !ok {
+			exprStmt, ok := stmt.(ast.ExprStmt)
+			if !ok {
+				continue
+			}
+			exprCopy := exprStmt
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:                id,
+				Kind:              globalInputExpr,
+				ExprStmt:          &exprCopy,
+				EffectiveExpr:     exprStmt.Expr,
+				Reads:             globalExprReadRefs(exprStmt.Expr),
+				Index:             index,
+				SeedEnv:           maps.Clone(visibleSeeds),
+				VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+				BaseDir:           info.BaseDir,
+			})
+			continue
+		}
+		assign, ok = prep.AcceptedLocals[index]
+		if !ok {
+			continue
+		}
+		assignCopy := assign
+		id := len(plan.Steps)
+		step := globalInputStep{
+			ID:                id,
+			Kind:              globalInputAssign,
+			Name:              assign.Name,
+			Assign:            &assignCopy,
+			EffectiveExpr:     assign.Expr,
+			Reads:             globalExprReadRefs(assign.Expr),
+			Index:             index,
+			SeedEnv:           maps.Clone(visibleSeeds),
+			VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
+			BaseDir:           info.BaseDir,
+			ForwardVisible:    true,
+		}
+		plan.Steps = append(plan.Steps, step)
+		plan.StepByName[step.Name] = id
+	}
+	assignGlobalPlanNameCatalogs(plan, baseSeed)
+	return plan
+}
+
+type projectedImportDecisionKey struct {
+	Index int
+	Name  string
+}
+
+type moduleBindingPlan struct {
+	AcceptedLocals    map[int]ast.GlobalAssign
+	AcceptedImports   map[projectedImportDecisionKey]*projectedImport
+	LocalVisibleNames []string
+}
+
+func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleScope, diags *diag.Diagnostics) moduleBindingPlan {
+	out := moduleBindingPlan{
+		AcceptedLocals:    make(map[int]ast.GlobalAssign),
+		AcceptedImports:   make(map[projectedImportDecisionKey]*projectedImport),
+		LocalVisibleNames: make([]string, 0),
+	}
+	if info == nil {
+		return out
 	}
 	useByIndex := make(map[int]imports.ResolvedUse, len(info.Uses))
 	aliasSpans := make(map[string]diag.Span)
@@ -138,14 +242,10 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 		}
 	}
 	nonGlobalSymbols := collectModuleNonGlobalSymbols(info.Program)
-	visibleSeeds := map[string]eval.Value{}
-	visibleNamespaces := map[string]*Namespace{}
-
+	firstByName := make(map[string]topLevelBindingRef)
 	for index, stmt := range info.Program.Stmts {
 		if use, ok := useByIndex[index]; ok {
 			if use.Kind == imports.UseNamespace {
-				mergeIntoValueEnv(visibleSeeds, prefixedByIndex[index].Env)
-				visibleNamespaces = mergeVisibleNamespaces(visibleNamespaces, prefixedByIndex[index].Namespaces)
 				continue
 			}
 			for _, name := range use.Names {
@@ -195,69 +295,37 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 					}
 					continue
 				}
-				id := len(plan.Steps)
-				seedEnv := maps.Clone(visibleSeeds)
-				plan.Steps = append(plan.Steps, globalInputStep{
-					ID:                id,
-					Kind:              globalInputProjectedImport,
-					Name:              name,
-					Import:            &projectedImport{LocalName: name, SourceName: name, SourceGlobal: exported, Span: use.Span},
-					Index:             index,
-					IsSimple:          true,
-					SeedEnv:           seedEnv,
-					VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-					BaseDir:           info.BaseDir,
-				})
-				plan.StepsByName[name] = append(plan.StepsByName[name], id)
-				plan.SimpleWritesByName[name] = append(plan.SimpleWritesByName[name], id)
+				if prev, exists := firstByName[name]; exists {
+					reportDuplicateTopLevelBinding(diags, name, use.Span, prev.Span)
+					continue
+				}
+				firstByName[name] = topLevelBindingRef{Name: name, Span: use.Span}
+				out.AcceptedImports[projectedImportDecisionKey{Index: index, Name: name}] = &projectedImport{
+					LocalName:    name,
+					SourceName:   name,
+					SourceGlobal: exported,
+					Span:         use.Span,
+				}
 			}
 			continue
 		}
 		assign, ok := stmt.(ast.GlobalAssign)
 		if !ok {
-			exprStmt, ok := stmt.(ast.ExprStmt)
-			if !ok {
-				continue
-			}
-			exprCopy := exprStmt
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:                id,
-				Kind:              globalInputExpr,
-				ExprStmt:          &exprCopy,
-				EffectiveExpr:     exprStmt.Expr,
-				Reads:             globalExprReadRefs(exprStmt.Expr),
-				Index:             index,
-				SeedEnv:           maps.Clone(visibleSeeds),
-				VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-				BaseDir:           info.BaseDir,
-			})
 			continue
 		}
-		assignCopy := assign
-		effectiveExpr := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
-		id := len(plan.Steps)
-		step := globalInputStep{
-			ID:                id,
-			Kind:              globalInputAssign,
-			Name:              assign.Name,
-			Assign:            &assignCopy,
-			EffectiveExpr:     effectiveExpr,
-			Reads:             globalExprReadRefs(effectiveExpr),
-			Index:             index,
-			IsSimple:          !isCompoundAssignOp(assign.Op),
-			SeedEnv:           maps.Clone(visibleSeeds),
-			VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-			BaseDir:           info.BaseDir,
+		if isCompoundAssignOp(assign.Op) {
+			reportTopLevelCompoundAssign(diags, assign)
+			continue
 		}
-		plan.Steps = append(plan.Steps, step)
-		plan.StepsByName[step.Name] = append(plan.StepsByName[step.Name], id)
-		if step.IsSimple {
-			plan.SimpleWritesByName[step.Name] = append(plan.SimpleWritesByName[step.Name], id)
+		if prev, exists := firstByName[assign.Name]; exists {
+			reportDuplicateTopLevelBinding(diags, assign.Name, assign.Span, prev.Span)
+			continue
 		}
+		firstByName[assign.Name] = topLevelBindingRef{Name: assign.Name, Span: assign.Span}
+		out.AcceptedLocals[index] = assign
+		out.LocalVisibleNames = append(out.LocalVisibleNames, assign.Name)
 	}
-	assignGlobalPlanNameCatalogs(plan, baseSeed)
-	return plan
+	return out
 }
 
 type localSymbolKind int
