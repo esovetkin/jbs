@@ -122,7 +122,7 @@ func TestRunCheckWarnsForLegacyCombAlias(t *testing.T) {
 	}
 }
 
-func TestRunFmtStrictRejectsLegacyTopLevelParamBlock(t *testing.T) {
+func TestRunFmtStrictRejectsFormerTopLevelParamBlockAsGenericSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
@@ -138,11 +138,11 @@ func TestRunFmtStrictRejectsLegacyTopLevelParamBlock(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
-		t.Fatalf("expected strict formatter to reject legacy syntax, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected strict formatter to reject invalid syntax, code=%d stderr=%s", code, stderr.String())
 	}
 	errText := stderr.String()
-	if !strings.Contains(errText, "ERROR E067") || !strings.Contains(errText, "legacy top-level block 'param' is no longer supported") {
-		t.Fatalf("expected targeted legacy diagnostic, got %q", errText)
+	if !strings.Contains(errText, "ERROR E061") || !strings.Contains(errText, "unexpected trailing tokens after expression") {
+		t.Fatalf("expected generic expression diagnostic, got %q", errText)
 	}
 }
 

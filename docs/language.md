@@ -11,8 +11,6 @@ JBS has six canonical top-level statement forms:
 - `submit`
 - `analyse`
 
-Legacy top-level `let` and `param` blocks are no longer part of the language. The parser reports `E067` with a migration hint when it encounters them.
-
 Top-level expression statements remain legal in files. They are evaluated, but normal file-mode YAML output ignores their display result. In practice, they are mainly useful in the REPL and for quick local inspection while editing a file.
 
 Example:
@@ -520,15 +518,11 @@ Formatting rules:
 - comments are preserved where possible
 - output always ends with a trailing newline
 
-If removed legacy syntax such as top-level `let` or `param` is present, formatting fails with the parser diagnostic rather than rewriting it into something implicit.
+If invalid syntax is present, formatting fails with the parser diagnostic rather than rewriting it into something implicit.
 
 ## Diagnostics
 
 All diagnostics include source locations.
-
-Relevant parser/alignment diagnostics in this core language:
-
-- `E067`: legacy top-level `let` / `param` block encountered
 
 Relevant semantic diagnostics for top-level bindings:
 

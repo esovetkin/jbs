@@ -97,7 +97,7 @@ A JBS program uses six canonical top-level statement forms:
 - `submit`
 - `analyse`
 
-Top-level assignments define reusable globals, including explicit table values and function values. They execute in source order and are mutable: `name = expr` creates or overwrites a global, and `+=`, `-=`, `*=`, `/=`, and `%=` update the current value. A global can only read values that are already visible at that point. `do`, `submit`, and `analyse` import visible data explicitly through `with` and use the global snapshot from where the block appears. Legacy top-level `let` and `param` blocks are no longer part of the language.
+Top-level assignments define reusable globals, including explicit table values and function values. They execute in source order and are mutable: `name = expr` creates or overwrites a global, and `+=`, `-=`, `*=`, `/=`, and `%=` update the current value. A global can only read values that are already visible at that point. `do`, `submit`, and `analyse` import visible data explicitly through `with` and use the global snapshot from where the block appears.
 
 Top-level assignments define global variables. Use `table(...)`, `zip(...)`, `product(...)`, and `select(...)` to build parameter-space objects and import them in steps.
 
