@@ -8,12 +8,18 @@ import (
 )
 
 type FunctionValue struct {
-	Params  []ast.FuncParam
-	Body    []ast.FuncBodyStmt
-	Capture *Frame
-	Files   *FileAccess
-	Names   *NameCatalog
-	Span    diag.Span
+	Params   []ast.FuncParam
+	Body     []ast.FuncBodyStmt
+	Capture  *Frame
+	Files    *FileAccess
+	Names    *NameCatalog
+	Span     diag.Span
+	Defaults map[int]FunctionDefault
+}
+
+type FunctionDefault struct {
+	Value        Value
+	PreEvaluated bool
 }
 
 type CallValueArg struct {
@@ -27,15 +33,144 @@ type functionResult struct {
 	Returned bool
 }
 
-func newFunctionValue(expr ast.FunctionExpr, capture *Frame, opts ExprOptions) Value {
+func newFunctionValue(expr ast.FunctionExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	capture := (*Frame)(nil)
+	if ctx != nil {
+		capture = ctx.frame
+	}
 	return Function(&FunctionValue{
-		Params:  append([]ast.FuncParam(nil), expr.Params...),
-		Body:    append([]ast.FuncBodyStmt(nil), expr.Body...),
-		Capture: capture,
-		Files:   cloneFileAccess(opts.Files),
-		Names:   cloneNameCatalog(opts.Names),
-		Span:    expr.Span,
+		Params:   append([]ast.FuncParam(nil), expr.Params...),
+		Body:     append([]ast.FuncBodyStmt(nil), expr.Body...),
+		Capture:  capture,
+		Files:    cloneFileAccess(opts.Files),
+		Names:    cloneNameCatalog(opts.Names),
+		Span:     expr.Span,
+		Defaults: preEvaluateFunctionDefaults(expr, env, diags, opts, ctx),
 	})
+}
+
+func preEvaluateFunctionDefaults(expr ast.FunctionExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) map[int]FunctionDefault {
+	defaults := make(map[int]FunctionDefault)
+	earlier := make(map[string]struct{}, len(expr.Params))
+	for i, param := range expr.Params {
+		if param.Default != nil && !exprReferencesAnyName(param.Default, earlier) {
+			defaults[i] = FunctionDefault{
+				Value:        evalExprWithCtx(param.Default, env, diags, opts, ctx),
+				PreEvaluated: true,
+			}
+		}
+		if param.Name != "" {
+			earlier[param.Name] = struct{}{}
+		}
+	}
+	if len(defaults) == 0 {
+		return nil
+	}
+	return defaults
+}
+
+func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
+	if expr == nil || len(names) == 0 {
+		return false
+	}
+	var walk func(ast.Expr, map[string]struct{}) bool
+	isBound := func(name string, bound map[string]struct{}) bool {
+		_, ok := bound[name]
+		return ok
+	}
+	walk = func(node ast.Expr, bound map[string]struct{}) bool {
+		if node == nil {
+			return false
+		}
+		switch n := node.(type) {
+		case ast.IdentExpr:
+			_, target := names[n.Name]
+			return target && !isBound(n.Name, bound)
+		case ast.QualifiedIdentExpr:
+			_, target := names[n.Namespace]
+			return target && !isBound(n.Namespace, bound)
+		case ast.MemberExpr:
+			return walk(n.Base, bound)
+		case ast.ModeExpr:
+			return walk(n.Expr, bound)
+		case ast.ListExpr:
+			for _, item := range n.Items {
+				if walk(item, bound) {
+					return true
+				}
+			}
+		case ast.TupleExpr:
+			for _, item := range n.Items {
+				if walk(item, bound) {
+					return true
+				}
+			}
+		case ast.ConvertExpr:
+			return walk(n.Expr, bound)
+		case ast.CallExpr:
+			if walk(n.Callee, bound) {
+				return true
+			}
+			for _, arg := range n.Args {
+				if walk(arg.Expr, bound) {
+					return true
+				}
+			}
+		case ast.FunctionExpr:
+			nextBound := cloneNameSet(bound)
+			for _, param := range n.Params {
+				if walk(param.Default, nextBound) {
+					return true
+				}
+				if param.Name != "" {
+					nextBound[param.Name] = struct{}{}
+				}
+			}
+			for _, stmt := range n.Body {
+				if assign, ok := stmt.(ast.LocalAssignStmt); ok && assign.Name != "" {
+					nextBound[assign.Name] = struct{}{}
+				}
+			}
+			for _, stmt := range n.Body {
+				switch node := stmt.(type) {
+				case ast.LocalAssignStmt:
+					if walk(node.Expr, nextBound) {
+						return true
+					}
+				case ast.ReturnStmt:
+					if walk(node.Expr, nextBound) {
+						return true
+					}
+				case ast.ExprStmt:
+					if walk(node.Expr, nextBound) {
+						return true
+					}
+				}
+			}
+		case ast.AliasExpr:
+			return walk(n.Expr, bound)
+		case ast.IndexExpr:
+			return walk(n.Base, bound)
+		case ast.UnaryExpr:
+			return walk(n.Expr, bound)
+		case ast.BinaryExpr:
+			return walk(n.Left, bound) || walk(n.Right, bound)
+		case ast.CompareExpr:
+			return walk(n.Left, bound) || walk(n.Right, bound)
+		case ast.ConditionalExpr:
+			return walk(n.Then, bound) || walk(n.Cond, bound) || walk(n.Else, bound)
+		}
+		return false
+	}
+	return walk(expr, nil)
+}
+
+func cloneNameSet(in map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for name := range in {
+		out[name] = struct{}{}
+	}
+	return out
 }
 
 func cloneFileAccess(files *FileAccess) *FileAccess {
@@ -133,8 +268,13 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 			diags.AddError(diag.CodeE106, fmt.Sprintf("missing required argument '%s'", param.Name), at, "pass a value for every required parameter")
 			return Null()
 		}
-		callOpts.Names = callNameCatalog(fn.Names, callFrame)
-		value := evalExprWithCtx(param.Default, env, diags, callOpts, ctx.withFrame(callFrame))
+		value := Null()
+		if defaultValue, ok := fn.Defaults[i]; ok && defaultValue.PreEvaluated {
+			value = defaultValue.Value
+		} else {
+			callOpts.Names = callNameCatalog(fn.Names, callFrame)
+			value = evalExprWithCtx(param.Default, env, diags, callOpts, ctx.withFrame(callFrame))
+		}
 		callFrame.AssignLocal(param.Name, value, param.Span)
 	}
 	predeclareFunctionLocals(fn.Body, callFrame)

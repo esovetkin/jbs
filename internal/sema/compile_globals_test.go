@@ -20,7 +20,7 @@ func parseSemaProgram(t *testing.T, file, src string) ast.Program {
 	return prog
 }
 
-func TestCompileUserGlobalsRejectsDuplicateTopLevelDefinition(t *testing.T) {
+func TestCompileUserGlobalsAllowsDuplicateTopLevelDefinition(t *testing.T) {
 	prog := parseSemaProgram(t, "dup.jbs", `
 x = 1
 x = 2
@@ -29,17 +29,14 @@ y = x + 1
 
 	diags := &diag.Diagnostics{}
 	out, order := compileUserGlobals(prog, nil, diags)
-	if countDiagCode(diags, "E306") != 1 {
-		t.Fatalf("expected one duplicate top-level binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
-	}
-	if len(diags.Items) == 0 || len(diags.Items[0].Related) == 0 || diags.Items[0].Related[0].Message != "first definition" {
-		t.Fatalf("expected duplicate diagnostic to point at first definition, got %#v", diags.Items)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	if !reflect.DeepEqual(order, []string{"x", "y"}) {
 		t.Fatalf("unexpected global order: %#v", order)
 	}
-	if !eval.Equal(out["x"].Value, eval.Int(1)) || !eval.Equal(out["y"].Value, eval.Int(2)) {
-		t.Fatalf("expected duplicate definition to leave first binding active, got x=%#v y=%#v", out["x"], out["y"])
+	if !eval.Equal(out["x"].Value, eval.Int(2)) || !eval.Equal(out["y"].Value, eval.Int(3)) {
+		t.Fatalf("expected later definition to win, got x=%#v y=%#v", out["x"], out["y"])
 	}
 }
 
@@ -123,8 +120,8 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 			t.Fatalf("expected collected dependency %q, got %#v", name, out)
 		}
 	}
-	if _, ok := out["callee_ignored"]; ok {
-		t.Fatalf("did not expect call callee to be collected, got %#v", out)
+	if _, ok := out["callee_ignored"]; !ok {
+		t.Fatalf("expected call callee to be collected, got %#v", out)
 	}
 	if _, ok := out["index_ignored"]; ok {
 		t.Fatalf("did not expect index item to be collected, got %#v", out)
@@ -137,13 +134,13 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	}
 
 	gotDeps := globalExprDependencies(expr, "self")
-	wantDeps := []string{"b", "d", "f", "g", "ns"}
+	wantDeps := []string{"b", "callee_ignored", "d", "f", "g", "ns"}
 	if !reflect.DeepEqual(gotDeps, wantDeps) {
 		t.Fatalf("unexpected global dependencies: got=%#v want=%#v", gotDeps, wantDeps)
 	}
 }
 
-func TestCompileUserGlobalsSkipsBuiltinsRejectsTopLevelCompoundAssignAndTracksDeps(t *testing.T) {
+func TestCompileUserGlobalsAllowsSeedOverrideCompoundAssignAndTracksDeps(t *testing.T) {
 	span := diag.NewSpan("globals.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	prog := ast.Program{
 		File: "globals.jbs",
@@ -183,17 +180,17 @@ func TestCompileUserGlobalsSkipsBuiltinsRejectsTopLevelCompoundAssignAndTracksDe
 
 	diags := &diag.Diagnostics{}
 	out, order := compileUserGlobals(prog, map[string]eval.Value{"builtin": eval.Int(7)}, diags)
-	if countDiagCode(diags, "E307") != 1 {
-		t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if _, ok := out["builtin"]; ok {
-		t.Fatalf("expected builtin assignment to be skipped, got %#v", out["builtin"])
-	}
-	if !reflect.DeepEqual(order, []string{"x", "y"}) {
+	if !reflect.DeepEqual(order, []string{"builtin", "x", "y"}) {
 		t.Fatalf("unexpected global order: %#v", order)
 	}
-	if !eval.Equal(out["x"].Value, eval.Int(1)) {
-		t.Fatalf("expected original x value 1 to remain, got %#v", out["x"].Value)
+	if !eval.Equal(out["builtin"].Value, eval.Int(9)) {
+		t.Fatalf("expected seed override to publish builtin=9, got %#v", out["builtin"])
+	}
+	if !eval.Equal(out["x"].Value, eval.Int(3)) {
+		t.Fatalf("expected x += 2 to publish x=3, got %#v", out["x"].Value)
 	}
 	if out["x"].Mode != "" {
 		t.Fatalf("expected empty mode for x, got %q", out["x"].Mode)
@@ -204,8 +201,8 @@ func TestCompileUserGlobalsSkipsBuiltinsRejectsTopLevelCompoundAssignAndTracksDe
 	if !reflect.DeepEqual(out["y"].DependsOn, []string{"x"}) {
 		t.Fatalf("expected y to depend on x, got %#v", out["y"].DependsOn)
 	}
-	if !eval.Equal(out["y"].Value, eval.Int(2)) {
-		t.Fatalf("expected y to use the first x binding, got %#v", out["y"].Value)
+	if !eval.Equal(out["y"].Value, eval.Int(4)) {
+		t.Fatalf("expected y to use the reassigned x binding, got %#v", out["y"].Value)
 	}
 }
 
@@ -447,7 +444,7 @@ func TestGlobalExprReadNames(t *testing.T) {
 func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 	span := diag.NewSpan("planner.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 
-	t.Run("unique_forward_initializer", func(t *testing.T) {
+	t.Run("forward_initializer_is_invalid", func(t *testing.T) {
 		prog := ast.Program{
 			File: "planner.jbs",
 			Stmts: []ast.Stmt{
@@ -471,18 +468,18 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 		}
 		diags := &diag.Diagnostics{}
 		out, order := compileUserGlobals(prog, nil, diags)
-		if len(diags.Items) != 0 {
-			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		if countDiagCode(diags, "E100") == 0 {
+			t.Fatalf("expected forward-reference diagnostic, got: %s", diags.String())
 		}
-		if !reflect.DeepEqual(order, []string{"x", "y"}) {
+		if !reflect.DeepEqual(order, []string{"y"}) {
 			t.Fatalf("unexpected global order: %#v", order)
 		}
-		if !eval.Equal(out["x"].Value, eval.Int(2)) || !eval.Equal(out["y"].Value, eval.Int(1)) {
+		if out["x"] != nil || !eval.Equal(out["y"].Value, eval.Int(1)) {
 			t.Fatalf("unexpected planned values: x=%#v y=%#v", out["x"], out["y"])
 		}
 	})
 
-	t.Run("ambiguous_forward_read", func(t *testing.T) {
+	t.Run("later_duplicate_still_wins_after_forward_error", func(t *testing.T) {
 		prog := ast.Program{
 			File: "planner.jbs",
 			Stmts: []ast.Stmt{
@@ -511,18 +508,18 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 		}
 		diags := &diag.Diagnostics{}
 		out, order := compileUserGlobals(prog, nil, diags)
-		if countDiagCode(diags, "E306") != 1 {
-			t.Fatalf("expected one duplicate-binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
+		if countDiagCode(diags, "E100") == 0 {
+			t.Fatalf("expected forward-reference diagnostic, got: %s", diags.String())
 		}
-		if !reflect.DeepEqual(order, []string{"x", "y"}) {
+		if !reflect.DeepEqual(order, []string{"y"}) {
 			t.Fatalf("unexpected global order: %#v", order)
 		}
-		if !eval.Equal(out["x"].Value, eval.Int(2)) || !eval.Equal(out["y"].Value, eval.Int(1)) {
-			t.Fatalf("expected first y binding to remain authoritative, got x=%#v y=%#v", out["x"], out["y"])
+		if out["x"] != nil || !eval.Equal(out["y"].Value, eval.Int(2)) {
+			t.Fatalf("expected later y binding to win, got x=%#v y=%#v", out["x"], out["y"])
 		}
 	})
 
-	t.Run("first_compound_write_stays_invalid", func(t *testing.T) {
+	t.Run("first_compound_write_requires_existing_value", func(t *testing.T) {
 		prog := ast.Program{
 			File: "planner.jbs",
 			Stmts: []ast.Stmt{
@@ -542,8 +539,8 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 		}
 		diags := &diag.Diagnostics{}
 		out, _ := compileUserGlobals(prog, nil, diags)
-		if countDiagCode(diags, "E307") != 1 {
-			t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
+		if countDiagCode(diags, "E100") != 1 {
+			t.Fatalf("expected one unknown-variable diagnostic, got %d: %s", countDiagCode(diags, "E100"), diags.String())
 		}
 		if !eval.Equal(out["x"].Value, eval.Int(2)) {
 			t.Fatalf("expected later plain definition to provide x, got %#v", out["x"])
@@ -580,8 +577,8 @@ value = apply(inc, 1)
 	if out["value"] == nil || !eval.Equal(out["value"].Value, eval.Int(42)) {
 		t.Fatalf("expected higher-order initializer value=42, got %#v", out["value"])
 	}
-	if !reflect.DeepEqual(out["inc"].DependsOn, []string{"mk"}) {
-		t.Fatalf("expected inc to depend on mk, got %#v", out["inc"].DependsOn)
+	if !reflect.DeepEqual(out["inc"].DependsOn, []string{"base", "mk"}) {
+		t.Fatalf("expected inc to depend on mk and transitive function body globals, got %#v", out["inc"].DependsOn)
 	}
 	if !reflect.DeepEqual(out["value"].DependsOn, []string{"apply", "base", "inc", "mk"}) {
 		t.Fatalf("expected value runtime deps to reflect forced globals, got %#v", out["value"].DependsOn)
@@ -632,5 +629,43 @@ result
 	}
 	if !eval.Equal(exec.TopLevelExprs[0].Value, eval.Int(6)) || !eval.Equal(exec.TopLevelExprs[1].Value, eval.Int(6)) {
 		t.Fatalf("unexpected expr result values: %#v", exec.TopLevelExprs)
+	}
+}
+
+func TestMutableTopLevelSourceOrderFunctionCaptureAndDefaults(t *testing.T) {
+	prog := parseSemaProgram(t, "mutable.jbs", `
+x = 1
+y = x
+live = function() { x }
+snap = function(x = x) { x }
+dependent = function(a, b = a + 1) { b }
+x = 2
+x += 3
+y
+live()
+snap()
+dependent(4)
+`)
+
+	diags := &diag.Diagnostics{}
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	gotGlobals, _ := globalVarsFromExec(exec)
+	if !eval.Equal(gotGlobals["x"].Value, eval.Int(5)) {
+		t.Fatalf("expected final x=5, got %#v", gotGlobals["x"])
+	}
+	if !eval.Equal(gotGlobals["y"].Value, eval.Int(1)) {
+		t.Fatalf("expected y to keep source-order value 1, got %#v", gotGlobals["y"])
+	}
+	want := []eval.Value{eval.Int(1), eval.Int(5), eval.Int(1), eval.Int(5)}
+	if len(exec.TopLevelExprs) != len(want) {
+		t.Fatalf("unexpected expression results: %#v", exec.TopLevelExprs)
+	}
+	for i, wantValue := range want {
+		if !eval.Equal(exec.TopLevelExprs[i].Value, wantValue) {
+			t.Fatalf("expr %d: got %#v want %#v", i, exec.TopLevelExprs[i].Value, wantValue)
+		}
 	}
 }

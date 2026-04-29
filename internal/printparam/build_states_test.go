@@ -153,7 +153,7 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 	diags = &diag.Diagnostics{}
 	merged, ok := mergeWithChoice(
 		wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[string][]int{}},
-		"p",
+		sourceGroup{Source: "p", DisplaySource: "p"},
 		sourceChoice{Rows: []int{0}, Values: map[string]eval.Value{"x": eval.Int(2)}},
 		span,
 		diags,

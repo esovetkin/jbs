@@ -439,8 +439,12 @@ func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 		t.Fatalf("expected step scope plan for imported namespace step")
 	}
 	origin, ok := plan.Effective["x"]
-	if !ok || origin.Source != "lib.jobs" || origin.SourceVar != "x" {
+	if !ok || origin.SourceVar != "x" {
 		t.Fatalf("expected namespace-qualified effective import, got %#v", plan.Effective)
+	}
+	binding := bundle.Result.BindingsByName[origin.Source]
+	if binding == nil || binding.PublicName != "lib.jobs" {
+		t.Fatalf("expected effective import to resolve through lib.jobs snapshot binding, source=%q binding=%#v", origin.Source, binding)
 	}
 }
 
@@ -464,8 +468,8 @@ func TestRunPrintParamWithImportedModule(t *testing.T) {
 		t.Fatalf("expected imported module columns in printparam output, got:\n%s", out)
 	}
 	errText := stderr.String()
-	if !strings.Contains(errText, "WARNING W310") || !strings.Contains(errText, "lib.jbs") {
-		t.Fatalf("expected warning diagnostics from imported globals, got %q", errText)
+	if strings.Contains(errText, "ERROR") {
+		t.Fatalf("did not expect errors from imported globals, got %q", errText)
 	}
 }
 

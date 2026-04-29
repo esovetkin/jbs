@@ -128,22 +128,23 @@ func validateStepHeaderOptions(kind, stepName string, maxAsync *int, procs *int,
 
 func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 	for _, block := range res.DoBlocks {
-		validateWithItems(block.WithItems, res, diags)
+		validateWithItems(block.WithItems, res, snapshotForDoBlock(res, block), diags)
 	}
 	for _, block := range res.Submits {
-		validateWithItems(block.WithItems, res, diags)
+		validateWithItems(block.WithItems, res, snapshotForSubmitBlock(res, block), diags)
 	}
 }
 
 func validateWithItems(
 	items []ast.WithItem,
 	res *Result,
+	snap *ScopeSnapshot,
 	diags *diag.Diagnostics,
 ) {
 	resolver := BindingResolver{
-		Bindings:   res.BindingsByName,
-		Globals:    res.Globals.Values,
-		Namespaces: res.Namespaces,
+		Bindings:   snapshotBindings(res, snap),
+		Globals:    snapshotGlobals(res, snap),
+		Namespaces: snapshotNamespaces(res, snap),
 	}
 	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoStep})
 	emitWithIssues(diags, stepValidateWithDiagPolicy(), issues)

@@ -1,6 +1,7 @@
 package sema
 
 import (
+	"reflect"
 	"testing"
 
 	"jbs/internal/ast"
@@ -72,14 +73,14 @@ func TestResolveTopLevelGlobalsMixedValidationAndState(t *testing.T) {
 	if got.Values["jbs_outpath"].Kind != eval.KindString || got.Values["jbs_outpath"].S != "default_out" {
 		t.Fatalf("unexpected jbs_outpath value: %#v", got.Values["jbs_outpath"])
 	}
-	if got.Values["jbs_comment"].Kind != eval.KindString || got.Values["jbs_comment"].S != "7" {
-		t.Fatalf("unexpected jbs_comment value after shell(number) coercion: %#v", got.Values["jbs_comment"])
+	if got.Values["jbs_comment"].Kind != eval.KindString || got.Values["jbs_comment"].S != "" {
+		t.Fatalf("expected invalid shell(number) assignment to leave default jbs_comment, got %#v", got.Values["jbs_comment"])
 	}
-	if got.Modes["jbs_comment"] != "shell" {
-		t.Fatalf("expected jbs_comment mode to remain shell, got %#v", got.Modes)
+	if got.Modes["jbs_comment"] != "" {
+		t.Fatalf("expected invalid jbs_comment mode not to publish, got %#v", got.Modes)
 	}
-	if got.Spans["jbs_comment"] != span(7) {
-		t.Fatalf("expected jbs_comment span to point to shell assignment, got=%+v want=%+v", got.Spans["jbs_comment"], span(7))
+	if !got.Spans["jbs_comment"].IsZero() {
+		t.Fatalf("expected invalid jbs_comment span not to publish, got=%+v", got.Spans["jbs_comment"])
 	}
 }
 
@@ -146,7 +147,7 @@ func TestResolveTopLevelGlobalsKeepsSeedPriorityOverForwardOverride(t *testing.T
 	}
 }
 
-func TestResolveTopLevelGlobalsRejectsDuplicateBuiltinDefinitionsAndTopLevelCompoundAssign(t *testing.T) {
+func TestResolveTopLevelGlobalsAllowsDuplicateBuiltinDefinitionsAndCompoundAssign(t *testing.T) {
 	span := func(off int) diag.Span {
 		start := diag.NewPos(off, 1, off+1)
 		end := diag.NewPos(off+1, 1, off+2)
@@ -186,20 +187,17 @@ func TestResolveTopLevelGlobalsRejectsDuplicateBuiltinDefinitionsAndTopLevelComp
 
 	diags := &diag.Diagnostics{}
 	got := resolveTopLevelGlobals(prog, defaults, diags)
-	if countDiagCode(diags, "E306") != 1 {
-		t.Fatalf("expected one duplicate-binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if countDiagCode(diags, "E307") != 1 {
-		t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
+	if got.Values["jbs_name"].S != "other" {
+		t.Fatalf("expected later jbs_name definition to win, got %#v", got.Values["jbs_name"])
 	}
-	if got.Values["jbs_name"].S != "bench" {
-		t.Fatalf("expected first jbs_name definition to win, got %#v", got.Values["jbs_name"])
+	if got.Values["jbs_comment"].S != "head_tail" {
+		t.Fatalf("expected jbs_comment += to append, got %#v", got.Values["jbs_comment"])
 	}
-	if got.Values["jbs_comment"].S != "head" {
-		t.Fatalf("expected plain jbs_comment definition to remain after rejected +=, got %#v", got.Values["jbs_comment"])
-	}
-	if got.Spans["jbs_comment"] != span(3) {
-		t.Fatalf("expected jbs_comment span to point to the accepted definition, got=%+v want=%+v", got.Spans["jbs_comment"], span(3))
+	if got.Spans["jbs_comment"] != span(4) {
+		t.Fatalf("expected jbs_comment span to point to the compound assignment, got=%+v want=%+v", got.Spans["jbs_comment"], span(4))
 	}
 }
 
@@ -288,27 +286,33 @@ func TestHasNestedList(t *testing.T) {
 	}
 }
 
-func TestResolveReadTargetAllowsForwardLocalButNotFutureProjectedImport(t *testing.T) {
-	plan := &globalPlan{
-		Steps: []globalInputStep{
-			{ID: 0, Kind: globalInputExpr, Index: 0},
-			{ID: 1, Kind: globalInputProjectedImport, Name: "x", Index: 1, ForwardVisible: false},
-			{ID: 2, Kind: globalInputAssign, Name: "y", Index: 2, ForwardVisible: true},
+func TestResolveTopLevelGlobalsRejectsForwardReference(t *testing.T) {
+	span := diag.NewSpan("forward.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	prog := ast.Program{
+		File: "forward.jbs",
+		Stmts: []ast.Stmt{
+			ast.GlobalAssign{
+				Name: "x",
+				Expr: ast.IdentExpr{Name: "y", Span: span},
+				Span: span,
+			},
+			ast.GlobalAssign{
+				Name: "y",
+				Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+				Span: span,
+			},
 		},
-		StepByName: map[string]int{
-			"x": 1,
-			"y": 2,
-		},
-	}
-	engine := &globalForceEngine{
-		plan:      plan,
-		activeSet: map[int]struct{}{0: {}, 1: {}, 2: {}},
 	}
 
-	if depID, ok := engine.resolveReadTarget("x", 0); ok {
-		t.Fatalf("did not expect future projected import to be visible, got depID=%d", depID)
+	diags := &diag.Diagnostics{}
+	out, order := compileUserGlobals(prog, nil, diags)
+	if countDiagCode(diags, "E100") == 0 {
+		t.Fatalf("expected unknown-variable diagnostic for forward reference, got: %s", diags.String())
 	}
-	if depID, ok := engine.resolveReadTarget("y", 0); !ok || depID != 2 {
-		t.Fatalf("expected forward local assignment to be visible, got depID=%d ok=%v", depID, ok)
+	if _, ok := out["x"]; ok {
+		t.Fatalf("did not expect invalid forward assignment to publish x, got %#v", out["x"])
+	}
+	if !reflect.DeepEqual(order, []string{"y"}) {
+		t.Fatalf("expected only y to publish, got %#v", order)
 	}
 }

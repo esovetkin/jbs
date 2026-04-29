@@ -32,10 +32,11 @@ type wpState struct {
 }
 
 type sourceGroup struct {
-	Source string
-	Vars   []sourceVar
-	Full   bool
-	Span   diag.Span
+	Source        string
+	DisplaySource string
+	Vars          []sourceVar
+	Full          bool
+	Span          diag.Span
 }
 
 type sourceVar struct {
@@ -86,7 +87,7 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 				if origin.SourceVar != "" {
 					sourceVar = origin.SourceVar
 				}
-				key := origin.Source + "." + sourceVar
+				key := displaySourceName(res.BindingsByName, origin.Source) + "." + sourceVar
 				vals[key] = value.String()
 				usedCols[key] = struct{}{}
 			}
@@ -154,7 +155,7 @@ func collectQualifiedColumns(bindings map[string]*sema.GlobalBinding) []string {
 			continue
 		}
 		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-			key := src.Name + "." + name
+			key := displaySourceName(bindings, src.Name) + "." + name
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -236,7 +237,7 @@ func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*se
 		}
 		g, ok := bySource[source]
 		if !ok {
-			g = &sourceGroup{Source: source, Vars: make([]sourceVar, 0), Span: item.Span}
+			g = &sourceGroup{Source: source, DisplaySource: displaySourceName(sources, source), Vars: make([]sourceVar, 0), Span: item.Span}
 			bySource[source] = g
 			order = append(order, source)
 		}
@@ -287,7 +288,7 @@ func expandStep(parents []wpState, groups []sourceGroup, sources map[string]*sem
 		for _, state := range states {
 			choices := buildChoices(state, group, sources)
 			for _, choice := range choices {
-				merged, ok := mergeWithChoice(state, group.Source, choice, at, diags)
+				merged, ok := mergeWithChoice(state, group, choice, at, diags)
 				if !ok {
 					continue
 				}
@@ -332,7 +333,11 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Glo
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
-	allowedRows, constrained := state.SourceRows[group.Source]
+	rowSource := group.DisplaySource
+	if rowSource == "" {
+		rowSource = group.Source
+	}
+	allowedRows, constrained := state.SourceRows[rowSource]
 	if constrained {
 		filtered := make([]int, 0, len(allowedRows))
 		for _, idx := range allowedRows {
@@ -406,8 +411,12 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 	return out, true
 }
 
-func mergeWithChoice(state wpState, source string, choice sourceChoice, at diag.Span, diags *diag.Diagnostics) (wpState, bool) {
+func mergeWithChoice(state wpState, group sourceGroup, choice sourceChoice, at diag.Span, diags *diag.Diagnostics) (wpState, bool) {
 	out := cloneState(state)
+	source := group.DisplaySource
+	if source == "" {
+		source = group.Source
+	}
 	for name, value := range choice.Values {
 		if existing, ok := out.Values[name]; ok {
 			if !eval.Equal(existing, value) {
@@ -425,6 +434,13 @@ func mergeWithChoice(state wpState, source string, choice sourceChoice, at diag.
 	}
 	out.SourceRows[source] = slices.Clone(choice.Rows)
 	return out, true
+}
+
+func displaySourceName(bindings map[string]*sema.GlobalBinding, source string) string {
+	if binding := bindings[source]; binding != nil && binding.PublicName != "" {
+		return binding.PublicName
+	}
+	return source
 }
 
 func emptyState() wpState {

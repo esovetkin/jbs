@@ -12,25 +12,27 @@ import (
 )
 
 type moduleScope struct {
-	Ref                 imports.ModuleRef
-	Program             ast.Program
-	BaseDirByFile       map[string]string
-	Globals             GlobalState
-	GlobalVarByName     map[string]*GlobalVar
-	GlobalVarOrder      []string
-	TopLevelExprs       []TopLevelExprResult
-	LocalExportsByName  map[string]*GlobalVar
-	ExportsByName       map[string]*GlobalVar
-	LocalBindings       []*GlobalBinding
-	LocalBindingsByName map[string]*GlobalBinding
-	Bindings            []*GlobalBinding
-	BindingsByName      map[string]*GlobalBinding
-	DoBlocks            []ast.DoBlock
-	Submits             []ast.SubmitBlock
-	AnalyseBlocks       []ast.AnalyseBlock
-	StepOrder           []string
-	Namespaces          map[string]*Namespace
-	Env                 map[string]eval.Value
+	Ref                   imports.ModuleRef
+	Program               ast.Program
+	BaseDirByFile         map[string]string
+	Globals               GlobalState
+	GlobalVarByName       map[string]*GlobalVar
+	GlobalVarOrder        []string
+	TopLevelExprs         []TopLevelExprResult
+	LocalExportsByName    map[string]*GlobalVar
+	ExportsByName         map[string]*GlobalVar
+	LocalBindings         []*GlobalBinding
+	LocalBindingsByName   map[string]*GlobalBinding
+	Bindings              []*GlobalBinding
+	BindingsByName        map[string]*GlobalBinding
+	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
+	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
+	DoBlocks              []ast.DoBlock
+	Submits               []ast.SubmitBlock
+	AnalyseBlocks         []ast.AnalyseBlock
+	StepOrder             []string
+	Namespaces            map[string]*Namespace
+	Env                   map[string]eval.Value
 }
 
 func buildEntryModuleScope(loadRes *imports.LoadResult, globals map[string]eval.Value, diags *diag.Diagnostics) *moduleScope {
@@ -83,14 +85,17 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
 	for _, name := range scope.GlobalVarOrder {
 		gv := scope.GlobalVarByName[name]
-		registerModuleExport(scope, name, gv, true)
+		registerModuleExport(scope, name, gv, gv != nil && gv.Namespace == "" && !isBuiltinGlobalName(name))
 		binding := bindingFromGlobalVar(name, gv)
-		if binding == nil {
+		if binding == nil || isBuiltinGlobalName(name) {
 			continue
 		}
-		registerModuleBinding(scope, binding, true)
+		registerModuleBinding(scope, binding, gv != nil && gv.Namespace == "")
 	}
+	registerSnapshotBindings(scope, exec.SnapshotBindings)
 	scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
+	scope.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(exec.ScopeSnapshotsByIndex)
+	scope.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(exec.ScopeSnapshotsByBlock)
 
 	for _, use := range info.Uses {
 		if use.Kind != imports.UseNamespace {
@@ -132,14 +137,17 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 	for _, use := range info.Uses {
 		useByIndex[use.Index] = use
 	}
-	visibleSeeds := map[string]eval.Value{}
-	visibleNamespaces := map[string]*Namespace{}
-
 	for index, stmt := range info.Program.Stmts {
 		if use, ok := useByIndex[index]; ok {
 			if use.Kind == imports.UseNamespace {
-				mergeIntoValueEnv(visibleSeeds, prefixedByIndex[index].Env)
-				visibleNamespaces = mergeVisibleNamespaces(visibleNamespaces, prefixedByIndex[index].Namespaces)
+				id := len(plan.Steps)
+				plan.Steps = append(plan.Steps, globalInputStep{
+					ID:             id,
+					Kind:           globalInputNamespaceImport,
+					NamespaceScope: prefixedByIndex[index],
+					Index:          index,
+					BaseDir:        info.BaseDir,
+				})
 				continue
 			}
 			for _, name := range use.Names {
@@ -148,64 +156,86 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 					continue
 				}
 				id := len(plan.Steps)
-				seedEnv := maps.Clone(visibleSeeds)
 				plan.Steps = append(plan.Steps, globalInputStep{
-					ID:                id,
-					Kind:              globalInputProjectedImport,
-					Name:              name,
-					Import:            imp,
-					Index:             index,
-					SeedEnv:           seedEnv,
-					VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-					BaseDir:           info.BaseDir,
-					ForwardVisible:    false,
+					ID:      id,
+					Kind:    globalInputProjectedImport,
+					Name:    name,
+					Import:  imp,
+					Index:   index,
+					BaseDir: info.BaseDir,
 				})
 				plan.StepByName[name] = id
 			}
 			continue
 		}
-		assign, ok := stmt.(ast.GlobalAssign)
-		if !ok {
-			exprStmt, ok := stmt.(ast.ExprStmt)
-			if !ok {
-				continue
-			}
+		switch n := stmt.(type) {
+		case ast.ExprStmt:
+			exprStmt := n
 			exprCopy := exprStmt
 			id := len(plan.Steps)
 			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:                id,
-				Kind:              globalInputExpr,
-				ExprStmt:          &exprCopy,
-				EffectiveExpr:     exprStmt.Expr,
-				Reads:             globalExprReadRefs(exprStmt.Expr),
-				Index:             index,
-				SeedEnv:           maps.Clone(visibleSeeds),
-				VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-				BaseDir:           info.BaseDir,
+				ID:            id,
+				Kind:          globalInputExpr,
+				ExprStmt:      &exprCopy,
+				EffectiveExpr: exprStmt.Expr,
+				Reads:         globalExprReadRefs(exprStmt.Expr),
+				Index:         index,
+				BaseDir:       info.BaseDir,
 			})
-			continue
+		case ast.GlobalAssign:
+			assign, ok := prep.AcceptedLocals[index]
+			if !ok {
+				continue
+			}
+			assignCopy := assign
+			effective := assignmentExpr(assignCopy.Name, assignCopy.Op, assignCopy.Expr, assignCopy.Span)
+			id := len(plan.Steps)
+			step := globalInputStep{
+				ID:            id,
+				Kind:          globalInputAssign,
+				Name:          assign.Name,
+				Assign:        &assignCopy,
+				EffectiveExpr: effective,
+				Reads:         globalExprReadRefs(effective),
+				Index:         index,
+				BaseDir:       info.BaseDir,
+			}
+			plan.Steps = append(plan.Steps, step)
+			plan.StepByName[step.Name] = id
+		case ast.DoBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:      id,
+				Kind:    globalInputDo,
+				Name:    blockCopy.Name,
+				DoBlock: &blockCopy,
+				Index:   index,
+				BaseDir: info.BaseDir,
+			})
+		case ast.SubmitBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:          id,
+				Kind:        globalInputSubmit,
+				Name:        blockCopy.Name,
+				SubmitBlock: &blockCopy,
+				Index:       index,
+				BaseDir:     info.BaseDir,
+			})
+		case ast.AnalyseBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:           id,
+				Kind:         globalInputAnalyse,
+				Name:         blockCopy.StepName,
+				AnalyseBlock: &blockCopy,
+				Index:        index,
+				BaseDir:      info.BaseDir,
+			})
 		}
-		assign, ok = prep.AcceptedLocals[index]
-		if !ok {
-			continue
-		}
-		assignCopy := assign
-		id := len(plan.Steps)
-		step := globalInputStep{
-			ID:                id,
-			Kind:              globalInputAssign,
-			Name:              assign.Name,
-			Assign:            &assignCopy,
-			EffectiveExpr:     assign.Expr,
-			Reads:             globalExprReadRefs(assign.Expr),
-			Index:             index,
-			SeedEnv:           maps.Clone(visibleSeeds),
-			VisibleNamespaces: cloneVisibleNamespaces(visibleNamespaces),
-			BaseDir:           info.BaseDir,
-			ForwardVisible:    true,
-		}
-		plan.Steps = append(plan.Steps, step)
-		plan.StepByName[step.Name] = id
 	}
 	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
@@ -242,7 +272,6 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 		}
 	}
 	nonGlobalSymbols := collectModuleNonGlobalSymbols(info.Program)
-	firstByName := make(map[string]topLevelBindingRef)
 	for index, stmt := range info.Program.Stmts {
 		if use, ok := useByIndex[index]; ok {
 			if use.Kind == imports.UseNamespace {
@@ -295,11 +324,6 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 					}
 					continue
 				}
-				if prev, exists := firstByName[name]; exists {
-					reportDuplicateTopLevelBinding(diags, name, use.Span, prev.Span)
-					continue
-				}
-				firstByName[name] = topLevelBindingRef{Name: name, Span: use.Span}
 				out.AcceptedImports[projectedImportDecisionKey{Index: index, Name: name}] = &projectedImport{
 					LocalName:    name,
 					SourceName:   name,
@@ -313,17 +337,10 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 		if !ok {
 			continue
 		}
-		if isCompoundAssignOp(assign.Op) {
-			reportTopLevelCompoundAssign(diags, assign)
-			continue
-		}
-		if prev, exists := firstByName[assign.Name]; exists {
-			reportDuplicateTopLevelBinding(diags, assign.Name, assign.Span, prev.Span)
-			continue
-		}
-		firstByName[assign.Name] = topLevelBindingRef{Name: assign.Name, Span: assign.Span}
 		out.AcceptedLocals[index] = assign
-		out.LocalVisibleNames = append(out.LocalVisibleNames, assign.Name)
+		if !slices.Contains(out.LocalVisibleNames, assign.Name) {
+			out.LocalVisibleNames = append(out.LocalVisibleNames, assign.Name)
+		}
 	}
 	return out
 }
@@ -441,6 +458,12 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 	for _, block := range scope.Submits {
 		out.Submits = append(out.Submits, prefixSubmitBlock(block, prefix))
 	}
+	for index, snap := range scope.ScopeSnapshotsByIndex {
+		out.ScopeSnapshotsByIndex[index] = prefixScopeSnapshot(snap, prefix)
+	}
+	for key, snap := range scope.ScopeSnapshotsByBlock {
+		out.ScopeSnapshotsByBlock[prefixSnapshotBlockKey(key, prefix)] = prefixScopeSnapshot(snap, prefix)
+	}
 	for _, stepName := range scope.StepOrder {
 		out.StepOrder = append(out.StepOrder, prefix+"."+stepName)
 	}
@@ -553,27 +576,39 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 		current.Bindings = mergeUniqueStrings(current.Bindings, ns.Bindings)
 		current.Steps = mergeUniqueStrings(current.Steps, ns.Steps)
 	}
+	for index, snap := range src.ScopeSnapshotsByIndex {
+		if _, exists := dst.ScopeSnapshotsByIndex[index]; !exists {
+			dst.ScopeSnapshotsByIndex[index] = cloneScopeSnapshot(snap)
+		}
+	}
+	for key, snap := range src.ScopeSnapshotsByBlock {
+		if _, exists := dst.ScopeSnapshotsByBlock[key]; !exists {
+			dst.ScopeSnapshotsByBlock[key] = cloneScopeSnapshot(snap)
+		}
+	}
 }
 
 func emptyModuleScope() *moduleScope {
 	return &moduleScope{
-		Globals:             GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
-		GlobalVarByName:     make(map[string]*GlobalVar),
-		GlobalVarOrder:      make([]string, 0),
-		TopLevelExprs:       make([]TopLevelExprResult, 0),
-		LocalExportsByName:  make(map[string]*GlobalVar),
-		ExportsByName:       make(map[string]*GlobalVar),
-		LocalBindings:       make([]*GlobalBinding, 0),
-		LocalBindingsByName: make(map[string]*GlobalBinding),
-		Bindings:            make([]*GlobalBinding, 0),
-		BindingsByName:      make(map[string]*GlobalBinding),
-		BaseDirByFile:       make(map[string]string),
-		DoBlocks:            make([]ast.DoBlock, 0),
-		Submits:             make([]ast.SubmitBlock, 0),
-		AnalyseBlocks:       make([]ast.AnalyseBlock, 0),
-		StepOrder:           make([]string, 0),
-		Namespaces:          make(map[string]*Namespace),
-		Env:                 make(map[string]eval.Value),
+		Globals:               GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
+		GlobalVarByName:       make(map[string]*GlobalVar),
+		GlobalVarOrder:        make([]string, 0),
+		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		LocalExportsByName:    make(map[string]*GlobalVar),
+		ExportsByName:         make(map[string]*GlobalVar),
+		LocalBindings:         make([]*GlobalBinding, 0),
+		LocalBindingsByName:   make(map[string]*GlobalBinding),
+		Bindings:              make([]*GlobalBinding, 0),
+		BindingsByName:        make(map[string]*GlobalBinding),
+		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
+		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
+		BaseDirByFile:         make(map[string]string),
+		DoBlocks:              make([]ast.DoBlock, 0),
+		Submits:               make([]ast.SubmitBlock, 0),
+		AnalyseBlocks:         make([]ast.AnalyseBlock, 0),
+		StepOrder:             make([]string, 0),
+		Namespaces:            make(map[string]*Namespace),
+		Env:                   make(map[string]eval.Value),
 	}
 }
 
@@ -613,6 +648,8 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 		out.Bindings = append(out.Bindings, next)
 		out.BindingsByName[next.Name] = next
 	}
+	out.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(scope.ScopeSnapshotsByIndex)
+	out.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(scope.ScopeSnapshotsByBlock)
 	for name, ns := range scope.Namespaces {
 		out.Namespaces[name] = &Namespace{
 			Name:     ns.Name,
@@ -652,6 +689,70 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 	next.Rows = cloneCombRows(binding.Rows, binding.Span)
 	next.DependsOn = append([]string(nil), binding.DependsOn...)
 	return &next
+}
+
+func cloneScopeSnapshot(snap *ScopeSnapshot) *ScopeSnapshot {
+	if snap == nil {
+		return nil
+	}
+	out := &ScopeSnapshot{
+		Index: snap.Index,
+		Globals: GlobalState{
+			Values: maps.Clone(snap.Globals.Values),
+			Modes:  maps.Clone(snap.Globals.Modes),
+			Spans:  maps.Clone(snap.Globals.Spans),
+		},
+		Bindings:       make([]*GlobalBinding, 0, len(snap.Bindings)),
+		BindingsByName: make(map[string]*GlobalBinding, len(snap.BindingsByName)),
+		Namespaces:     make(map[string]*Namespace, len(snap.Namespaces)),
+	}
+	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(snap.GlobalVarByName, snap.GlobalVarOrder)
+	for _, binding := range snap.Bindings {
+		next := cloneBinding(binding)
+		out.Bindings = append(out.Bindings, next)
+		out.BindingsByName[next.Name] = next
+		if next.PublicName != "" {
+			out.BindingsByName[next.PublicName] = next
+		}
+	}
+	for name, binding := range snap.BindingsByName {
+		if binding == nil {
+			continue
+		}
+		if existing := out.BindingsByName[binding.Name]; existing != nil {
+			out.BindingsByName[name] = existing
+			continue
+		}
+		out.BindingsByName[name] = cloneBinding(binding)
+	}
+	for name, ns := range snap.Namespaces {
+		if ns == nil {
+			continue
+		}
+		out.Namespaces[name] = &Namespace{
+			Name:     ns.Name,
+			Members:  append([]string(nil), ns.Members...),
+			Bindings: append([]string(nil), ns.Bindings...),
+			Steps:    append([]string(nil), ns.Steps...),
+		}
+	}
+	return out
+}
+
+func cloneScopeSnapshotsByIndex(in map[int]*ScopeSnapshot) map[int]*ScopeSnapshot {
+	out := make(map[int]*ScopeSnapshot, len(in))
+	for index, snap := range in {
+		out[index] = cloneScopeSnapshot(snap)
+	}
+	return out
+}
+
+func cloneScopeSnapshotsByBlock(in map[string]*ScopeSnapshot) map[string]*ScopeSnapshot {
+	out := make(map[string]*ScopeSnapshot, len(in))
+	for key, snap := range in {
+		out[key] = cloneScopeSnapshot(snap)
+	}
+	return out
 }
 
 func cloneGlobalVar(gv *GlobalVar) *GlobalVar {
@@ -716,6 +817,21 @@ func registerModuleBinding(scope *moduleScope, binding *GlobalBinding, local boo
 	scope.BindingsByName[next.Name] = next
 }
 
+func registerSnapshotBindings(scope *moduleScope, bindings []*GlobalBinding) {
+	if scope == nil {
+		return
+	}
+	for _, binding := range bindings {
+		if binding == nil || strings.TrimSpace(binding.Name) == "" {
+			continue
+		}
+		next := cloneBinding(binding)
+		next.SyntheticGlobal = true
+		scope.Bindings = append(scope.Bindings, next)
+		scope.BindingsByName[next.Name] = next
+	}
+}
+
 func materializeModuleFunctionExports(scope *moduleScope) {
 	if scope == nil {
 		return
@@ -766,6 +882,15 @@ func materializeCapturedFunction(fn *eval.FunctionValue, root *eval.Frame, frame
 	next := *fn
 	fnMemo[fn] = &next
 	next.Capture = materializeCapturedFrame(fn.Capture, root, frameMemo, cellMemo, fnMemo)
+	if len(fn.Defaults) > 0 {
+		next.Defaults = make(map[int]eval.FunctionDefault, len(fn.Defaults))
+		for index, defaultValue := range fn.Defaults {
+			if defaultValue.PreEvaluated && defaultValue.Value.Kind == eval.KindFunction && defaultValue.Value.Fn != nil && functionNeedsMaterialization(defaultValue.Value.Fn) {
+				defaultValue.Value = eval.Function(materializeCapturedFunction(defaultValue.Value.Fn, root, frameMemo, cellMemo, fnMemo))
+			}
+			next.Defaults[index] = defaultValue
+		}
+	}
 	return &next
 }
 
@@ -876,6 +1001,95 @@ func prefixNames(prefix string, names []string) []string {
 			continue
 		}
 		out = append(out, prefix+"."+name)
+	}
+	return out
+}
+
+func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
+	if snap == nil || strings.TrimSpace(prefix) == "" {
+		return cloneScopeSnapshot(snap)
+	}
+	out := cloneScopeSnapshot(snap)
+	out.Globals.Values = prefixValueMap(prefix, out.Globals.Values)
+	out.Globals.Modes = prefixStringMap(prefix, out.Globals.Modes)
+	out.Globals.Spans = prefixSpanMap(prefix, out.Globals.Spans)
+	out.GlobalVarByName = make(map[string]*GlobalVar, len(snap.GlobalVarByName))
+	out.GlobalVarOrder = prefixNames(prefix, snap.GlobalVarOrder)
+	for name, gv := range snap.GlobalVarByName {
+		next := cloneGlobalVar(gv)
+		if next == nil {
+			continue
+		}
+		next.Name = prefix + "." + name
+		next.DependsOn = prefixNames(prefix, next.DependsOn)
+		out.GlobalVarByName[next.Name] = next
+	}
+	out.Bindings = make([]*GlobalBinding, 0, len(snap.Bindings))
+	out.BindingsByName = make(map[string]*GlobalBinding, len(snap.BindingsByName))
+	for _, binding := range snap.Bindings {
+		next := cloneBinding(binding)
+		if next == nil {
+			continue
+		}
+		next.Name = prefix + "." + next.Name
+		next.PublicName = prefix + "." + bindingDisplayName(binding)
+		next.DependsOn = prefixNames(prefix, next.DependsOn)
+		out.Bindings = append(out.Bindings, next)
+		out.BindingsByName[next.Name] = next
+		out.BindingsByName[next.PublicName] = next
+	}
+	out.Namespaces = make(map[string]*Namespace, len(snap.Namespaces)+1)
+	for name, ns := range snap.Namespaces {
+		if ns == nil {
+			continue
+		}
+		q := prefix + "." + name
+		out.Namespaces[q] = &Namespace{
+			Name:     q,
+			Members:  prefixNames(prefix, ns.Members),
+			Bindings: prefixNames(prefix, ns.Bindings),
+			Steps:    prefixNames(prefix, ns.Steps),
+		}
+	}
+	out.Namespaces[prefix] = &Namespace{Name: prefix}
+	for _, binding := range out.Bindings {
+		out.Namespaces[prefix].Bindings = appendUniqueString(out.Namespaces[prefix].Bindings, binding.PublicName)
+	}
+	for name := range out.GlobalVarByName {
+		out.Namespaces[prefix].Members = appendUniqueString(out.Namespaces[prefix].Members, name)
+	}
+	return out
+}
+
+func prefixSnapshotBlockKey(key string, prefix string) string {
+	parts := strings.Split(key, "|")
+	if len(parts) < 4 || strings.TrimSpace(prefix) == "" {
+		return key
+	}
+	parts[1] = prefix + "." + parts[1]
+	return strings.Join(parts, "|")
+}
+
+func prefixValueMap(prefix string, in map[string]eval.Value) map[string]eval.Value {
+	out := make(map[string]eval.Value, len(in))
+	for name, value := range in {
+		out[prefix+"."+name] = value
+	}
+	return out
+}
+
+func prefixStringMap(prefix string, in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for name, value := range in {
+		out[prefix+"."+name] = value
+	}
+	return out
+}
+
+func prefixSpanMap(prefix string, in map[string]diag.Span) map[string]diag.Span {
+	out := make(map[string]diag.Span, len(in))
+	for name, value := range in {
+		out[prefix+"."+name] = value
 	}
 	return out
 }

@@ -1,8 +1,11 @@
 package sema
 
 import (
+	"fmt"
 	"maps"
 	"slices"
+	"strings"
+	"unicode"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
@@ -20,6 +23,10 @@ const (
 	globalInputAssign          globalInputKind = "assign"
 	globalInputExpr            globalInputKind = "expr"
 	globalInputProjectedImport globalInputKind = "projected_import"
+	globalInputNamespaceImport globalInputKind = "namespace_import"
+	globalInputDo              globalInputKind = "do"
+	globalInputSubmit          globalInputKind = "submit"
+	globalInputAnalyse         globalInputKind = "analyse"
 )
 
 type projectedImport struct {
@@ -30,20 +37,22 @@ type projectedImport struct {
 }
 
 type globalInputStep struct {
-	ID                int
-	Kind              globalInputKind
-	Name              string
-	Assign            *ast.GlobalAssign
-	ExprStmt          *ast.ExprStmt
-	Import            *projectedImport
-	EffectiveExpr     ast.Expr
-	Reads             []globalReadRef
-	Index             int
-	SeedEnv           map[string]eval.Value
-	VisibleNamespaces map[string]*Namespace
-	Names             *eval.NameCatalog
-	BaseDir           string
-	ForwardVisible    bool
+	ID             int
+	Kind           globalInputKind
+	Name           string
+	Assign         *ast.GlobalAssign
+	ExprStmt       *ast.ExprStmt
+	Import         *projectedImport
+	NamespaceScope *moduleScope
+	DoBlock        *ast.DoBlock
+	SubmitBlock    *ast.SubmitBlock
+	AnalyseBlock   *ast.AnalyseBlock
+	EffectiveExpr  ast.Expr
+	Reads          []globalReadRef
+	Index          int
+	Names          *eval.NameCatalog
+	ForwardVisible bool
+	BaseDir        string
 }
 
 type globalPlan struct {
@@ -53,43 +62,14 @@ type globalPlan struct {
 }
 
 type globalExecResult struct {
-	UserGlobals         GlobalState
-	UserGlobalVarByName map[string]*GlobalVar
-	UserGlobalOrder     []string
-	TopLevelExprs       []TopLevelExprResult
-	ScalarGlobals       GlobalState
-}
-
-type globalForceState uint8
-
-const (
-	globalForceIdle globalForceState = iota
-	globalForceForcing
-	globalForceDone
-)
-
-type globalStepState struct {
-	State globalForceState
-	Value eval.Value
-	Var   *GlobalVar
-}
-
-type activeGlobalEval struct {
-	StepID int
-	Name   string
-	Deps   map[string]struct{}
-}
-
-type globalForceEngine struct {
-	plan        *globalPlan
-	include     func(globalInputStep) bool
-	activeSet   map[int]struct{}
-	generalSeed map[string]eval.Value
-	diags       *diag.Diagnostics
-	rootFrame   *eval.Frame
-	res         *globalExecResult
-	states      []globalStepState
-	stack       []*activeGlobalEval
+	UserGlobals           GlobalState
+	UserGlobalVarByName   map[string]*GlobalVar
+	UserGlobalOrder       []string
+	TopLevelExprs         []TopLevelExprResult
+	ScalarGlobals         GlobalState
+	SnapshotBindings      []*GlobalBinding
+	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
+	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 }
 
 type programBindingPlan struct {
@@ -97,52 +77,75 @@ type programBindingPlan struct {
 	VisibleNames    []string
 }
 
-type topLevelBindingRef struct {
-	Name string
-	Span diag.Span
-}
-
 func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir string, diags *diag.Diagnostics) *globalPlan {
+	_ = diags
 	prep := planProgramBindings(prog, diags)
 	plan := &globalPlan{
-		Steps:             make([]globalInputStep, 0),
+		Steps:             make([]globalInputStep, 0, len(prog.Stmts)),
 		StepByName:        make(map[string]int),
 		LocalVisibleNames: append([]string(nil), prep.VisibleNames...),
 	}
 	for index, stmt := range prog.Stmts {
 		switch n := stmt.(type) {
 		case ast.GlobalAssign:
-			assign, ok := prep.AcceptedByIndex[index]
-			if !ok {
-				continue
-			}
-			assignCopy := assign
+			assignCopy := n
+			effective := assignmentExpr(assignCopy.Name, assignCopy.Op, assignCopy.Expr, assignCopy.Span)
 			id := len(plan.Steps)
-			step := globalInputStep{
-				ID:             id,
-				Kind:           globalInputAssign,
-				Name:           assign.Name,
-				Assign:         &assignCopy,
-				EffectiveExpr:  assign.Expr,
-				Reads:          globalExprReadRefs(assign.Expr),
-				Index:          index,
-				BaseDir:        baseDir,
-				ForwardVisible: true,
-			}
-			plan.Steps = append(plan.Steps, step)
-			plan.StepByName[step.Name] = id
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:            id,
+				Kind:          globalInputAssign,
+				Name:          assignCopy.Name,
+				Assign:        &assignCopy,
+				EffectiveExpr: effective,
+				Reads:         globalExprReadRefs(effective),
+				Index:         index,
+				BaseDir:       baseDir,
+			})
+			plan.StepByName[assignCopy.Name] = id
 		case ast.ExprStmt:
-			exprStmt := n
-			exprCopy := exprStmt
+			exprCopy := n
 			id := len(plan.Steps)
 			plan.Steps = append(plan.Steps, globalInputStep{
 				ID:            id,
 				Kind:          globalInputExpr,
 				ExprStmt:      &exprCopy,
-				EffectiveExpr: exprStmt.Expr,
-				Reads:         globalExprReadRefs(exprStmt.Expr),
+				EffectiveExpr: exprCopy.Expr,
+				Reads:         globalExprReadRefs(exprCopy.Expr),
 				Index:         index,
 				BaseDir:       baseDir,
+			})
+		case ast.DoBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:      id,
+				Kind:    globalInputDo,
+				Name:    blockCopy.Name,
+				DoBlock: &blockCopy,
+				Index:   index,
+				BaseDir: baseDir,
+			})
+		case ast.SubmitBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:          id,
+				Kind:        globalInputSubmit,
+				Name:        blockCopy.Name,
+				SubmitBlock: &blockCopy,
+				Index:       index,
+				BaseDir:     baseDir,
+			})
+		case ast.AnalyseBlock:
+			blockCopy := n
+			id := len(plan.Steps)
+			plan.Steps = append(plan.Steps, globalInputStep{
+				ID:           id,
+				Kind:         globalInputAnalyse,
+				Name:         blockCopy.StepName,
+				AnalyseBlock: &blockCopy,
+				Index:        index,
+				BaseDir:      baseDir,
 			})
 		}
 	}
@@ -151,26 +154,22 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir s
 }
 
 func planProgramBindings(prog ast.Program, diags *diag.Diagnostics) programBindingPlan {
+	_ = diags
 	out := programBindingPlan{
 		AcceptedByIndex: make(map[int]ast.GlobalAssign),
 		VisibleNames:    make([]string, 0),
 	}
-	firstByName := make(map[string]topLevelBindingRef)
+	seen := make(map[string]struct{})
 	for index, stmt := range prog.Stmts {
 		assign, ok := stmt.(ast.GlobalAssign)
 		if !ok {
 			continue
 		}
-		if isCompoundAssignOp(assign.Op) {
-			reportTopLevelCompoundAssign(diags, assign)
-			continue
-		}
-		if prev, exists := firstByName[assign.Name]; exists {
-			reportDuplicateTopLevelBinding(diags, assign.Name, assign.Span, prev.Span)
-			continue
-		}
-		firstByName[assign.Name] = topLevelBindingRef{Name: assign.Name, Span: assign.Span}
 		out.AcceptedByIndex[index] = assign
+		if _, exists := seen[assign.Name]; exists {
+			continue
+		}
+		seen[assign.Name] = struct{}{}
 		out.VisibleNames = append(out.VisibleNames, assign.Name)
 	}
 	return out
@@ -205,33 +204,23 @@ func assignGlobalPlanNameCatalogs(plan *globalPlan, seed map[string]eval.Value) 
 	if plan == nil {
 		return
 	}
-	baseVisible := make(map[string]struct{}, len(seed)+len(plan.LocalVisibleNames))
+	visible := make(map[string]struct{}, len(seed)+len(plan.LocalVisibleNames))
 	for _, name := range visibleNamesFromEnv(seed) {
-		baseVisible[name] = struct{}{}
+		visible[name] = struct{}{}
 	}
 	for _, name := range plan.LocalVisibleNames {
 		if isUnqualifiedVisibleName(name) {
-			baseVisible[name] = struct{}{}
+			visible[name] = struct{}{}
 		}
 	}
-	visibleProjected := make(map[string]struct{})
+	names := make([]string, 0, len(visible))
+	for name := range visible {
+		names = append(names, name)
+	}
+	catalog := scopeNameCatalog(names, nil)
 	for i := range plan.Steps {
-		step := &plan.Steps[i]
-		visibleSet := make(map[string]struct{}, len(baseVisible)+len(visibleProjected))
-		for name := range baseVisible {
-			visibleSet[name] = struct{}{}
-		}
-		for name := range visibleProjected {
-			visibleSet[name] = struct{}{}
-		}
-		visible := make([]string, 0, len(visibleSet))
-		for name := range visibleSet {
-			visible = append(visible, name)
-		}
-		step.Names = scopeNameCatalog(visible, step.VisibleNamespaces)
-		if step.Kind == globalInputProjectedImport && isUnqualifiedVisibleName(step.Name) {
-			visibleProjected[step.Name] = struct{}{}
-		}
+		plan.Steps[i].Reads = globalExprReadRefs(plan.Steps[i].EffectiveExpr)
+		plan.Steps[i].Names = catalog
 	}
 }
 
@@ -248,13 +237,40 @@ func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarS
 			LocalVisibleNames: make([]string, 0),
 		}
 	}
-	generalValues := maps.Clone(generalSeed)
-	if generalValues == nil {
-		generalValues = map[string]eval.Value{}
+	engine := newGlobalSeqEngine(plan, generalSeed, scalarSeed, diags)
+	engine.execute()
+	return engine.res
+}
+
+type globalSeqEngine struct {
+	plan                *globalPlan
+	diags               *diag.Diagnostics
+	rootFrame           *eval.Frame
+	values              map[string]eval.Value
+	modes               map[string]string
+	spans               map[string]diag.Span
+	scalarSeed          map[string]eval.Value
+	scalarModes         map[string]string
+	scalarSpans         map[string]diag.Span
+	globalVars          map[string]*GlobalVar
+	globalOrder         []string
+	globalOrderSeen     map[string]struct{}
+	currentBindings     map[string]*GlobalBinding
+	currentBindingOrder []string
+	currentBindingSeen  map[string]struct{}
+	namespaces          map[string]*Namespace
+	snapshotNames       map[string]struct{}
+	res                 *globalExecResult
+}
+
+func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalSeqEngine {
+	values := maps.Clone(generalSeed)
+	if values == nil {
+		values = map[string]eval.Value{}
 	}
-	scalarValues := maps.Clone(scalarSeed)
-	if scalarValues == nil {
-		scalarValues = map[string]eval.Value{}
+	scalars := maps.Clone(scalarSeed)
+	if scalars == nil {
+		scalars = map[string]eval.Value{}
 	}
 	res := &globalExecResult{
 		UserGlobals: GlobalState{
@@ -262,154 +278,289 @@ func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarS
 			Modes:  make(map[string]string),
 			Spans:  make(map[string]diag.Span),
 		},
-		UserGlobalVarByName: make(map[string]*GlobalVar),
-		UserGlobalOrder:     make([]string, 0),
-		TopLevelExprs:       make([]TopLevelExprResult, 0),
-		ScalarGlobals: GlobalState{
-			Values: scalarValues,
-			Modes:  make(map[string]string),
-			Spans:  make(map[string]diag.Span),
-		},
+		UserGlobalVarByName:   make(map[string]*GlobalVar),
+		UserGlobalOrder:       make([]string, 0),
+		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Modes: make(map[string]string), Spans: make(map[string]diag.Span)},
+		SnapshotBindings:      make([]*GlobalBinding, 0),
+		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
+		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
 	}
-
-	userInclude := func(step globalInputStep) bool {
-		if step.Kind == globalInputExpr {
-			return true
-		}
-		_, known := generalValues[step.Name]
-		return !known
+	return &globalSeqEngine{
+		plan:                plan,
+		diags:               diags,
+		rootFrame:           eval.NewRootFrame(values),
+		values:              values,
+		modes:               make(map[string]string),
+		spans:               make(map[string]diag.Span),
+		scalarSeed:          scalars,
+		scalarModes:         make(map[string]string),
+		scalarSpans:         make(map[string]diag.Span),
+		globalVars:          make(map[string]*GlobalVar),
+		globalOrder:         make([]string, 0),
+		globalOrderSeen:     make(map[string]struct{}),
+		currentBindings:     make(map[string]*GlobalBinding),
+		currentBindingOrder: make([]string, 0),
+		currentBindingSeen:  make(map[string]struct{}),
+		namespaces:          make(map[string]*Namespace),
+		snapshotNames:       make(map[string]struct{}),
+		res:                 res,
 	}
-	engine := newGlobalForceEngine(plan, generalValues, userInclude, diags, res)
-	engine.execute()
-	res.ScalarGlobals = execScalarGlobalPlan(plan, scalarValues, diags)
-	return res
 }
 
-func execScalarGlobalPlan(plan *globalPlan, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) GlobalState {
-	out := GlobalState{
-		Values: maps.Clone(scalarSeed),
-		Modes:  make(map[string]string),
-		Spans:  make(map[string]diag.Span),
+func (e *globalSeqEngine) execute() {
+	if e == nil || e.plan == nil {
+		return
 	}
-	if out.Values == nil {
-		out.Values = map[string]eval.Value{}
-	}
-	if plan == nil || len(scalarSeed) == 0 {
-		return out
-	}
-	include := func(step globalInputStep) bool {
-		return step.Kind != globalInputExpr
-	}
-	dummy := &globalExecResult{
-		UserGlobals: GlobalState{
-			Values: make(map[string]eval.Value),
-			Modes:  make(map[string]string),
-			Spans:  make(map[string]diag.Span),
-		},
-		UserGlobalVarByName: make(map[string]*GlobalVar),
-		UserGlobalOrder:     make([]string, 0),
-		TopLevelExprs:       make([]TopLevelExprResult, 0),
-	}
-	engine := newGlobalForceEngine(plan, scalarSeed, include, diags, dummy)
-	for _, step := range plan.Steps {
-		if step.Name == "" {
-			continue
-		}
-		if _, ok := scalarSeed[step.Name]; !ok {
-			continue
-		}
-		if !scalarStepShouldForce(step, diags) {
-			continue
-		}
-		engine.forceStep(step.ID)
-	}
-	for _, step := range plan.Steps {
-		if step.Name == "" {
-			continue
-		}
-		if _, ok := scalarSeed[step.Name]; !ok {
-			continue
-		}
-		state := engine.states[step.ID]
+	for _, step := range e.plan.Steps {
 		switch step.Kind {
-		case globalInputProjectedImport:
-			gv := state.Var
-			if gv == nil {
-				continue
-			}
-			if !acceptScalarGlobalImport(step.Name, gv, diags) {
-				continue
-			}
-			out.Values[step.Name] = gv.Value
-			out.Spans[step.Name] = gv.Span
-			if gv.Mode != "" {
-				out.Modes[step.Name] = gv.Mode
-			} else {
-				delete(out.Modes, step.Name)
-			}
 		case globalInputAssign:
-			if step.Assign == nil {
-				continue
-			}
-			if !acceptScalarGlobalAssign(*step.Assign, state.Var, diags) {
-				continue
-			}
-			if state.Var == nil {
-				continue
-			}
-			out.Values[step.Name] = state.Var.Value
-			out.Spans[step.Name] = step.Assign.Span
-			if state.Var.Mode != "" {
-				out.Modes[step.Name] = state.Var.Mode
-			} else {
-				delete(out.Modes, step.Name)
-			}
+			e.evalAssignStep(step)
+		case globalInputProjectedImport:
+			e.evalProjectedImportStep(step)
+		case globalInputNamespaceImport:
+			e.evalNamespaceImportStep(step)
+		case globalInputExpr:
+			e.evalExprStep(step)
+		case globalInputDo, globalInputSubmit, globalInputAnalyse:
+			e.recordDeclarationSnapshot(step)
 		}
 	}
-	return out
+	e.res.UserGlobals.Values = maps.Clone(e.values)
+	e.res.UserGlobals.Modes = maps.Clone(e.modes)
+	e.res.UserGlobals.Spans = maps.Clone(e.spans)
+	e.res.UserGlobalVarByName, e.res.UserGlobalOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
+	e.res.ScalarGlobals = GlobalState{
+		Values: maps.Clone(e.scalarSeed),
+		Modes:  maps.Clone(e.scalarModes),
+		Spans:  maps.Clone(e.scalarSpans),
+	}
 }
 
-func scalarStepShouldForce(step globalInputStep, diags *diag.Diagnostics) bool {
-	if step.Name != "jbs_name" && step.Name != "jbs_outpath" {
-		return true
+func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
+	if step.Assign == nil {
+		return
 	}
-	if step.Kind != globalInputAssign || step.Assign == nil {
-		return true
-	}
-	if _, isMode := step.Assign.Expr.(ast.ModeExpr); isMode {
-		diags.AddError(
-			diag.CodeE303,
-			step.Name+" must be a simple string, not shell()/python()",
-			step.Assign.Span,
-			"assign a plain string literal",
-		)
-		return false
-	}
-	if _, ok := step.Assign.Expr.(ast.StringExpr); !ok {
-		code := diag.CodeE301
-		if step.Name == "jbs_outpath" {
-			code = diag.CodeE302
+	assign := *step.Assign
+	effective := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
+	warnModeExprInCollections(effective, e.diags)
+
+	mode := ""
+	expr := effective
+	if assign.Op == "" || assign.Op == ast.AssignEq {
+		if foundMode, inner, ok := unwrapModeExpr(assign.Expr); ok {
+			mode = foundMode
+			expr = inner
 		}
-		diags.AddError(
-			code,
-			step.Name+" must be a simple string literal",
-			step.Assign.Span,
-			"assign a plain quoted string",
-		)
-		return false
+	} else if prev := e.modes[assign.Name]; prev != "" {
+		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
+			return
+		}
+		mode = prev
+	} else {
+		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
+			return
+		}
 	}
-	return true
+
+	before := errorCount(e.diags)
+	value := eval.EvalExprWithOptions(expr, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	if (assign.Op == "" || assign.Op == ast.AssignEq) && mode != "" {
+		value = coerceModeValue(mode, value, assign.Span, e.diags)
+	}
+	if errorCount(e.diags) > before {
+		return
+	}
+	if hasNestedList(value) {
+		e.diags.AddError(
+			diag.CodeE305,
+			"nested tuple/list value is not allowed for global variable '"+assign.Name+"'",
+			assign.Span,
+			"use flat tuple/list values only",
+		)
+		return
+	}
+
+	orderNames, vars := globalVarSeries(assign.Name, value)
+	gv := &GlobalVar{
+		Name:      assign.Name,
+		Value:     value,
+		Mode:      mode,
+		Span:      assign.Span,
+		Order:     orderNames,
+		Vars:      vars,
+		DependsOn: e.expandGlobalDeps(globalExprDependencies(effective, assign.Name), assign.Name),
+	}
+	if !e.acceptGlobalVar(gv) {
+		return
+	}
+	e.publishGlobalVar(gv)
 }
 
-func acceptScalarGlobalImport(name string, gv *GlobalVar, diags *diag.Diagnostics) bool {
+func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
+	if step.Import == nil || step.Import.SourceGlobal == nil {
+		return
+	}
+	gv := globalVarFromImportedGlobal(step.Name, step.Import.SourceGlobal, step.Import.Span)
+	if gv == nil || !e.acceptGlobalVar(gv) {
+		return
+	}
+	gv.DependsOn = []string{step.Import.SourceName}
+	e.publishGlobalVar(gv)
+}
+
+func (e *globalSeqEngine) evalNamespaceImportStep(step globalInputStep) {
+	scope := step.NamespaceScope
+	if scope == nil {
+		return
+	}
+	for name, ns := range scope.Namespaces {
+		if ns == nil {
+			continue
+		}
+		current := e.namespaces[name]
+		if current == nil {
+			e.namespaces[name] = &Namespace{
+				Name:     ns.Name,
+				Members:  append([]string(nil), ns.Members...),
+				Bindings: append([]string(nil), ns.Bindings...),
+				Steps:    append([]string(nil), ns.Steps...),
+			}
+			continue
+		}
+		current.Members = mergeUniqueStrings(current.Members, ns.Members)
+		current.Bindings = mergeUniqueStrings(current.Bindings, ns.Bindings)
+		current.Steps = mergeUniqueStrings(current.Steps, ns.Steps)
+	}
+	for name, gv := range scope.ExportsByName {
+		next := cloneGlobalVar(gv)
+		if next == nil {
+			continue
+		}
+		next.Name = name
+		next.Namespace = namespaceHead(name)
+		e.publishGlobalVar(next)
+	}
+	for _, binding := range scope.Bindings {
+		next := cloneBinding(binding)
+		if next == nil {
+			continue
+		}
+		e.publishBinding(next)
+	}
+}
+
+func (e *globalSeqEngine) evalExprStep(step globalInputStep) {
+	if step.ExprStmt == nil || step.ExprStmt.Expr == nil {
+		return
+	}
+	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	e.res.TopLevelExprs = append(e.res.TopLevelExprs, TopLevelExprResult{
+		Index: step.Index,
+		Span:  step.ExprStmt.Span,
+		Value: value,
+	})
+}
+
+func (e *globalSeqEngine) recordDeclarationSnapshot(step globalInputStep) {
+	snap := e.cloneSnapshot(step.Index)
+	if snap == nil {
+		return
+	}
+	e.res.ScopeSnapshotsByIndex[step.Index] = snap
+	if key := globalStepBlockKey(step); key != "" {
+		e.res.ScopeSnapshotsByBlock[key] = snap
+	}
+	for _, binding := range snap.Bindings {
+		e.res.SnapshotBindings = append(e.res.SnapshotBindings, cloneBinding(binding))
+	}
+}
+
+func (e *globalSeqEngine) cloneSnapshot(index int) *ScopeSnapshot {
+	snap := &ScopeSnapshot{
+		Index: index,
+		Globals: GlobalState{
+			Values: maps.Clone(e.values),
+			Modes:  maps.Clone(e.modes),
+			Spans:  maps.Clone(e.spans),
+		},
+		Bindings:       make([]*GlobalBinding, 0, len(e.currentBindings)),
+		BindingsByName: make(map[string]*GlobalBinding, len(e.currentBindings)*2),
+		Namespaces:     cloneVisibleNamespaces(e.namespaces),
+	}
+	snap.GlobalVarByName, snap.GlobalVarOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
+	for _, public := range e.currentBindingOrder {
+		binding := e.currentBindings[public]
+		if binding == nil {
+			continue
+		}
+		next := cloneBinding(binding)
+		next.PublicName = bindingDisplayName(next)
+		next.Name = e.snapshotBindingName(next.PublicName, index)
+		next.SyntheticGlobal = true
+		snap.Bindings = append(snap.Bindings, next)
+		snap.BindingsByName[next.Name] = next
+		if next.PublicName != "" {
+			snap.BindingsByName[next.PublicName] = next
+		}
+	}
+	return snap
+}
+
+func (e *globalSeqEngine) snapshotBindingName(public string, index int) string {
+	base := "_js__" + fmt.Sprint(index) + "__" + sanitizeSnapshotName(public)
+	name := base
+	for i := 1; ; i++ {
+		if _, exists := e.snapshotNames[name]; !exists {
+			if _, collides := e.currentBindings[name]; !collides {
+				e.snapshotNames[name] = struct{}{}
+				return name
+			}
+		}
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+}
+
+func sanitizeSnapshotName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "binding"
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "binding"
+	}
+	return b.String()
+}
+
+func (e *globalSeqEngine) acceptGlobalVar(gv *GlobalVar) bool {
 	if gv == nil {
 		return false
 	}
-	if name == "jbs_name" || name == "jbs_outpath" {
+	if gv.Name == "jbs_name" || gv.Name == "jbs_outpath" {
 		if gv.Mode != "" {
-			diags.AddError(
+			e.diags.AddError(
 				diag.CodeE303,
-				name+" must be a simple string, not shell()/python()",
+				gv.Name+" must be a simple string, not shell()/python()",
 				gv.Span,
 				"assign a plain string literal",
 			)
@@ -417,22 +568,22 @@ func acceptScalarGlobalImport(name string, gv *GlobalVar, diags *diag.Diagnostic
 		}
 		if gv.Value.Kind != eval.KindString {
 			code := diag.CodeE301
-			if name == "jbs_outpath" {
+			if gv.Name == "jbs_outpath" {
 				code = diag.CodeE302
 			}
-			diags.AddError(
+			e.diags.AddError(
 				code,
-				name+" must be a simple string literal",
+				gv.Name+" must be a simple string literal",
 				gv.Span,
 				"assign a plain quoted string",
 			)
 			return false
 		}
 	}
-	if !isScalarGlobalValue(gv.Value) {
-		diags.AddError(
+	if _, ok := e.scalarSeed[gv.Name]; ok && !isScalarGlobalValue(gv.Value) {
+		e.diags.AddError(
 			diag.CodeE304,
-			"global variable '"+name+"' must be scalar; tuples/lists are not allowed",
+			"global variable '"+gv.Name+"' must be scalar; tuples/lists are not allowed",
 			gv.Span,
 			"use string/int/float/bool or shell()/python() scalar values",
 		)
@@ -441,293 +592,158 @@ func acceptScalarGlobalImport(name string, gv *GlobalVar, diags *diag.Diagnostic
 	return true
 }
 
-func acceptScalarGlobalAssign(assign ast.GlobalAssign, gv *GlobalVar, diags *diag.Diagnostics) bool {
-	if assign.Name == "jbs_name" || assign.Name == "jbs_outpath" {
-		return true
+func (e *globalSeqEngine) expandGlobalDeps(deps []string, self string) []string {
+	if len(deps) == 0 {
+		return nil
 	}
-	if gv == nil {
-		return false
-	}
-	if !isScalarGlobalValue(gv.Value) {
-		diags.AddError(
-			diag.CodeE304,
-			"global variable '"+assign.Name+"' must be scalar; tuples/lists are not allowed",
-			assign.Span,
-			"use string/int/float/bool or shell()/python() scalar values",
-		)
-		return false
-	}
-	return true
-}
-
-func newGlobalForceEngine(plan *globalPlan, generalSeed map[string]eval.Value, include func(globalInputStep) bool, diags *diag.Diagnostics, res *globalExecResult) *globalForceEngine {
-	if generalSeed == nil {
-		generalSeed = map[string]eval.Value{}
-	}
-	if res == nil {
-		res = &globalExecResult{
-			UserGlobals: GlobalState{
-				Values: make(map[string]eval.Value),
-				Modes:  make(map[string]string),
-				Spans:  make(map[string]diag.Span),
-			},
-			UserGlobalVarByName: make(map[string]*GlobalVar),
-			UserGlobalOrder:     make([]string, 0),
-			TopLevelExprs:       make([]TopLevelExprResult, 0),
-		}
-	}
-	engine := &globalForceEngine{
-		plan:        plan,
-		include:     include,
-		generalSeed: maps.Clone(generalSeed),
-		diags:       diags,
-		res:         res,
-		states:      make([]globalStepState, len(plan.Steps)),
-		activeSet:   make(map[int]struct{}, len(plan.Steps)),
-	}
-	for _, step := range plan.Steps {
-		if include(step) {
-			engine.activeSet[step.ID] = struct{}{}
-		}
-	}
-	engine.rootFrame = eval.NewRootFrame(engine.generalSeed)
-	engine.rootFrame.Resolve = engine.resolveName
-	return engine
-}
-
-func (e *globalForceEngine) execute() {
-	if e == nil || e.plan == nil {
-		return
-	}
-	seenOrder := make(map[string]bool)
-	for _, step := range e.plan.Steps {
-		if !e.include(step) {
+	seen := make(map[string]struct{}, len(deps))
+	queue := append([]string(nil), deps...)
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if name == "" || name == self {
 			continue
 		}
-		if step.Name != "" && !seenOrder[step.Name] {
-			seenOrder[step.Name] = true
-			e.res.UserGlobalOrder = append(e.res.UserGlobalOrder, step.Name)
-		}
-		switch step.Kind {
-		case globalInputExpr:
-			e.evalExprStep(step)
-		case globalInputAssign, globalInputProjectedImport:
-			e.forceStep(step.ID)
-		}
-	}
-}
-
-func (e *globalForceEngine) forceStep(id int) (eval.Value, bool) {
-	if e == nil || e.plan == nil || id < 0 || id >= len(e.plan.Steps) {
-		return eval.Null(), false
-	}
-	if _, ok := e.activeSet[id]; !ok {
-		return eval.Null(), false
-	}
-	state := &e.states[id]
-	switch state.State {
-	case globalForceDone:
-		return state.Value, true
-	case globalForceForcing:
-		step := e.plan.Steps[id]
-		name := step.Name
-		if name == "" && step.Assign != nil {
-			name = step.Assign.Name
-		}
-		if name == "" {
-			name = "<expr>"
-		}
-		e.diags.AddError(
-			diag.CodeE100,
-			"cyclic global reference involving '"+name+"'",
-			globalStepSpan(step),
-			"break the dependency cycle between top-level globals",
-		)
-		return eval.Null(), true
-	}
-
-	step := e.plan.Steps[id]
-	state.State = globalForceForcing
-	active := &activeGlobalEval{
-		StepID: step.ID,
-		Name:   step.Name,
-		Deps:   make(map[string]struct{}),
-	}
-	e.stack = append(e.stack, active)
-	defer func() {
-		e.stack = e.stack[:len(e.stack)-1]
-		state.State = globalForceDone
-	}()
-
-	switch step.Kind {
-	case globalInputProjectedImport:
-		if step.Import == nil || step.Import.SourceGlobal == nil {
-			state.Value = eval.Null()
-			return state.Value, true
-		}
-		gv := globalVarFromImportedGlobal(step.Name, step.Import.SourceGlobal, step.Import.Span)
-		if gv == nil {
-			state.Value = eval.Null()
-			return state.Value, true
-		}
-		gv.DependsOn = sortedGlobalDeps(active.Deps, step.Name)
-		state.Value = gv.Value
-		state.Var = gv
-		e.publishUserGlobal(step, gv)
-		return state.Value, true
-	case globalInputAssign:
-		if step.Assign == nil {
-			state.Value = eval.Null()
-			return state.Value, true
-		}
-		warnModeExprInCollections(step.EffectiveExpr, e.diags)
-		mode, inner, isModeExpr := unwrapModeExpr(step.EffectiveExpr)
-		expr := step.EffectiveExpr
-		if isModeExpr {
-			expr = inner
-		}
-		value := eval.EvalExprWithOptions(expr, nil, e.diags, eval.ExprOptions{
-			GlobalAssignmentTupleArithmetic: true,
-			Context:                         eval.EvalCtxBindingAssign,
-			Names:                           step.Names,
-			Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-			Frame:                           e.stepFrame(step),
-		})
-		if isModeExpr {
-			value = coerceModeValue(mode, value, step.Assign.Span, e.diags)
-		} else {
-			mode = ""
-		}
-		if hasNestedList(value) {
-			e.diags.AddError(
-				diag.CodeE305,
-				"nested tuple/list value is not allowed for global variable '"+step.Name+"'",
-				step.Assign.Span,
-				"use flat tuple/list values only",
-			)
-		}
-		orderNames, vars := globalVarSeries(step.Name, value)
-		gv := &GlobalVar{
-			Name:      step.Name,
-			Value:     value,
-			Mode:      mode,
-			Span:      step.Assign.Span,
-			Order:     orderNames,
-			Vars:      vars,
-			DependsOn: sortedGlobalDeps(active.Deps, step.Name),
-		}
-		state.Value = value
-		state.Var = gv
-		e.publishUserGlobal(step, gv)
-		return state.Value, true
-	default:
-		state.Value = eval.Null()
-		return state.Value, false
-	}
-}
-
-func (e *globalForceEngine) evalExprStep(step globalInputStep) {
-	if step.ExprStmt == nil || step.EffectiveExpr == nil {
-		return
-	}
-	e.stack = append(e.stack, &activeGlobalEval{StepID: step.ID})
-	value := eval.EvalExprWithOptions(step.EffectiveExpr, nil, e.diags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-		Names:                           step.Names,
-		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-		Frame:                           e.stepFrame(step),
-	})
-	e.stack = e.stack[:len(e.stack)-1]
-	e.res.TopLevelExprs = append(e.res.TopLevelExprs, TopLevelExprResult{
-		Index: step.Index,
-		Span:  step.ExprStmt.Span,
-		Value: value,
-	})
-}
-
-func (e *globalForceEngine) stepFrame(step globalInputStep) *eval.Frame {
-	frame := eval.NewChildFrame(e.rootFrame)
-	for name, value := range step.SeedEnv {
-		frame.AssignLocal(name, value, globalStepSpan(step))
-	}
-	return frame
-}
-
-func (e *globalForceEngine) resolveName(name string, at diag.Span, diags *diag.Diagnostics) (eval.Value, bool) {
-	if e == nil || name == "" || len(e.stack) == 0 {
-		return eval.Null(), false
-	}
-	current := e.stack[len(e.stack)-1]
-	targetID, ok := e.resolveReadTarget(name, current.StepID)
-	if !ok {
-		return eval.Null(), false
-	}
-	value, forced := e.forceStep(targetID)
-	if !forced {
-		return eval.Null(), false
-	}
-	e.recordResolvedName(name)
-	e.recordResolvedDeps(targetID)
-	return value, true
-}
-
-func (e *globalForceEngine) resolveReadTarget(name string, consumerID int) (int, bool) {
-	if e == nil || e.plan == nil || consumerID < 0 || consumerID >= len(e.plan.Steps) {
-		return 0, false
-	}
-	targetID, ok := e.plan.StepByName[name]
-	if !ok {
-		return 0, false
-	}
-	if _, ok := e.activeSet[targetID]; !ok {
-		return 0, false
-	}
-	consumer := e.plan.Steps[consumerID]
-	target := e.plan.Steps[targetID]
-	if !target.ForwardVisible && target.Index >= consumer.Index {
-		return 0, false
-	}
-	return targetID, true
-}
-
-func (e *globalForceEngine) recordResolvedName(name string) {
-	if e == nil || name == "" {
-		return
-	}
-	for _, active := range e.stack {
-		if active == nil || active.Name == "" || active.Name == name {
+		if _, ok := seen[name]; ok {
 			continue
 		}
-		active.Deps[name] = struct{}{}
+		seen[name] = struct{}{}
+		if gv := e.globalVars[name]; gv != nil {
+			queue = append(queue, gv.DependsOn...)
+		}
 	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
-func (e *globalForceEngine) recordResolvedDeps(stepID int) {
-	if e == nil || stepID < 0 || stepID >= len(e.states) {
+func (e *globalSeqEngine) publishGlobalVar(gv *GlobalVar) {
+	if e == nil || gv == nil || gv.Name == "" {
 		return
 	}
-	gv := e.states[stepID].Var
-	if gv == nil {
-		return
-	}
-	for _, dep := range gv.DependsOn {
-		e.recordResolvedName(dep)
-	}
-}
-
-func (e *globalForceEngine) publishUserGlobal(step globalInputStep, gv *GlobalVar) {
-	if e == nil || e.res == nil || gv == nil || step.Name == "" {
-		return
-	}
-	e.res.UserGlobalVarByName[step.Name] = gv
-	e.res.UserGlobals.Values[step.Name] = gv.Value
-	e.res.UserGlobals.Spans[step.Name] = gv.Span
+	e.values[gv.Name] = gv.Value
+	e.spans[gv.Name] = gv.Span
 	if gv.Mode != "" {
-		e.res.UserGlobals.Modes[step.Name] = gv.Mode
+		e.modes[gv.Name] = gv.Mode
 	} else {
-		delete(e.res.UserGlobals.Modes, step.Name)
+		delete(e.modes, gv.Name)
 	}
+	e.rootFrame.AssignLocal(gv.Name, gv.Value, gv.Span)
+
+	if _, ok := e.scalarSeed[gv.Name]; ok {
+		e.scalarSeed[gv.Name] = gv.Value
+		e.scalarSpans[gv.Name] = gv.Span
+		if gv.Mode != "" {
+			e.scalarModes[gv.Name] = gv.Mode
+		} else {
+			delete(e.scalarModes, gv.Name)
+		}
+	}
+
+	e.globalVars[gv.Name] = cloneGlobalVar(gv)
+	if _, seen := e.globalOrderSeen[gv.Name]; !seen {
+		e.globalOrderSeen[gv.Name] = struct{}{}
+		e.globalOrder = append(e.globalOrder, gv.Name)
+	}
+
+	binding := bindingFromGlobalVar(gv.Name, gv)
+	if binding == nil || isBuiltinGlobalName(gv.Name) {
+		delete(e.currentBindings, gv.Name)
+		return
+	}
+	binding.PublicName = gv.Name
+	e.publishBinding(binding)
+}
+
+func (e *globalSeqEngine) publishBinding(binding *GlobalBinding) {
+	if e == nil || binding == nil || binding.Name == "" {
+		return
+	}
+	if binding.PublicName == "" {
+		binding.PublicName = binding.Name
+	}
+	e.currentBindings[binding.Name] = cloneBinding(binding)
+	if _, seen := e.currentBindingSeen[binding.Name]; !seen {
+		e.currentBindingSeen[binding.Name] = struct{}{}
+		e.currentBindingOrder = append(e.currentBindingOrder, binding.Name)
+	}
+}
+
+func (e *globalSeqEngine) currentNameCatalog() *eval.NameCatalog {
+	if e == nil {
+		return nil
+	}
+	return scopeNameCatalog(visibleNamesFromEnv(e.values), e.namespaces)
+}
+
+func namespaceHead(name string) string {
+	head, _, ok := strings.Cut(name, ".")
+	if !ok {
+		return ""
+	}
+	return head
+}
+
+func isBuiltinGlobalName(name string) bool {
+	return name == "jbs_name" || name == "jbs_outpath" || name == "jbs_comment"
+}
+
+func bindingDisplayName(binding *GlobalBinding) string {
+	if binding == nil {
+		return ""
+	}
+	if binding.PublicName != "" {
+		return binding.PublicName
+	}
+	return binding.Name
+}
+
+func globalStepBlockKey(step globalInputStep) string {
+	switch step.Kind {
+	case globalInputDo:
+		if step.DoBlock != nil {
+			return doBlockSnapshotKey(*step.DoBlock)
+		}
+	case globalInputSubmit:
+		if step.SubmitBlock != nil {
+			return submitBlockSnapshotKey(*step.SubmitBlock)
+		}
+	case globalInputAnalyse:
+		if step.AnalyseBlock != nil {
+			return analyseBlockSnapshotKey(*step.AnalyseBlock)
+		}
+	}
+	return ""
+}
+
+func doBlockSnapshotKey(block ast.DoBlock) string {
+	return blockSnapshotKey("do", block.Name, block.Span)
+}
+
+func submitBlockSnapshotKey(block ast.SubmitBlock) string {
+	return blockSnapshotKey("submit", block.Name, block.Span)
+}
+
+func analyseBlockSnapshotKey(block ast.AnalyseBlock) string {
+	return blockSnapshotKey("analyse", block.StepName, block.Span)
+}
+
+func blockSnapshotKey(kind string, name string, span diag.Span) string {
+	return kind + "|" + name + "|" + span.File + "|" + fmt.Sprint(span.Start.Offset)
+}
+
+func errorCount(diags *diag.Diagnostics) int {
+	if diags == nil {
+		return 0
+	}
+	count := 0
+	for _, item := range diags.Items {
+		if item.Severity == diag.SeverityError {
+			count++
+		}
+	}
+	return count
 }
 
 func sortedGlobalDeps(deps map[string]struct{}, self string) []string {
@@ -761,6 +777,18 @@ func globalStepSpan(step globalInputStep) diag.Span {
 	case globalInputProjectedImport:
 		if step.Import != nil {
 			return step.Import.Span
+		}
+	case globalInputDo:
+		if step.DoBlock != nil {
+			return step.DoBlock.Span
+		}
+	case globalInputSubmit:
+		if step.SubmitBlock != nil {
+			return step.SubmitBlock.Span
+		}
+	case globalInputAnalyse:
+		if step.AnalyseBlock != nil {
+			return step.AnalyseBlock.Span
 		}
 	}
 	return diag.Span{}
@@ -831,8 +859,23 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 		case ast.ConvertExpr:
 			walk(n.Expr)
 		case ast.CallExpr:
+			walk(n.Callee)
 			for _, arg := range n.Args {
 				walk(arg.Expr)
+			}
+		case ast.FunctionExpr:
+			for _, param := range n.Params {
+				walk(param.Default)
+			}
+			for _, stmt := range n.Body {
+				switch node := stmt.(type) {
+				case ast.LocalAssignStmt:
+					walk(node.Expr)
+				case ast.ReturnStmt:
+					walk(node.Expr)
+				case ast.ExprStmt:
+					walk(node.Expr)
+				}
 			}
 		case ast.AliasExpr:
 			walk(n.Expr)
@@ -860,16 +903,5 @@ func globalVarsFromExec(exec *globalExecResult) (map[string]*GlobalVar, []string
 	if exec == nil {
 		return map[string]*GlobalVar{}, nil
 	}
-	out := make(map[string]*GlobalVar, len(exec.UserGlobalVarByName))
-	for name, gv := range exec.UserGlobalVarByName {
-		if gv == nil {
-			continue
-		}
-		copyGV := *gv
-		copyGV.Order = append([]string(nil), gv.Order...)
-		copyGV.Vars = cloneSeriesMap(gv.Vars)
-		copyGV.DependsOn = append([]string(nil), gv.DependsOn...)
-		out[name] = &copyGV
-	}
-	return out, slices.Clone(exec.UserGlobalOrder)
+	return cloneGlobalVars(exec.UserGlobalVarByName, exec.UserGlobalOrder)
 }

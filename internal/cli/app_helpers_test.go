@@ -146,7 +146,7 @@ func TestRunFmtStrictRejectsLegacyTopLevelParamBlock(t *testing.T) {
 	}
 }
 
-func TestRunFmtStrictRejectsTopLevelCompoundAssignment(t *testing.T) {
+func TestRunFmtStrictAcceptsTopLevelCompoundAssignment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
@@ -159,12 +159,12 @@ func TestRunFmtStrictRejectsTopLevelCompoundAssignment(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
-		t.Fatalf("expected strict formatter to reject top-level compound assignment, code=%d stderr=%s", code, stderr.String())
+	if code := runFmt(path, true, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected strict formatter to accept top-level compound assignment, code=%d stderr=%s", code, stderr.String())
 	}
 	errText := stderr.String()
-	if !strings.Contains(errText, "ERROR E307") || !strings.Contains(errText, "top-level binding 'seed' cannot use '+='") {
-		t.Fatalf("expected targeted top-level compound-assignment diagnostic, got %q", errText)
+	if strings.Contains(errText, "ERROR E307") {
+		t.Fatalf("did not expect top-level compound-assignment diagnostic, got %q", errText)
 	}
 }
 

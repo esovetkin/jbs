@@ -23,6 +23,7 @@ const (
 
 type GlobalBinding struct {
 	Name            string
+	PublicName      string
 	Value           eval.Value
 	Shape           BindingShape
 	Rows            []eval.Row
@@ -93,22 +94,34 @@ type TopLevelExprResult struct {
 	Value eval.Value
 }
 
-type Result struct {
-	Program         ast.Program
-	BaseDirByFile   map[string]string
+type ScopeSnapshot struct {
+	Index           int
 	Globals         GlobalState
 	GlobalVarByName map[string]*GlobalVar
 	GlobalVarOrder  []string
-	TopLevelExprs   []TopLevelExprResult
 	Bindings        []*GlobalBinding
 	BindingsByName  map[string]*GlobalBinding
 	Namespaces      map[string]*Namespace
-	DoBlocks        []ast.DoBlock
-	Submits         []ast.SubmitBlock
-	StepOrder       []string
-	SubmitByName    map[string]*SubmitSpec
-	StepScopeByName map[string]*StepScopePlan
-	Analyse         []*AnalyseSpec
+}
+
+type Result struct {
+	Program               ast.Program
+	BaseDirByFile         map[string]string
+	Globals               GlobalState
+	GlobalVarByName       map[string]*GlobalVar
+	GlobalVarOrder        []string
+	TopLevelExprs         []TopLevelExprResult
+	Bindings              []*GlobalBinding
+	BindingsByName        map[string]*GlobalBinding
+	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
+	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
+	Namespaces            map[string]*Namespace
+	DoBlocks              []ast.DoBlock
+	Submits               []ast.SubmitBlock
+	StepOrder             []string
+	SubmitByName          map[string]*SubmitSpec
+	StepScopeByName       map[string]*StepScopePlan
+	Analyse               []*AnalyseSpec
 }
 
 type VisibleBinding struct {

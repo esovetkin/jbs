@@ -9,11 +9,12 @@
 # - submit
 # - analyse
 #
-# Globals are introduced only by top-level assignments.
-# Top-level bindings are immutable:
-# - use plain '='
-# - define each top-level name once
-# - introduce a new name instead of rebinding or using += / -= / *= / /= / %=
+# Globals are introduced and updated by top-level assignments.
+# Assignments execute in source order:
+# - name = expr creates or overwrites a global
+# - +=, -=, *=, /=, and %= update the current global value
+# - forward references are not allowed
+# - do/submit/analyse blocks see the globals visible where the block appears
 #
 # A global may hold scalar data, tuple/list data, table data,
 # or a function value.
@@ -37,8 +38,8 @@ sizes = (1, 2, 4)
 labels = ("small", "medium", "large")
 cases = table(label = labels, size = sizes)
 
-# Preferred derived-value style:
-seed0 = 1
-seed1 = seed0 + 1
-seed2 = seed1 + 1
+# Reassignment and compound assignment:
+seed = 1
+seed += 1
+seed = seed * 10
 ```

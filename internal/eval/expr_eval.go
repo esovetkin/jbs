@@ -141,7 +141,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		return evalConvert(e.Target, value, e.Span, diags)
 	case ast.FunctionExpr:
-		return newFunctionValue(e, ctx.frame, opts)
+		return newFunctionValue(e, env, diags, opts, ctx)
 	case ast.AliasExpr:
 		diags.AddError(diag.CodeE106, "alias expression is only allowed inside legacy comb()", e.Span, "replace it with table(name = expr) or a named table operation")
 		return Null()

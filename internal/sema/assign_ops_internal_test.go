@@ -62,7 +62,7 @@ func TestAssignmentExprBranches(t *testing.T) {
 	}
 }
 
-func TestTopLevelCompoundAssignmentRejectedButFunctionLocalCompoundAssignmentStillWorks(t *testing.T) {
+func TestTopLevelCompoundAssignmentBeforeDefinitionErrorsButFunctionLocalCompoundAssignmentStillWorks(t *testing.T) {
 	prog := parseSemaProgram(t, "assign_ops.jbs", `
 bump = function(x) {
 	x += 1
@@ -74,8 +74,8 @@ seed += 1
 
 	diags := &diag.Diagnostics{}
 	out, order := compileUserGlobals(prog, nil, diags)
-	if countDiagCode(diags, "E307") != 1 {
-		t.Fatalf("expected one top-level compound-assignment diagnostic, got %d: %s", countDiagCode(diags, "E307"), diags.String())
+	if countDiagCode(diags, "E100") != 1 {
+		t.Fatalf("expected one unknown-variable diagnostic, got %d: %s", countDiagCode(diags, "E100"), diags.String())
 	}
 	if !reflect.DeepEqual(order, []string{"bump", "result"}) {
 		t.Fatalf("unexpected compiled global order: %#v", order)

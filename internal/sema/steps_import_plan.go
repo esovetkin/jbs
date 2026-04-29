@@ -13,6 +13,7 @@ type stepDefinition struct {
 	After     []string
 	WithItems []ast.WithItem
 	Span      diag.Span
+	Snapshot  *ScopeSnapshot
 }
 
 func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
@@ -71,9 +72,9 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 		}
 
 		resolver := BindingResolver{
-			Bindings:   res.BindingsByName,
-			Globals:    res.Globals.Values,
-			Namespaces: res.Namespaces,
+			Bindings:   snapshotBindings(res, def.Snapshot),
+			Globals:    snapshotGlobals(res, def.Snapshot),
+			Namespaces: snapshotNamespaces(res, def.Snapshot),
 		}
 		expandedWith, _ := resolver.ExpandWithItems(def.WithItems, ResolveOptions{Context: ImportIntoStep})
 
@@ -81,7 +82,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 		selected := make(map[string]VisibleBinding)
 		for _, expanded := range expandedWith {
 			kept := make([]ExpandedWithVar, 0, len(expanded.Vars))
-			sourceObj := res.BindingsByName[expanded.Source]
+			sourceObj := snapshotBindings(res, def.Snapshot)[expanded.Source]
 			for _, v := range expanded.Vars {
 				name := v.Visible
 				originSpan := expanded.Span
@@ -226,6 +227,7 @@ func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {
 				After:     append([]string(nil), node.After...),
 				WithItems: append([]ast.WithItem(nil), node.WithItems...),
 				Span:      node.Span,
+				Snapshot:  snapshotForDoBlock(res, node),
 			}
 			order = append(order, node.Name)
 			goto nextStep
@@ -239,6 +241,7 @@ func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {
 				After:     append([]string(nil), node.After...),
 				WithItems: append([]ast.WithItem(nil), node.WithItems...),
 				Span:      node.Span,
+				Snapshot:  snapshotForSubmitBlock(res, node),
 			}
 			order = append(order, node.Name)
 			break

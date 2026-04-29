@@ -337,6 +337,46 @@ total
 	}
 }
 
+func TestAnalyzeDoBlocksUseSourceOrderSnapshots(t *testing.T) {
+	src := `
+cases = table(x = (1))
+do first
+        with cases
+{
+        echo ${x}
+}
+cases = table(x = (2))
+do second
+        with cases
+{
+        echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("snapshots.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := Analyze(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("analysis failed: %s", diags.String())
+	}
+
+	first := res.StepScopeByName["first"].Effective["x"]
+	second := res.StepScopeByName["second"].Effective["x"]
+	firstBinding := res.BindingsByName[first.Source]
+	secondBinding := res.BindingsByName[second.Source]
+	if firstBinding == nil || secondBinding == nil {
+		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	if firstBinding.Name == secondBinding.Name || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
+		t.Fatalf("expected distinct snapshot bindings for public cases, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	if !eval.Equal(firstBinding.Vars["x"][0], eval.Int(1)) || !eval.Equal(secondBinding.Vars["x"][0], eval.Int(2)) {
+		t.Fatalf("unexpected snapshot values: first=%#v second=%#v", firstBinding.Vars["x"], secondBinding.Vars["x"])
+	}
+}
+
 func TestAnalyzeWithImportsSupportsMapReduceCallbacks(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")

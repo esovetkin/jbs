@@ -67,7 +67,7 @@ use_stmt      := "use" (
 ident_list    := IDENT ("," IDENT)*
 use_source    := IDENT | STRING
 
-global_assign := IDENT "=" expr opt_comment
+global_assign := IDENT assign_op expr opt_comment
 expr_stmt     := expr opt_comment
 assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 
@@ -142,13 +142,15 @@ Built-in benchmark globals are also ordinary top-level assignments:
 
 Rules:
 
-- `jbs_name` and `jbs_outpath` must be plain string literals
-- globals are introduced only by top-level assignment
-- top-level bindings are immutable and must use plain `=`
-- each top-level name may be defined once
-- top-level evaluation is still dependency-based, so a global may read another global defined later in the file as long as that later name is defined exactly once
-- top-level compound assignment reports `E307`
-- duplicate top-level definitions report `E306`
+- globals are introduced and updated by top-level assignment
+- top-level assignments execute in source order
+- `name = expr` creates or overwrites the current global value
+- `+=`, `-=`, `*=`, `/=`, and `%=` read the current value, compute the operator result, and overwrite the global
+- a compound assignment before the first value for that name reports an unknown-variable error
+- a global may read only values that are already visible at that point in the file
+- `do`, `submit`, and `analyse` blocks use a snapshot of globals visible where the block appears
+- module exports use final global values after the module has executed
+- `jbs_name` and `jbs_outpath` must evaluate to plain strings without `shell(...)` or `python(...)` mode
 
 Example:
 
@@ -161,8 +163,13 @@ labels = ("small", "medium", "large")
 cases = table(label = labels, size = sizes)
 
 seed0 = 1
+seed0 += 1
 seed1 = seed0 + 1
-seed2 = seed1 + 1
+
+cases = table(size = sizes)
+do first with cases { echo ${size} }
+cases = table(size = (8, 16))
+do second with cases { echo ${size} }
 ```
 
 ## Top-Level Expression Statements
@@ -525,7 +532,8 @@ Relevant parser/alignment diagnostics in this core language:
 
 Relevant semantic diagnostics for top-level bindings:
 
-- `E306`: duplicate top-level binding
-- `E307`: top-level compound assignment is not allowed
+- `E100`: unknown variable, including a forward reference or a compound assignment before the first value
+- `E301` / `E302` / `E303`: invalid `jbs_name` or `jbs_outpath`
+- `E304` / `E305`: invalid scalar or nested list/tuple global value
 
 The full catalog is documented in [docs/diagnostics.md](diagnostics.md).

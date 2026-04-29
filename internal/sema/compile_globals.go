@@ -28,63 +28,87 @@ func globalExprDependencies(expr ast.Expr, self string) []string {
 }
 
 func collectGlobalExprDeps(expr ast.Expr, out map[string]struct{}) {
+	collectGlobalExprDepsBound(expr, out, nil)
+}
+
+func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound map[string]struct{}) {
 	if expr == nil {
 		return
 	}
+	isBound := func(name string) bool {
+		_, ok := bound[name]
+		return ok
+	}
 	switch e := expr.(type) {
 	case ast.IdentExpr:
-		if e.Name != "" {
+		if e.Name != "" && !isBound(e.Name) {
 			out[e.Name] = struct{}{}
 		}
 	case ast.QualifiedIdentExpr:
-		if e.Namespace != "" {
+		if e.Namespace != "" && !isBound(e.Namespace) {
 			out[e.Namespace] = struct{}{}
 		}
 	case ast.MemberExpr:
-		collectGlobalExprDeps(e.Base, out)
+		collectGlobalExprDepsBound(e.Base, out, bound)
 	case ast.ModeExpr:
-		collectGlobalExprDeps(e.Expr, out)
+		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.ListExpr:
 		for _, it := range e.Items {
-			collectGlobalExprDeps(it, out)
+			collectGlobalExprDepsBound(it, out, bound)
 		}
 	case ast.TupleExpr:
 		for _, it := range e.Items {
-			collectGlobalExprDeps(it, out)
+			collectGlobalExprDepsBound(it, out, bound)
 		}
 	case ast.ConvertExpr:
-		collectGlobalExprDeps(e.Expr, out)
+		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.CallExpr:
+		collectGlobalExprDepsBound(e.Callee, out, bound)
 		for _, arg := range e.Args {
-			collectGlobalExprDeps(arg.Expr, out)
+			collectGlobalExprDepsBound(arg.Expr, out, bound)
 		}
 	case ast.FunctionExpr:
+		nextBound := make(map[string]struct{}, len(bound)+len(e.Params))
+		for name := range bound {
+			nextBound[name] = struct{}{}
+		}
+		for _, param := range e.Params {
+			collectGlobalExprDepsBound(param.Default, out, nextBound)
+			if param.Name != "" {
+				nextBound[param.Name] = struct{}{}
+			}
+		}
+		for _, stmt := range e.Body {
+			if assign, ok := stmt.(ast.LocalAssignStmt); ok && assign.Name != "" {
+				nextBound[assign.Name] = struct{}{}
+			}
+		}
 		for _, stmt := range e.Body {
 			switch node := stmt.(type) {
 			case ast.LocalAssignStmt:
-				collectGlobalExprDeps(node.Expr, out)
+				collectGlobalExprDepsBound(node.Expr, out, nextBound)
 			case ast.ReturnStmt:
-				collectGlobalExprDeps(node.Expr, out)
+				collectGlobalExprDepsBound(node.Expr, out, nextBound)
 			case ast.ExprStmt:
-				collectGlobalExprDeps(node.Expr, out)
+				collectGlobalExprDepsBound(node.Expr, out, nextBound)
 			}
 		}
 	case ast.AliasExpr:
-		collectGlobalExprDeps(e.Expr, out)
+		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.IndexExpr:
-		collectGlobalExprDeps(e.Base, out)
+		collectGlobalExprDepsBound(e.Base, out, bound)
 	case ast.UnaryExpr:
-		collectGlobalExprDeps(e.Expr, out)
+		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.BinaryExpr:
-		collectGlobalExprDeps(e.Left, out)
-		collectGlobalExprDeps(e.Right, out)
+		collectGlobalExprDepsBound(e.Left, out, bound)
+		collectGlobalExprDepsBound(e.Right, out, bound)
 	case ast.CompareExpr:
-		collectGlobalExprDeps(e.Left, out)
-		collectGlobalExprDeps(e.Right, out)
+		collectGlobalExprDepsBound(e.Left, out, bound)
+		collectGlobalExprDepsBound(e.Right, out, bound)
 	case ast.ConditionalExpr:
-		collectGlobalExprDeps(e.Then, out)
-		collectGlobalExprDeps(e.Cond, out)
-		collectGlobalExprDeps(e.Else, out)
+		collectGlobalExprDepsBound(e.Then, out, bound)
+		collectGlobalExprDepsBound(e.Cond, out, bound)
+		collectGlobalExprDepsBound(e.Else, out, bound)
 	}
 }
 

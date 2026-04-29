@@ -45,6 +45,16 @@ jbs> x
 [0, 1, 2, ...]
 ```
 
+REPL globals use the same mutable source-order assignment rules as files:
+
+```jbs
+jbs> x = 1
+jbs> x = 2
+jbs> x += 3
+jbs> x
+5
+```
+
 Namespace imports work the same way:
 
 ```jbs

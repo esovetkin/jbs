@@ -43,9 +43,10 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	bindings := ctx.res.BindingsByName
 
 	for _, item := range items {
+		sourceID := ctx.sourceIdentity(item.Source)
 		if item.Full {
 			if src := bindings[item.Source]; src != nil {
-				if src.Shape == sema.BindingTable && sourceRows[item.Source].VarName == "" && !sourceNeedsAlias(src, aliases) {
+				if src.Shape == sema.BindingTable && sourceRows[sourceID].VarName == "" && !sourceNeedsAlias(src, aliases) {
 					ctx.ensureSourceParameterSet(item.Source)
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
@@ -97,6 +98,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	}
 
 	for _, source := range groupOrder {
+		sourceID := ctx.sourceIdentity(source)
 		src := bindings[source]
 		if src != nil && src.Shape == sema.BindingScalar {
 			subset, rowContext := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
@@ -104,22 +106,32 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 				uses = append(uses, subset)
 			}
 			if rowContext.VarName != "" {
-				sourceRows[source] = rowContext
+				sourceRows[sourceID] = rowContext
 			}
 			continue
 		}
-		subset, rowContext := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], groupedFull[source], sourceRows[source])
+		subset, rowContext := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], groupedFull[source], sourceRows[sourceID])
 		if subset != "" {
 			uses = append(uses, subset)
 		}
 		if rowContext.VarName != "" {
-			sourceRows[source] = rowContext
+			sourceRows[sourceID] = rowContext
 		}
 	}
 	return stepUseResolution{
 		Use:        uses,
 		SourceRows: sourceRows,
 	}
+}
+
+func (ctx *lowerContext) sourceIdentity(source string) string {
+	if ctx == nil || ctx.res == nil {
+		return source
+	}
+	if binding := ctx.res.BindingsByName[source]; binding != nil && binding.PublicName != "" {
+		return binding.PublicName
+	}
+	return source
 }
 
 func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[string]string {

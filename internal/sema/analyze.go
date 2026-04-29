@@ -27,21 +27,23 @@ func AnalyzeWithImports(loadRes *imports.LoadResult, globals map[string]eval.Val
 
 func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *imports.LoadResult, diags *diag.Diagnostics) *Result {
 	res := &Result{
-		Program:         prog,
-		BaseDirByFile:   make(map[string]string),
-		Globals:         GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
-		GlobalVarByName: make(map[string]*GlobalVar),
-		GlobalVarOrder:  make([]string, 0),
-		TopLevelExprs:   make([]TopLevelExprResult, 0),
-		Bindings:        make([]*GlobalBinding, 0),
-		BindingsByName:  make(map[string]*GlobalBinding),
-		Namespaces:      make(map[string]*Namespace),
-		DoBlocks:        make([]ast.DoBlock, 0),
-		Submits:         make([]ast.SubmitBlock, 0),
-		StepOrder:       make([]string, 0),
-		SubmitByName:    make(map[string]*SubmitSpec),
-		StepScopeByName: make(map[string]*StepScopePlan),
-		Analyse:         make([]*AnalyseSpec, 0),
+		Program:               prog,
+		BaseDirByFile:         make(map[string]string),
+		Globals:               GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
+		GlobalVarByName:       make(map[string]*GlobalVar),
+		GlobalVarOrder:        make([]string, 0),
+		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		Bindings:              make([]*GlobalBinding, 0),
+		BindingsByName:        make(map[string]*GlobalBinding),
+		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
+		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
+		Namespaces:            make(map[string]*Namespace),
+		DoBlocks:              make([]ast.DoBlock, 0),
+		Submits:               make([]ast.SubmitBlock, 0),
+		StepOrder:             make([]string, 0),
+		SubmitByName:          make(map[string]*SubmitSpec),
+		StepScopeByName:       make(map[string]*StepScopePlan),
+		Analyse:               make([]*AnalyseSpec, 0),
 	}
 
 	var scope *moduleScope
@@ -61,9 +63,14 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
 		for _, name := range scope.GlobalVarOrder {
 			gv := scope.GlobalVarByName[name]
-			registerModuleExport(scope, name, gv, true)
-			registerModuleBinding(scope, bindingFromGlobalVar(name, gv), true)
+			registerModuleExport(scope, name, gv, !isBuiltinGlobalName(name))
+			if !isBuiltinGlobalName(name) {
+				registerModuleBinding(scope, bindingFromGlobalVar(name, gv), true)
+			}
 		}
+		registerSnapshotBindings(scope, exec.SnapshotBindings)
+		scope.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(exec.ScopeSnapshotsByIndex)
+		scope.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(exec.ScopeSnapshotsByBlock)
 		for _, stmt := range prog.Stmts {
 			switch n := stmt.(type) {
 			case ast.DoBlock:
@@ -101,6 +108,8 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		res.Bindings = append(res.Bindings, next)
 		res.BindingsByName[next.Name] = next
 	}
+	res.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(scope.ScopeSnapshotsByIndex)
+	res.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(scope.ScopeSnapshotsByBlock)
 	res.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
 	res.Submits = append([]ast.SubmitBlock(nil), scope.Submits...)
 	res.StepOrder = append([]string(nil), scope.StepOrder...)
@@ -122,7 +131,8 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		if plan := res.StepScopeByName[submit.Name]; plan != nil {
 			effective = plan.Effective
 		}
-		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, res.BindingsByName, res.Globals.Values, effective, res.Namespaces, res.BaseDirByFile, diags)
+		snap := snapshotForSubmitBlock(res, submit)
+		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, snapshotBindingsWithResult(res, snap), snapshotGlobals(res, snap), effective, snapshotNamespaces(res, snap), res.BaseDirByFile, diags)
 	}
 	validateStepVarReferences(res, diags)
 	for _, block := range scope.AnalyseBlocks {

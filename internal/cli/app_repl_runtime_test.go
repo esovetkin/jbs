@@ -120,6 +120,31 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkAllowsReassignmentAndCompoundAssignment(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "a = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "a = 2")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected reassignment to succeed, diag=%q", second.DiagText)
+	}
+	third, err := commitReplChunk(cwd, second.Source, "a += 3\na")
+	if err != nil {
+		t.Fatalf("unexpected third commit error: %v", err)
+	}
+	if third.HasErrors {
+		t.Fatalf("expected compound assignment to succeed, diag=%q", third.DiagText)
+	}
+	if len(third.ExprOutput) != 1 || third.ExprOutput[0] != "5" {
+		t.Fatalf("unexpected expr output after compound assignment: %#v", third.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	cwd := t.TempDir()
 	first, err := commitReplChunk(cwd, "", "a = 1")

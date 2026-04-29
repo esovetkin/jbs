@@ -57,6 +57,10 @@ func normalizePatternRegex(input string) (string, string, bool) {
 }
 
 func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagnostics) *AnalyseSpec {
+	snap := snapshotForAnalyseBlock(res, block)
+	analyseBindings := snapshotBindings(res, snap)
+	analyseGlobals := snapshotGlobals(res, snap)
+	analyseNamespaces := snapshotNamespaces(res, snap)
 	spec := &AnalyseSpec{
 		Name:        block.StepName,
 		Block:       block,
@@ -94,14 +98,14 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	plan := res.StepScopeByName[block.StepName]
 	spec.StepVars = visibleSpansFromStepPlan(plan, res.BindingsByName)
 
-	env := make(map[string]eval.Value, len(res.Globals.Values)+32)
-	for k, v := range res.Globals.Values {
+	env := make(map[string]eval.Value, len(analyseGlobals)+32)
+	for k, v := range analyseGlobals {
 		env[k] = v
 	}
 	addEnvFromStepPlan(env, plan, res.BindingsByName)
-	analyseImports := resolveAnalyseWithImports(block.WithItems, res, diags)
+	analyseImports := resolveAnalyseWithImports(block.WithItems, analyseBindings, analyseGlobals, analyseNamespaces, diags)
 	for visible, imported := range analyseImports {
-		binding := res.BindingsByName[imported.Source]
+		binding := analyseBindings[imported.Source]
 		if binding == nil {
 			continue
 		}
@@ -141,7 +145,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			warnModeExprInCollections(effectiveExpr, diags)
 			value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 				Context: eval.EvalCtxAnalyseAssign,
-				Names:   scopeNameCatalog(visibleNamesFromEnv(env), res.Namespaces),
+				Names:   scopeNameCatalog(visibleNamesFromEnv(env), analyseNamespaces),
 				Files:   fileAccessForSpan(res.BaseDirByFile, assign.Span),
 			})
 			if value.Kind == eval.KindFunction {
@@ -179,7 +183,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		before := len(diags.Items)
 		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 			Context: eval.EvalCtxAnalyseAssign,
-			Names:   scopeNameCatalog(visibleNamesFromEnv(env), res.Namespaces),
+			Names:   scopeNameCatalog(visibleNamesFromEnv(env), analyseNamespaces),
 			Files:   fileAccessForSpan(res.BaseDirByFile, assign.Span),
 		})
 		if value.Kind != eval.KindString {
@@ -284,11 +288,13 @@ type analyseImportOptions struct {
 	EmitDiagnostics bool
 }
 
-func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseBindingImport {
+func resolveAnalyseImportsCanonical(items []ast.WithItem, bindings map[string]*GlobalBinding, globals map[string]eval.Value, namespaces map[string]*Namespace, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseBindingImport {
 	out := make(map[string]analyseBindingImport)
-	resolver := BindingResolver{Bindings: res.BindingsByName}
-	resolver.Globals = res.Globals.Values
-	resolver.Namespaces = res.Namespaces
+	resolver := BindingResolver{
+		Bindings:   bindings,
+		Globals:    globals,
+		Namespaces: namespaces,
+	}
 	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoAnalyse})
 	if opts.EmitDiagnostics && diags != nil {
 		emitWithIssues(diags, analyseWithDiagPolicy(), issues)
@@ -296,7 +302,7 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 
 	tracker := newImportConflictTracker()
 	for _, item := range expanded {
-		binding := res.BindingsByName[item.Source]
+		binding := bindings[item.Source]
 		if binding == nil {
 			continue
 		}
@@ -344,8 +350,8 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, res *Result, diags *di
 	return out
 }
 
-func resolveAnalyseWithImports(items []ast.WithItem, res *Result, diags *diag.Diagnostics) map[string]analyseBindingImport {
-	return resolveAnalyseImportsCanonical(items, res, diags, analyseImportOptions{
+func resolveAnalyseWithImports(items []ast.WithItem, bindings map[string]*GlobalBinding, globals map[string]eval.Value, namespaces map[string]*Namespace, diags *diag.Diagnostics) map[string]analyseBindingImport {
+	return resolveAnalyseImportsCanonical(items, bindings, globals, namespaces, diags, analyseImportOptions{
 		EmitDiagnostics: true,
 	})
 }

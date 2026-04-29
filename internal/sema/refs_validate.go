@@ -53,6 +53,9 @@ func buildWarningSources(res *Result) []warningSource {
 		if binding == nil {
 			continue
 		}
+		if binding.PublicName != "" && binding.PublicName != binding.Name {
+			continue
+		}
 		order := planutil.SourceVarNames(binding.Order, binding.Vars)
 		if len(order) == 0 {
 			continue
@@ -199,6 +202,12 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			used[source] = make(map[string]bool)
 		}
 		used[source][sourceVar] = true
+		if binding := res.BindingsByName[source]; binding != nil && binding.PublicName != "" && binding.PublicName != source {
+			if _, ok := used[binding.PublicName]; !ok {
+				used[binding.PublicName] = make(map[string]bool)
+			}
+			used[binding.PublicName][sourceVar] = true
+		}
 	}
 
 	markUsedByImports := func(imports []importedVar) {
@@ -370,7 +379,8 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		}
 		// Analyse usage accounting must follow canonical analyse import
 		// resolution and only mark semantically valid imports.
-		imports := resolveAnalyseImportsCanonical(block.WithItems, res, nil, analyseImportOptions{
+		snap := snapshotForAnalyseBlock(res, block)
+		imports := resolveAnalyseImportsCanonical(block.WithItems, snapshotBindings(res, snap), snapshotGlobals(res, snap), snapshotNamespaces(res, snap), nil, analyseImportOptions{
 			EmitDiagnostics: false,
 		})
 		for _, origin := range imports {

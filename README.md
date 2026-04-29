@@ -97,7 +97,7 @@ A JBS program uses six canonical top-level statement forms:
 - `submit`
 - `analyse`
 
-Top-level assignments define reusable globals, including explicit table values and function values. They are single-assignment bindings: top-level code uses plain `=`, defines each name once, and introduces a new name instead of rebinding with `+=` or a later `=`. `do` and `submit` import visible data explicitly through `with`. `analyse` builds result tables from parsed files. Legacy top-level `let` and `param` blocks are no longer part of the language.
+Top-level assignments define reusable globals, including explicit table values and function values. They execute in source order and are mutable: `name = expr` creates or overwrites a global, and `+=`, `-=`, `*=`, `/=`, and `%=` update the current value. A global can only read values that are already visible at that point. `do`, `submit`, and `analyse` import visible data explicitly through `with` and use the global snapshot from where the block appears. Legacy top-level `let` and `param` blocks are no longer part of the language.
 
 Top-level assignments define global variables. Use `table(...)`, `zip(...)`, `product(...)`, and `select(...)` to build parameter-space objects and import them in steps.
 
@@ -106,8 +106,8 @@ x = (1, 2)
 model = ("a", "b", "c")
 cases = product(table(model = model), table(x = x))
 seed0 = 1
+seed0 += 1
 seed1 = seed0 + 1
-seed2 = seed1 + 1
 ```
 
 Use `table(...)` for one table, `zip(...)` for row-wise merge, `product(...)` for Cartesian product, and `select(...)` for projection. Legacy `comb(...)` still works during migration, but it emits a deprecation warning.

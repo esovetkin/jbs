@@ -22,10 +22,20 @@ Rules:
 - local assignments inside the body are local to that function and shadow captured or global names
 - local assignments may still use compound operators; that mutability is function-local, not top-level
 - nested functions capture outer locals lexically
+- top-level globals are captured live, so a function sees later reassignment of a global it reads
+- a default such as `function(x = x) { ... }` captures that selected value at function definition time
+- defaults that refer to earlier parameters, such as `function(a, b = a + 1)`, are evaluated at call time
 
 Examples:
 
 ```jbs
+x = 1
+live = function() { x }
+snap = function(x = x) { x }
+x = 2
+live() == 2
+snap() == 1
+
 make_adder = function(delta) {
         function(x) {
                 x + delta

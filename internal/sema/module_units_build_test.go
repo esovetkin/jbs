@@ -167,6 +167,11 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 					File: ref.Label,
 					Stmts: []ast.Stmt{
 						ast.GlobalAssign{
+							Name: "y",
+							Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
+							Span: span,
+						},
+						ast.GlobalAssign{
 							Name: "x",
 							Expr: ast.BinaryExpr{
 								Left:  ast.IdentExpr{Name: "y", Span: span},
@@ -174,11 +179,6 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 								Right: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
 								Span:  span,
 							},
-							Span: span,
-						},
-						ast.GlobalAssign{
-							Name: "y",
-							Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span},
 							Span: span,
 						},
 					},
@@ -232,14 +232,14 @@ func TestCompileModuleRejectsSelectiveImportLocalCollision(t *testing.T) {
 
 	diags := &diag.Diagnostics{}
 	unit := compileModule(ref, loadRes, nil, diags, map[string]*moduleScope{}, map[string]bool{})
-	if countDiagCode(diags, "E306") != 1 {
-		t.Fatalf("expected one duplicate top-level binding diagnostic, got %d: %s", countDiagCode(diags, "E306"), diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if !eval.Equal(unit.Env["x"], eval.Int(1)) {
-		t.Fatalf("expected first projected import binding to remain visible, got %#v", unit.Env["x"])
+	if !eval.Equal(unit.Env["x"], eval.Int(2)) {
+		t.Fatalf("expected local assignment to overwrite projected import, got %#v", unit.Env["x"])
 	}
-	if unit.LocalBindingsByName["x"] == nil || !eval.Equal(unit.LocalBindingsByName["x"].Value, eval.Int(1)) {
-		t.Fatalf("expected imported binding x to survive local collision, got %#v", unit.LocalBindingsByName["x"])
+	if unit.LocalBindingsByName["x"] == nil || !eval.Equal(unit.LocalBindingsByName["x"].Value, eval.Int(2)) {
+		t.Fatalf("expected final local binding x=2, got %#v", unit.LocalBindingsByName["x"])
 	}
 }
 

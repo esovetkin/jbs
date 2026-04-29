@@ -79,7 +79,7 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	got := resolveAnalyseImportsCanonical(items, res, diags, analyseImportOptions{EmitDiagnostics: true})
+	got := resolveAnalyseImportsCanonical(items, res.BindingsByName, res.Globals.Values, res.Namespaces, diags, analyseImportOptions{EmitDiagnostics: true})
 	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
 		t.Fatalf("expected pattern import, got %#v", got["pattern"])
 	}
