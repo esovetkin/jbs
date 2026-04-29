@@ -1,11 +1,13 @@
 package lower
 
 import (
+	"strings"
 	"testing"
 
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/parser"
 	"jbs/internal/sema"
 )
 
@@ -182,5 +184,170 @@ func TestToJUBEYAMLRegroupsInheritedRowsByProjection(t *testing.T) {
 	}
 	if got, ok := step1Set.Parameter[1].Value.(SingleQuoted); !ok || string(got) != `{"0":"0,1","12":"12,13","2":"2,3","14":"14,15","4":"4,5","16":"16,17","6":"6,7","18":"18,19","8":"8,9","20":"20,21","10":"10,11","22":"22,23"}["${_ji__step1__p0__b_c}"]` {
 		t.Fatalf("unexpected inherited rows mapping: %#v", step1Set.Parameter[1].Value)
+	}
+}
+
+func TestToJUBEYAMLReboundTableDoesNotInheritOldRows(t *testing.T) {
+	src := `
+cases = t(x = range(5)) + t(y = ["a","b","c"])
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases
+{
+        echo $x $a
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !stepParameterSetNameContains(doc, "step0", "_jr__step0") {
+		t.Fatalf("expected step0 to publish a row helper, got %#v", doc.ParameterSet)
+	}
+	step1 := findLoweredStep(t, doc, "step1")
+	if !stepUseContains(step1.Use, "__cases") {
+		t.Fatalf("expected step1 to use the rebound cases snapshot directly, got %#v", step1.Use)
+	}
+	if stepParameterSetValueContains(doc, "step1", "_jr__step0") {
+		t.Fatalf("step1 must not inherit row context from the old cases binding: %#v", doc.ParameterSet)
+	}
+}
+
+func TestToJUBEYAMLSameBindingVersionKeepsInheritedRows(t *testing.T) {
+	src := `
+cases = t(x = (1, 1, 2), y = ("a", "b", "c"))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+do step1
+        after step0
+        with cases[y]
+{
+        echo $x $y
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !stepParameterSetValueContains(doc, "step1", "_jr__step0") {
+		t.Fatalf("expected step1 to inherit row context from unchanged cases binding, got %#v", doc.ParameterSet)
+	}
+}
+
+func TestToJUBEYAMLDifferentBindingVersionsDoNotConflict(t *testing.T) {
+	src := `
+cases = t(x = (1, 2))
+
+do old
+        with cases[x]
+{
+        echo $x
+}
+
+cases = t(a = ("a", "b"))
+
+do new
+        with cases[a]
+{
+        echo $a
+}
+
+do final
+        after old, new
+{
+        echo final
+}
+`
+	_, diags := lowerSourceForTest(t, src)
+	if got := countLowerDiag(diags, diag.CodeE232); got != 0 {
+		t.Fatalf("did not expect row-context conflict for different cases versions, got %d: %s", got, diags.String())
+	}
+}
+
+func lowerSourceForTest(t *testing.T, src string) (Document, *diag.Diagnostics) {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("lower.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := sema.Analyze(prog, BuiltinGlobalValues(), diags)
+	doc := ToJUBEYAML(res, diags)
+	return doc, diags
+}
+
+func findLoweredStep(t *testing.T, doc Document, name string) Step {
+	t.Helper()
+	for _, step := range doc.Step {
+		if step.Name == name {
+			return step
+		}
+	}
+	t.Fatalf("missing lowered step %q in %#v", name, doc.Step)
+	return Step{}
+}
+
+func stepUseContains(use []interface{}, needle string) bool {
+	for _, item := range use {
+		value, ok := item.(string)
+		if ok && strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func stepParameterSetNameContains(doc Document, stepName string, needle string) bool {
+	for _, ps := range doc.ParameterSet {
+		if ps.Meta.Step != stepName {
+			continue
+		}
+		for _, param := range ps.Parameter {
+			if strings.Contains(param.Name, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stepParameterSetValueContains(doc Document, stepName string, needle string) bool {
+	for _, ps := range doc.ParameterSet {
+		if ps.Meta.Step != stepName {
+			continue
+		}
+		for _, param := range ps.Parameter {
+			if strings.Contains(parameterValueText(param.Value), needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parameterValueText(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case SingleQuoted:
+		return string(v)
+	case Literal:
+		return string(v)
+	default:
+		return ""
 	}
 }

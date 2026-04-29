@@ -35,6 +35,7 @@ type GlobalBinding struct {
 	Span            diag.Span
 	DependsOn       []string
 	SyntheticGlobal bool
+	VersionID       string
 }
 
 func (b *GlobalBinding) Supports(ctx ImportContext) bool {
@@ -79,6 +80,7 @@ type GlobalVar struct {
 	Vars      map[string][]eval.Value
 	Namespace string
 	DependsOn []string
+	VersionID string
 }
 
 type Namespace struct {

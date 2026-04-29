@@ -143,12 +143,13 @@ func globalVarFromImportedBinding(name string, binding *GlobalBinding, span diag
 		}
 	}
 	return &GlobalVar{
-		Name:  name,
-		Value: binding.Value,
-		Mode:  mode,
-		Span:  span,
-		Order: order,
-		Vars:  vars,
+		Name:      name,
+		Value:     binding.Value,
+		Mode:      mode,
+		Span:      span,
+		Order:     order,
+		Vars:      vars,
+		VersionID: binding.VersionID,
 	}
 }
 
@@ -162,12 +163,13 @@ func globalVarFromImportedGlobal(name string, source *GlobalVar, span diag.Span)
 		mode = source.Mode
 	}
 	return &GlobalVar{
-		Name:  name,
-		Value: source.Value,
-		Mode:  mode,
-		Span:  span,
-		Order: order,
-		Vars:  vars,
+		Name:      name,
+		Value:     source.Value,
+		Mode:      mode,
+		Span:      span,
+		Order:     order,
+		Vars:      vars,
+		VersionID: source.VersionID,
 	}
 }
 
@@ -223,6 +225,7 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 		Span:            gv.Span,
 		DependsOn:       append([]string(nil), gv.DependsOn...),
 		SyntheticGlobal: true,
+		VersionID:       gv.VersionID,
 	}
 }
 

@@ -22,8 +22,9 @@ func TestPrefixModuleScope(t *testing.T) {
 		Rows:      []eval.Row{{Values: map[string]eval.Cell{"value": {Value: eval.Int(1), Origin: span}}}},
 		Span:      span,
 		DependsOn: []string{"dep", ""},
+		VersionID: "v1",
 	}
-	exported := &GlobalVar{Name: "value", Value: eval.Int(1), Span: span, Order: []string{"value"}, Vars: map[string][]eval.Value{"value": {eval.Int(1)}}}
+	exported := &GlobalVar{Name: "value", Value: eval.Int(1), Span: span, Order: []string{"value"}, Vars: map[string][]eval.Value{"value": {eval.Int(1)}}, VersionID: "v1"}
 	original.LocalExportsByName["value"] = exported
 	original.ExportsByName["value"] = exported
 	original.Bindings = []*GlobalBinding{binding}
@@ -43,6 +44,9 @@ func TestPrefixModuleScope(t *testing.T) {
 	}
 	if !reflect.DeepEqual(prefixed.Bindings[0].DependsOn, []string{"mod.dep"}) {
 		t.Fatalf("expected prefixed dependency names, got %#v", prefixed.Bindings[0].DependsOn)
+	}
+	if prefixed.Bindings[0].PublicName != "mod.value" || prefixed.Bindings[0].VersionID != "v1" {
+		t.Fatalf("expected public name prefix and version preservation, got %#v", prefixed.Bindings[0])
 	}
 	if prefixed.Namespaces["mod"] == nil || prefixed.Namespaces["mod.inner"] == nil {
 		t.Fatalf("expected prefixed namespaces, got %#v", prefixed.Namespaces)

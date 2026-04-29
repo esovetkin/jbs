@@ -16,7 +16,7 @@ func newAnalyseLowerContext(res *sema.Result) *lowerContext {
 		names:                     map[string]struct{}{},
 		sourceParameterSetEmitted: map[string]struct{}{},
 		subsetNames:               map[subsetKey]subsetInfo{},
-		stepSourceRows:            map[string]map[string]sourceRowContext{},
+		stepSourceRows:            map[string]map[sourceRowKey]sourceRowContext{},
 		patternSetIndexByGroup:    map[string]int{},
 		analyserNames:             map[string]string{},
 	}

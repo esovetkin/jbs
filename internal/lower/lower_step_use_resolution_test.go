@@ -30,7 +30,7 @@ func newStepUseContext(res *sema.Result) *lowerContext {
 		names:                     map[string]struct{}{},
 		sourceParameterSetEmitted: map[string]struct{}{},
 		subsetNames:               map[subsetKey]subsetInfo{},
-		stepSourceRows:            map[string]map[string]sourceRowContext{},
+		stepSourceRows:            map[string]map[sourceRowKey]sourceRowContext{},
 	}
 }
 
@@ -252,25 +252,31 @@ func TestInheritedRowsForStepAndStepSpanFallback(t *testing.T) {
 		DoBlocks: []ast.DoBlock{{Name: "dep1", Span: depSpan1}, {Name: "run", Span: runSpan}},
 		Submits:  []ast.SubmitBlock{{Name: "dep2", Span: depSpan2}},
 	})
-	ctx.stepSourceRows = map[string]map[string]sourceRowContext{
+	sameKey := sourceRowKey{Public: "same", Version: "same-v1"}
+	conflictKey := sourceRowKey{Public: "conflict", Version: "conflict-v1"}
+	emptyKey := sourceRowKey{Public: "empty", Version: "empty-v1"}
+	ctx.stepSourceRows = map[string]map[sourceRowKey]sourceRowContext{
 		"dep1": {
-			"same":     {VarName: "rows_same", Groups: []string{"0,1"}},
-			"conflict": {VarName: "rows_a", Groups: []string{"0,1"}},
+			sameKey:     {VarName: "rows_same", Groups: []string{"0,1"}},
+			conflictKey: {VarName: "rows_a", Groups: []string{"0,1"}},
 		},
 		"dep2": {
-			"same":     {VarName: "rows_same", Groups: []string{"0,1"}},
-			"conflict": {VarName: "rows_b", Groups: []string{"0,1"}},
-			"empty":    {},
+			sameKey:     {VarName: "rows_same", Groups: []string{"0,1"}},
+			conflictKey: {VarName: "rows_b", Groups: []string{"0,1"}},
+			emptyKey:    {},
 		},
 	}
 
 	got := ctx.inheritedRowsForStep("run", []string{"dep1", "dep2"})
-	want := map[string]sourceRowContext{"same": {VarName: "rows_same", Groups: []string{"0,1"}}}
+	want := map[sourceRowKey]sourceRowContext{sameKey: {VarName: "rows_same", Groups: []string{"0,1"}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected inherited row map: got=%#v want=%#v", got, want)
 	}
 	if countLowerDiag(ctx.diags, diag.CodeE232) != 1 {
 		t.Fatalf("expected one E232 for conflicting inherited rows, got %d: %s", countLowerDiag(ctx.diags, diag.CodeE232), ctx.diags.String())
+	}
+	if !strings.Contains(ctx.diags.String(), "source 'conflict'") {
+		t.Fatalf("expected conflict diagnostic to use public source name, got: %s", ctx.diags.String())
 	}
 	if ctx.stepSpan("run") != runSpan || ctx.stepSpan("dep2") != depSpan2 {
 		t.Fatalf("expected stepSpan to find do and submit block spans")
@@ -281,14 +287,15 @@ func TestInheritedRowsForStepAndStepSpanFallback(t *testing.T) {
 }
 
 func TestCloneSourceRowContextMap(t *testing.T) {
-	src := map[string]sourceRowContext{"a": {VarName: "rows_a", Groups: []string{"0,1"}}}
+	key := sourceRowKey{Public: "a", Version: "a-v1"}
+	src := map[sourceRowKey]sourceRowContext{key: {VarName: "rows_a", Groups: []string{"0,1"}}}
 	clone := cloneSourceRowContextMap(src)
 	if !reflect.DeepEqual(clone, src) {
 		t.Fatalf("expected cloneSourceRowContextMap to copy content, got %#v want %#v", clone, src)
 	}
-	clone["a"] = sourceRowContext{VarName: "rows_b", Groups: []string{"2,3"}}
-	clone["b"] = sourceRowContext{VarName: "rows_c", Groups: []string{"4,5"}}
-	if src["a"].VarName != "rows_a" || len(src) != 1 {
+	clone[key] = sourceRowContext{VarName: "rows_b", Groups: []string{"2,3"}}
+	clone[sourceRowKey{Public: "b", Version: "b-v1"}] = sourceRowContext{VarName: "rows_c", Groups: []string{"4,5"}}
+	if src[key].VarName != "rows_a" || len(src) != 1 {
 		t.Fatalf("expected cloneSourceRowContextMap to produce an independent map, src=%#v clone=%#v", src, clone)
 	}
 	if got := cloneSourceRowContextMap(nil); got != nil {

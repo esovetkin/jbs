@@ -390,8 +390,50 @@ do second
 	if firstBinding.Name == secondBinding.Name || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
 		t.Fatalf("expected distinct snapshot bindings for public cases, first=%#v second=%#v", firstBinding, secondBinding)
 	}
+	if firstBinding.VersionID == "" || secondBinding.VersionID == "" || firstBinding.VersionID == secondBinding.VersionID {
+		t.Fatalf("expected rebound snapshot bindings to have different versions, first=%#v second=%#v", firstBinding, secondBinding)
+	}
 	if !eval.Equal(firstBinding.Vars["x"][0], eval.Int(1)) || !eval.Equal(secondBinding.Vars["x"][0], eval.Int(2)) {
 		t.Fatalf("unexpected snapshot values: first=%#v second=%#v", firstBinding.Vars["x"], secondBinding.Vars["x"])
+	}
+}
+
+func TestAnalyzeDoBlocksPreserveBindingVersionAcrossSnapshots(t *testing.T) {
+	src := `
+cases = table(x = (1))
+do first
+        with cases
+{
+        echo ${x}
+}
+do second
+        with cases
+{
+        echo ${x}
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("same_snapshot.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := Analyze(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("analysis failed: %s", diags.String())
+	}
+
+	first := res.StepScopeByName["first"].Effective["x"]
+	second := res.StepScopeByName["second"].Effective["x"]
+	firstBinding := res.BindingsByName[first.Source]
+	secondBinding := res.BindingsByName[second.Source]
+	if firstBinding == nil || secondBinding == nil {
+		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	if firstBinding.Name == secondBinding.Name {
+		t.Fatalf("expected distinct snapshot parameter-set names, got %#v and %#v", firstBinding, secondBinding)
+	}
+	if firstBinding.VersionID == "" || firstBinding.VersionID != secondBinding.VersionID {
+		t.Fatalf("expected unchanged binding snapshots to share a version, first=%#v second=%#v", firstBinding, secondBinding)
 	}
 }
 

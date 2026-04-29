@@ -396,6 +396,7 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
 		Order:     orderNames,
 		Vars:      vars,
 		DependsOn: e.expandGlobalDeps(globalExprDependencies(effective, assign.Name), assign.Name),
+		VersionID: bindingVersionID(step),
 	}
 	if !e.acceptGlobalVar(gv) {
 		return
@@ -411,6 +412,7 @@ func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
 	if gv == nil || !e.acceptGlobalVar(gv) {
 		return
 	}
+	gv.VersionID = bindingVersionID(step)
 	gv.DependsOn = []string{step.Import.SourceName}
 	e.publishGlobalVar(gv)
 }
@@ -531,6 +533,14 @@ func (e *globalSeqEngine) snapshotBindingName(public string, index int) string {
 		}
 		name = fmt.Sprintf("%s_%d", base, i)
 	}
+}
+
+func bindingVersionID(step globalInputStep) string {
+	span := globalStepSpan(step)
+	if !span.IsZero() {
+		return fmt.Sprintf("%s:%d:%d", span.File, span.Start.Offset, span.End.Offset)
+	}
+	return fmt.Sprintf("%s:%d:%s", step.Kind, step.ID, step.Name)
 }
 
 func sanitizeSnapshotName(name string) string {

@@ -448,6 +448,7 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		prefixedName := prefix + "." + binding.Name
 		next := cloneBinding(binding)
 		next.Name = prefixedName
+		next.PublicName = prefix + "." + bindingDisplayName(binding)
 		next.DependsOn = prefixNames(prefix, binding.DependsOn)
 		out.Bindings = append(out.Bindings, next)
 		out.BindingsByName[prefixedName] = next

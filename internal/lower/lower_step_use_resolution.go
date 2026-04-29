@@ -15,7 +15,7 @@ import (
 
 type stepUseResolution struct {
 	Use        []interface{}
-	SourceRows map[string]sourceRowContext
+	SourceRows map[sourceRowKey]sourceRowContext
 }
 
 type subsetVarSpec struct {
@@ -43,10 +43,10 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	bindings := ctx.res.BindingsByName
 
 	for _, item := range items {
-		sourceID := ctx.sourceIdentity(item.Source)
+		sourceKey := ctx.sourceRowKeyForSource(item.Source)
 		if item.Full {
 			if src := bindings[item.Source]; src != nil {
-				if src.Shape == sema.BindingTable && sourceRows[sourceID].VarName == "" && !sourceNeedsAlias(src, aliases) {
+				if src.Shape == sema.BindingTable && sourceRows[sourceKey].VarName == "" && !sourceNeedsAlias(src, aliases) {
 					ctx.ensureSourceParameterSet(item.Source)
 					if _, seen := seenDirect[item.Source]; !seen {
 						seenDirect[item.Source] = struct{}{}
@@ -98,7 +98,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	}
 
 	for _, source := range groupOrder {
-		sourceID := ctx.sourceIdentity(source)
+		sourceKey := ctx.sourceRowKeyForSource(source)
 		src := bindings[source]
 		if src != nil && src.Shape == sema.BindingScalar {
 			subset, rowContext := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
@@ -106,16 +106,16 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 				uses = append(uses, subset)
 			}
 			if rowContext.VarName != "" {
-				sourceRows[sourceID] = rowContext
+				sourceRows[sourceKey] = rowContext
 			}
 			continue
 		}
-		subset, rowContext := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], groupedFull[source], sourceRows[sourceID])
+		subset, rowContext := ctx.ensureSubsetParameterSetForStep(stepName, source, grouped[source], groupedFull[source], sourceRows[sourceKey])
 		if subset != "" {
 			uses = append(uses, subset)
 		}
 		if rowContext.VarName != "" {
-			sourceRows[sourceID] = rowContext
+			sourceRows[sourceKey] = rowContext
 		}
 	}
 	return stepUseResolution{
@@ -124,14 +124,33 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	}
 }
 
-func (ctx *lowerContext) sourceIdentity(source string) string {
+func (ctx *lowerContext) sourceRowKeyForSource(source string) sourceRowKey {
 	if ctx == nil || ctx.res == nil {
-		return source
+		return sourceRowKey{Public: source, Version: source}
 	}
-	if binding := ctx.res.BindingsByName[source]; binding != nil && binding.PublicName != "" {
-		return binding.PublicName
+	binding := ctx.res.BindingsByName[source]
+	if binding == nil {
+		return sourceRowKey{Public: source, Version: source}
 	}
-	return source
+	public := binding.PublicName
+	if public == "" {
+		public = binding.Name
+	}
+	version := binding.VersionID
+	if version == "" {
+		version = fallbackBindingVersionID(binding)
+	}
+	return sourceRowKey{Public: public, Version: version}
+}
+
+func fallbackBindingVersionID(binding *sema.GlobalBinding) string {
+	if binding == nil {
+		return ""
+	}
+	if !binding.Span.IsZero() {
+		return fmt.Sprintf("%s:%d:%d", binding.Span.File, binding.Span.Start.Offset, binding.Span.End.Offset)
+	}
+	return binding.Name
 }
 
 func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[string]string {
@@ -181,36 +200,36 @@ func sourceNeedsAlias(src *sema.GlobalBinding, aliases map[string]string) bool {
 	return false
 }
 
-func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[string]sourceRowContext {
-	out := make(map[string]sourceRowContext)
-	conflicts := make(map[string]struct{})
+func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[sourceRowKey]sourceRowContext {
+	out := make(map[sourceRowKey]sourceRowContext)
+	conflicts := make(map[sourceRowKey]struct{})
 	for _, dep := range inheritedSteps {
 		depRows := ctx.stepSourceRows[dep]
 		if len(depRows) == 0 {
 			continue
 		}
-		for source, rowContext := range depRows {
+		for sourceKey, rowContext := range depRows {
 			if rowContext.VarName == "" {
 				continue
 			}
-			if prev, exists := out[source]; exists && !equalSourceRowContext(prev, rowContext) {
-				if _, reported := conflicts[source]; !reported {
+			if prev, exists := out[sourceKey]; exists && !equalSourceRowContext(prev, rowContext) {
+				if _, reported := conflicts[sourceKey]; !reported {
 					ctx.diags.AddError(
 						diag.CodeE232,
-						fmt.Sprintf("conflicting inherited row context for source '%s' in step '%s'", source, stepName),
+						fmt.Sprintf("conflicting inherited row context for source '%s' in step '%s'", sourceKey.display(), stepName),
 						ctx.stepSpan(stepName),
 						"ensure dependencies constrain the same source consistently",
 						diag.RelatedSpan{Message: fmt.Sprintf("dependency '%s'", dep), Span: ctx.stepSpan(dep)},
 					)
 				}
-				conflicts[source] = struct{}{}
-				delete(out, source)
+				conflicts[sourceKey] = struct{}{}
+				delete(out, sourceKey)
 				continue
 			}
-			if _, bad := conflicts[source]; bad {
+			if _, bad := conflicts[sourceKey]; bad {
 				continue
 			}
-			out[source] = cloneSourceRowContext(rowContext)
+			out[sourceKey] = cloneSourceRowContext(rowContext)
 		}
 	}
 	return out
@@ -241,11 +260,11 @@ func cloneSourceRowContext(in sourceRowContext) sourceRowContext {
 	}
 }
 
-func cloneSourceRowContextMap(src map[string]sourceRowContext) map[string]sourceRowContext {
+func cloneSourceRowContextMap(src map[sourceRowKey]sourceRowContext) map[sourceRowKey]sourceRowContext {
 	if src == nil {
 		return nil
 	}
-	out := make(map[string]sourceRowContext, len(src))
+	out := make(map[sourceRowKey]sourceRowContext, len(src))
 	for key, value := range src {
 		out[key] = cloneSourceRowContext(value)
 	}

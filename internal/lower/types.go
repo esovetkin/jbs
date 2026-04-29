@@ -207,6 +207,18 @@ type sourceRowContext struct {
 	Groups  []string
 }
 
+type sourceRowKey struct {
+	Public  string
+	Version string
+}
+
+func (k sourceRowKey) display() string {
+	if k.Public != "" {
+		return k.Public
+	}
+	return k.Version
+}
+
 type subsetInfo struct {
 	Name       string
 	RowContext sourceRowContext
@@ -219,7 +231,7 @@ type lowerContext struct {
 	names                     map[string]struct{}
 	sourceParameterSetEmitted map[string]struct{}
 	subsetNames               map[subsetKey]subsetInfo
-	stepSourceRows            map[string]map[string]sourceRowContext
+	stepSourceRows            map[string]map[sourceRowKey]sourceRowContext
 	patternSetIndexByGroup    map[string]int
 	analyserNames             map[string]string
 }
