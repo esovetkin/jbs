@@ -128,29 +128,8 @@ func (ctx *lowerContext) sourceRowKeyForSource(source string) sourceRowKey {
 	if ctx == nil || ctx.res == nil {
 		return sourceRowKey{Public: source, Version: source}
 	}
-	binding := ctx.res.BindingsByName[source]
-	if binding == nil {
-		return sourceRowKey{Public: source, Version: source}
-	}
-	public := binding.PublicName
-	if public == "" {
-		public = binding.Name
-	}
-	version := binding.VersionID
-	if version == "" {
-		version = fallbackBindingVersionID(binding)
-	}
-	return sourceRowKey{Public: public, Version: version}
-}
-
-func fallbackBindingVersionID(binding *sema.GlobalBinding) string {
-	if binding == nil {
-		return ""
-	}
-	if !binding.Span.IsZero() {
-		return fmt.Sprintf("%s:%d:%d", binding.Span.File, binding.Span.Start.Offset, binding.Span.End.Offset)
-	}
-	return binding.Name
+	key := sema.BindingVersionKeyForSource(ctx.res.BindingsByName, source)
+	return sourceRowKey{Public: key.Public, Version: key.Version}
 }
 
 func (ctx *lowerContext) stepAliasMap(stepName string, forSubmit bool) map[string]string {

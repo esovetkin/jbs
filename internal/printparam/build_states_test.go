@@ -7,15 +7,18 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+	"jbs/internal/parser"
 	"jbs/internal/sema"
 )
 
 func TestInheritParentStatesConflicts(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	diags := &diag.Diagnostics{}
+	p := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
+	q := sema.BindingVersionKey{Public: "q", Version: "q:v1"}
 
-	a := wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[string][]int{"p": {0}}}
-	b := wpState{Values: map[string]eval.Value{"x": eval.Int(2)}, SourceRows: map[string][]int{"q": {1}}}
+	a := wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b := wpState{Values: map[string]eval.Value{"x": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{q: {1}}}
 	_, ok := mergeParentStates(a, b, span, diags)
 	if ok {
 		t.Fatalf("expected value conflict merge to fail")
@@ -25,14 +28,26 @@ func TestInheritParentStatesConflicts(t *testing.T) {
 	}
 
 	diags = &diag.Diagnostics{}
-	a = wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[string][]int{"p": {0}}}
-	b = wpState{Values: map[string]eval.Value{"y": eval.Int(2)}, SourceRows: map[string][]int{"p": {1}}}
+	a = wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b = wpState{Values: map[string]eval.Value{"y": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{p: {1}}}
 	_, ok = mergeParentStates(a, b, span, diags)
 	if ok {
 		t.Fatalf("expected source-row conflict merge to fail")
 	}
 	if countBuildDiag(diags, diag.CodeE501) != 1 {
 		t.Fatalf("expected one E501, got %d: %s", countBuildDiag(diags, diag.CodeE501), diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	p2 := sema.BindingVersionKey{Public: "p", Version: "p:v2"}
+	a = wpState{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b = wpState{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p2: {1}}}
+	merged, ok := mergeParentStates(a, b, span, diags)
+	if !ok {
+		t.Fatalf("same public source with different versions should not conflict: %s", diags.String())
+	}
+	if len(merged.SourceRows) != 2 {
+		t.Fatalf("expected both row contexts to survive, got %#v", merged.SourceRows)
 	}
 }
 
@@ -55,7 +70,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 	}
 
 	state := emptyState()
-	state.SourceRows["p"] = []int{1, 5}
+	state.SourceRows[sema.BindingVersionKeyForSource(sources, "p")] = []int{1, 5}
 	choices := buildChoices(state, sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
 	if len(choices) != 1 {
 		t.Fatalf("expected invalid row indices to be skipped, got %#v", choices)
@@ -92,7 +107,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
 	sources := map[string]*sema.GlobalBinding{"p0": hiddenProjectionBinding()}
 	state := emptyState()
-	state.SourceRows["p0"] = []int{0, 1, 12, 13}
+	state.SourceRows[sema.BindingVersionKeyForSource(sources, "p0")] = []int{0, 1, 12, 13}
 
 	choices := buildChoices(state, sourceGroup{
 		Source: "p0",
@@ -137,7 +152,7 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 		t.Fatalf("expected nil expansion for empty parent states, got %#v", got)
 	}
 
-	parent := wpState{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[string][]int{}}
+	parent := wpState{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}}
 	groups := []sourceGroup{{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}}
 	got := expandStep([]wpState{parent}, groups, sources, span, diags)
 	if len(got) != 1 {
@@ -152,7 +167,7 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 
 	diags = &diag.Diagnostics{}
 	merged, ok := mergeWithChoice(
-		wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[string][]int{}},
+		wpState{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}},
 		sourceGroup{Source: "p", DisplaySource: "p"},
 		sourceChoice{Rows: []int{0}, Values: map[string]eval.Value{"x": eval.Int(2)}},
 		span,
@@ -322,6 +337,152 @@ func TestBuildEndToEndRegroupsHiddenDimensions(t *testing.T) {
 	}
 }
 
+func TestBuildReboundTableDoesNotInheritOldRows(t *testing.T) {
+	src := `
+cases = t(x = range(5)) * t(y = ["a","b","c"])
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases
+{
+        echo $x $y $a
+}
+`
+	res := analyzePrintParamSource(t, src)
+	first := res.StepScopeByName["step0"].Effective["x"]
+	second := res.StepScopeByName["step1"].Effective["a"]
+	firstBinding := res.BindingsByName[first.Source]
+	secondBinding := res.BindingsByName[second.Source]
+	if firstBinding == nil || secondBinding == nil {
+		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	if firstBinding.Name == secondBinding.Name || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
+		t.Fatalf("expected distinct snapshot bindings for public cases, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	if firstBinding.VersionID == "" || secondBinding.VersionID == "" || firstBinding.VersionID == secondBinding.VersionID {
+		t.Fatalf("expected rebound cases bindings to have different versions, first=%#v second=%#v", firstBinding, secondBinding)
+	}
+
+	table := buildPrintParamTableFromResult(t, res)
+	if got := countRowsForStep(table.Rows, "step0"); got != 5 {
+		t.Fatalf("expected 5 step0 rows, got %d", got)
+	}
+	if got := countRowsForStep(table.Rows, "step1"); got != 15 {
+		t.Fatalf("expected 15 step1 rows, got %d", got)
+	}
+	for _, x := range []string{"0", "1", "2", "3", "4"} {
+		for _, a := range []string{"a", "b", "c"} {
+			if got := countVisiblePair(table.Rows, "step1", "cases.x", x, "cases.a", a); got != 1 {
+				t.Fatalf("expected one step1 row for x=%s a=%s, got %d", x, a, got)
+			}
+		}
+	}
+}
+
+func TestBuildDistinctPublicNameControlStillExpandsProduct(t *testing.T) {
+	src := `
+cases = t(x = range(5)) * t(y = ["a","b","c"])
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases0 = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases0
+{
+        echo $x $a
+}
+`
+	table := buildPrintParamTableFromSource(t, src)
+	if got := countRowsForStep(table.Rows, "step1"); got != 15 {
+		t.Fatalf("expected 15 step1 rows, got %d", got)
+	}
+	for _, x := range []string{"0", "1", "2", "3", "4"} {
+		for _, a := range []string{"a", "b", "c"} {
+			if got := countVisiblePair(table.Rows, "step1", "cases.x", x, "cases0.a", a); got != 1 {
+				t.Fatalf("expected one step1 row for x=%s a=%s, got %d", x, a, got)
+			}
+		}
+	}
+}
+
+func TestBuildSameBindingVersionKeepsInheritedRows(t *testing.T) {
+	src := `
+cases = table(x = (0, 0, 1), y = ("a", "b", "c"))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+do step1
+        after step0
+        with cases[y]
+{
+        echo $x $y
+}
+`
+	table := buildPrintParamTableFromSource(t, src)
+	if got := countRowsForStep(table.Rows, "step0"); got != 2 {
+		t.Fatalf("expected grouped step0 rows, got %d", got)
+	}
+	if got := countRowsForStep(table.Rows, "step1"); got != 3 {
+		t.Fatalf("expected narrowed step1 rows, got %d", got)
+	}
+	if got := countVisiblePair(table.Rows, "step1", "cases.x", "0", "cases.y", "a"); got != 1 {
+		t.Fatalf("expected x=0 y=a once, got %d", got)
+	}
+	if got := countVisiblePair(table.Rows, "step1", "cases.x", "0", "cases.y", "b"); got != 1 {
+		t.Fatalf("expected x=0 y=b once, got %d", got)
+	}
+	if got := countVisiblePair(table.Rows, "step1", "cases.x", "1", "cases.y", "c"); got != 1 {
+		t.Fatalf("expected x=1 y=c once, got %d", got)
+	}
+}
+
+func analyzePrintParamSource(t *testing.T, src string) *sema.Result {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("printparam_rebound.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := sema.Analyze(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("analysis failed: %s", diags.String())
+	}
+	return res
+}
+
+func buildPrintParamTableFromSource(t *testing.T, src string) Table {
+	t.Helper()
+	return buildPrintParamTableFromResult(t, analyzePrintParamSource(t, src))
+}
+
+func buildPrintParamTableFromResult(t *testing.T, res *sema.Result) Table {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("printparam build failed: %s", diags.String())
+	}
+	return table
+}
+
 func hiddenProjectionBinding() *sema.GlobalBinding {
 	aVals := make([]eval.Value, 0, 24)
 	bVals := make([]eval.Value, 0, 24)
@@ -378,6 +539,19 @@ func countVisibleTuple(rows []Row, stepName, a, b, c string) int {
 			continue
 		}
 		if row.Values["p0.a"] == a && row.Values["p0.b"] == b && row.Values["p0.c"] == c {
+			count++
+		}
+	}
+	return count
+}
+
+func countVisiblePair(rows []Row, stepName, keyA, valueA, keyB, valueB string) int {
+	count := 0
+	for _, row := range rows {
+		if row.StepName != stepName {
+			continue
+		}
+		if row.Values[keyA] == valueA && row.Values[keyB] == valueB {
 			count++
 		}
 	}

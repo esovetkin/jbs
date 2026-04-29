@@ -28,11 +28,12 @@ type stepDef struct {
 
 type wpState struct {
 	Values     map[string]eval.Value
-	SourceRows map[string][]int
+	SourceRows map[sema.BindingVersionKey][]int
 }
 
 type sourceGroup struct {
 	Source        string
+	SourceKey     sema.BindingVersionKey
 	DisplaySource string
 	Vars          []sourceVar
 	Full          bool
@@ -237,7 +238,8 @@ func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*se
 		}
 		g, ok := bySource[source]
 		if !ok {
-			g = &sourceGroup{Source: source, DisplaySource: displaySourceName(sources, source), Vars: make([]sourceVar, 0), Span: item.Span}
+			sourceKey := sema.BindingVersionKeyForSource(sources, source)
+			g = &sourceGroup{Source: source, SourceKey: sourceKey, DisplaySource: sourceKey.Display(), Vars: make([]sourceVar, 0), Span: item.Span}
 			bySource[source] = g
 			order = append(order, source)
 		}
@@ -333,11 +335,8 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Glo
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
-	rowSource := group.DisplaySource
-	if rowSource == "" {
-		rowSource = group.Source
-	}
-	allowedRows, constrained := state.SourceRows[rowSource]
+	sourceKey := sourceKeyForGroup(group, sources)
+	allowedRows, constrained := state.SourceRows[sourceKey]
 	if constrained {
 		filtered := make([]int, 0, len(allowedRows))
 		for _, idx := range allowedRows {
@@ -369,6 +368,27 @@ func buildChoices(state wpState, group sourceGroup, sources map[string]*sema.Glo
 	return choices
 }
 
+func sourceKeyForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding) sema.BindingVersionKey {
+	if group.SourceKey != (sema.BindingVersionKey{}) {
+		return group.SourceKey
+	}
+	if sources != nil {
+		return sema.BindingVersionKeyForSource(sources, group.Source)
+	}
+	display := displaySourceForGroup(group)
+	return sema.BindingVersionKey{Public: display, Version: display}
+}
+
+func displaySourceForGroup(group sourceGroup) string {
+	if group.DisplaySource != "" {
+		return group.DisplaySource
+	}
+	if display := group.SourceKey.Display(); display != "" {
+		return display
+	}
+	return group.Source
+}
+
 func valueAt(series []eval.Value, idx int) eval.Value {
 	if idx < 0 || idx >= len(series) {
 		return eval.Null()
@@ -393,12 +413,12 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 		}
 		out.Values[name] = value
 	}
-	for source, rows := range b.SourceRows {
-		if existing, ok := out.SourceRows[source]; ok {
+	for sourceKey, rows := range b.SourceRows {
+		if existing, ok := out.SourceRows[sourceKey]; ok {
 			if !slices.Equal(existing, rows) {
 				diags.AddError(
 					diag.CodeE501,
-					fmt.Sprintf("conflicting inherited row context for source '%s'", source),
+					fmt.Sprintf("conflicting inherited row context for source '%s'", sourceKey.Display()),
 					at,
 					"ensure dependencies constrain the same source consistently",
 				)
@@ -406,17 +426,19 @@ func mergeParentStates(a, b wpState, at diag.Span, diags *diag.Diagnostics) (wpS
 			}
 			continue
 		}
-		out.SourceRows[source] = slices.Clone(rows)
+		out.SourceRows[sourceKey] = slices.Clone(rows)
 	}
 	return out, true
 }
 
 func mergeWithChoice(state wpState, group sourceGroup, choice sourceChoice, at diag.Span, diags *diag.Diagnostics) (wpState, bool) {
 	out := cloneState(state)
-	source := group.DisplaySource
-	if source == "" {
-		source = group.Source
+	sourceKey := group.SourceKey
+	if sourceKey == (sema.BindingVersionKey{}) {
+		source := displaySourceForGroup(group)
+		sourceKey = sema.BindingVersionKey{Public: source, Version: source}
 	}
+	source := sourceKey.Display()
 	for name, value := range choice.Values {
 		if existing, ok := out.Values[name]; ok {
 			if !eval.Equal(existing, value) {
@@ -432,7 +454,7 @@ func mergeWithChoice(state wpState, group sourceGroup, choice sourceChoice, at d
 		}
 		out.Values[name] = value
 	}
-	out.SourceRows[source] = slices.Clone(choice.Rows)
+	out.SourceRows[sourceKey] = slices.Clone(choice.Rows)
 	return out, true
 }
 
@@ -446,7 +468,7 @@ func displaySourceName(bindings map[string]*sema.GlobalBinding, source string) s
 func emptyState() wpState {
 	return wpState{
 		Values:     make(map[string]eval.Value),
-		SourceRows: make(map[string][]int),
+		SourceRows: make(map[sema.BindingVersionKey][]int),
 	}
 }
 
@@ -455,8 +477,8 @@ func cloneState(state wpState) wpState {
 	for name, value := range state.Values {
 		out.Values[name] = value
 	}
-	for source, rows := range state.SourceRows {
-		out.SourceRows[source] = slices.Clone(rows)
+	for sourceKey, rows := range state.SourceRows {
+		out.SourceRows[sourceKey] = slices.Clone(rows)
 	}
 	return out
 }

@@ -3,6 +3,7 @@ package sema
 import (
 	"testing"
 
+	"jbs/internal/diag"
 	"jbs/internal/eval"
 )
 
@@ -85,5 +86,47 @@ func TestGlobalBindingSupports(t *testing.T) {
 	}
 	if scalarString.Supports(ImportContext("unknown")) {
 		t.Fatalf("unknown import context should not be supported")
+	}
+}
+
+func TestBindingVersionKeyForBinding(t *testing.T) {
+	binding := &GlobalBinding{
+		Name:       "_js__1__cases",
+		PublicName: "cases",
+		VersionID:  "v1",
+	}
+	got := BindingVersionKeyForBinding(binding, "fallback")
+	want := BindingVersionKey{Public: "cases", Version: "v1"}
+	if got != want {
+		t.Fatalf("unexpected binding key: got=%#v want=%#v", got, want)
+	}
+	if got.Display() != "cases" {
+		t.Fatalf("unexpected display name: %q", got.Display())
+	}
+}
+
+func TestBindingVersionKeyFallsBackToSpan(t *testing.T) {
+	span := diag.NewSpan("input.jbs", diag.NewPos(10, 2, 3), diag.NewPos(20, 2, 13))
+	got := BindingVersionKeyForBinding(&GlobalBinding{
+		Name: "cases",
+		Span: span,
+	}, "fallback")
+	want := BindingVersionKey{Public: "cases", Version: "input.jbs:10:20"}
+	if got != want {
+		t.Fatalf("unexpected span fallback key: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestBindingVersionKeyForMissingSource(t *testing.T) {
+	got := BindingVersionKeyForSource(map[string]*GlobalBinding{}, "missing")
+	want := BindingVersionKey{Public: "missing", Version: "missing"}
+	if got != want {
+		t.Fatalf("unexpected missing source key: got=%#v want=%#v", got, want)
+	}
+
+	got = BindingVersionKeyForBinding(nil, "fallback")
+	want = BindingVersionKey{Public: "fallback", Version: "fallback"}
+	if got != want {
+		t.Fatalf("unexpected nil binding key: got=%#v want=%#v", got, want)
 	}
 }

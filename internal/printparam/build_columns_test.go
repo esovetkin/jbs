@@ -134,15 +134,16 @@ func TestStateCloneHelpers(t *testing.T) {
 
 	state := wpState{
 		Values:     map[string]eval.Value{"a": eval.Int(1)},
-		SourceRows: map[string][]int{"p": {0, 1}},
+		SourceRows: map[sema.BindingVersionKey][]int{{Public: "p", Version: "p:v1"}: {0, 1}},
 	}
+	pKey := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
 	cloned := cloneState(state)
 	if !reflect.DeepEqual(cloned, state) {
 		t.Fatalf("cloneState mismatch: got=%#v want=%#v", cloned, state)
 	}
 	cloned.Values["a"] = eval.Int(2)
-	cloned.SourceRows["p"][0] = 9
-	if state.Values["a"].I != 1 || state.SourceRows["p"][0] != 0 {
+	cloned.SourceRows[pKey][0] = 9
+	if state.Values["a"].I != 1 || state.SourceRows[pKey][0] != 0 {
 		t.Fatalf("cloneState must deep copy maps and row slices, state=%#v clone=%#v", state, cloned)
 	}
 
@@ -150,8 +151,8 @@ func TestStateCloneHelpers(t *testing.T) {
 	if len(sliceClone) != 1 || !reflect.DeepEqual(sliceClone[0], state) {
 		t.Fatalf("cloneStateSlice mismatch: got=%#v want %#v", sliceClone, state)
 	}
-	sliceClone[0].SourceRows["p"][1] = 7
-	if state.SourceRows["p"][1] != 1 {
+	sliceClone[0].SourceRows[pKey][1] = 7
+	if state.SourceRows[pKey][1] != 1 {
 		t.Fatalf("cloneStateSlice must deep copy nested row slices, state=%#v clone=%#v", state, sliceClone)
 	}
 }
@@ -167,11 +168,11 @@ func TestInheritParentStates(t *testing.T) {
 
 	byStep := map[string][]wpState{
 		"s0": {
-			{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[string][]int{"p": {0}}},
-			{Values: map[string]eval.Value{"a": eval.Int(2)}, SourceRows: map[string][]int{"p": {1}}},
+			{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{{Public: "p", Version: "p:v1"}: {0}}},
+			{Values: map[string]eval.Value{"a": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{{Public: "p", Version: "p:v1"}: {1}}},
 		},
 		"s1": {
-			{Values: map[string]eval.Value{"b": eval.String("x")}, SourceRows: map[string][]int{"q": {0}}},
+			{Values: map[string]eval.Value{"b": eval.String("x")}, SourceRows: map[sema.BindingVersionKey][]int{{Public: "q", Version: "q:v1"}: {0}}},
 		},
 	}
 	got = inheritParentStates([]string{"s0", "s0", "s1"}, byStep, span, diags)
