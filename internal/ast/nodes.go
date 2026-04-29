@@ -301,15 +301,6 @@ type TupleExpr struct {
 func (e TupleExpr) exprNode()          {}
 func (e TupleExpr) GetSpan() diag.Span { return e.Span }
 
-type ConvertExpr struct {
-	Target string
-	Expr   Expr
-	Span   diag.Span
-}
-
-func (e ConvertExpr) exprNode()          {}
-func (e ConvertExpr) GetSpan() diag.Span { return e.Span }
-
 // CallArg represents either a positional call argument (`Name == ""`)
 // or a named argument placeholder for later parser/evaluator phases.
 type CallArg struct {

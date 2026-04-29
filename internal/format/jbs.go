@@ -998,8 +998,6 @@ func needsStructuredExprFormatting(expr ast.Expr) bool {
 		return needsStructuredExprFormatting(e.Then) || needsStructuredExprFormatting(e.Cond) || needsStructuredExprFormatting(e.Else)
 	case ast.ModeExpr:
 		return needsStructuredExprFormatting(e.Expr)
-	case ast.ConvertExpr:
-		return needsStructuredExprFormatting(e.Expr)
 	}
 	return false
 }
@@ -1054,8 +1052,6 @@ func formatExprInline(expr ast.Expr, srcRunes []rune) string {
 			return "()"
 		}
 		return "(" + strings.Join(items, ", ") + ")"
-	case ast.ConvertExpr:
-		return e.Target + "(" + formatExprInline(e.Expr, srcRunes) + ")"
 	case ast.CallExpr:
 		lines := formatCallExprLines(e, srcRunes)
 		return flattenFormattedLines(lines)

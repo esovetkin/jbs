@@ -105,8 +105,6 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 					return true
 				}
 			}
-		case ast.ConvertExpr:
-			return walk(n.Expr, bound)
 		case ast.CallExpr:
 			if walk(n.Callee, bound) {
 				return true

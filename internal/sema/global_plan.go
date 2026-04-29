@@ -856,8 +856,6 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			for _, item := range n.Items {
 				walk(item)
 			}
-		case ast.ConvertExpr:
-			walk(n.Expr)
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {

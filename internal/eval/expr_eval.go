@@ -8,7 +8,7 @@
 // ```
 //
 // implement the `a` and `b` assignments. It also handles operations
-// with literals/unary/binary/compare/conditional/mode/conversion
+// with literals/unary/binary/compare/conditional/mode/calls
 package eval
 
 import (
@@ -137,9 +137,6 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			items = append(items, evalExprWithCtx(it, env, diags, opts, ctx))
 		}
 		return Tuple(items)
-	case ast.ConvertExpr:
-		value := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
-		return evalConvert(e.Target, value, e.Span, diags)
 	case ast.FunctionExpr:
 		return newFunctionValue(e, env, diags, opts, ctx)
 	case ast.AliasExpr:
@@ -751,8 +748,6 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 	case ast.UnaryExpr:
 		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.ModeExpr:
-		return binaryNeedsRelaxedCombEval(e.Expr)
-	case ast.ConvertExpr:
 		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.CallExpr:
 		if binaryNeedsRelaxedCombEval(e.Callee) {

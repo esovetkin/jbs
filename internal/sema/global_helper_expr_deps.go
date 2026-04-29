@@ -46,8 +46,6 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		for _, it := range e.Items {
 			collectExprLocalIdentDeps(it, out)
 		}
-	case ast.ConvertExpr:
-		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.CallExpr:
 		collectExprLocalIdentDeps(e.Callee, out)
 		for _, arg := range e.Args {

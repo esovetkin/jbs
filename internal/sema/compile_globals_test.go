@@ -68,17 +68,13 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 				ast.UnaryExpr{
 					Op: "-",
 					Expr: ast.CompareExpr{
-						Left: ast.ConvertExpr{
-							Target: "str",
-							Expr: ast.MemberExpr{
-								Base: ast.IndexExpr{
-									Base:  ast.IdentExpr{Name: "g", Span: span},
-									Items: []ast.Expr{ast.IdentExpr{Name: "selector_ignored", Span: span}},
-									Span:  span,
-								},
-								Name: "member_ignored",
-								Span: span,
+						Left: ast.MemberExpr{
+							Base: ast.IndexExpr{
+								Base:  ast.IdentExpr{Name: "g", Span: span},
+								Items: []ast.Expr{ast.IdentExpr{Name: "selector_ignored", Span: span}},
+								Span:  span,
 							},
+							Name: "member_ignored",
 							Span: span,
 						},
 						Op: "==",

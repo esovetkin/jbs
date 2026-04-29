@@ -139,7 +139,7 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 							Name: "member_name",
 							Span: sp,
 						},
-						ast.ConvertExpr{Expr: ast.IdentExpr{Name: "convert", Span: sp}, Span: sp},
+						ast.IdentExpr{Name: "convert", Span: sp},
 					}, Span: sp},
 				),
 				Span: sp,

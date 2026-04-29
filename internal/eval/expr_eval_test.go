@@ -1107,45 +1107,45 @@ func TestEvalTupleDefaultModeStaysVectorized(t *testing.T) {
 	}
 }
 
-func TestEvalTupleAndListConversions(t *testing.T) {
+func TestEvalTupleAndListConversionCalls(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	tupleFromList := EvalExpr(ast.ConvertExpr{
-		Target: "tuple",
-		Expr: ast.ListExpr{
+	tupleFromList := EvalExpr(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "tuple"},
+		Args: ast.PosCallArgs(ast.ListExpr{
 			Items: []ast.Expr{
 				ast.NumberExpr{Int: true, IntValue: 1},
 				ast.NumberExpr{Int: true, IntValue: 2},
 			},
-		},
+		}),
 	}, map[string]Value{}, diags)
 	if tupleFromList.Kind != KindTuple || len(tupleFromList.L) != 2 {
 		t.Fatalf("expected tuple from list conversion, got %#v", tupleFromList)
 	}
 
-	listFromTuple := EvalExpr(ast.ConvertExpr{
-		Target: "list",
-		Expr: ast.TupleExpr{
+	listFromTuple := EvalExpr(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "list"},
+		Args: ast.PosCallArgs(ast.TupleExpr{
 			Items: []ast.Expr{
 				ast.NumberExpr{Int: true, IntValue: 3},
 				ast.NumberExpr{Int: true, IntValue: 4},
 			},
-		},
+		}),
 	}, map[string]Value{}, diags)
 	if listFromTuple.Kind != KindList || len(listFromTuple.L) != 2 {
 		t.Fatalf("expected list from tuple conversion, got %#v", listFromTuple)
 	}
 
-	singletonTuple := EvalExpr(ast.ConvertExpr{
-		Target: "tuple",
-		Expr:   ast.NumberExpr{Int: true, IntValue: 9},
+	singletonTuple := EvalExpr(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "tuple"},
+		Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 9}),
 	}, map[string]Value{}, diags)
 	if singletonTuple.Kind != KindTuple || len(singletonTuple.L) != 1 || singletonTuple.L[0].I != 9 {
 		t.Fatalf("expected singleton tuple conversion, got %#v", singletonTuple)
 	}
 
-	singletonList := EvalExpr(ast.ConvertExpr{
-		Target: "list",
-		Expr:   ast.StringExpr{Value: "x"},
+	singletonList := EvalExpr(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "list"},
+		Args:   ast.PosCallArgs(ast.StringExpr{Value: "x"}),
 	}, map[string]Value{}, diags)
 	if singletonList.Kind != KindList || len(singletonList.L) != 1 || singletonList.L[0].S != "x" {
 		t.Fatalf("expected singleton list conversion, got %#v", singletonList)
@@ -1201,41 +1201,6 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 		}
 	})
 
-	t.Run("convert tuple rejects comb", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExpr(ast.ConvertExpr{
-			Target: "tuple",
-			Expr:   ast.IdentExpr{Name: "m"},
-			Span:   spanAt(203, 1),
-		}, env, diags)
-		if got.Kind != KindNull {
-			t.Fatalf("expected null value for tuple(comb) conversion, got %#v", got)
-		}
-		if diagCount(diags, "E106") != 1 {
-			t.Fatalf("expected one E106, got: %s", diags.String())
-		}
-		if !strings.Contains(diags.String(), "tuple() does not accept table values") {
-			t.Fatalf("expected tuple convert table rejection message, got: %s", diags.String())
-		}
-	})
-
-	t.Run("convert list rejects comb", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExpr(ast.ConvertExpr{
-			Target: "list",
-			Expr:   ast.IdentExpr{Name: "m"},
-			Span:   spanAt(204, 1),
-		}, env, diags)
-		if got.Kind != KindNull {
-			t.Fatalf("expected null value for list(comb) conversion, got %#v", got)
-		}
-		if diagCount(diags, "E106") != 1 {
-			t.Fatalf("expected one E106, got: %s", diags.String())
-		}
-		if !strings.Contains(diags.String(), "list() does not accept table values") {
-			t.Fatalf("expected list convert table rejection message, got: %s", diags.String())
-		}
-	})
 }
 
 func TestEvalIntFloatStrCalls(t *testing.T) {

@@ -60,8 +60,6 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		for _, it := range e.Items {
 			collectGlobalExprDepsBound(it, out, bound)
 		}
-	case ast.ConvertExpr:
-		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.CallExpr:
 		collectGlobalExprDepsBound(e.Callee, out, bound)
 		for _, arg := range e.Args {

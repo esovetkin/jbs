@@ -421,7 +421,6 @@ func TestBinaryNeedsRelaxedCombEvalCoverage(t *testing.T) {
 		{name: "binary recurse", expr: ast.BinaryExpr{Left: ast.NumberExpr{Int: true, IntValue: 1}, Op: "+", Right: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2}, Alias: "c"}}, want: true},
 		{name: "unary recurse", expr: ast.UnaryExpr{Op: "-", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
 		{name: "mode recurse", expr: ast.ModeExpr{Mode: "python", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
-		{name: "convert recurse", expr: ast.ConvertExpr{Target: "list", Expr: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}}, want: true},
 		{name: "call recurse args", expr: ast.CallExpr{Callee: ast.IdentExpr{Name: "tuple"}, Args: ast.PosCallArgs(ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"})}, want: true},
 		{name: "index recurse", expr: ast.IndexExpr{Base: ast.NumberExpr{Int: true, IntValue: 1}, Items: []ast.Expr{ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 2}, Alias: "x"}}}, want: true},
 		{name: "member recurse", expr: ast.MemberExpr{Base: ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 1}, Alias: "c"}, Name: "x"}, want: true},
