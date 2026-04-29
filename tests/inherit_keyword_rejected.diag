@@ -1,6 +1,6 @@
-ERROR E023 /home/jackson/jülich/jbs_review2/tests/inherit_keyword_rejected.jbs:11:9
-JBS does not use `inherit`; `after` already carries predecessor-visible names
+ERROR E031 /home/jackson/jülich/jbs_review2/tests/inherit_keyword_rejected.jbs:11:9
+expected '{' to start do block body
     11 |         inherit prep
        |         ^
     12 | {
-Hint: remove `inherit` and use `after <step>` for predecessor dependencies
+Hint: add '{' before do script body

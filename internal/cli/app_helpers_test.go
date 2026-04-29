@@ -195,7 +195,7 @@ func TestRunFmtStrictRejectsLegacyWithFromSyntax(t *testing.T) {
 	}
 }
 
-func TestRunFmtStrictRejectsInheritKeyword(t *testing.T) {
+func TestRunFmtStrictRejectsInheritAsHeaderClause(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
@@ -219,11 +219,11 @@ func TestRunFmtStrictRejectsInheritKeyword(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
-		t.Fatalf("expected strict formatter to reject inherit keyword, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected strict formatter to reject invalid header clause, code=%d stderr=%s", code, stderr.String())
 	}
 	errText := stderr.String()
-	if !strings.Contains(errText, "ERROR E023") || !strings.Contains(errText, "JBS does not use `inherit`; `after` already carries predecessor-visible names") {
-		t.Fatalf("expected targeted inherit rejection diagnostic, got %q", errText)
+	if !strings.Contains(errText, "ERROR E031") || !strings.Contains(errText, "expected '{' to start do block body") {
+		t.Fatalf("expected generic do-body diagnostic, got %q", errText)
 	}
 }
 

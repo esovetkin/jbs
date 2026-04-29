@@ -25,7 +25,7 @@ do <name>
 
 ### `after`: step dependency declarations
 
-`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. There is no separate `inherit` clause. If the same visible name would come from different sources, JBS reports an error.
+`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. If the same visible name would come from different sources, JBS reports an error.
 
 ### `with`: import data bindings into the step
 

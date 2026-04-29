@@ -28,10 +28,6 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 			after = append(after, p.parseNameList()...)
 			continue
 		}
-		if word == "inherit" {
-			p.rejectInheritClause()
-			continue
-		}
 		if word == "with" {
 			p.consumeWord()
 			withItems = append(withItems, p.parseWithItems()...)
@@ -85,8 +81,6 @@ func (p *Parser) parseOptionalDoHeaderClauses() ([]string, []ast.WithItem, stepH
 		case "after":
 			p.consumeWord()
 			after = append(after, p.parseNameList()...)
-		case "inherit":
-			p.rejectInheritClause()
 		case "with":
 			p.consumeWord()
 			withItems = append(withItems, p.parseWithItems()...)
@@ -115,8 +109,6 @@ func (p *Parser) parseOptionalSubmitHeaderClauses() ([]string, []string, []ast.W
 		case "after":
 			p.consumeWord()
 			after = append(after, p.parseNameList()...)
-		case "inherit":
-			p.rejectInheritClause()
 		case "with":
 			p.consumeWord()
 			withItems = append(withItems, p.parseWithItems()...)
@@ -131,25 +123,6 @@ func (p *Parser) parseOptionalSubmitHeaderClauses() ([]string, []string, []ast.W
 		}
 	}
 	return after, useNames, withItems, opts
-}
-
-func (p *Parser) rejectInheritClause() {
-	start := p.pos()
-	end := p.consumeWord()
-	p.skipTriviaInline()
-	if _, ok := p.peekWord(); ok {
-		p.parseNameList()
-	}
-	span := diag.NewSpan(p.file, start, end)
-	if p.pos().Offset > end.Offset {
-		span = diag.NewSpan(p.file, start, p.pos())
-	}
-	p.diags.AddError(
-		diag.CodeE023,
-		"JBS does not use `inherit`; `after` already carries predecessor-visible names",
-		span,
-		"remove `inherit` and use `after <step>` for predecessor dependencies",
-	)
 }
 
 func (p *Parser) parseStepHeaderOption(kind string, opts *stepHeaderOptions) bool {

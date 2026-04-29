@@ -57,7 +57,7 @@ Allowed step header keys:
 ## Notes
 
 - `with` imports row-varying data used by the submit body
-- `after` still carries predecessor-visible variables into dependent submit steps; there is no separate `inherit` clause
+- `after` still carries predecessor-visible variables into dependent submit steps
 - `submit ... use ...` imports scalar defaults from a scalar global or from a module namespace
 - later `use` sources win on collisions and emit warning `W072`
 - raw submit keys are `preprocess` and `postprocess`

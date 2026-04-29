@@ -241,17 +241,21 @@ func TestParseOptionalAfterAndWith(t *testing.T) {
 	}
 }
 
-func TestParseOptionalHeaderClausesRejectInherit(t *testing.T) {
+func TestParseOptionalHeaderClausesStopAtInheritWord(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	p := newTopLevelParser("after prep inherit base with cases[id] tail", diags)
 	after, withItems, _ := p.parseOptionalDoHeaderClauses()
 	if len(after) != 1 || after[0] != "prep" {
 		t.Fatalf("unexpected after clauses: %#v", after)
 	}
-	if len(withItems) != 1 || withItems[0].Source != "cases" || withItems[0].Selectors[0] != "id" {
+	if len(withItems) != 0 {
 		t.Fatalf("unexpected with items: %#v", withItems)
 	}
-	if !hasDiag(diags, "E023") {
-		t.Fatalf("expected inherit rejection diagnostic, got: %s", diags.String())
+	word, ok := p.peekWord()
+	if !ok || word != "inherit" {
+		t.Fatalf("expected parser to stop before inherit word, got word=%q ok=%v", word, ok)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 }

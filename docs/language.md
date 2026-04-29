@@ -406,7 +406,7 @@ Older `with` spellings such as `with x from cases` and `with (x, y) from cases` 
 
 - rewrite `with x from cases` as `with cases[x]`
 - rewrite `with (x, y) from cases` as `with cases[x, y]`
-- JBS does not use an `inherit` clause; predecessor-visible names still come from `after`
+- predecessor-visible names come from `after`
 
 ## `do`
 
