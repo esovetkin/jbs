@@ -147,7 +147,7 @@ func TestRunFmtStrictAcceptsTopLevelCompoundAssignment(t *testing.T) {
 	}
 }
 
-func TestRunFmtStrictRejectsLegacyWithFromSyntax(t *testing.T) {
+func TestRunFmtStrictRejectsUnsupportedWithSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
@@ -166,11 +166,14 @@ func TestRunFmtStrictRejectsLegacyWithFromSyntax(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if code := runFmt(path, true, &stdout, &stderr); code != 1 {
-		t.Fatalf("expected strict formatter to reject legacy with-from syntax, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected strict formatter to reject invalid with syntax, code=%d stderr=%s", code, stderr.String())
 	}
 	errText := stderr.String()
-	if !strings.Contains(errText, "ERROR E023") || !strings.Contains(errText, "rewrite `with x from cases` as `with cases[x]`") {
-		t.Fatalf("expected targeted with-from migration diagnostic, got %q", errText)
+	if !strings.Contains(errText, "ERROR E023") || !strings.Contains(errText, "invalid with-clause syntax") {
+		t.Fatalf("expected generic with-clause syntax diagnostic, got %q", errText)
+	}
+	if strings.Contains(errText, "rewrite") || strings.Contains(errText, "old with") {
+		t.Fatalf("did not expect rewrite diagnostic, got %q", errText)
 	}
 }
 

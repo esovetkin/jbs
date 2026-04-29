@@ -390,14 +390,6 @@ Rules for `analyse`:
 - imported values must be string data bindings
 - function-valued globals are rejected
 
-### Migration from Legacy `with ... from ...`
-
-Older `with` spellings such as `with x from cases` and `with (x, y) from cases` are no longer canonical.
-
-- rewrite `with x from cases` as `with cases[x]`
-- rewrite `with (x, y) from cases` as `with cases[x, y]`
-- predecessor-visible names come from `after`
-
 ## `do`
 
 `do` defines the shell body for a JUBE step.
