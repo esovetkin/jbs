@@ -1919,6 +1919,73 @@ func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
 	}
 }
 
+func TestTableShortcutBuiltinConstructsTable(t *testing.T) {
+	span := spanAt(89, 1)
+	env := map[string]Value{
+		"ids":    Tuple([]Value{Int(1), Int(2)}),
+		"labels": Tuple([]Value{String("a"), String("b")}),
+	}
+	expr := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "t", Span: span},
+		Args: []ast.CallArg{
+			{Name: "id", Expr: ast.IdentExpr{Name: "ids", Span: span}, Span: span},
+			{Name: "label", Expr: ast.IdentExpr{Name: "labels", Span: span}, Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected t() diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) {
+		t.Fatalf("expected table value from t(), got %#v", got)
+	}
+	if !slices.Equal(got.C.Order, []string{"id", "label"}) {
+		t.Fatalf("unexpected t() column order: %#v", got.C.Order)
+	}
+	if len(got.C.Rows) != 2 {
+		t.Fatalf("expected 2 rows from t(), got %#v", got.C.Rows)
+	}
+}
+
+func TestTableShortcutBuiltinShadowing(t *testing.T) {
+	span := spanAt(90, 1)
+	callT := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "t", Span: span},
+		Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 2, Span: span}),
+		Span:   span,
+	}
+	fn := EvalExprWithOptions(ast.FunctionExpr{
+		Params: []ast.FuncParam{{Name: "x", Span: span}},
+		Body: []ast.FuncBodyStmt{
+			ast.ExprStmt{Expr: ast.BinaryExpr{
+				Left:  ast.IdentExpr{Name: "x", Span: span},
+				Op:    "+",
+				Right: ast.NumberExpr{Int: true, IntValue: 1, Span: span},
+				Span:  span,
+			}, Span: span},
+		},
+		Span: span,
+	}, nil, &diag.Diagnostics{}, ExprOptions{})
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callT, map[string]Value{"t": fn}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !Equal(got, Int(3)) {
+		t.Fatalf("expected shadowed t function to run, got %#v", got)
+	}
+
+	diags = &diag.Diagnostics{}
+	got = EvalExprWithOptions(callT, map[string]Value{"t": Int(1)}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if got.Kind != KindNull || diagCount(diags, "E199") == 0 {
+		t.Fatalf("expected non-callable t binding to block table alias, got value=%#v diags=%s", got, diags.String())
+	}
+}
+
 func TestEvalTupleAndListCallValidationBranches(t *testing.T) {
 	t.Run("tuple arity error", func(t *testing.T) {
 		diags := &diag.Diagnostics{}

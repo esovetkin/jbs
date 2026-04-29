@@ -128,7 +128,7 @@ Top-level assignments define reusable global values. A global may hold:
 
 - scalar data
 - tuple or list data
-- table data built by `table(...)`, `zip(...)`, `product(...)`, `select(...)`, or `read_csv(...)`
+- table data built by `table(...)`, `t(...)`, `zip(...)`, `product(...)`, `select(...)`, or `read_csv(...)`
 - function values
 - imported values projected into the current module
 
@@ -239,7 +239,7 @@ Builtins:
 - `str(...)`
 - `range(...)`
 - `rev(...)`
-- `table(...)`
+- `table(...)` / `t(...)`
 - `zip(...)`
 - `product(...)`
 - `select(...)`
@@ -280,13 +280,13 @@ Rules:
 
 JBS now uses explicit table operations instead of operator-overloaded `comb` algebra.
 
-### `table(...)`
+### `table(...)` and `t(...)`
 
-`table(...)` constructs one table from named columns.
+`table(...)` constructs one table from named columns. `t(...)` is a short alias with identical semantics.
 
 - column names come from named arguments
 - all columns must have the same length
-- `table(...)` does not broadcast columns
+- `table(...)`/`t(...)` do not broadcast columns
 - positional arguments are rejected
 
 Example:
@@ -294,7 +294,7 @@ Example:
 ```jbs
 ids = (1, 2)
 labels = ("a", "b")
-cases = table(id = ids, label = labels)
+cases = t(id = ids, label = labels)
 ```
 
 ### `zip(...)`

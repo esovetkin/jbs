@@ -251,7 +251,7 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return Null()
 	}
 	switch name {
-	case "table":
+	case "table", "t":
 		return evalTableCall(rawArgs, env, at, diags, opts, ctx)
 	case "zip":
 		return evalZipCall(rawArgs, env, at, diags, opts, ctx)
@@ -374,7 +374,7 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 		return ident.Name, true
 	}
 	switch ident.Name {
-	case "table", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
+	case "table", "t", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
 		return ident.Name, true
 	default:
 		return "", false

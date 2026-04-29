@@ -193,15 +193,16 @@ Rules:
   - imported module calls resolve relative to that module file
   - REPL calls resolve relative to the current working directory
 
-## `table(...)`
+## `table(...)`, `t(...)`
 
-`table(...)` builds one table from named columns.
+`table(...)` builds one table from named columns. `t(...)` is a short alias.
 
 ```jbs
 cases = table(
         id = (1, 2),
         label = ("a", "b"),
 )
+short = t(id = (1, 2), label = ("a", "b"))
 ```
 
 Rules:
@@ -209,7 +210,7 @@ Rules:
 - every argument must be named
 - each name becomes one output column
 - all columns must have the same length
-- `table(...)` does not broadcast columns
+- `table(...)`/`t(...)` do not broadcast columns
 
 ## `zip(...)`
 
