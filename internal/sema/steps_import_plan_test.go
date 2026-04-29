@@ -168,6 +168,50 @@ func TestBuildStepScopePlansHandlesInheritanceAndConflicts(t *testing.T) {
 	}
 }
 
+func TestAnalyzeKeepsDuplicateInheritedVisibleNameConflictForSameSourceVersion(t *testing.T) {
+	src := `
+cases = table(x = (1,2))
+
+do step0 with cases[x] { echo $x }
+
+do step1 with cases[x] { echo $x }
+
+do step2
+        after step0
+        after step1
+{
+        echo $x
+}
+`
+	_, diags := analyzeRefValidationSource(t, "same_source_conflict.jbs", src)
+	if countDiagCode(diags, string(diag.CodeE214)) == 0 {
+		t.Fatalf("expected E214 for duplicate inherited visible x, got: %s", diags.String())
+	}
+}
+
+func TestAnalyzeAllowsDifferentInheritedVisibleNamesAcrossReboundPublicSource(t *testing.T) {
+	src := `
+cases = table(x = (1,2))
+
+do step0 with cases[x] { echo $x }
+
+cases = table(y = (1,2))
+
+do step1 with cases[y] { echo $y }
+
+do step2
+        after step0
+        after step1
+{
+        echo $x $y
+}
+`
+	_, diags := analyzeRefValidationSource(t, "different_names_rebind.jbs", src)
+	if countDiagCode(diags, string(diag.CodeE214)) != 0 {
+		t.Fatalf("did not expect E214 for distinct inherited names x and y, got: %s", diags.String())
+	}
+}
+
 func containsAll(text string, parts ...string) bool {
 	for _, part := range parts {
 		if !strings.Contains(text, part) {

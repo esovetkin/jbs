@@ -190,6 +190,9 @@ func TestCompileSubmitBlockUsesBindingsAndReportsDiagnostics(t *testing.T) {
 	if spec.Helpers[0].Original != "helper" || spec.Helpers[0].UseName != "defaults2" || spec.Helpers[0].Aliased == "" {
 		t.Fatalf("unexpected helper metadata: %#v", spec.Helpers[0])
 	}
+	if spec.Helpers[0].Source != "defaults2.helper" || spec.Helpers[0].SourceVar != "helper" {
+		t.Fatalf("expected exact helper source metadata, got %#v", spec.Helpers[0])
+	}
 	if !strings.HasPrefix(spec.Helpers[0].Aliased, "_jk__submit_step_helper") {
 		t.Fatalf("expected sanitized helper alias prefix, got %q", spec.Helpers[0].Aliased)
 	}

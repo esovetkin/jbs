@@ -64,6 +64,29 @@ func hasW310ForGlobal(diags *diag.Diagnostics, variable, source string) bool {
 	)
 }
 
+func countWarningsWithParts(diags *diag.Diagnostics, code diag.Code, parts ...string) int {
+	if diags == nil {
+		return 0
+	}
+	count := 0
+	for _, item := range diags.Items {
+		if item.Code != string(code) {
+			continue
+		}
+		match := true
+		for _, part := range parts {
+			if !strings.Contains(item.Message, part) {
+				match = false
+				break
+			}
+		}
+		if match {
+			count++
+		}
+	}
+	return count
+}
+
 func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *testing.T) {
 	xOrigin := diag.NewSpan("refs.jbs", diag.NewPos(10, 2, 3), diag.NewPos(11, 2, 4))
 	yOrigin := diag.NewSpan("refs.jbs", diag.NewPos(20, 3, 5), diag.NewPos(21, 3, 6))
@@ -152,6 +175,81 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 	}
 }
 
+func TestValidateStepVarReferencesWarnsForMissingInheritedSourceVarAfterRebind(t *testing.T) {
+	src := `
+cases = table(x = range(5)) + table(y = ("a","b","c"))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases
+{
+        echo $x $y $a
+}
+`
+	_, diags := analyzeRefValidationSource(t, "rebound_w311.jbs", src)
+	if !hasWarningWithParts(diags, diag.CodeW311, "variable 'y'", "step 'step1'") {
+		t.Fatalf("expected W311 for old cases.y after rebind, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesStillWarnsForDifferentPublicNameControl(t *testing.T) {
+	src := `
+cases = table(x = range(5)) + table(y = ("a","b","c"))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases0 = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases0
+{
+        echo $x $y $a
+}
+`
+	_, diags := analyzeRefValidationSource(t, "control_w311.jbs", src)
+	if !hasWarningWithParts(diags, diag.CodeW311, "variable 'y'", "step 'step1'") {
+		t.Fatalf("expected W311 control warning for y, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesDoesNotWarnForVisibleReboundVars(t *testing.T) {
+	src := `
+cases = table(x = range(5)) + table(y = ("a","b","c"))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases = table(a = ("a","b","c"))
+
+do step1
+        after step0
+        with cases
+{
+        echo $x $a
+}
+`
+	_, diags := analyzeRefValidationSource(t, "rebound_no_w311.jbs", src)
+	if countDiagCode(diags, string(diag.CodeW311)) != 0 {
+		t.Fatalf("did not expect W311 for inherited x or new cases.a, got: %s", diags.String())
+	}
+}
+
 func TestValidateStepVarReferencesCountsSubmitUseBindingsAndHelperRefs(t *testing.T) {
 	span := diag.NewSpan("submit_refs.jbs", diag.NewPos(1, 1, 1), diag.NewPos(5, 5, 5))
 	queueBinding := &GlobalBinding{
@@ -216,6 +314,143 @@ func TestValidateStepVarReferencesCountsSubmitUseBindingsAndHelperRefs(t *testin
 	}
 	if countDiagCode(diags, string(diag.CodeW313)) != 0 {
 		t.Fatalf("did not expect W313 for submit-use helper refs, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesUsesVersionedGlobalDependenciesForW310(t *testing.T) {
+	src := `
+base = (1, 2)
+derived = table(base = base)
+base = (3, 4)
+
+do s
+        with derived
+{
+        echo $base
+}
+`
+	_, diags := analyzeRefValidationSource(t, "w310_rebind_deps.jbs", src)
+	if got := countWarningsWithParts(diags, diag.CodeW310, "exposed variable 'base'", "global 'base'"); got != 1 {
+		t.Fatalf("expected exactly one W310 for the later base version, got %d: %s", got, diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesKeepsTransitiveDependencyVersionsForW310(t *testing.T) {
+	src := `
+base = (1, 2)
+mid = table(base = base)
+base = (3, 4)
+derived = mid
+
+do s
+        with derived
+{
+        echo $base
+}
+`
+	_, diags := analyzeRefValidationSource(t, "w310_transitive_rebind_deps.jbs", src)
+	if got := countWarningsWithParts(diags, diag.CodeW310, "exposed variable 'base'", "global 'base'"); got != 1 {
+		t.Fatalf("expected only the later base version to be unused through transitive deps, got %d: %s", got, diags.String())
+	}
+	if hasW310ForGlobal(diags, "base", "mid") {
+		t.Fatalf("did not expect W310 for transitive source mid.base, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesDoesNotSuppressW313AcrossReboundVersions(t *testing.T) {
+	src := `
+cases = table(x = (1, 2))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+cases = table(x = (3, 4))
+
+do step1
+        with cases[x]
+{
+        echo done
+}
+`
+	_, diags := analyzeRefValidationSource(t, "w313_rebind.jbs", src)
+	if countDiagCode(diags, string(diag.CodeW313)) != 0 {
+		t.Fatalf("did not expect W313 for unused new cases.x only because old cases.x was used, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesW313UsesPublicRelatedSpanForSnapshotImport(t *testing.T) {
+	src := `
+cases = table(x = (1, 2))
+
+do step0
+        with cases[x]
+{
+        echo $x
+}
+
+do step1
+        with cases[x]
+{
+        echo done
+}
+`
+	_, diags := analyzeRefValidationSource(t, "w313_snapshot_related.jbs", src)
+	w313, ok := firstWarning(diags, diag.CodeW313)
+	if !ok {
+		t.Fatalf("expected W313 for unused snapshot import, got: %s", diags.String())
+	}
+	if len(w313.Related) == 0 || w313.Related[0].Message != "source 'cases'" {
+		t.Fatalf("expected W313 related span to use public source name, got %#v", w313.Related)
+	}
+	if w313.Related[0].Span.IsZero() {
+		t.Fatalf("expected W313 related span to point at source origin, got %#v", w313.Related[0])
+	}
+}
+
+func TestValidateStepVarReferencesCountsSubmitUseSnapshotBeforeRebind(t *testing.T) {
+	src := `
+helper = "old"
+
+submit run
+        use helper
+{
+        args_exec = "$helper"
+}
+
+helper = "new"
+`
+	_, diags := analyzeRefValidationSource(t, "submit_rebind_use.jbs", src)
+	if got := countWarningsWithParts(diags, diag.CodeW310, "exposed variable 'helper'", "global 'helper'"); got != 1 {
+		t.Fatalf("expected only rebound helper version to be unused, got %d: %s", got, diags.String())
+	}
+	if countDiagCode(diags, string(diag.CodeW311)) != 0 {
+		t.Fatalf("did not expect W311 for submit helper from use snapshot, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesCountsAnalyseSnapshotBeforeRebind(t *testing.T) {
+	src := `
+pattern = "%d"
+
+do run {
+        echo 1
+}
+
+analyse run
+        with pattern
+{
+        value = pattern in "out.txt"
+        (value)
+}
+
+pattern = "%f"
+`
+	_, diags := analyzeRefValidationSource(t, "analyse_rebind_use.jbs", src)
+	if got := countWarningsWithParts(diags, diag.CodeW310, "exposed variable 'pattern'", "global 'pattern'"); got != 1 {
+		t.Fatalf("expected only rebound pattern version to be unused, got %d: %s", got, diags.String())
 	}
 }
 

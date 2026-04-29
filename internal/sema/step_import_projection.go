@@ -11,6 +11,8 @@ type importedVar struct {
 	Name      string
 	SourceVar string
 	Source    string
+	SourceKey BindingVersionKey
+	Display   string
 	Span      diag.Span
 }
 

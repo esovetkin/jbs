@@ -387,16 +387,18 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
 		return
 	}
 
+	directDeps := globalExprDependencies(effective, assign.Name)
 	orderNames, vars := globalVarSeries(assign.Name, value)
 	gv := &GlobalVar{
-		Name:      assign.Name,
-		Value:     value,
-		Mode:      mode,
-		Span:      assign.Span,
-		Order:     orderNames,
-		Vars:      vars,
-		DependsOn: e.expandGlobalDeps(globalExprDependencies(effective, assign.Name), assign.Name),
-		VersionID: bindingVersionID(step),
+		Name:          assign.Name,
+		Value:         value,
+		Mode:          mode,
+		Span:          assign.Span,
+		Order:         orderNames,
+		Vars:          vars,
+		DependsOn:     e.expandGlobalDeps(directDeps, assign.Name),
+		DependsOnKeys: e.expandGlobalDepKeys(directDeps, assign.Name),
+		VersionID:     bindingVersionID(step),
 	}
 	if !e.acceptGlobalVar(gv) {
 		return
@@ -414,6 +416,9 @@ func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
 	}
 	gv.VersionID = bindingVersionID(step)
 	gv.DependsOn = []string{step.Import.SourceName}
+	if key := BindingVersionKeyForGlobalVar(step.Import.SourceGlobal, step.Import.SourceName); key != (BindingVersionKey{}) {
+		gv.DependsOnKeys = []BindingVersionKey{key}
+	}
 	e.publishGlobalVar(gv)
 }
 
@@ -626,6 +631,70 @@ func (e *globalSeqEngine) expandGlobalDeps(deps []string, self string) []string 
 		return nil
 	}
 	return slices.Sorted(maps.Keys(seen))
+}
+
+func (e *globalSeqEngine) expandGlobalDepKeys(deps []string, self string) []BindingVersionKey {
+	if len(deps) == 0 {
+		return nil
+	}
+	seen := make(map[BindingVersionKey]struct{}, len(deps))
+	seenNames := make(map[string]struct{}, len(deps))
+	var addKey func(BindingVersionKey)
+	addKey = func(key BindingVersionKey) {
+		if key == (BindingVersionKey{}) || key.Public == self {
+			return
+		}
+		seen[key] = struct{}{}
+	}
+	var addName func(string)
+	addName = func(name string) {
+		if name == "" || name == self {
+			return
+		}
+		if _, exists := seenNames[name]; exists {
+			return
+		}
+		seenNames[name] = struct{}{}
+		if key, ok := e.bindingKeyForCurrentName(name); ok {
+			addKey(key)
+		}
+		if gv := e.globalVars[name]; gv != nil {
+			if len(gv.DependsOnKeys) > 0 {
+				for _, dep := range gv.DependsOnKeys {
+					addKey(dep)
+				}
+				return
+			}
+			for _, depName := range gv.DependsOn {
+				addName(depName)
+			}
+		}
+	}
+	for _, dep := range deps {
+		addName(dep)
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]BindingVersionKey, 0, len(seen))
+	for key := range seen {
+		out = append(out, key)
+	}
+	slices.SortFunc(out, compareBindingVersionKey)
+	return out
+}
+
+func (e *globalSeqEngine) bindingKeyForCurrentName(name string) (BindingVersionKey, bool) {
+	if e == nil || name == "" {
+		return BindingVersionKey{}, false
+	}
+	if binding := e.currentBindings[name]; binding != nil {
+		return BindingVersionKeyForBinding(binding, name), true
+	}
+	if gv := e.globalVars[name]; gv != nil {
+		return BindingVersionKeyForGlobalVar(gv, name), true
+	}
+	return BindingVersionKey{}, false
 }
 
 func (e *globalSeqEngine) publishGlobalVar(gv *GlobalVar) {

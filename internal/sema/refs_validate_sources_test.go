@@ -56,31 +56,114 @@ func TestBuildWarningSourcesUsesOrderAndOriginFallback(t *testing.T) {
 	}
 }
 
-func TestBuildGlobalSourceDepsDedupesSkipsAndSorts(t *testing.T) {
-	res := &Result{
-		GlobalVarOrder: []string{"a", "b", "params", "derived", "self", "hidden", "empty", "missing"},
-		GlobalVarByName: map[string]*GlobalVar{
-			"a":       {Name: "a"},
-			"b":       {Name: "b"},
-			"params":  {Name: "params", DependsOn: []string{"b", "a", "b", "", "params", "outside"}},
-			"derived": {Name: "derived", DependsOn: []string{"params", "a"}},
-			"self":    {Name: "self", DependsOn: []string{"self"}},
-			"hidden":  {Name: "hidden", DependsOn: []string{"a"}},
-			"empty":   {Name: ""},
-		},
+func TestWarningCatalogDedupesSameVersionSnapshots(t *testing.T) {
+	base := &GlobalBinding{
+		Name:       "cases",
+		PublicName: "cases",
+		VersionID:  "v1",
+		Order:      []string{"x"},
+		Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
 	}
-	exposed := map[string]map[string]diag.Span{
-		"a":       {"a": {}},
-		"b":       {"b": {}},
-		"params":  {"a": {}, "b": {}},
-		"derived": {"v": {}},
-		"self":    {"v": {}},
+	snap := &GlobalBinding{
+		Name:       "_js__1__cases",
+		PublicName: "cases",
+		VersionID:  "v1",
+		Order:      []string{"x"},
+		Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+	}
+	catalog := buildWarningCatalog(&Result{
+		Bindings: []*GlobalBinding{base},
+		ScopeSnapshotsByIndex: map[int]*ScopeSnapshot{
+			1: {Bindings: []*GlobalBinding{snap}, BindingsByName: map[string]*GlobalBinding{"cases": snap, snap.Name: snap}},
+		},
+	})
+
+	if got := catalog.sources(); len(got) != 1 {
+		t.Fatalf("expected same version to be deduped, got %#v", got)
+	}
+}
+
+func TestWarningCatalogKeepsReboundPublicNameVersions(t *testing.T) {
+	first := &GlobalBinding{
+		Name:       "_js__1__cases",
+		PublicName: "cases",
+		VersionID:  "v1",
+		Order:      []string{"x"},
+		Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+	}
+	second := &GlobalBinding{
+		Name:       "cases",
+		PublicName: "cases",
+		VersionID:  "v2",
+		Order:      []string{"a"},
+		Vars:       map[string][]eval.Value{"a": {eval.Int(2)}},
+	}
+	catalog := buildWarningCatalog(&Result{Bindings: []*GlobalBinding{first, second}})
+
+	if got := catalog.sources(); len(got) != 2 {
+		t.Fatalf("expected rebound public name to produce two source keys, got %#v", got)
+	}
+	if catalog.byKey[BindingVersionKey{Public: "cases", Version: "v1"}] == nil {
+		t.Fatalf("expected first cases version in catalog")
+	}
+	if catalog.byKey[BindingVersionKey{Public: "cases", Version: "v2"}] == nil {
+		t.Fatalf("expected second cases version in catalog")
+	}
+}
+
+func TestWarningCatalogResolvesPublicNamesThroughSnapshotBindings(t *testing.T) {
+	first := &GlobalBinding{
+		Name:       "_js__1__cases",
+		PublicName: "cases",
+		VersionID:  "v1",
+		Order:      []string{"x"},
+		Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+	}
+	second := &GlobalBinding{
+		Name:       "cases",
+		PublicName: "cases",
+		VersionID:  "v2",
+		Order:      []string{"a"},
+		Vars:       map[string][]eval.Value{"a": {eval.Int(2)}},
+	}
+	catalog := buildWarningCatalog(&Result{
+		Bindings: []*GlobalBinding{first, second},
+		BindingsByName: map[string]*GlobalBinding{
+			"cases": second,
+		},
+	})
+	snapshotBindings := map[string]*GlobalBinding{
+		"cases": first,
 	}
 
-	got := buildGlobalSourceDeps(res, exposed)
-	want := map[string][]string{
-		"derived": {"a", "params"},
-		"params":  {"a", "b"},
+	if got, want := catalog.keyForSource(snapshotBindings, "cases"), (BindingVersionKey{Public: "cases", Version: "v1"}); got != want {
+		t.Fatalf("expected snapshot public name to resolve to old version, got %#v want %#v", got, want)
+	}
+	if got, want := catalog.keyForSource(nil, "_js__1__cases"), (BindingVersionKey{Public: "cases", Version: "v1"}); got != want {
+		t.Fatalf("expected exact synthetic name to resolve through catalog, got %#v want %#v", got, want)
+	}
+}
+
+func TestBuildGlobalSourceDepsDedupesSkipsAndSorts(t *testing.T) {
+	key := func(name string) BindingVersionKey {
+		return BindingVersionKey{Public: name, Version: name}
+	}
+	res := &Result{
+		Bindings: []*GlobalBinding{
+			{Name: "a", Order: []string{"a"}, Vars: map[string][]eval.Value{"a": {eval.Int(1)}}},
+			{Name: "b", Order: []string{"b"}, Vars: map[string][]eval.Value{"b": {eval.Int(1)}}},
+			{Name: "params", Order: []string{"a", "b"}, Vars: map[string][]eval.Value{"a": {eval.Int(1)}, "b": {eval.Int(2)}}, DependsOn: []string{"b", "a", "b", "", "params", "outside"}},
+			{Name: "derived", Order: []string{"v"}, Vars: map[string][]eval.Value{"v": {eval.Int(1)}}, DependsOn: []string{"params", "a"}},
+			{Name: "self", Order: []string{"v"}, Vars: map[string][]eval.Value{"v": {eval.Int(1)}}, DependsOn: []string{"self"}},
+			{Name: "hidden", DependsOn: []string{"a"}},
+			{Name: ""},
+		},
+	}
+
+	got := buildGlobalSourceDeps(buildWarningCatalog(res))
+	want := map[BindingVersionKey][]BindingVersionKey{
+		key("derived"): {key("a"), key("params")},
+		key("params"):  {key("a"), key("b")},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected deps: got=%#v want=%#v", got, want)
@@ -88,46 +171,51 @@ func TestBuildGlobalSourceDepsDedupesSkipsAndSorts(t *testing.T) {
 }
 
 func TestCloneUsedBySourceDeepCopiesMaps(t *testing.T) {
-	used := map[string]map[string]bool{
-		"alpha": {"x": true},
-		"beta":  {},
+	alpha := BindingVersionKey{Public: "alpha", Version: "alpha"}
+	beta := BindingVersionKey{Public: "beta", Version: "beta"}
+	used := usedBySource{
+		alpha: {"x": true},
+		beta:  {},
 	}
 
 	clone := cloneUsedBySource(used)
-	if len(clone) != 2 || clone["beta"] == nil {
+	if len(clone) != 2 || clone[beta] == nil {
 		t.Fatalf("expected clone to preserve keys and create empty map, got %#v", clone)
 	}
 
-	clone["alpha"]["x"] = false
-	clone["alpha"]["y"] = true
-	clone["beta"]["z"] = true
-	if used["alpha"]["x"] != true || used["alpha"]["y"] || len(used["beta"]) != 0 {
+	clone[alpha]["x"] = false
+	clone[alpha]["y"] = true
+	clone[beta]["z"] = true
+	if used[alpha]["x"] != true || used[alpha]["y"] || len(used[beta]) != 0 {
 		t.Fatalf("mutating clone should not affect source: source=%#v clone=%#v", used, clone)
 	}
 }
 
 func TestPropagateUsedByGlobalDepsMarksDependenciesAndStaysCycleSafe(t *testing.T) {
-	used := map[string]map[string]bool{
-		"params": {"row": true},
+	key := func(name string) BindingVersionKey {
+		return BindingVersionKey{Public: name, Version: name}
 	}
-	exposed := map[string]map[string]diag.Span{
-		"params": {"row": {}},
-		"mid":    {"m1": {}, "m2": {}},
-		"leaf":   {"x": {}},
-		"empty":  {},
+	used := usedBySource{
+		key("params"): {"row": true},
 	}
-	deps := map[string][]string{
-		"params": {"mid", "leaf"},
-		"mid":    {"leaf", "params"},
-		"leaf":   {"empty"},
+	catalog := buildWarningCatalog(&Result{Bindings: []*GlobalBinding{
+		{Name: "params", Order: []string{"row"}, Vars: map[string][]eval.Value{"row": {eval.Int(1)}}},
+		{Name: "mid", Order: []string{"m1", "m2"}, Vars: map[string][]eval.Value{"m1": {eval.Int(1)}, "m2": {eval.Int(2)}}},
+		{Name: "leaf", Order: []string{"x"}, Vars: map[string][]eval.Value{"x": {eval.Int(1)}}},
+		{Name: "empty"},
+	}})
+	deps := map[BindingVersionKey][]BindingVersionKey{
+		key("params"): {key("mid"), key("leaf")},
+		key("mid"):    {key("leaf"), key("params")},
+		key("leaf"):   {key("empty")},
 	}
 
-	propagateUsedByGlobalDeps(used, exposed, deps)
+	propagateUsedByGlobalDeps(used, catalog, deps)
 
-	want := map[string]map[string]bool{
-		"params": {"row": true},
-		"mid":    {"m1": true, "m2": true},
-		"leaf":   {"x": true},
+	want := usedBySource{
+		key("params"): {"row": true},
+		key("mid"):    {"m1": true, "m2": true},
+		key("leaf"):   {"x": true},
 	}
 	if !reflect.DeepEqual(used, want) {
 		t.Fatalf("unexpected propagated usage: got=%#v want=%#v", used, want)
@@ -181,23 +269,23 @@ func TestMarkSubmitUseBindingRefsForDirectBindingsAndNamespaces(t *testing.T) {
 	}
 
 	calls := make([]string, 0)
-	mark := func(source, name string) {
-		calls = append(calls, source+":"+name)
+	mark := func(binding *GlobalBinding, name string) {
+		calls = append(calls, binding.Name+":"+name)
 	}
 
-	markSubmitUseBindingRefs(res, "direct", mark)
+	markSubmitUseBindingRefs(res.BindingsByName, res.Namespaces, "direct", mark)
 	if !reflect.DeepEqual(calls, []string{"direct:b", "direct:a"}) {
 		t.Fatalf("unexpected direct binding marks: %#v", calls)
 	}
 
 	calls = calls[:0]
-	markSubmitUseBindingRefs(res, "ns", mark)
+	markSubmitUseBindingRefs(res.BindingsByName, res.Namespaces, "ns", mark)
 	if !reflect.DeepEqual(calls, []string{"ns.valid:x"}) {
 		t.Fatalf("unexpected namespace marks: %#v", calls)
 	}
 
 	calls = calls[:0]
-	markSubmitUseBindingRefs(res, "missing", mark)
+	markSubmitUseBindingRefs(res.BindingsByName, res.Namespaces, "missing", mark)
 	if len(calls) != 0 {
 		t.Fatalf("expected missing source to produce no marks, got %#v", calls)
 	}

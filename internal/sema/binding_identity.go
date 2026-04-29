@@ -44,3 +44,40 @@ func BindingVersionKeyForBinding(binding *GlobalBinding, fallback string) Bindin
 	}
 	return BindingVersionKey{Public: public, Version: version}
 }
+
+func BindingVersionKeyForGlobalVar(gv *GlobalVar, fallback string) BindingVersionKey {
+	if gv == nil {
+		return BindingVersionKey{Public: fallback, Version: fallback}
+	}
+	public := gv.Name
+	if public == "" {
+		public = fallback
+	}
+	version := gv.VersionID
+	if version == "" && !gv.Span.IsZero() {
+		version = fmt.Sprintf("%s:%d:%d", gv.Span.File, gv.Span.Start.Offset, gv.Span.End.Offset)
+	}
+	if version == "" {
+		version = gv.Name
+	}
+	if version == "" {
+		version = fallback
+	}
+	return BindingVersionKey{Public: public, Version: version}
+}
+
+func compareBindingVersionKey(a, b BindingVersionKey) int {
+	if a.Public < b.Public {
+		return -1
+	}
+	if a.Public > b.Public {
+		return 1
+	}
+	if a.Version < b.Version {
+		return -1
+	}
+	if a.Version > b.Version {
+		return 1
+	}
+	return 0
+}

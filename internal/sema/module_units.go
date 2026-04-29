@@ -428,6 +428,7 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		next := cloneGlobalVar(exported)
 		next.Name = prefixedName
 		next.DependsOn = prefixNames(prefix, exported.DependsOn)
+		next.DependsOnKeys = prefixBindingVersionKeys(prefix, exported.DependsOnKeys)
 		out.ExportsByName[prefixedName] = next
 		out.Env[prefixedName] = next.Value
 	}
@@ -439,6 +440,7 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		next := cloneGlobalVar(exported)
 		next.Name = prefixedName
 		next.DependsOn = prefixNames(prefix, exported.DependsOn)
+		next.DependsOnKeys = prefixBindingVersionKeys(prefix, exported.DependsOnKeys)
 		out.LocalExportsByName[prefixedName] = next
 	}
 	for _, binding := range scope.Bindings {
@@ -450,6 +452,7 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		next.Name = prefixedName
 		next.PublicName = prefix + "." + bindingDisplayName(binding)
 		next.DependsOn = prefixNames(prefix, binding.DependsOn)
+		next.DependsOnKeys = prefixBindingVersionKeys(prefix, binding.DependsOnKeys)
 		out.Bindings = append(out.Bindings, next)
 		out.BindingsByName[prefixedName] = next
 	}
@@ -672,6 +675,7 @@ func cloneGlobalVars(byName map[string]*GlobalVar, order []string) (map[string]*
 		next.Order = append([]string(nil), gv.Order...)
 		next.Vars = cloneSeriesMap(gv.Vars)
 		next.DependsOn = append([]string(nil), gv.DependsOn...)
+		next.DependsOnKeys = append([]BindingVersionKey(nil), gv.DependsOnKeys...)
 		out[name] = &next
 	}
 	return out, slices.Clone(order)
@@ -689,6 +693,7 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 	next.BaseVars = cloneSeriesMap(binding.BaseVars)
 	next.Rows = cloneCombRows(binding.Rows, binding.Span)
 	next.DependsOn = append([]string(nil), binding.DependsOn...)
+	next.DependsOnKeys = append([]BindingVersionKey(nil), binding.DependsOnKeys...)
 	return &next
 }
 
@@ -764,6 +769,7 @@ func cloneGlobalVar(gv *GlobalVar) *GlobalVar {
 	next.Order = append([]string(nil), gv.Order...)
 	next.Vars = cloneSeriesMap(gv.Vars)
 	next.DependsOn = append([]string(nil), gv.DependsOn...)
+	next.DependsOnKeys = append([]BindingVersionKey(nil), gv.DependsOnKeys...)
 	return &next
 }
 
@@ -1006,6 +1012,23 @@ func prefixNames(prefix string, names []string) []string {
 	return out
 }
 
+func prefixBindingVersionKeys(prefix string, keys []BindingVersionKey) []BindingVersionKey {
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make([]BindingVersionKey, 0, len(keys))
+	for _, key := range keys {
+		if key == (BindingVersionKey{}) {
+			continue
+		}
+		if strings.TrimSpace(key.Public) != "" {
+			key.Public = prefix + "." + key.Public
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
 func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 	if snap == nil || strings.TrimSpace(prefix) == "" {
 		return cloneScopeSnapshot(snap)
@@ -1023,6 +1046,7 @@ func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 		}
 		next.Name = prefix + "." + name
 		next.DependsOn = prefixNames(prefix, next.DependsOn)
+		next.DependsOnKeys = prefixBindingVersionKeys(prefix, next.DependsOnKeys)
 		out.GlobalVarByName[next.Name] = next
 	}
 	out.Bindings = make([]*GlobalBinding, 0, len(snap.Bindings))
@@ -1035,6 +1059,7 @@ func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 		next.Name = prefix + "." + next.Name
 		next.PublicName = prefix + "." + bindingDisplayName(binding)
 		next.DependsOn = prefixNames(prefix, next.DependsOn)
+		next.DependsOnKeys = prefixBindingVersionKeys(prefix, next.DependsOnKeys)
 		out.Bindings = append(out.Bindings, next)
 		out.BindingsByName[next.Name] = next
 		out.BindingsByName[next.PublicName] = next

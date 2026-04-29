@@ -191,12 +191,14 @@ func compileSubmitBlock(block ast.SubmitBlock, bindings map[string]*GlobalBindin
 					}
 					env[varName] = value
 					setHelper(SubmitHelper{
-						Original: varName,
-						Aliased:  helperAlias(varName),
-						Mode:     src.Modes[varName],
-						Value:    value,
-						Span:     origin,
-						UseName:  useName,
+						Original:  varName,
+						Aliased:   helperAlias(varName),
+						Mode:      src.Modes[varName],
+						Value:     value,
+						Span:      origin,
+						UseName:   useName,
+						Source:    src.Name,
+						SourceVar: varName,
 					})
 					continue
 				}

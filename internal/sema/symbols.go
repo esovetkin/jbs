@@ -34,6 +34,7 @@ type GlobalBinding struct {
 	Order           []string
 	Span            diag.Span
 	DependsOn       []string
+	DependsOnKeys   []BindingVersionKey
 	SyntheticGlobal bool
 	VersionID       string
 }
@@ -72,15 +73,16 @@ type GlobalState struct {
 }
 
 type GlobalVar struct {
-	Name      string
-	Value     eval.Value
-	Mode      string
-	Span      diag.Span
-	Order     []string
-	Vars      map[string][]eval.Value
-	Namespace string
-	DependsOn []string
-	VersionID string
+	Name          string
+	Value         eval.Value
+	Mode          string
+	Span          diag.Span
+	Order         []string
+	Vars          map[string][]eval.Value
+	Namespace     string
+	DependsOn     []string
+	DependsOnKeys []BindingVersionKey
+	VersionID     string
 }
 
 type Namespace struct {
@@ -160,12 +162,14 @@ type SubmitValue struct {
 }
 
 type SubmitHelper struct {
-	Original string
-	Aliased  string
-	Mode     string
-	Value    eval.Value
-	Span     diag.Span
-	UseName  string
+	Original  string
+	Aliased   string
+	Mode      string
+	Value     eval.Value
+	Span      diag.Span
+	UseName   string
+	Source    string
+	SourceVar string
 }
 
 type SubmitSpec struct {
