@@ -39,10 +39,6 @@ func TestReadSupportsNameWithAndWithoutExtension(t *testing.T) {
 	if a != b {
 		t.Fatalf("expected same content with/without extension")
 	}
-	legacyHelper := "submit" + "_defaults = comb("
-	if strings.Contains(a, legacyHelper) {
-		t.Fatalf("unexpected legacy submit helper in jsc content: %q", a)
-	}
 	if !strings.Contains(a, "systemname = shell(") {
 		t.Fatalf("unexpected jsc content: %q", a)
 	}

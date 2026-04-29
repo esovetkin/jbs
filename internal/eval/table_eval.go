@@ -151,7 +151,7 @@ func evalSelectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 
 	tableValue := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
 	if !IsComb(tableValue) {
-		diags.AddError(diag.CodeE106, "select() first argument must be a table value", rawArgs[0].Span, "pass a table built by table(), zip(), product(), select(), read_csv(), or legacy comb()")
+		diags.AddError(diag.CodeE106, "select() first argument must be a table value", rawArgs[0].Span, "pass a table built by table(), zip(), product(), select(), or read_csv()")
 		return Null()
 	}
 

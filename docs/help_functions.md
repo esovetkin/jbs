@@ -264,13 +264,6 @@ Rules:
 - selectors are identifiers such as `id` or qualified identifiers such as `ns.value`
 - selector order is preserved
 
-## Legacy `comb(...)`
-
-Legacy `comb(...)` still works during migration, but it emits warning `W103`.
-
-- prefer `table(...)`, `zip(...)`, `product(...)`, and `select(...)` in new code
-- alias-only leaves (`expr as name`) belong to the deprecated `comb(...)` surface, not the canonical table API
-
 ## `filter(<list/tuple/table>, <mask>)`
 
 take subsets of a list, tuple, or a table

@@ -101,27 +101,6 @@ func TestRunFmtStrictAcceptsCanonicalSyntax(t *testing.T) {
 	}
 }
 
-func TestRunCheckWarnsForLegacyCombAlias(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		`x = (1, 2)`,
-		`cases = comb(x)`,
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected check to succeed with deprecated comb() warning, code=%d stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "WARNING W103") || !strings.Contains(stderr.String(), "comb() is deprecated") {
-		t.Fatalf("expected deprecated comb() warning, got %q", stderr.String())
-	}
-}
-
 func TestRunFmtStrictRejectsFormerTopLevelParamBlockAsGenericSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

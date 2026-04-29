@@ -1,5 +1,0 @@
-WARNING W103 /home/jackson/documents/jülich/jbs_review2/tests/legacy_comb_deprecated.jbs:2:9
-comb() is deprecated; use table(), zip(), product(), or select()
-     2 | cases = comb(x)
-       |         ^^^^^^^
-Hint: rewrite legacy combination algebra with explicit table operations

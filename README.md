@@ -110,7 +110,7 @@ seed0 += 1
 seed1 = seed0 + 1
 ```
 
-Use `table(...)` for one table, `zip(...)` for row-wise merge, `product(...)` for Cartesian product, and `select(...)` for projection. Legacy `comb(...)` still works during migration, but it emits a deprecation warning.
+Use `table(...)` for one table, `zip(...)` for row-wise merge, `product(...)` for Cartesian product, and `select(...)` for projection.
 
 Read more in `jbs help globals` or [docs/help_globals.md](docs/help_globals.md).
 

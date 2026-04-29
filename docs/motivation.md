@@ -83,7 +83,7 @@ a = (1,2)
 b = ("b0","b1","b2")
 c = ("c0","c1","c2")
 d = (true,false)
-pm = comb(a * (b + c) * d)
+pm = product(table(a = a), table(b = b, c = c), table(d = d))
 
 do step0 with pm[a, b] {
   echo "a=${a} b=${b}" > s0.out
@@ -196,9 +196,9 @@ variable 'a' is referenced in step 's' but is not visible through `with` or pred
 ### Exposed imported variable never used
 
 ```jbs
-p_a = (1,2)
-p_b = ("x","y")
-p = comb(p_a + p_b)
+a = (1,2)
+b = ("x","y")
+p = table(a = a, b = b)
 do s with p[a] { echo ${a} }
 ```
 

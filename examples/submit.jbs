@@ -2,7 +2,7 @@ use jsc
 
 id = (1, 2)
 label = ("alpha", "beta")
-jobs = comb(id + label)
+jobs = table(id = id, label = label)
 
 do prep
         with jobs

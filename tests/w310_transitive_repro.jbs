@@ -1,7 +1,7 @@
 x = (1, 2)
 a = ("a", "b", "c")
 
-params = comb(a * x)
+params = product(table(a = a), table(x = x))
 
 do ex_step with params {
         echo "Number: ${x}"  > ex_ofile

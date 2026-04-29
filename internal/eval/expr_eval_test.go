@@ -1760,60 +1760,6 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 	}
 }
 
-func TestCallNameBranches(t *testing.T) {
-	tests := []struct {
-		name      string
-		callee    ast.Expr
-		wantName  string
-		wantValid bool
-	}{
-		{
-			name:      "ident valid",
-			callee:    ast.IdentExpr{Name: "range"},
-			wantName:  "range",
-			wantValid: true,
-		},
-		{
-			name:      "ident empty",
-			callee:    ast.IdentExpr{Name: ""},
-			wantName:  "",
-			wantValid: false,
-		},
-		{
-			name:      "qualified valid",
-			callee:    ast.QualifiedIdentExpr{Namespace: "mod", Name: "fn"},
-			wantName:  "mod.fn",
-			wantValid: true,
-		},
-		{
-			name:      "qualified missing namespace",
-			callee:    ast.QualifiedIdentExpr{Namespace: "", Name: "fn"},
-			wantName:  "",
-			wantValid: false,
-		},
-		{
-			name:      "qualified missing name",
-			callee:    ast.QualifiedIdentExpr{Namespace: "mod", Name: ""},
-			wantName:  "",
-			wantValid: false,
-		},
-		{
-			name:      "unsupported callee expression",
-			callee:    ast.NumberExpr{Int: true, IntValue: 1},
-			wantName:  "",
-			wantValid: false,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			gotName, gotValid := callName(tc.callee)
-			if gotName != tc.wantName || gotValid != tc.wantValid {
-				t.Fatalf("callName(%#v) = (%q,%v), want (%q,%v)", tc.callee, gotName, gotValid, tc.wantName, tc.wantValid)
-			}
-		})
-	}
-}
-
 func TestEvalCallUnsupportedCallee(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	got := evalCall(
@@ -1833,142 +1779,7 @@ func TestEvalCallUnsupportedCallee(t *testing.T) {
 	}
 }
 
-func TestCombCallUsesCombAlgebraAndSkipsEagerArgEval(t *testing.T) {
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
-		Args: ast.PosCallArgs(
-			ast.BinaryExpr{
-				Left:  ast.IdentExpr{Name: "x", Span: spanAt(82, 7)},
-				Op:    "*",
-				Right: ast.IdentExpr{Name: "y", Span: spanAt(82, 11)},
-				Span:  spanAt(82, 7),
-			},
-		),
-		Span: spanAt(82, 1),
-	}
-	env := map[string]Value{
-		"x": Tuple([]Value{Int(1), Int(2)}),
-		"y": Tuple([]Value{Int(3), Int(4)}),
-	}
-	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
-	if diags.HasErrors() {
-		t.Fatalf("unexpected errors: %s", diags.String())
-	}
-	if got.Kind != KindComb || got.C == nil {
-		t.Fatalf("expected comb value, got %#v", got)
-	}
-	if len(got.C.Rows) != 4 {
-		t.Fatalf("expected 4 rows for comb(x*y), got %d", len(got.C.Rows))
-	}
-	if len(got.C.Order) != 2 || got.C.Order[0] != "x" || got.C.Order[1] != "y" {
-		t.Fatalf("unexpected comb order: %#v", got.C.Order)
-	}
-}
-
-func TestCombCallRequiresNamedLeafsOrAlias(t *testing.T) {
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(82, 1)},
-		Args: ast.PosCallArgs(
-			ast.BinaryExpr{
-				Left: ast.IdentExpr{Name: "a", Span: spanAt(82, 7)},
-				Op:   "*",
-				Right: ast.CallExpr{
-					Callee: ast.IdentExpr{Name: "range", Span: spanAt(82, 11)},
-					Args: ast.PosCallArgs(
-						ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(82, 17)},
-					),
-					Span: spanAt(82, 11),
-				},
-				Span: spanAt(82, 7),
-			},
-		),
-		Span: spanAt(82, 1),
-	}
-	env := map[string]Value{
-		"a": Tuple([]Value{Int(1), Int(2)}),
-	}
-	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
-	if got.Kind != KindComb {
-		t.Fatalf("expected comb result placeholder, got %#v", got)
-	}
-	if diagCount(diags, "E106") == 0 {
-		t.Fatalf("expected E106 for unnamed comb leaf, got: %s", diags.String())
-	}
-}
-
-func TestCombCallSupportsAliasForNonCombLeafs(t *testing.T) {
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(84, 1)},
-		Args: ast.PosCallArgs(
-			ast.BinaryExpr{
-				Left: ast.IdentExpr{Name: "a", Span: spanAt(84, 7)},
-				Op:   "*",
-				Right: ast.AliasExpr{
-					Expr: ast.CallExpr{
-						Callee: ast.IdentExpr{Name: "range", Span: spanAt(84, 11)},
-						Args: ast.PosCallArgs(
-							ast.NumberExpr{Int: true, IntValue: 2, Span: spanAt(84, 17)},
-						),
-						Span: spanAt(84, 11),
-					},
-					Alias: "b",
-					Span:  spanAt(84, 11),
-				},
-				Span: spanAt(84, 7),
-			},
-		),
-		Span: spanAt(84, 1),
-	}
-	env := map[string]Value{
-		"a": Tuple([]Value{Int(1), Int(2)}),
-	}
-	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
-	if diags.HasErrors() {
-		t.Fatalf("unexpected errors: %s", diags.String())
-	}
-	if got.Kind != KindComb || got.C == nil {
-		t.Fatalf("expected comb value, got %#v", got)
-	}
-	if len(got.C.Rows) != 4 {
-		t.Fatalf("expected 4 rows, got %d", len(got.C.Rows))
-	}
-	if !slices.Equal(got.C.Order, []string{"a", "b"}) {
-		t.Fatalf("expected comb columns [a b], got %#v", got.C.Order)
-	}
-}
-
-func TestCombCallRejectsAliasOnCombOperand(t *testing.T) {
-	env := map[string]Value{
-		"a": CombValue(&Comb{
-			Order: []string{"x"},
-			Rows: []Row{
-				{Values: map[string]Cell{"x": {Value: Int(1)}}},
-				{Values: map[string]Cell{"x": {Value: Int(2)}}},
-			},
-		}),
-	}
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(85, 1)},
-		Args: ast.PosCallArgs(
-			ast.AliasExpr{
-				Expr:  ast.IdentExpr{Name: "a", Span: spanAt(85, 7)},
-				Alias: "t",
-				Span:  spanAt(85, 7),
-			},
-		),
-		Span: spanAt(85, 1),
-	}
-	diags := &diag.Diagnostics{}
-	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
-	if diagCount(diags, "E106") == 0 {
-		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
-	}
-}
-
-func TestParamAssignCombBinarySupportsAliasOutsideCombCall(t *testing.T) {
+func TestBindingAssignTableBinarySupportsAliasOperand(t *testing.T) {
 	env := map[string]Value{
 		"x": Tuple([]Value{Int(1), Int(2)}),
 		"a": CombValue(&Comb{
@@ -2002,7 +1813,7 @@ func TestParamAssignCombBinarySupportsAliasOutsideCombCall(t *testing.T) {
 	}
 }
 
-func TestParamAssignCombBinaryRejectsAliasOnCombOperand(t *testing.T) {
+func TestBindingAssignTableBinaryRejectsAliasOnTableOperand(t *testing.T) {
 	env := map[string]Value{
 		"x": Tuple([]Value{Int(1), Int(2)}),
 		"a": CombValue(&Comb{
@@ -2026,37 +1837,7 @@ func TestParamAssignCombBinaryRejectsAliasOnCombOperand(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	_ = EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diagCount(diags, "E106") == 0 {
-		t.Fatalf("expected E106 for alias-on-comb, got: %s", diags.String())
-	}
-}
-
-func TestCombCallOutsideParamAssignDoesNotEvaluateArgsEagerly(t *testing.T) {
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(83, 1)},
-		Args: ast.PosCallArgs(
-			ast.BinaryExpr{
-				Left:  ast.IdentExpr{Name: "x", Span: spanAt(83, 7)},
-				Op:    "*",
-				Right: ast.IdentExpr{Name: "y", Span: spanAt(83, 11)},
-				Span:  spanAt(83, 7),
-			},
-		),
-		Span: spanAt(83, 1),
-	}
-	env := map[string]Value{
-		"x": Tuple([]Value{Int(1), Int(2)}),
-		"y": Tuple([]Value{Int(3), Int(4)}),
-	}
-	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{})
-	if got.Kind != KindNull {
-		t.Fatalf("expected null for comb() outside top-level global assignment, got %#v", got)
-	}
-	if diagCount(diags, "E199") != 1 {
-		t.Fatalf("expected one E199, got: %s", diags.String())
-	}
-	if strings.Contains(diags.String(), "tuple '*' requires tuple * integer") {
-		t.Fatalf("unexpected eager argument evaluation diagnostic: %s", diags.String())
+		t.Fatalf("expected E106 for alias-on-table, got: %s", diags.String())
 	}
 }
 
@@ -2170,30 +1951,6 @@ func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
 	}
 	if len(zipped.C.Rows) != 2 {
 		t.Fatalf("expected 2 zipped rows, got %#v", zipped.C.Rows)
-	}
-}
-
-func TestCombCallWarnsDeprecated(t *testing.T) {
-	expr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "comb", Span: spanAt(89, 1)},
-		Args: ast.PosCallArgs(
-			ast.IdentExpr{Name: "x", Span: spanAt(89, 7)},
-		),
-		Span: spanAt(89, 1),
-	}
-	env := map[string]Value{
-		"x": Tuple([]Value{Int(1), Int(2)}),
-	}
-	diags := &diag.Diagnostics{}
-	got := EvalExprWithOptions(expr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
-	if !IsComb(got) {
-		t.Fatalf("expected legacy comb() to keep working during migration, got %#v", got)
-	}
-	if diagCount(diags, "W103") != 1 {
-		t.Fatalf("expected one deprecation warning for comb(), got: %s", diags.String())
-	}
-	if diags.HasErrors() {
-		t.Fatalf("did not expect comb() deprecation to be an error: %s", diags.String())
 	}
 }
 

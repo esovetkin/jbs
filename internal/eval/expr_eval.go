@@ -143,7 +143,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 	case ast.FunctionExpr:
 		return newFunctionValue(e, env, diags, opts, ctx)
 	case ast.AliasExpr:
-		diags.AddError(diag.CodeE106, "alias expression is only allowed inside legacy comb()", e.Span, "replace it with table(name = expr) or a named table operation")
+		diags.AddError(diag.CodeE106, "alias expression is only allowed in table-valued assignment operands", e.Span, "replace it with table(name = expr) or a named table operation")
 		return Null()
 	case ast.CallExpr:
 		return evalCall(e.Callee, e.Args, env, e.Span, diags, opts, ctx)
@@ -254,13 +254,6 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return Null()
 	}
 	switch name {
-	case "comb":
-		if opts.Context != EvalCtxBindingAssign {
-			diags.AddError(diag.CodeE199, "function 'comb' is only allowed in top-level global assignments", at, "use this function only in top-level global assignment expressions")
-			return Null()
-		}
-		diags.AddWarning(diag.CodeW103, "comb() is deprecated; use table(), zip(), product(), or select()", at, "rewrite legacy combination algebra with explicit table operations")
-		return evalCombCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "table":
 		return evalTableCall(rawArgs, env, at, diags, opts, ctx)
 	case "zip":
@@ -384,25 +377,8 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 		return ident.Name, true
 	}
 	switch ident.Name {
-	case "comb", "table", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
+	case "table", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
 		return ident.Name, true
-	default:
-		return "", false
-	}
-}
-
-func callName(callee ast.Expr) (string, bool) {
-	switch n := callee.(type) {
-	case ast.IdentExpr:
-		if n.Name == "" {
-			return "", false
-		}
-		return n.Name, true
-	case ast.QualifiedIdentExpr:
-		if n.Namespace == "" || n.Name == "" {
-			return "", false
-		}
-		return n.Namespace + "." + n.Name, true
 	default:
 		return "", false
 	}
@@ -821,83 +797,6 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 	}
 }
 
-func evalCombCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) != 1 {
-		diags.AddError(diag.CodeE106, "comb() expects exactly one argument", at, "use comb(expression)")
-		return Null()
-	}
-	rows, _ := evalStrictCombRows(rawArgs[0], env, diags, opts, ctx)
-	return combValueFromRows(rows)
-}
-
-func evalStrictCombRows(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
-	if expr == nil {
-		return nil, false
-	}
-	switch e := expr.(type) {
-	case ast.BinaryExpr:
-		if e.Op == "+" || e.Op == "*" {
-			left, okLeft := evalStrictCombRows(e.Left, env, diags, opts, ctx)
-			right, okRight := evalStrictCombRows(e.Right, env, diags, opts, ctx)
-			if !okLeft || !okRight {
-				return nil, false
-			}
-			if dupName, ok := firstDuplicatedColumnName(left, right); ok {
-				diags.AddError(
-					diag.CodeE036,
-					fmt.Sprintf("repeated identifier '%s' is not allowed in combination expression", dupName),
-					e.Span,
-					"use each identifier at most once in a combination expression",
-				)
-				return nil, false
-			}
-			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
-			if e.Op == "+" {
-				return zipRows(left, right, opNode, diags), true
-			}
-			return productRows(left, right, opNode, diags), true
-		}
-	case ast.IdentExpr:
-		v, ok := lookupValue(e.Name, env, e.Span, diags, ctx)
-		if !ok {
-			return nil, false
-		}
-		return combRowsFromNamedValue(e.Name, v, e.Span), true
-	case ast.QualifiedIdentExpr:
-		v := evalExprWithCtx(e, env, diags, opts, ctx)
-		return combRowsFromNamedValue(e.Namespace+"."+e.Name, v, e.Span), true
-	case ast.CallExpr:
-		name, ok := callName(e.Callee)
-		if !ok || name != "comb" {
-			break
-		}
-		v := evalExprWithCtx(e, env, diags, opts, ctx)
-		if !IsComb(v) {
-			diags.AddError(diag.CodeE106, "comb leaf expression must evaluate to a table value", e.Span, "use table(), zip(), product(), select(), read_csv(), or legacy comb() as a table-producing leaf")
-			return nil, false
-		}
-		return cloneRows(v.C.Rows), true
-	case ast.AliasExpr:
-		if e.Alias == "" {
-			diags.AddError(diag.CodeE106, "comb leaf expression alias cannot be empty", e.Span, "use syntax: expression as name")
-			return nil, false
-		}
-		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
-		if IsComb(v) {
-			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", e.Span, "apply alias only to non-table leaves")
-			return nil, false
-		}
-		return combRowsFromNamedValue(e.Alias, v, e.Span), true
-	}
-	diags.AddError(
-		diag.CodeE106,
-		"comb leaf expression must be an identifier or use 'as <name>'",
-		expr.GetSpan(),
-		"use syntax: ident, ident as alias, or expression as alias",
-	)
-	return nil, false
-}
-
 func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	left, okLeft := evalRelaxedCombOperand(expr.Left, env, diags, opts, ctx)
 	right, okRight := evalRelaxedCombOperand(expr.Right, env, diags, opts, ctx)
@@ -917,7 +816,7 @@ func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Dia
 	}
 	if alias, ok := expr.(ast.AliasExpr); ok {
 		if alias.Alias == "" {
-			diags.AddError(diag.CodeE106, "comb operand alias cannot be empty", alias.Span, "use syntax: expression as name")
+			diags.AddError(diag.CodeE106, "table operand alias cannot be empty", alias.Span, "use syntax: expression as name")
 			return nil, false
 		}
 		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)

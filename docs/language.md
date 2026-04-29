@@ -229,7 +229,6 @@ Supported expression forms include:
 - conditional `a if cond else b`
 - function literals and call expressions
 - mode expressions: `shell(...)`, `python(...)`
-- legacy alias expressions `expr as IDENT` inside deprecated `comb(...)` construction
 
 Builtins:
 
@@ -346,13 +345,6 @@ Example:
 grid = product(table(id = (1, 2)), table(replica = (0, 1)))
 view = select(grid, id, replica)
 ```
-
-### Legacy `comb(...)`
-
-Legacy `comb(...)` is still accepted during migration, but it is deprecated and emits warning `W103`.
-
-- prefer `table(...)`, `zip(...)`, `product(...)`, and `select(...)` in new code
-- alias-only leaves (`expr as name`) are part of the deprecated `comb(...)` surface, not the canonical table API
 
 ### `read_csv(...)`
 
