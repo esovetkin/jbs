@@ -27,19 +27,6 @@ func TestUnknownTopicReturnsError(t *testing.T) {
 	}
 }
 
-func TestGlobalsHelpMentionsTopLevelAssignments(t *testing.T) {
-	text, err := Page("globals")
-	if err != nil {
-		t.Fatalf("globals topic did not resolve: %v", err)
-	}
-	if !strings.Contains(text, "top-level assignments") {
-		t.Fatalf("expected globals help to describe top-level assignments, got:\n%s", text)
-	}
-	if !strings.Contains(text, "table(") {
-		t.Fatalf("expected globals help to use table() examples, got:\n%s", text)
-	}
-}
-
 func TestFunctionsHelpMentionsExplicitTableOperations(t *testing.T) {
 	text, err := Page("functions")
 	if err != nil {

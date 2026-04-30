@@ -23,8 +23,38 @@ Rules:
 - local assignments may still use compound operators; that mutability is function-local, not top-level
 - nested functions capture outer locals lexically
 - top-level globals are captured live, so a function sees later reassignment of a global it reads
+
+```jbs
+jbs> x = 1
+jbs> f = function() {x}
+jbs> f()
+1
+jbs> x=2
+jbs> f()
+2
+```
+
 - a default such as `function(x = x) { ... }` captures that selected value at function definition time
+
+```jbs
+jbs> x=1
+jbs> f = function(x=x) {x}
+jbs> f()
+1
+jbs> x=2
+jbs> f()
+1
+jbs>
+```
 - defaults that refer to earlier parameters, such as `function(a, b = a + 1)`, are evaluated at call time
+
+- recursions are allowed, but they are not optimized
+
+```
+jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
+jbs> factorial(5)
+120
+```
 
 Examples:
 

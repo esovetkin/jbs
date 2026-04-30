@@ -1,5 +1,5 @@
-p0 = table(d = (true, false)) * (table(a = range(6)) + table(b = ("a", "b", "c"))) * table(c=("x","z"))
-p1 = table(a = ("a", "b")) + table(b = range(4))
+p0 = t(d = (true, false)) * (t(a = range(6)) + t(b = ("a", "b", "c"))) * t(c=("x","z"))
+p1 = t(a = ("a", "b")) + t(b = range(4))
 
 do step0
         with p0[a]

@@ -14,7 +14,6 @@ do prep
 submit run0
         after prep
         use jsc
-        with jobs
 {
         account = "atmlaml"
         executable = "/bin/bash"
