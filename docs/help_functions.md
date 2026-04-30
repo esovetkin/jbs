@@ -65,6 +65,8 @@ Data-only boundary:
 
 When printed in REPL or via `str(...)`, a function value renders as `<function>`.
 
+In REPL, use `:help range` or `?range` for a focused page about one internal function.
+
 ## `tuple()`, `list()`
 
 treat a list as a tuple, and vice versa

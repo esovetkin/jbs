@@ -2,6 +2,7 @@ package eval
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -316,6 +317,35 @@ func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
 	}
 	if len(diags.Items) != 0 {
 		t.Fatalf("did not expect diagnostics for n<=0, got: %s", diags.String())
+	}
+}
+
+func TestBuiltinCallNames(t *testing.T) {
+	names := BuiltinCallNames()
+	for _, name := range []string{"range", "rev", "table", "t", "map", "reduce", "read_csv"} {
+		if !slices.Contains(names, name) {
+			t.Fatalf("BuiltinCallNames missing %q: %#v", name, names)
+		}
+	}
+	if !slices.IsSorted(names) {
+		t.Fatalf("BuiltinCallNames must be sorted, got %#v", names)
+	}
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if _, exists := seen[name]; exists {
+			t.Fatalf("BuiltinCallNames contains duplicate %q: %#v", name, names)
+		}
+		seen[name] = struct{}{}
+	}
+	for _, name := range []string{"range", "table", "t"} {
+		if !IsBuiltinCallName(name) {
+			t.Fatalf("expected %q to be a builtin call name", name)
+		}
+	}
+	for _, name := range []string{"shell", "python", "missing"} {
+		if IsBuiltinCallName(name) {
+			t.Fatalf("did not expect %q to be a builtin call name", name)
+		}
 	}
 }
 

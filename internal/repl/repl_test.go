@@ -349,3 +349,205 @@ func TestRunOpenParenTriggersContinuation(t *testing.T) {
 		t.Fatalf("expected accepted source to include completed chunk, got: %q", out.String())
 	}
 }
+
+func TestRunHelpFunctionCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		contains string
+	}{
+		{name: "range", line: ":help range", contains: "# `range(...)`"},
+		{name: "t alias", line: ":help t", contains: "Alias of `table(...)`"},
+		{name: "shell", line: ":help shell", contains: "mode: shell"},
+		{name: "python", line: ":help python", contains: "mode: python"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{{line: tc.line}, {err: io.EOF}}}
+			var out, err strings.Builder
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if !strings.Contains(out.String(), tc.contains) {
+				t.Fatalf("expected %q in stdout, got %q", tc.contains, out.String())
+			}
+			if err.String() != "" {
+				t.Fatalf("did not expect stderr, got %q", err.String())
+			}
+		})
+	}
+}
+
+func TestRunQuestionHelpCommand(t *testing.T) {
+	tests := []string{"?range", "? range"}
+	for _, line := range tests {
+		t.Run(line, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{{line: line}, {err: io.EOF}}}
+			var out, err strings.Builder
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if !strings.Contains(out.String(), "# `range(...)`") {
+				t.Fatalf("expected range help in stdout, got %q", out.String())
+			}
+			if err.String() != "" {
+				t.Fatalf("did not expect stderr, got %q", err.String())
+			}
+		})
+	}
+}
+
+func TestRunHelpInvalidForms(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "bare question", line: "?", want: "usage: ?<function_name>"},
+		{name: "question extra spaced", line: "? range extra", want: "usage: ?<function_name>"},
+		{name: "question extra compact", line: "?range extra", want: "usage: ?<function_name>"},
+		{name: "help extra", line: ":help range extra", want: "usage: :help [function_name]"},
+		{name: "unknown function", line: ":help nope", want: "unknown internal function: nope"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{{line: tc.line}, {err: io.EOF}}}
+			var out, err strings.Builder
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if !strings.Contains(err.String(), tc.want) {
+				t.Fatalf("expected %q in stderr, got %q", tc.want, err.String())
+			}
+			if tc.name == "unknown function" && !strings.Contains(err.String(), "available internal functions:") {
+				t.Fatalf("expected available function list, got %q", err.String())
+			}
+		})
+	}
+}
+
+func TestRunHelpQueriesDoNotCommitSource(t *testing.T) {
+	tests := []string{"?range", ":help range"}
+	for _, line := range tests {
+		t.Run(line, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{{line: line}, {line: ":show"}, {err: io.EOF}}}
+			var out, err strings.Builder
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if !strings.Contains(out.String(), "# `range(...)`") {
+				t.Fatalf("expected range help in stdout, got %q", out.String())
+			}
+			if !strings.Contains(out.String(), "(empty)") {
+				t.Fatalf("expected help query not to commit source, got %q", out.String())
+			}
+			if err.String() != "" {
+				t.Fatalf("did not expect stderr, got %q", err.String())
+			}
+		})
+	}
+}
+
+func TestRunBareHelpStillPrintsCommandHelp(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: ":help"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "REPL commands:") || !strings.Contains(out.String(), "?<function_name>") {
+		t.Fatalf("expected command help, got %q", out.String())
+	}
+	if err.String() != "" {
+		t.Fatalf("did not expect stderr, got %q", err.String())
+	}
+}
+
+func TestQuestionAndColonCommandsInsidePendingInputAreNotCommands(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+	}{
+		{name: "question", line: "?range"},
+		{name: "colon", line: ":show"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{
+				{line: "add = function(x) {"},
+				{line: tc.line},
+				{line: "}"},
+				{err: io.EOF},
+			}}
+			var out, err strings.Builder
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+			commitCalled := false
+			opts.Commit = func(source string, chunk string) (CommitResult, error) {
+				commitCalled = true
+				if !strings.Contains(chunk, tc.line) {
+					t.Fatalf("expected pending chunk to contain %q, got %q", tc.line, chunk)
+				}
+				return CommitResult{Source: source, HasErrors: true}, nil
+			}
+
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if !commitCalled {
+				t.Fatalf("expected pending input to be committed")
+			}
+			if out.String() != "Type :help for commands, Ctrl+D to exit\n" {
+				t.Fatalf("did not expect command output, got %q", out.String())
+			}
+			if err.String() != "" {
+				t.Fatalf("did not expect stderr, got %q", err.String())
+			}
+		})
+	}
+}
+
+func TestQuestionHelpIgnoresAcceptedSourceBindings(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "len = function(x) { x }"}, {line: "?len"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "# `len(...)`") {
+		t.Fatalf("expected internal len help, got %q", out.String())
+	}
+	if err.String() != "" {
+		t.Fatalf("did not expect stderr, got %q", err.String())
+	}
+}

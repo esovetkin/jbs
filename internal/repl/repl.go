@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	helpdocs "jbs/docs"
+
 	"github.com/chzyer/readline"
 )
 
@@ -17,13 +19,15 @@ const (
 )
 
 const helpText = `REPL commands:
-:help              show this help
-:show              print accepted session source
-:check             run parser+sema validation on accepted source
-:yaml              print lowered YAML for accepted source
-:save <filename>   write lowered YAML to file
-:reset             clear accepted source and pending input
-:quit / :exit      exit REPL`
+:help                  show this help
+:help <function_name>  show help for an internal function
+?<function_name>       shortcut for :help <function_name>
+:show                  print accepted session source
+:check                 run parser+sema validation on accepted source
+:yaml                  print lowered YAML for accepted source
+:save <filename>       write lowered YAML to file
+:reset                 clear accepted source and pending input
+:quit / :exit          exit REPL`
 
 type sessionState struct {
 	accepted string
@@ -112,7 +116,7 @@ func Run(opts Options) int {
 		if state.pending == "" && trimmed == "" {
 			continue
 		}
-		if state.pending == "" && strings.HasPrefix(trimmed, ":") {
+		if state.pending == "" && isREPLCommandLine(trimmed) {
 			exit, code := handleCommand(trimmed, absCwd, &state, stdout, stderr, opts.Check, opts.YAML)
 			if exit {
 				return code
@@ -181,6 +185,10 @@ func isInterrupt(err error) bool {
 	return errors.Is(err, readline.ErrInterrupt)
 }
 
+func isREPLCommandLine(line string) bool {
+	return strings.HasPrefix(line, ":") || strings.HasPrefix(line, "?")
+}
+
 func appendChunk(accepted string, chunk string) string {
 	if strings.TrimSpace(chunk) == "" {
 		return accepted
@@ -203,13 +211,29 @@ func handleCommand(
 	check CheckFunc,
 	yaml YAMLFunc,
 ) (bool, int) {
+	if name, ok, valid := parseQuestionHelp(line); ok {
+		if !valid {
+			fmt.Fprintln(stderr, "usage: ?<function_name>")
+			return false, 0
+		}
+		printFunctionHelp(stdout, stderr, name)
+		return false, 0
+	}
+
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return false, 0
 	}
 	switch fields[0] {
 	case ":help":
-		fmt.Fprintln(stdout, helpText)
+		switch len(fields) {
+		case 1:
+			fmt.Fprintln(stdout, helpText)
+		case 2:
+			printFunctionHelp(stdout, stderr, fields[1])
+		default:
+			fmt.Fprintln(stderr, "usage: :help [function_name]")
+		}
 	case ":show":
 		if strings.TrimSpace(state.accepted) == "" {
 			fmt.Fprintln(stdout, "(empty)")
@@ -297,6 +321,32 @@ func handleCommand(
 		fmt.Fprintf(stderr, "unknown command: %s\n", fields[0])
 	}
 	return false, 0
+}
+
+func parseQuestionHelp(line string) (string, bool, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "?") {
+		return "", false, true
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "?"))
+	fields := strings.Fields(rest)
+	if len(fields) != 1 {
+		return "", true, false
+	}
+	return fields[0], true, true
+}
+
+func printFunctionHelp(stdout io.Writer, stderr io.Writer, name string) {
+	page, err := helpdocs.FunctionPage(name)
+	if err != nil {
+		fmt.Fprintf(stderr, "unknown internal function: %s\n", name)
+		fmt.Fprintf(stderr, "available internal functions: %s\n", helpdocs.FunctionNamesText())
+		return
+	}
+	_, _ = io.WriteString(stdout, page)
+	if !strings.HasSuffix(page, "\n") {
+		fmt.Fprintln(stdout)
+	}
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

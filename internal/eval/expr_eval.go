@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -239,6 +240,25 @@ var kernelFuncs = map[string]kernelFunc{
 	},
 }
 
+var specialBuiltinCallNames = map[string]struct{}{
+	"all":      {},
+	"any":      {},
+	"filter":   {},
+	"float":    {},
+	"int":      {},
+	"len":      {},
+	"map":      {},
+	"names":    {},
+	"product":  {},
+	"read_csv": {},
+	"reduce":   {},
+	"select":   {},
+	"str":      {},
+	"table":    {},
+	"t":        {},
+	"zip":      {},
+}
+
 func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if fn, ok, fallback := resolveCallable(callee, env, diags, opts, ctx); ok {
 		return executeFunctionCall(fn, rawArgs, env, at, diags, opts, ctx)
@@ -370,15 +390,34 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 	if !ok || ident.Name == "" {
 		return "", false
 	}
-	if _, ok := kernelFuncs[ident.Name]; ok {
+	if IsBuiltinCallName(ident.Name) {
 		return ident.Name, true
 	}
-	switch ident.Name {
-	case "table", "t", "zip", "product", "select", "names", "map", "reduce", "read_csv", "int", "float", "str", "len", "filter", "all", "any":
-		return ident.Name, true
-	default:
-		return "", false
+	return "", false
+}
+
+func IsBuiltinCallName(name string) bool {
+	if _, ok := kernelFuncs[name]; ok {
+		return true
 	}
+	_, ok := specialBuiltinCallNames[name]
+	return ok
+}
+
+func BuiltinCallNames() []string {
+	seen := make(map[string]struct{}, len(kernelFuncs)+len(specialBuiltinCallNames))
+	for name := range kernelFuncs {
+		seen[name] = struct{}{}
+	}
+	for name := range specialBuiltinCallNames {
+		seen[name] = struct{}{}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func evalKernelCall(name string, args []Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {

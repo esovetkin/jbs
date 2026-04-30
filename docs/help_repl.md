@@ -123,6 +123,8 @@ History is stored locally in `<cwd>/.jbs_history`, where `<cwd>` is the director
 ## REPL commands
 
 - `:help`: show command help
+- `:help <function_name>`: show help for an internal function
+- `?<function_name>`: shortcut for `:help <function_name>`
 - `:show`: print current accepted session source
 - `:check`: run parser/sema checks on accepted source
 - `:yaml`: print lowered YAML for accepted source
@@ -135,7 +137,17 @@ Notes:
 - `:yaml` and `:save` use the same lowering path.
 - `:save` writes atomically (temporary file + rename).
 - `:save` paths are resolved relative to the REPL process working directory when given as relative paths.
+- help queries such as `?range` and `:help range` do not modify accepted source
 - REPL output prints errors only; warnings are suppressed in interactive mode.
 - assignments, imports, and blocks do not print values automatically
 - bare expression line output is ignored by normal file compilation; only REPL prints it
 - function values print as `<function>`
+
+Example:
+
+```jbs
+jbs> ?range
+# `range(...)`
+jbs> :help table
+# `table(...)`
+```

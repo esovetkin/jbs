@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 )
 
-//go:embed help_*.md
+//go:embed help_*.md function_help/*.md
 var pageFS embed.FS
 
 var topicToFile = map[string]string{
@@ -23,6 +24,39 @@ var topicToFile = map[string]string{
 	"submit":    "help_submit.md",
 	"use":       "help_use.md",
 }
+
+type FunctionHelpEntry struct {
+	Name    string
+	File    string
+	AliasOf string
+}
+
+var functionHelpEntries = []FunctionHelpEntry{
+	{Name: "all", File: "function_help/all.md"},
+	{Name: "any", File: "function_help/any.md"},
+	{Name: "filter", File: "function_help/filter.md"},
+	{Name: "float", File: "function_help/float.md"},
+	{Name: "int", File: "function_help/int.md"},
+	{Name: "len", File: "function_help/len.md"},
+	{Name: "list", File: "function_help/list.md"},
+	{Name: "map", File: "function_help/map.md"},
+	{Name: "names", File: "function_help/names.md"},
+	{Name: "product", File: "function_help/product.md"},
+	{Name: "python", File: "function_help/python.md"},
+	{Name: "range", File: "function_help/range.md"},
+	{Name: "read_csv", File: "function_help/read_csv.md"},
+	{Name: "reduce", File: "function_help/reduce.md"},
+	{Name: "rev", File: "function_help/rev.md"},
+	{Name: "select", File: "function_help/select.md"},
+	{Name: "shell", File: "function_help/shell.md"},
+	{Name: "str", File: "function_help/str.md"},
+	{Name: "table", File: "function_help/table.md"},
+	{Name: "t", File: "function_help/table.md", AliasOf: "table"},
+	{Name: "tuple", File: "function_help/tuple.md"},
+	{Name: "zip", File: "function_help/zip.md"},
+}
+
+var functionHelpByName = buildFunctionHelpByName()
 
 func Page(topic string) (string, error) {
 	name, ok := topicToFile[topic]
@@ -38,4 +72,42 @@ func Page(topic string) (string, error) {
 
 func Topics() []string {
 	return slices.Sorted(maps.Keys(topicToFile))
+}
+
+func FunctionPage(name string) (string, error) {
+	entry, ok := functionHelpByName[name]
+	if !ok {
+		return "", fmt.Errorf("unknown internal function %q", name)
+	}
+	data, err := pageFS.ReadFile(entry.File)
+	if err != nil {
+		return "", fmt.Errorf("failed to read embedded function help %q: %w", name, err)
+	}
+	page := string(data)
+	if entry.AliasOf != "" {
+		return fmt.Sprintf("# `%s(...)`\n\nAlias of `%s(...)`.\n\n%s", entry.Name, entry.AliasOf, page), nil
+	}
+	return page, nil
+}
+
+func FunctionNames() []string {
+	return slices.Sorted(maps.Keys(functionHelpByName))
+}
+
+func FunctionNamesText() string {
+	return strings.Join(FunctionNames(), ", ")
+}
+
+func buildFunctionHelpByName() map[string]FunctionHelpEntry {
+	out := make(map[string]FunctionHelpEntry, len(functionHelpEntries))
+	for _, entry := range functionHelpEntries {
+		if entry.Name == "" {
+			panic("empty function help name")
+		}
+		if _, exists := out[entry.Name]; exists {
+			panic(fmt.Sprintf("duplicate function help name %q", entry.Name))
+		}
+		out[entry.Name] = entry
+	}
+	return out
 }
