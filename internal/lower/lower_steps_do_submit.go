@@ -144,6 +144,7 @@ func buildSubmitParameter(name, mode string, value eval.Value, aliases map[strin
 		} else {
 			parameter.Value = asString(value)
 		}
+		applyScalarStringSeparator(&parameter, value)
 		return parameter
 	}
 	switch value.Kind {
@@ -151,6 +152,7 @@ func buildSubmitParameter(name, mode string, value eval.Value, aliases map[strin
 		parameter.Value = pythonLiteral(value)
 	default:
 		parameter.Value = templateValue(value)
+		applyScalarStringSeparator(&parameter, value)
 	}
 	return parameter
 }

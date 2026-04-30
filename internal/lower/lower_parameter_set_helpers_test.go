@@ -107,6 +107,39 @@ func TestAllEqualAsStringAndTemplateValue(t *testing.T) {
 	}
 }
 
+func TestSafeScalarStringSeparator(t *testing.T) {
+	cases := []struct {
+		value string
+		want  string
+	}{
+		{value: "test,with,comma", want: ReservedSeparator},
+		{value: "test####with,comma", want: "#####"},
+		{value: "test#####with,comma", want: "######"},
+		{value: "", want: ReservedSeparator},
+	}
+	for _, tc := range cases {
+		if got := safeScalarStringSeparator(tc.value); got != tc.want {
+			t.Fatalf("safeScalarStringSeparator(%q) = %q, want %q", tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestApplyScalarStringSeparator(t *testing.T) {
+	param := Parameter{Name: "x", Mode: "text", Value: "a,b"}
+	applyScalarStringSeparator(&param, eval.String("a,b"))
+	if param.Separator != ReservedSeparator {
+		t.Fatalf("expected scalar string separator, got %#v", param)
+	}
+
+	for _, value := range []eval.Value{eval.Int(3), eval.Float(1.5), eval.Bool(true), eval.Null()} {
+		param = Parameter{Name: "n", Mode: "text", Value: asString(value)}
+		applyScalarStringSeparator(&param, value)
+		if param.Separator != "" {
+			t.Fatalf("did not expect separator for non-string value %#v, got %#v", value, param)
+		}
+	}
+}
+
 func TestPythonExpressionsAndLiteral(t *testing.T) {
 	if got := pythonIndexExpr([]eval.Value{eval.Int(1), eval.String("a")}, "$idx"); got != `[1,"a"][$idx]` {
 		t.Fatalf("unexpected pythonIndexExpr: %q", got)

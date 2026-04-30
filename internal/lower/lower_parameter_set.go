@@ -127,6 +127,7 @@ func lowerIndexedPayloadParameters(
 			case "python":
 				if allEqualValues(selectedValues) {
 					parameter.Value = SingleQuoted(asString(selectedValues[0]))
+					applyScalarStringSeparator(&parameter, selectedValues[0])
 				} else {
 					parameter.Value = SingleQuoted(pythonIndexExpr(fullValues, idxRef))
 				}
@@ -140,8 +141,10 @@ func lowerIndexedPayloadParameters(
 					)
 				}
 				parameter.Value = asString(selectedValues[0])
+				applyScalarStringSeparator(&parameter, selectedValues[0])
 			default:
 				parameter.Value = asString(selectedValues[0])
+				applyScalarStringSeparator(&parameter, selectedValues[0])
 			}
 			params = append(params, parameter)
 			continue
@@ -176,6 +179,7 @@ func lowerContextualPayloadParameters(
 			case "python":
 				if allEqualValues(fullValues) {
 					parameter.Value = SingleQuoted(asString(fullValues[0]))
+					applyScalarStringSeparator(&parameter, fullValues[0])
 				} else {
 					parameter.Value = SingleQuoted(pythonIndexExpr(fullValues, idxRef))
 				}
@@ -189,8 +193,10 @@ func lowerContextualPayloadParameters(
 					)
 				}
 				parameter.Value = asString(fullValues[0])
+				applyScalarStringSeparator(&parameter, fullValues[0])
 			default:
 				parameter.Value = asString(fullValues[0])
+				applyScalarStringSeparator(&parameter, fullValues[0])
 			}
 			params = append(params, parameter)
 			continue
@@ -301,6 +307,30 @@ func templateValue(v eval.Value) string {
 	default:
 		return pythonLiteral(v)
 	}
+}
+
+func safeScalarStringSeparator(values ...string) string {
+	sep := ReservedSeparator
+	for {
+		conflict := false
+		for _, value := range values {
+			if strings.Contains(value, sep) {
+				conflict = true
+				break
+			}
+		}
+		if !conflict {
+			return sep
+		}
+		sep += "#"
+	}
+}
+
+func applyScalarStringSeparator(parameter *Parameter, value eval.Value) {
+	if value.Kind != eval.KindString {
+		return
+	}
+	parameter.Separator = safeScalarStringSeparator(value.S)
 }
 
 func pythonIndexExpr(values []eval.Value, indexVar string) string {

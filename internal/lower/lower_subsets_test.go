@@ -281,8 +281,10 @@ func TestEnsureScalarLetSubsetParameterSetForStepSourceVarFallbackAndModes(t *te
 			Shape: sema.BindingScalar,
 			Vars: map[string][]eval.Value{
 				"a":      {eval.Int(3)},
+				"s":      {eval.String("a,b")},
 				"src_py": {eval.String("${q}")},
 				"src_sh": {eval.String("$q")},
+				"hash":   {eval.String("a####b,c")},
 				"empty":  {},
 			},
 			Modes: map[string]string{"src_py": "python", "src_sh": "shell"},
@@ -291,8 +293,10 @@ func TestEnsureScalarLetSubsetParameterSetForStepSourceVarFallbackAndModes(t *te
 
 	name, rows := ctx.ensureScalarLetSubsetParameterSetForStep("run", "l", []subsetVarSpec{
 		{Visible: "a"},
+		{Visible: "s"},
 		{Visible: "b", SourceVar: "src_py", Emitted: "emit_b"},
 		{Visible: "c", SourceVar: "src_sh"},
+		{Visible: "hash"},
 		{Visible: "d", SourceVar: "empty"},
 	})
 	if name == "" || rows.VarName != "" || len(rows.Groups) != 0 {
@@ -305,18 +309,24 @@ func TestEnsureScalarLetSubsetParameterSetForStepSourceVarFallbackAndModes(t *te
 	for _, param := range ctx.doc.ParameterSet[0].Parameter {
 		params[param.Name] = param
 	}
-	if p, ok := params["a"]; !ok || p.Mode != "text" || p.Value != "3" {
+	if p, ok := params["a"]; !ok || p.Mode != "text" || p.Value != "3" || p.Separator != "" {
 		t.Fatalf("expected fallback source-var plus default text mode for a, got %#v", p)
 	}
-	if p, ok := params["emit_b"]; !ok || p.Mode != "python" {
+	if p, ok := params["s"]; !ok || p.Mode != "text" || p.Value != "a,b" || p.Separator != ReservedSeparator {
+		t.Fatalf("expected ordinary string scalar with safe separator, got %#v", p)
+	}
+	if p, ok := params["emit_b"]; !ok || p.Mode != "python" || p.Separator != ReservedSeparator {
 		t.Fatalf("expected emitted python parameter for b, got %#v", p)
 	} else if _, ok := p.Value.(SingleQuoted); !ok {
 		t.Fatalf("expected python mode to single-quote payload, got %T", p.Value)
 	}
-	if p, ok := params["c"]; !ok || p.Mode != "shell" || p.Value != "$q" {
+	if p, ok := params["c"]; !ok || p.Mode != "shell" || p.Value != "$q" || p.Separator != ReservedSeparator {
 		t.Fatalf("expected shell-mode scalar parameter for c, got %#v", p)
 	}
-	if p, ok := params["d"]; !ok || p.Mode != "text" || p.Value != "" {
+	if p, ok := params["hash"]; !ok || p.Mode != "text" || p.Value != "a####b,c" || p.Separator != "#####" {
+		t.Fatalf("expected collision-free scalar separator, got %#v", p)
+	}
+	if p, ok := params["d"]; !ok || p.Mode != "text" || p.Value != "" || p.Separator != "" {
 		t.Fatalf("expected empty source to lower as empty text value, got %#v", p)
 	}
 }

@@ -48,8 +48,11 @@ func TestYAMLRoundTripIncludesCommentsAndOmitRawSeparator(t *testing.T) {
 		Comment: "hello",
 		ParameterSet: []lower.ParameterSet{
 			{
-				Name:      "matrix",
-				Parameter: []lower.Parameter{{Name: "a", Value: "1"}},
+				Name: "matrix",
+				Parameter: []lower.Parameter{
+					{Name: "a", Value: "1"},
+					{Name: "label", Mode: "text", Separator: lower.ReservedSeparator, Value: "test,with,comma"},
+				},
 				Meta: lower.ParameterSetMeta{
 					Kind:   lower.ParameterSetKindGlobalTable,
 					Source: "matrix",
@@ -157,6 +160,20 @@ func TestYAMLRoundTripIncludesCommentsAndOmitRawSeparator(t *testing.T) {
 	submitSet := findParameterSetNode(&root, "run__submit_params")
 	if submitSet == nil {
 		t.Fatalf("missing submit parameterset in parsed YAML")
+	}
+	matrixSet := findParameterSetNode(&root, "matrix")
+	if matrixSet == nil {
+		t.Fatalf("missing matrix parameterset in parsed YAML")
+	}
+	labelParam := findParameterNode(matrixSet, "label")
+	if labelParam == nil {
+		t.Fatalf("missing label parameter in parsed YAML")
+	}
+	if sep := mapValueNode(labelParam, "separator"); sep == nil || sep.Value != lower.ReservedSeparator {
+		t.Fatalf("expected parsed scalar separator %q, got %#v", lower.ReservedSeparator, sep)
+	}
+	if value := mapValueNode(labelParam, "_"); value == nil || value.Value != "test,with,comma" {
+		t.Fatalf("expected parsed scalar value to preserve commas, got %#v", value)
 	}
 	for _, name := range []string{"preprocess", "postprocess"} {
 		param := findParameterNode(submitSet, name)

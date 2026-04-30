@@ -78,22 +78,28 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 	if got, ok := params["preprocess"].Value.(Literal); !ok || string(got) != "echo $_ja__x\n" {
 		t.Fatalf("expected raw preprocess rewrite, got %#v", params["preprocess"].Value)
 	}
+	if params["preprocess"].Separator != "" {
+		t.Fatalf("raw preprocess must not get separator, got %#v", params["preprocess"])
+	}
 	if got, ok := params["queue"].Value.(SingleQuoted); !ok || string(got) != "${_ja__x:-batch}" {
 		t.Fatalf("expected python queue rewrite, got %#v", params["queue"].Value)
 	}
-	if params["mail"].Mode != "shell" || params["mail"].Value != "echo ${_ja__x}" {
+	if params["queue"].Separator != ReservedSeparator {
+		t.Fatalf("expected python queue separator, got %#v", params["queue"])
+	}
+	if params["mail"].Mode != "shell" || params["mail"].Value != "echo ${_ja__x}" || params["mail"].Separator != ReservedSeparator {
 		t.Fatalf("expected shell mail rewrite, got %#v", params["mail"])
 	}
-	if params["threadspertask"].Type != "int" || params["threadspertask"].Value != "8" {
+	if params["threadspertask"].Type != "int" || params["threadspertask"].Value != "8" || params["threadspertask"].Separator != "" {
 		t.Fatalf("expected typed int submit value, got %#v", params["threadspertask"])
 	}
-	if params["measurement"].Value != "[\"$_ja__x\",1]" {
+	if params["measurement"].Value != "[\"$_ja__x\",1]" || params["measurement"].Separator != "" {
 		t.Fatalf("expected list python literal rewrite, got %#v", params["measurement"])
 	}
-	if params["notification"].Value != "$_ja__x" {
+	if params["notification"].Value != "$_ja__x" || params["notification"].Separator != ReservedSeparator {
 		t.Fatalf("expected scalar fallback rewrite, got %#v", params["notification"])
 	}
-	if params["starter"].Value != "None" {
+	if params["starter"].Value != "None" || params["starter"].Separator != "" {
 		t.Fatalf("expected null python literal, got %#v", params["starter"])
 	}
 	if _, exists := params["skip"]; exists {
@@ -102,23 +108,33 @@ func TestAddSubmitParameterSetModesHelpersAndAliasRewrite(t *testing.T) {
 	if got, ok := params["_jk__run_hpy"].Value.(SingleQuoted); !ok || string(got) != "${_ja__x}" {
 		t.Fatalf("expected python helper rewrite, got %#v", params["_jk__run_hpy"].Value)
 	}
-	if params["_jk__run_hsh"].Value != "$_ja__x" {
+	if params["_jk__run_hpy"].Separator != ReservedSeparator {
+		t.Fatalf("expected python helper separator, got %#v", params["_jk__run_hpy"])
+	}
+	if params["_jk__run_hsh"].Value != "$_ja__x" || params["_jk__run_hsh"].Separator != ReservedSeparator {
 		t.Fatalf("expected shell helper rewrite, got %#v", params["_jk__run_hsh"])
 	}
-	if params["nodes"].Type != "" || params["nodes"].Value != "9" {
+	if params["nodes"].Type != "" || params["nodes"].Value != "9" || params["nodes"].Separator != "" {
 		t.Fatalf("expected helper alias nodes without type inference, got %#v", params["nodes"])
 	}
-	if params["_jk__run_htuple"].Value != "(\"$_ja__x\",)" {
+	if params["_jk__run_htuple"].Value != "(\"$_ja__x\",)" || params["_jk__run_htuple"].Separator != "" {
 		t.Fatalf("expected tuple helper rewrite, got %#v", params["_jk__run_htuple"])
 	}
-	if params["_jk__run_hlist"].Value != "[\"$_ja__x\",2]" {
+	if params["_jk__run_hlist"].Value != "[\"$_ja__x\",2]" || params["_jk__run_hlist"].Separator != "" {
 		t.Fatalf("expected list helper rewrite, got %#v", params["_jk__run_hlist"])
 	}
-	if params["_jk__run_hnull"].Value != "None" {
+	if params["_jk__run_hnull"].Value != "None" || params["_jk__run_hnull"].Separator != "" {
 		t.Fatalf("expected null helper rewrite, got %#v", params["_jk__run_hnull"])
 	}
-	if params["_jk__run_hstr"].Value != "$_ja__x" {
+	if params["_jk__run_hstr"].Value != "$_ja__x" || params["_jk__run_hstr"].Separator != ReservedSeparator {
 		t.Fatalf("expected scalar helper rewrite, got %#v", params["_jk__run_hstr"])
+	}
+}
+
+func TestBuildSubmitParameterStringSeparatorCollision(t *testing.T) {
+	param := buildSubmitParameter("label", "", eval.String("a####b,c"), nil, false)
+	if param.Value != "a####b,c" || param.Separator != "#####" {
+		t.Fatalf("expected collision-free submit separator, got %#v", param)
 	}
 }
 

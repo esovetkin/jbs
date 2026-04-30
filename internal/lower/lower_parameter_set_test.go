@@ -114,12 +114,13 @@ func TestLowerIndexedParametersAndPayloadModes(t *testing.T) {
 		"py":    {eval.String("same"), eval.String("same")},
 		"shell": {eval.String("a"), eval.String("b")},
 		"x":     {eval.Int(1), eval.Int(2)},
+		"vary":  {eval.String("a,b"), eval.String("c,d")},
 	}
 	modes := map[string]string{"py": "python", "shell": "shell"}
 	diags := &diag.Diagnostics{}
 
-	params := lowerIndexedParameters([]string{"py", "shell", "x"}, values, modes, []int{0, 1}, "", origin, diags)
-	if len(params) != 4 {
+	params := lowerIndexedParameters([]string{"py", "shell", "x", "vary"}, values, modes, []int{0, 1}, "", origin, diags)
+	if len(params) != 5 {
 		t.Fatalf("expected index and three payload params, got %#v", params)
 	}
 	if params[0].Name != "_ji_set" || params[0].Value != "0,1" {
@@ -128,11 +129,23 @@ func TestLowerIndexedParametersAndPayloadModes(t *testing.T) {
 	if value, ok := params[1].Value.(SingleQuoted); !ok || string(value) != "same" {
 		t.Fatalf("expected constant python-mode value, got %#v", params[1].Value)
 	}
-	if params[2].Mode != "shell" || params[2].Value != "a" {
+	if params[1].Separator != ReservedSeparator {
+		t.Fatalf("expected constant python-mode string separator, got %#v", params[1])
+	}
+	if params[2].Mode != "shell" || params[2].Value != "a" || params[2].Separator != ReservedSeparator {
 		t.Fatalf("expected shell mode to use first selected value, got %#v", params[2])
 	}
 	if value, ok := params[3].Value.(SingleQuoted); !ok || string(value) != "[1,2][$_ji_set]" {
 		t.Fatalf("expected default python index expression, got %#v", params[3].Value)
+	}
+	if params[3].Separator != "" {
+		t.Fatalf("did not expect separator for integer index expression, got %#v", params[3])
+	}
+	if value, ok := params[4].Value.(SingleQuoted); !ok || string(value) != `["a,b","c,d"][$_ji_set]` {
+		t.Fatalf("expected varying string index expression, got %#v", params[4].Value)
+	}
+	if params[4].Separator != "" {
+		t.Fatalf("did not expect separator for varying string index expression, got %#v", params[4])
 	}
 	if countLowerDiag(diags, diag.CodeE231) != 1 {
 		t.Fatalf("expected one E231 for varying shell values, got %d: %s", countLowerDiag(diags, diag.CodeE231), diags.String())
@@ -159,6 +172,9 @@ func TestLowerIndexedParametersAndPayloadModes(t *testing.T) {
 	if value, ok := fallback[1].Value.(SingleQuoted); !ok || string(value) != "alpha" {
 		t.Fatalf("expected out-of-range selected values to fall back to first full value, got %#v", fallback[1].Value)
 	}
+	if fallback[1].Separator != ReservedSeparator {
+		t.Fatalf("expected fallback direct string separator, got %#v", fallback[1])
+	}
 }
 
 func TestLowerContextualPayloadParameters(t *testing.T) {
@@ -169,18 +185,22 @@ func TestLowerContextualPayloadParameters(t *testing.T) {
 		"shell": {eval.String("x"), eval.String("y")},
 		"n":     {eval.Int(1), eval.Int(2)},
 		"empty": nil,
+		"vary":  {eval.String("a,b"), eval.String("c,d")},
 	}
 	modes := map[string]string{"py": "python", "shell": "shell"}
 	diags := &diag.Diagnostics{}
 
-	params := lowerContextualPayloadParameters([]string{"py", "shell", "n", "empty"}, values, modes, "$idx", origin, diags)
-	if len(params) != 4 {
+	params := lowerContextualPayloadParameters([]string{"py", "shell", "n", "empty", "vary"}, values, modes, "$idx", origin, diags)
+	if len(params) != 5 {
 		t.Fatalf("expected four contextual payload params, got %#v", params)
 	}
 	if value, ok := params[0].Value.(SingleQuoted); !ok || string(value) != "same" {
 		t.Fatalf("expected constant contextual python value, got %#v", params[0].Value)
 	}
-	if params[1].Mode != "shell" || params[1].Value != "x" {
+	if params[0].Separator != ReservedSeparator {
+		t.Fatalf("expected constant contextual python separator, got %#v", params[0])
+	}
+	if params[1].Mode != "shell" || params[1].Value != "x" || params[1].Separator != ReservedSeparator {
 		t.Fatalf("expected shell mode to use first contextual value, got %#v", params[1])
 	}
 	if value, ok := params[2].Value.(SingleQuoted); !ok || string(value) != "[1,2][$idx]" {
@@ -188,6 +208,14 @@ func TestLowerContextualPayloadParameters(t *testing.T) {
 	}
 	if value, ok := params[3].Value.(SingleQuoted); !ok || string(value) != "[None][$idx]" {
 		t.Fatalf("expected empty contextual values to lower as null index expr, got %#v", params[3].Value)
+	}
+	if value, ok := params[4].Value.(SingleQuoted); !ok || string(value) != `["a,b","c,d"][$idx]` {
+		t.Fatalf("expected varying contextual string index expr, got %#v", params[4].Value)
+	}
+	for _, param := range []Parameter{params[2], params[3], params[4]} {
+		if param.Separator != "" {
+			t.Fatalf("did not expect separator for index expression payload, got %#v", param)
+		}
 	}
 	if countLowerDiag(diags, diag.CodeE231) != 1 {
 		t.Fatalf("expected one E231 for varying shell contextual values, got %d: %s", countLowerDiag(diags, diag.CodeE231), diags.String())

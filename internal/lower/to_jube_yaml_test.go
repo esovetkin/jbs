@@ -351,6 +351,56 @@ do s0 with x {
 	}
 }
 
+func TestToJUBEYAMLScalarStringImportUsesSafeSeparator(t *testing.T) {
+	src := `
+x = "test,with,comma"
+
+do s with x {
+        echo $x
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	ps := findParameterSetForStep(t, doc, "s")
+	if ps == nil || len(ps.Parameter) != 1 {
+		t.Fatalf("expected compact scalar subset, got %#v", ps)
+	}
+	param := ps.Parameter[0]
+	if param.Name != "x" || param.Mode != "text" || param.Value != "test,with,comma" {
+		t.Fatalf("unexpected scalar parameter: %#v", param)
+	}
+	if param.Separator != ReservedSeparator {
+		t.Fatalf("expected safe scalar separator, got %#v", param)
+	}
+}
+
+func TestToJUBEYAMLScalarStringImportAvoidsSeparatorCollision(t *testing.T) {
+	src := `
+x = "test####with,comma"
+
+do s with x {
+        echo $x
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	ps := findParameterSetForStep(t, doc, "s")
+	if ps == nil || len(ps.Parameter) != 1 {
+		t.Fatalf("expected compact scalar subset, got %#v", ps)
+	}
+	param := ps.Parameter[0]
+	if param.Value != "test####with,comma" {
+		t.Fatalf("unexpected scalar value: %#v", param)
+	}
+	if param.Separator != "#####" {
+		t.Fatalf("expected collision-free separator, got %#v", param)
+	}
+}
+
 func TestToJUBEYAMLConstantScalarImportKeepsCompactSubset(t *testing.T) {
 	src := `
 queue = "batch"
@@ -373,6 +423,31 @@ do run with queue {
 	param := ps.Parameter[0]
 	if param.Name != "queue" || param.Mode != "text" || param.Value != "batch" {
 		t.Fatalf("unexpected compact scalar parameter: %#v", param)
+	}
+	if param.Separator != ReservedSeparator {
+		t.Fatalf("expected compact scalar string separator, got %#v", param)
+	}
+}
+
+func TestToJUBEYAMLConstantNumberImportHasNoSeparator(t *testing.T) {
+	src := `
+n = 3
+
+do run with n {
+        echo $n
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	ps := findParameterSetForStep(t, doc, "run")
+	if ps == nil || len(ps.Parameter) != 1 {
+		t.Fatalf("expected compact scalar subset, got %#v", ps)
+	}
+	param := ps.Parameter[0]
+	if param.Name != "n" || param.Mode != "text" || param.Value != "3" || param.Separator != "" {
+		t.Fatalf("unexpected numeric scalar parameter: %#v", param)
 	}
 }
 

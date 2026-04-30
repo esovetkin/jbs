@@ -204,6 +204,7 @@ func (ctx *lowerContext) ensureScalarLetSubsetParameterSetForStep(stepName, sour
 			parameter.Mode = "text"
 			parameter.Value = asString(value)
 		}
+		applyScalarStringSeparator(&parameter, value)
 		params = append(params, parameter)
 	}
 

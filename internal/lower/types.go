@@ -12,7 +12,7 @@ import (
 )
 
 // ReservedSeparator keeps grouped source-row IDs opaque in synthetic _jr__
-// helpers until inherited row-context expansion is explicitly requested.
+// helpers and is also the preferred scalar string transport separator.
 const ReservedSeparator = "####"
 const escapedAliasPrefix = "_ja__"
 

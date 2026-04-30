@@ -123,6 +123,9 @@ func TestResolveStepUsesForStepScalarBindingSubset(t *testing.T) {
 	if value, ok := ctx.doc.ParameterSet[0].Parameter[0].Value.(SingleQuoted); !ok || string(value) != "batch" {
 		t.Fatalf("expected scalar python subset value, got %#v", ctx.doc.ParameterSet[0].Parameter)
 	}
+	if ctx.doc.ParameterSet[0].Parameter[0].Separator != ReservedSeparator {
+		t.Fatalf("expected scalar python subset separator, got %#v", ctx.doc.ParameterSet[0].Parameter[0])
+	}
 }
 
 func TestResolveStepUsesForStepRowVaryingScalarTracksRows(t *testing.T) {
