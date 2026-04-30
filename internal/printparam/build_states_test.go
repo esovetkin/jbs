@@ -281,6 +281,42 @@ func TestBuildEndToEnd(t *testing.T) {
 	}
 }
 
+func TestBuildPlainVariableImportUsesUnqualifiedColumn(t *testing.T) {
+	src := `
+x = range(5)
+
+do s0 with x {
+        echo $x
+}
+`
+	table := buildPrintParamTableFromSource(t, src)
+	if !reflect.DeepEqual(table.Columns, []string{"x"}) {
+		t.Fatalf("unexpected columns: %#v", table.Columns)
+	}
+	if got := countRowsForStep(table.Rows, "s0"); got != 5 {
+		t.Fatalf("expected five rows, got %d", got)
+	}
+	for i, want := range []string{"0", "1", "2", "3", "4"} {
+		if table.Rows[i].Values["x"] != want {
+			t.Fatalf("row %d: expected x=%s, got %#v", i, want, table.Rows[i].Values)
+		}
+	}
+}
+
+func TestBuildSingleColumnTableImportKeepsQualifiedColumn(t *testing.T) {
+	src := `
+cases = t(x = range(5))
+
+do s0 with cases {
+        echo $x
+}
+`
+	table := buildPrintParamTableFromSource(t, src)
+	if !reflect.DeepEqual(table.Columns, []string{"cases.x"}) {
+		t.Fatalf("unexpected columns: %#v", table.Columns)
+	}
+}
+
 func TestBuildEndToEndRegroupsHiddenDimensions(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	res := &sema.Result{

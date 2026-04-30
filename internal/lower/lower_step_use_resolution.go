@@ -100,7 +100,7 @@ func (ctx *lowerContext) resolveStepUses(stepName string, inheritedSteps []strin
 	for _, source := range groupOrder {
 		sourceKey := ctx.sourceRowKeyForSource(source)
 		src := bindings[source]
-		if src != nil && src.Shape == sema.BindingScalar {
+		if scalarImportCanUseConstantSubset(src, grouped[source]) {
 			subset, rowContext := ctx.ensureScalarLetSubsetParameterSetForStep(stepName, source, grouped[source])
 			if subset != "" {
 				uses = append(uses, subset)
@@ -177,6 +177,33 @@ func sourceNeedsAlias(src *sema.GlobalBinding, aliases map[string]string) bool {
 		}
 	}
 	return false
+}
+
+func scalarImportCanUseConstantSubset(src *sema.GlobalBinding, vars []subsetVarSpec) bool {
+	if src == nil || src.Shape != sema.BindingScalar {
+		return false
+	}
+	return selectedSourceRowCount(src, vars) <= 1
+}
+
+func selectedSourceRowCount(src *sema.GlobalBinding, vars []subsetVarSpec) int {
+	if src == nil {
+		return 0
+	}
+	if len(vars) == 0 {
+		return planutil.SourceRowCount(src.Order, src.Vars)
+	}
+	rowCount := 0
+	for _, variable := range vars {
+		sourceVar := variable.SourceVar
+		if sourceVar == "" {
+			sourceVar = variable.Visible
+		}
+		if n := len(src.Vars[sourceVar]); n > rowCount {
+			rowCount = n
+		}
+	}
+	return rowCount
 }
 
 func (ctx *lowerContext) inheritedRowsForStep(stepName string, inheritedSteps []string) map[sourceRowKey]sourceRowContext {

@@ -88,7 +88,7 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 				if origin.SourceVar != "" {
 					sourceVar = origin.SourceVar
 				}
-				key := displaySourceName(res.BindingsByName, origin.Source) + "." + sourceVar
+				key := displayColumnKey(res.BindingsByName, origin.Source, sourceVar)
 				vals[key] = value.String()
 				usedCols[key] = struct{}{}
 			}
@@ -156,7 +156,7 @@ func collectQualifiedColumns(bindings map[string]*sema.GlobalBinding) []string {
 			continue
 		}
 		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-			key := displaySourceName(bindings, src.Name) + "." + name
+			key := displayColumnKey(bindings, src.Name, name)
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -463,6 +463,25 @@ func displaySourceName(bindings map[string]*sema.GlobalBinding, source string) s
 		return binding.PublicName
 	}
 	return source
+}
+
+func displayColumnKey(bindings map[string]*sema.GlobalBinding, source, sourceVar string) string {
+	sourceDisplay := displaySourceName(bindings, source)
+	if scalarIdentityColumn(bindings[source], sourceDisplay, sourceVar) {
+		return sourceDisplay
+	}
+	return sourceDisplay + "." + sourceVar
+}
+
+func scalarIdentityColumn(binding *sema.GlobalBinding, sourceDisplay, sourceVar string) bool {
+	if binding == nil || binding.Shape != sema.BindingScalar || sourceVar == "" {
+		return false
+	}
+	names := planutil.SourceVarNames(binding.Order, binding.Vars)
+	if len(names) != 1 || names[0] != sourceVar {
+		return false
+	}
+	return sourceDisplay == sourceVar || strings.HasSuffix(sourceDisplay, "."+sourceVar)
 }
 
 func emptyState() wpState {

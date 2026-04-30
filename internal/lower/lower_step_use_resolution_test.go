@@ -125,6 +125,58 @@ func TestResolveStepUsesForStepScalarBindingSubset(t *testing.T) {
 	}
 }
 
+func TestResolveStepUsesForStepRowVaryingScalarTracksRows(t *testing.T) {
+	binding := &sema.GlobalBinding{
+		Name:       "_js__1__x",
+		PublicName: "x",
+		VersionID:  "x:v1",
+		Shape:      sema.BindingScalar,
+		Order:      []string{"x"},
+		Vars: map[string][]eval.Value{
+			"x": {eval.Int(0), eval.Int(1), eval.Int(2)},
+		},
+	}
+	ctx := newStepUseContext(&sema.Result{
+		BindingsByName: map[string]*sema.GlobalBinding{"_js__1__x": binding},
+		StepScopeByName: map[string]*sema.StepScopePlan{
+			"run": {
+				StepName:      "run",
+				ExplicitDelta: []sema.ScopeImport{{Source: "_js__1__x", Full: true}},
+			},
+		},
+	})
+
+	got := ctx.resolveStepUsesForStep("run", nil)
+	if len(got.Use) != 1 {
+		t.Fatalf("expected one indexed subset use entry, got %#v", got.Use)
+	}
+	if len(ctx.doc.ParameterSet) != 1 {
+		t.Fatalf("expected one generated subset parameterset, got %#v", ctx.doc.ParameterSet)
+	}
+	ps := ctx.doc.ParameterSet[0]
+	if len(ps.Parameter) < 3 {
+		t.Fatalf("expected index, row-helper, and payload parameters, got %#v", ps.Parameter)
+	}
+	if ps.Parameter[0].Type != "int" || ps.Parameter[0].Value != "0,1,2" {
+		t.Fatalf("expected index parameter for all scalar rows, got %#v", ps.Parameter[0])
+	}
+	if ps.Parameter[1].Separator != ReservedSeparator {
+		t.Fatalf("expected row-helper parameter with reserved separator, got %#v", ps.Parameter[1])
+	}
+	if ps.Parameter[2].Name != "x" || ps.Parameter[2].Mode != "python" {
+		t.Fatalf("expected python payload parameter for x, got %#v", ps.Parameter[2])
+	}
+
+	key := sourceRowKey{Public: "x", Version: "x:v1"}
+	rowContext, ok := got.SourceRows[key]
+	if !ok {
+		t.Fatalf("expected version-aware row context for x:v1, got %#v", got.SourceRows)
+	}
+	if rowContext.VarName != ps.Parameter[1].Name || !reflect.DeepEqual(rowContext.Groups, []string{"0", "1", "2"}) {
+		t.Fatalf("unexpected row context: %#v", rowContext)
+	}
+}
+
 func TestResolveStepUsesDedupAndMissingSources(t *testing.T) {
 	ctx := newStepUseContext(&sema.Result{
 		BindingsByName: map[string]*sema.GlobalBinding{

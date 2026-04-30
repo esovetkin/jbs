@@ -54,6 +54,51 @@ func TestCollectQualifiedColumns(t *testing.T) {
 	}
 }
 
+func TestDisplayColumnKeyScalarIdentity(t *testing.T) {
+	bindings := map[string]*sema.GlobalBinding{
+		"x": {
+			Name:       "x",
+			PublicName: "x",
+			Shape:      sema.BindingScalar,
+			Order:      []string{"x"},
+			Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+		},
+	}
+	if got := displayColumnKey(bindings, "x", "x"); got != "x" {
+		t.Fatalf("expected scalar identity column x, got %q", got)
+	}
+}
+
+func TestDisplayColumnKeyNamespacedScalarIdentity(t *testing.T) {
+	bindings := map[string]*sema.GlobalBinding{
+		"_js__1__x": {
+			Name:       "_js__1__x",
+			PublicName: "mod.x",
+			Shape:      sema.BindingScalar,
+			Order:      []string{"x"},
+			Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+		},
+	}
+	if got := displayColumnKey(bindings, "_js__1__x", "x"); got != "mod.x" {
+		t.Fatalf("expected namespaced scalar identity column mod.x, got %q", got)
+	}
+}
+
+func TestDisplayColumnKeySingleColumnTableStaysQualified(t *testing.T) {
+	bindings := map[string]*sema.GlobalBinding{
+		"cases": {
+			Name:       "cases",
+			PublicName: "cases",
+			Shape:      sema.BindingTable,
+			Order:      []string{"x"},
+			Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
+		},
+	}
+	if got := displayColumnKey(bindings, "cases", "x"); got != "cases.x" {
+		t.Fatalf("expected qualified table column cases.x, got %q", got)
+	}
+}
+
 func TestCollectStepsInResultOrderAndDeps(t *testing.T) {
 	s0 := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	s1 := diag.NewSpan("in.jbs", diag.NewPos(1, 2, 1), diag.NewPos(2, 2, 2))

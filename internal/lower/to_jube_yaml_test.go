@@ -278,6 +278,104 @@ do final
 	}
 }
 
+func TestToJUBEYAMLPlainVariableListImportUsesIndexedSubset(t *testing.T) {
+	src := `
+x = range(5)
+
+do s0 with x {
+        echo $x
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	step := findLoweredStep(t, doc, "s0")
+	if len(step.Use) != 1 {
+		t.Fatalf("expected one generated subset use, got %#v", step.Use)
+	}
+	ps := findParameterSetForStep(t, doc, "s0")
+	if ps == nil {
+		t.Fatalf("expected generated subset parameter set")
+	}
+	if len(ps.Parameter) < 3 {
+		t.Fatalf("expected index, rows helper, and x payload, got %#v", ps.Parameter)
+	}
+	idx := ps.Parameter[0]
+	if idx.Type != "int" || idx.Value != "0,1,2,3,4" {
+		t.Fatalf("expected five indexed values, got %#v", idx)
+	}
+	if ps.Parameter[1].Separator != ReservedSeparator {
+		t.Fatalf("expected row-helper to use reserved separator, got %#v", ps.Parameter[1])
+	}
+	payload := ps.Parameter[2]
+	if payload.Name != "x" || payload.Mode != "python" {
+		t.Fatalf("expected row-varying x payload, got %#v", payload)
+	}
+	want := `[0,1,2,3,4][$` + idx.Name + `]`
+	if got, ok := payload.Value.(SingleQuoted); !ok || string(got) != want {
+		t.Fatalf("unexpected x payload: %#v", payload.Value)
+	}
+}
+
+func TestToJUBEYAMLPlainVariableStringVectorPreservesCommas(t *testing.T) {
+	src := `
+x = ["x", "y", "z", 1, "string, with commas"]
+
+do s0 with x {
+        echo $x
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	ps := findParameterSetForStep(t, doc, "s0")
+	if ps == nil || len(ps.Parameter) < 3 {
+		t.Fatalf("expected indexed subset parameters, got %#v", ps)
+	}
+	payload := ps.Parameter[2]
+	got, ok := payload.Value.(SingleQuoted)
+	if !ok {
+		t.Fatalf("expected single-quoted python payload, got %#v", payload.Value)
+	}
+	want := `["x","y","z",1,"string, with commas"][$` + ps.Parameter[0].Name + `]`
+	if payload.Name != "x" || payload.Mode != "python" || string(got) != want {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if payload.Separator != "" {
+		t.Fatalf("payload must not use comma separator transport, got %#v", payload)
+	}
+	if strings.Contains(parameterValueText(payload.Value), `x,y,z,1,string, with commas`) {
+		t.Fatalf("payload must not be comma-separated text, got %#v", payload.Value)
+	}
+}
+
+func TestToJUBEYAMLConstantScalarImportKeepsCompactSubset(t *testing.T) {
+	src := `
+queue = "batch"
+
+do run with queue {
+        echo $queue
+}
+`
+	doc, diags := lowerSourceForTest(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	ps := findParameterSetForStep(t, doc, "run")
+	if ps == nil {
+		t.Fatalf("expected generated scalar subset parameter set")
+	}
+	if len(ps.Parameter) != 1 {
+		t.Fatalf("expected one compact scalar parameter, got %#v", ps.Parameter)
+	}
+	param := ps.Parameter[0]
+	if param.Name != "queue" || param.Mode != "text" || param.Value != "batch" {
+		t.Fatalf("unexpected compact scalar parameter: %#v", param)
+	}
+}
+
 func lowerSourceForTest(t *testing.T, src string) (Document, *diag.Diagnostics) {
 	t.Helper()
 	diags := &diag.Diagnostics{}
@@ -299,6 +397,17 @@ func findLoweredStep(t *testing.T, doc Document, name string) Step {
 	}
 	t.Fatalf("missing lowered step %q in %#v", name, doc.Step)
 	return Step{}
+}
+
+func findParameterSetForStep(t *testing.T, doc Document, stepName string) *ParameterSet {
+	t.Helper()
+	for i := range doc.ParameterSet {
+		ps := &doc.ParameterSet[i]
+		if ps.Meta.Kind == ParameterSetKindSubset && ps.Meta.Step == stepName {
+			return ps
+		}
+	}
+	return nil
 }
 
 func stepUseContains(use []interface{}, needle string) bool {
