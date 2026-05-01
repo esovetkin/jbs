@@ -73,6 +73,88 @@ func TestFunctionLiteralAndDirectCall(t *testing.T) {
 	}
 }
 
+func TestFunctionIfStatements(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   ast.FunctionExpr
+		want Value
+	}{
+		{
+			name: "true branch return",
+			fn: fnExpr(nil, ast.FuncIfStmt{
+				Cond: ast.BoolExpr{Value: true},
+				Then: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(1)}},
+				Else: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(2)}},
+			}),
+			want: Int(1),
+		},
+		{
+			name: "false branch return",
+			fn: fnExpr(nil, ast.FuncIfStmt{
+				Cond: ast.BoolExpr{Value: false},
+				Then: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(1)}},
+				Else: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(2)}},
+			}),
+			want: Int(2),
+		},
+		{
+			name: "branch local assignment",
+			fn: fnExpr(nil,
+				localAssign("x", intExpr(1)),
+				ast.FuncIfStmt{
+					Cond: ast.BoolExpr{Value: true},
+					Then: []ast.FuncBodyStmt{localAssign("x", intExpr(3))},
+				},
+				exprStmt(ident("x")),
+			),
+			want: Int(3),
+		},
+		{
+			name: "nested if",
+			fn: fnExpr(nil, ast.FuncIfStmt{
+				Cond: ast.BoolExpr{Value: true},
+				Then: []ast.FuncBodyStmt{ast.FuncIfStmt{
+					Cond: ast.BoolExpr{Value: false},
+					Then: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(1)}},
+					Else: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(4)}},
+				}},
+			}),
+			want: Int(4),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(tc.fn), nil, diags, ExprOptions{})
+			if !Equal(got, tc.want) {
+				t.Fatalf("got %#v want %#v", got, tc.want)
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestFunctionIfRejectsNonBoolCondition(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(nil,
+		localAssign("x", intExpr(1)),
+		ast.FuncIfStmt{
+			Cond: intExpr(1),
+			Then: []ast.FuncBodyStmt{localAssign("x", intExpr(2))},
+		},
+		exprStmt(ident("x")),
+	)
+	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+	if !Equal(got, Int(1)) {
+		t.Fatalf("expected invalid condition to skip branch, got %#v", got)
+	}
+	if diagCount(diags, "E102") != 1 {
+		t.Fatalf("expected one E102, got: %s", diags.String())
+	}
+}
+
 func TestFunctionNamedArgsDefaultsAndBindingErrors(t *testing.T) {
 	t.Run("named args", func(t *testing.T) {
 		diags := &diag.Diagnostics{}

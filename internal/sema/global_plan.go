@@ -22,6 +22,7 @@ type globalInputKind string
 const (
 	globalInputAssign          globalInputKind = "assign"
 	globalInputExpr            globalInputKind = "expr"
+	globalInputIf              globalInputKind = "if"
 	globalInputProjectedImport globalInputKind = "projected_import"
 	globalInputNamespaceImport globalInputKind = "namespace_import"
 	globalInputDo              globalInputKind = "do"
@@ -42,6 +43,9 @@ type globalInputStep struct {
 	Name           string
 	Assign         *ast.GlobalAssign
 	ExprStmt       *ast.ExprStmt
+	IfStmt         *ast.IfStmt
+	Then           []globalInputStep
+	Else           []globalInputStep
 	Import         *projectedImport
 	NamespaceScope *moduleScope
 	DoBlock        *ast.DoBlock
@@ -59,6 +63,7 @@ type globalPlan struct {
 	Steps             []globalInputStep
 	StepByName        map[string]int
 	LocalVisibleNames []string
+	NextID            int
 }
 
 type globalExecResult struct {
@@ -85,72 +90,121 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir s
 		StepByName:        make(map[string]int),
 		LocalVisibleNames: append([]string(nil), prep.VisibleNames...),
 	}
-	for index, stmt := range prog.Stmts {
-		switch n := stmt.(type) {
-		case ast.GlobalAssign:
-			assignCopy := n
-			effective := assignmentExpr(assignCopy.Name, assignCopy.Op, assignCopy.Expr, assignCopy.Span)
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:            id,
-				Kind:          globalInputAssign,
-				Name:          assignCopy.Name,
-				Assign:        &assignCopy,
-				EffectiveExpr: effective,
-				Reads:         globalExprReadRefs(effective),
-				Index:         index,
-				BaseDir:       baseDir,
-			})
-			plan.StepByName[assignCopy.Name] = id
-		case ast.ExprStmt:
-			exprCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:            id,
-				Kind:          globalInputExpr,
-				ExprStmt:      &exprCopy,
-				EffectiveExpr: exprCopy.Expr,
-				Reads:         globalExprReadRefs(exprCopy.Expr),
-				Index:         index,
-				BaseDir:       baseDir,
-			})
-		case ast.DoBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:      id,
-				Kind:    globalInputDo,
-				Name:    blockCopy.Name,
-				DoBlock: &blockCopy,
-				Index:   index,
-				BaseDir: baseDir,
-			})
-		case ast.SubmitBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:          id,
-				Kind:        globalInputSubmit,
-				Name:        blockCopy.Name,
-				SubmitBlock: &blockCopy,
-				Index:       index,
-				BaseDir:     baseDir,
-			})
-		case ast.AnalyseBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:           id,
-				Kind:         globalInputAnalyse,
-				Name:         blockCopy.StepName,
-				AnalyseBlock: &blockCopy,
-				Index:        index,
-				BaseDir:      baseDir,
-			})
-		}
-	}
+	appendGlobalPlanSteps(plan, prog.Stmts, baseDir, false)
 	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
+}
+
+func appendGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, inIfBody bool) []globalInputStep {
+	steps := make([]globalInputStep, 0, len(stmts))
+	for index, stmt := range stmts {
+		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, inIfBody)
+		if !ok {
+			continue
+		}
+		if inIfBody {
+			steps = append(steps, step)
+		} else {
+			plan.Steps = append(plan.Steps, step)
+		}
+	}
+	return steps
+}
+
+func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir string, inIfBody bool) (globalInputStep, bool) {
+	switch n := stmt.(type) {
+	case ast.IfStmt:
+		stmtCopy := n
+		id := nextGlobalStepID(plan)
+		return globalInputStep{
+			ID:      id,
+			Kind:    globalInputIf,
+			IfStmt:  &stmtCopy,
+			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, true),
+			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, true),
+			Index:   index,
+			BaseDir: baseDir,
+		}, true
+	case ast.GlobalAssign:
+		assignCopy := n
+		effective := assignmentExpr(assignCopy.Name, assignCopy.Op, assignCopy.Expr, assignCopy.Span)
+		id := nextGlobalStepID(plan)
+		step := globalInputStep{
+			ID:            id,
+			Kind:          globalInputAssign,
+			Name:          assignCopy.Name,
+			Assign:        &assignCopy,
+			EffectiveExpr: effective,
+			Reads:         globalExprReadRefs(effective),
+			Index:         index,
+			BaseDir:       baseDir,
+		}
+		plan.StepByName[assignCopy.Name] = id
+		return step, true
+	case ast.ExprStmt:
+		exprCopy := n
+		return globalInputStep{
+			ID:            nextGlobalStepID(plan),
+			Kind:          globalInputExpr,
+			ExprStmt:      &exprCopy,
+			EffectiveExpr: exprCopy.Expr,
+			Reads:         globalExprReadRefs(exprCopy.Expr),
+			Index:         index,
+			BaseDir:       baseDir,
+		}, true
+	case ast.DoBlock:
+		if inIfBody {
+			return globalInputStep{}, false
+		}
+		blockCopy := n
+		return globalInputStep{
+			ID:      nextGlobalStepID(plan),
+			Kind:    globalInputDo,
+			Name:    blockCopy.Name,
+			DoBlock: &blockCopy,
+			Index:   index,
+			BaseDir: baseDir,
+		}, true
+	case ast.SubmitBlock:
+		if inIfBody {
+			return globalInputStep{}, false
+		}
+		blockCopy := n
+		return globalInputStep{
+			ID:          nextGlobalStepID(plan),
+			Kind:        globalInputSubmit,
+			Name:        blockCopy.Name,
+			SubmitBlock: &blockCopy,
+			Index:       index,
+			BaseDir:     baseDir,
+		}, true
+	case ast.AnalyseBlock:
+		if inIfBody {
+			return globalInputStep{}, false
+		}
+		blockCopy := n
+		return globalInputStep{
+			ID:           nextGlobalStepID(plan),
+			Kind:         globalInputAnalyse,
+			Name:         blockCopy.StepName,
+			AnalyseBlock: &blockCopy,
+			Index:        index,
+			BaseDir:      baseDir,
+		}, true
+	case ast.UseStmt:
+		return globalInputStep{}, false
+	default:
+		return globalInputStep{}, false
+	}
+}
+
+func nextGlobalStepID(plan *globalPlan) int {
+	if plan == nil {
+		return 0
+	}
+	id := plan.NextID
+	plan.NextID++
+	return id
 }
 
 func planProgramBindings(prog ast.Program, diags *diag.Diagnostics) programBindingPlan {
@@ -161,18 +215,28 @@ func planProgramBindings(prog ast.Program, diags *diag.Diagnostics) programBindi
 	}
 	seen := make(map[string]struct{})
 	for index, stmt := range prog.Stmts {
-		assign, ok := stmt.(ast.GlobalAssign)
-		if !ok {
-			continue
-		}
-		out.AcceptedByIndex[index] = assign
-		if _, exists := seen[assign.Name]; exists {
-			continue
-		}
-		seen[assign.Name] = struct{}{}
-		out.VisibleNames = append(out.VisibleNames, assign.Name)
+		collectProgramBindingStmt(stmt, index, &out, seen)
 	}
 	return out
+}
+
+func collectProgramBindingStmt(stmt ast.Stmt, index int, out *programBindingPlan, seen map[string]struct{}) {
+	switch n := stmt.(type) {
+	case ast.GlobalAssign:
+		out.AcceptedByIndex[index] = n
+		if _, exists := seen[n.Name]; exists {
+			return
+		}
+		seen[n.Name] = struct{}{}
+		out.VisibleNames = append(out.VisibleNames, n.Name)
+	case ast.IfStmt:
+		for _, child := range n.Then {
+			collectProgramBindingStmt(child, index, out, seen)
+		}
+		for _, child := range n.Else {
+			collectProgramBindingStmt(child, index, out, seen)
+		}
+	}
 }
 
 func reportTopLevelCompoundAssign(diags *diag.Diagnostics, assign ast.GlobalAssign) {
@@ -218,9 +282,15 @@ func assignGlobalPlanNameCatalogs(plan *globalPlan, seed map[string]eval.Value) 
 		names = append(names, name)
 	}
 	catalog := scopeNameCatalog(names, nil)
-	for i := range plan.Steps {
-		plan.Steps[i].Reads = globalExprReadRefs(plan.Steps[i].EffectiveExpr)
-		plan.Steps[i].Names = catalog
+	assignGlobalStepNameCatalogs(plan.Steps, catalog)
+}
+
+func assignGlobalStepNameCatalogs(steps []globalInputStep, catalog *eval.NameCatalog) {
+	for i := range steps {
+		steps[i].Reads = globalExprReadRefs(steps[i].EffectiveExpr)
+		steps[i].Names = catalog
+		assignGlobalStepNameCatalogs(steps[i].Then, catalog)
+		assignGlobalStepNameCatalogs(steps[i].Else, catalog)
 	}
 }
 
@@ -312,20 +382,7 @@ func (e *globalSeqEngine) execute() {
 	if e == nil || e.plan == nil {
 		return
 	}
-	for _, step := range e.plan.Steps {
-		switch step.Kind {
-		case globalInputAssign:
-			e.evalAssignStep(step)
-		case globalInputProjectedImport:
-			e.evalProjectedImportStep(step)
-		case globalInputNamespaceImport:
-			e.evalNamespaceImportStep(step)
-		case globalInputExpr:
-			e.evalExprStep(step)
-		case globalInputDo, globalInputSubmit, globalInputAnalyse:
-			e.recordDeclarationSnapshot(step)
-		}
-	}
+	e.executeSteps(e.plan.Steps, nil)
 	e.res.UserGlobals.Values = maps.Clone(e.values)
 	e.res.UserGlobals.Modes = maps.Clone(e.modes)
 	e.res.UserGlobals.Spans = maps.Clone(e.spans)
@@ -337,7 +394,26 @@ func (e *globalSeqEngine) execute() {
 	}
 }
 
-func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
+func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) {
+	for _, step := range steps {
+		switch step.Kind {
+		case globalInputAssign:
+			e.evalAssignStep(step, guardDeps)
+		case globalInputProjectedImport:
+			e.evalProjectedImportStep(step)
+		case globalInputNamespaceImport:
+			e.evalNamespaceImportStep(step)
+		case globalInputExpr:
+			e.evalExprStep(step)
+		case globalInputIf:
+			e.evalIfStep(step, guardDeps)
+		case globalInputDo, globalInputSubmit, globalInputAnalyse:
+			e.recordDeclarationSnapshot(step)
+		}
+	}
+}
+
+func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []string) {
 	if step.Assign == nil {
 		return
 	}
@@ -388,6 +464,8 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
 	}
 
 	directDeps := globalExprDependencies(effective, assign.Name)
+	directDeps = append(directDeps, guardDeps...)
+	directDeps = uniqueSortedNamesExcept(directDeps, assign.Name)
 	orderNames, vars := globalVarSeries(assign.Name, value)
 	gv := &GlobalVar{
 		Name:          assign.Name,
@@ -404,6 +482,30 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep) {
 		return
 	}
 	e.publishGlobalVar(gv)
+}
+
+func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) {
+	if step.IfStmt == nil {
+		return
+	}
+	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	if !ok {
+		return
+	}
+	nextGuardDeps := append([]string(nil), guardDeps...)
+	nextGuardDeps = append(nextGuardDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
+	nextGuardDeps = uniqueSortedNamesExcept(nextGuardDeps, "")
+	if cond {
+		e.executeSteps(step.Then, nextGuardDeps)
+		return
+	}
+	e.executeSteps(step.Else, nextGuardDeps)
 }
 
 func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
@@ -843,6 +945,23 @@ func sortedGlobalDeps(deps map[string]struct{}, self string) []string {
 	return out
 }
 
+func uniqueSortedNamesExcept(names []string, except string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name == "" || name == except {
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
 func globalStepSpan(step globalInputStep) diag.Span {
 	switch step.Kind {
 	case globalInputAssign:
@@ -852,6 +971,10 @@ func globalStepSpan(step globalInputStep) diag.Span {
 	case globalInputExpr:
 		if step.ExprStmt != nil {
 			return step.ExprStmt.Span
+		}
+	case globalInputIf:
+		if step.IfStmt != nil {
+			return step.IfStmt.Span
 		}
 	case globalInputProjectedImport:
 		if step.Import != nil {
@@ -944,16 +1067,7 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			for _, param := range n.Params {
 				walk(param.Default)
 			}
-			for _, stmt := range n.Body {
-				switch node := stmt.(type) {
-				case ast.LocalAssignStmt:
-					walk(node.Expr)
-				case ast.ReturnStmt:
-					walk(node.Expr)
-				case ast.ExprStmt:
-					walk(node.Expr)
-				}
-			}
+			walkFuncBodyExprRefs(n.Body, walk)
 		case ast.AliasExpr:
 			walk(n.Expr)
 		case ast.IndexExpr:
@@ -974,6 +1088,23 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 	}
 	walk(expr)
 	return out
+}
+
+func walkFuncBodyExprRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			walk(node.Expr)
+		case ast.ReturnStmt:
+			walk(node.Expr)
+		case ast.ExprStmt:
+			walk(node.Expr)
+		case ast.FuncIfStmt:
+			walk(node.Cond)
+			walkFuncBodyExprRefs(node.Then, walk)
+			walkFuncBodyExprRefs(node.Else, walk)
+		}
+	}
 }
 
 func globalVarsFromExec(exec *globalExecResult) (map[string]*GlobalVar, []string) {

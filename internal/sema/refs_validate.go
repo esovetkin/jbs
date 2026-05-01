@@ -946,6 +946,11 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 			for _, arg := range n.Args {
 				walk(arg.Expr)
 			}
+		case ast.FunctionExpr:
+			for _, param := range n.Params {
+				walk(param.Default)
+			}
+			walkFuncBodyIdentRefs(n.Body, walk)
 		case ast.AliasExpr:
 			walk(n.Expr)
 		case ast.IndexExpr:
@@ -971,6 +976,23 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 	}
 	walk(expr)
 	return out
+}
+
+func walkFuncBodyIdentRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			walk(node.Expr)
+		case ast.ReturnStmt:
+			walk(node.Expr)
+		case ast.ExprStmt:
+			walk(node.Expr)
+		case ast.FuncIfStmt:
+			walk(node.Cond)
+			walkFuncBodyIdentRefs(node.Then, walk)
+			walkFuncBodyIdentRefs(node.Else, walk)
+		}
+	}
 }
 
 type stringRefCollector func(text string, base diag.Position, file string) []varRef
@@ -1007,6 +1029,11 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 			for _, arg := range n.Args {
 				walk(arg.Expr)
 			}
+		case ast.FunctionExpr:
+			for _, param := range n.Params {
+				walk(param.Default)
+			}
+			walkFuncBodyStringRefs(n.Body, walk)
 		case ast.AliasExpr:
 			walk(n.Expr)
 		case ast.IndexExpr:
@@ -1032,6 +1059,23 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 	}
 	walk(expr)
 	return out
+}
+
+func walkFuncBodyStringRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			walk(node.Expr)
+		case ast.ReturnStmt:
+			walk(node.Expr)
+		case ast.ExprStmt:
+			walk(node.Expr)
+		case ast.FuncIfStmt:
+			walk(node.Cond)
+			walkFuncBodyStringRefs(node.Then, walk)
+			walkFuncBodyStringRefs(node.Else, walk)
+		}
+	}
 }
 
 func collectEvalStringRefsWith(value eval.Value, span diag.Span, collect stringRefCollector) []varRef {

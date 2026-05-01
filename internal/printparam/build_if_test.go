@@ -1,0 +1,47 @@
+package printparam
+
+import (
+	"reflect"
+	"testing"
+
+	"jbs/internal/diag"
+	"jbs/internal/parser"
+	"jbs/internal/sema"
+)
+
+func TestBuildUsesSelectedIfBranchColumns(t *testing.T) {
+	src := `
+flag = false
+if flag {
+	cases = t(x = range(2))
+} else {
+	cases = t(y = range(3))
+}
+
+do run with cases {
+	echo $y
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("if.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := sema.Analyze(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("analyze failed: %s", diags.String())
+	}
+	table := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("printparam failed: %s", diags.String())
+	}
+	if !reflect.DeepEqual(table.Columns, []string{"cases.y"}) {
+		t.Fatalf("unexpected columns: %#v", table.Columns)
+	}
+	if len(table.Rows) != 3 {
+		t.Fatalf("expected three rows, got %#v", table.Rows)
+	}
+	if table.Rows[0].Values["cases.y"] != "0" || table.Rows[2].Values["cases.y"] != "2" {
+		t.Fatalf("unexpected selected branch row values: %#v", table.Rows)
+	}
+}

@@ -21,6 +21,7 @@ Rules:
 - call sites may mix positional and named arguments, but positional arguments must come first
 - local assignments inside the body are local to that function and shadow captured or global names
 - local assignments may still use compound operators; that mutability is function-local, not top-level
+- function bodies may use `if condition { ... } else { ... }`
 - nested functions capture outer locals lexically
 - top-level globals are captured live, so a function sees later reassignment of a global it reads
 
@@ -50,10 +51,25 @@ jbs>
 
 - recursions are allowed, but they are not optimized
 
+- `if` conditions must evaluate to `bool`
+- `if` does not create a new local scope
+- a `return` inside a selected branch returns from the enclosing function
+- `else if` is not separate syntax; write nested `if` inside `else`
+
 ```
 jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
 jbs> factorial(5)
 120
+```
+
+```jbs
+abs = function(x) {
+        if x < 0 {
+                return -x
+        } else {
+                x
+        }
+}
 ```
 
 Examples:

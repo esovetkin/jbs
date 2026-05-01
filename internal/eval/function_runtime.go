@@ -124,26 +124,9 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 					nextBound[param.Name] = struct{}{}
 				}
 			}
-			for _, stmt := range n.Body {
-				if assign, ok := stmt.(ast.LocalAssignStmt); ok && assign.Name != "" {
-					nextBound[assign.Name] = struct{}{}
-				}
-			}
-			for _, stmt := range n.Body {
-				switch node := stmt.(type) {
-				case ast.LocalAssignStmt:
-					if walk(node.Expr, nextBound) {
-						return true
-					}
-				case ast.ReturnStmt:
-					if walk(node.Expr, nextBound) {
-						return true
-					}
-				case ast.ExprStmt:
-					if walk(node.Expr, nextBound) {
-						return true
-					}
-				}
+			collectFunctionLocalNames(n.Body, nextBound)
+			if functionBodyReferencesAnyName(n.Body, nextBound, walk) {
+				return true
 			}
 		case ast.AliasExpr:
 			return walk(n.Expr, bound)
@@ -161,6 +144,50 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 		return false
 	}
 	return walk(expr, nil)
+}
+
+func collectFunctionLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			if node.Name != "" {
+				out[node.Name] = struct{}{}
+			}
+		case ast.FuncIfStmt:
+			collectFunctionLocalNames(node.Then, out)
+			collectFunctionLocalNames(node.Else, out)
+		}
+	}
+}
+
+func functionBodyReferencesAnyName(body []ast.FuncBodyStmt, bound map[string]struct{}, walk func(ast.Expr, map[string]struct{}) bool) bool {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			if walk(node.Expr, bound) {
+				return true
+			}
+		case ast.ReturnStmt:
+			if walk(node.Expr, bound) {
+				return true
+			}
+		case ast.ExprStmt:
+			if walk(node.Expr, bound) {
+				return true
+			}
+		case ast.FuncIfStmt:
+			if walk(node.Cond, bound) {
+				return true
+			}
+			if functionBodyReferencesAnyName(node.Then, bound, walk) {
+				return true
+			}
+			if functionBodyReferencesAnyName(node.Else, bound, walk) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cloneNameSet(in map[string]struct{}) map[string]struct{} {
@@ -323,11 +350,15 @@ func bindFunctionArguments(fn *FunctionValue, args []CallValueArg, at diag.Span,
 
 func predeclareFunctionLocals(body []ast.FuncBodyStmt, frame *Frame) {
 	for _, stmt := range body {
-		assign, ok := stmt.(ast.LocalAssignStmt)
-		if !ok || assign.Name == "" {
-			continue
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			if node.Name != "" {
+				frame.DeclareLocal(node.Name)
+			}
+		case ast.FuncIfStmt:
+			predeclareFunctionLocals(node.Then, frame)
+			predeclareFunctionLocals(node.Else, frame)
 		}
-		frame.DeclareLocal(assign.Name)
 	}
 }
 
@@ -347,6 +378,27 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 			}
 		case ast.ExprStmt:
 			last = evalExprWithCtx(node.Expr, env, diags, opts, ctx)
+		case ast.FuncIfStmt:
+			cond, ok := evalBoolConditionWithCtx(node.Cond, env, diags, opts, ctx)
+			if !ok {
+				continue
+			}
+			if cond {
+				result := executeFunctionBody(node.Then, env, diags, opts, ctx)
+				if result.Returned {
+					return result
+				}
+				last = result.Value
+				continue
+			}
+			if len(node.Else) == 0 {
+				continue
+			}
+			result := executeFunctionBody(node.Else, env, diags, opts, ctx)
+			if result.Returned {
+				return result
+			}
+			last = result.Value
 		}
 	}
 	return functionResult{Value: last}

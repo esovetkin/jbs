@@ -172,6 +172,8 @@ func scanTopLevelStatementOffsets(src []rune, start int) (int, int) {
 			case '}':
 				if state.BraceDepth > 0 {
 					state.BraceDepth--
+				} else {
+					return i, i
 				}
 			case '(':
 				state.ParenDepth++

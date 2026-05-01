@@ -43,8 +43,30 @@ func TestLexFunctionAndReturnKeywords(t *testing.T) {
 	}
 }
 
+func TestLexIfAndElseKeywords(t *testing.T) {
+	src := "if enabled { x = 1 } else { x = 2 }\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	var sawIf, sawElse bool
+	for _, tok := range tokens {
+		switch tok.Type {
+		case TokenIf:
+			sawIf = true
+		case TokenElse:
+			sawElse = true
+		}
+	}
+	if !sawIf || !sawElse {
+		t.Fatalf("expected if and else tokens, got %#v", tokens)
+	}
+}
+
 func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
-	src := "function_name = 1\nreturn_value = 2\n"
+	src := "function_name = 1\nreturn_value = 2\nifdef = 3\nelseif = 4\n"
 	diags := &diag.Diagnostics{}
 	tokens := Lex("in.jbs", src, diags)
 	if diags.HasErrors() {
@@ -59,6 +81,9 @@ func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
 	}
 	if found["function_name"] != TokenIdent || found["return_value"] != TokenIdent {
 		t.Fatalf("expected identifier tokens for keyword-like names, got %#v", tokens)
+	}
+	if found["ifdef"] != TokenIdent || found["elseif"] != TokenIdent {
+		t.Fatalf("expected identifier tokens for if-like names, got %#v", tokens)
 	}
 }
 

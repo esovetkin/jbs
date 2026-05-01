@@ -131,6 +131,16 @@ func (e ExprStmt) stmtNode()          {}
 func (e ExprStmt) funcBodyStmtNode()  {}
 func (e ExprStmt) GetSpan() diag.Span { return e.Span }
 
+type IfStmt struct {
+	Cond Expr
+	Then []Stmt
+	Else []Stmt
+	Span diag.Span
+}
+
+func (i IfStmt) stmtNode()          {}
+func (i IfStmt) GetSpan() diag.Span { return i.Span }
+
 type AnalyseBlock struct {
 	StepName    string
 	WithItems   []WithItem
@@ -376,6 +386,16 @@ type ReturnStmt struct {
 
 func (s ReturnStmt) funcBodyStmtNode()  {}
 func (s ReturnStmt) GetSpan() diag.Span { return s.Span }
+
+type FuncIfStmt struct {
+	Cond Expr
+	Then []FuncBodyStmt
+	Else []FuncBodyStmt
+	Span diag.Span
+}
+
+func (s FuncIfStmt) funcBodyStmtNode()  {}
+func (s FuncIfStmt) GetSpan() diag.Span { return s.Span }
 
 type AliasExpr struct {
 	Expr  Expr

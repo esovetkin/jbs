@@ -504,16 +504,26 @@ func (r *resolver) reportCycle(stack []ModuleRef, ref ModuleRef, at diag.Span) {
 func collectModuleLocalSymbols(prog ast.Program) map[string]diag.Span {
 	out := make(map[string]diag.Span)
 	for _, stmt := range prog.Stmts {
-		name, span, ok := stmtLocalSymbol(stmt)
-		if !ok || strings.TrimSpace(name) == "" {
-			continue
-		}
-		if _, exists := out[name]; exists {
-			continue
-		}
-		out[name] = span
+		collectStmtLocalSymbols(stmt, out)
 	}
 	return out
+}
+
+func collectStmtLocalSymbols(stmt ast.Stmt, out map[string]diag.Span) {
+	name, span, ok := stmtLocalSymbol(stmt)
+	if ok && strings.TrimSpace(name) != "" {
+		if _, exists := out[name]; !exists {
+			out[name] = span
+		}
+	}
+	if ifStmt, ok := stmt.(ast.IfStmt); ok {
+		for _, child := range ifStmt.Then {
+			collectStmtLocalSymbols(child, out)
+		}
+		for _, child := range ifStmt.Else {
+			collectStmtLocalSymbols(child, out)
+		}
+	}
 }
 
 func stmtLocalSymbol(stmt ast.Stmt) (string, diag.Span, bool) {

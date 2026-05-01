@@ -20,9 +20,11 @@ var (
 	_ Node         = FuncParam{}
 	_ Node         = LocalAssignStmt{}
 	_ Node         = ReturnStmt{}
+	_ Node         = FuncIfStmt{}
 	_ Stmt         = UseStmt{}
 	_ Stmt         = GlobalAssign{}
 	_ Stmt         = ExprStmt{}
+	_ Stmt         = IfStmt{}
 	_ Stmt         = AnalyseBlock{}
 	_ Stmt         = DoBlock{}
 	_ Stmt         = SubmitBlock{}
@@ -46,6 +48,7 @@ var (
 	_ FuncBodyStmt = ExprStmt{}
 	_ FuncBodyStmt = LocalAssignStmt{}
 	_ FuncBodyStmt = ReturnStmt{}
+	_ FuncBodyStmt = FuncIfStmt{}
 	_ CombExpr     = CombIdent{}
 	_ CombExpr     = CombBinary{}
 )
@@ -77,6 +80,7 @@ func TestPlainNodeGetSpan(t *testing.T) {
 		{name: "FuncParam", node: FuncParam{Span: testSpan(11)}, want: testSpan(11)},
 		{name: "LocalAssignStmt", node: LocalAssignStmt{Span: testSpan(12)}, want: testSpan(12)},
 		{name: "ReturnStmt", node: ReturnStmt{Span: testSpan(13)}, want: testSpan(13)},
+		{name: "FuncIfStmt", node: FuncIfStmt{Span: testSpan(14)}, want: testSpan(14)},
 	}
 
 	for _, tc := range tests {
@@ -92,9 +96,10 @@ func TestStmtNodes(t *testing.T) {
 	useStmt := UseStmt{Span: testSpan(20)}
 	globalAssign := GlobalAssign{Span: testSpan(21)}
 	exprStmt := ExprStmt{Span: testSpan(22)}
-	analyseBlock := AnalyseBlock{Span: testSpan(23)}
-	doBlock := DoBlock{Span: testSpan(24)}
-	submitBlock := SubmitBlock{Span: testSpan(25)}
+	ifStmt := IfStmt{Span: testSpan(23)}
+	analyseBlock := AnalyseBlock{Span: testSpan(24)}
+	doBlock := DoBlock{Span: testSpan(25)}
+	submitBlock := SubmitBlock{Span: testSpan(26)}
 
 	tests := []struct {
 		name string
@@ -105,9 +110,10 @@ func TestStmtNodes(t *testing.T) {
 		{name: "UseStmt", call: func() { useStmt.stmtNode() }, node: useStmt, want: testSpan(20)},
 		{name: "GlobalAssign", call: func() { globalAssign.stmtNode() }, node: globalAssign, want: testSpan(21)},
 		{name: "ExprStmt", call: func() { exprStmt.stmtNode(); exprStmt.funcBodyStmtNode() }, node: exprStmt, want: testSpan(22)},
-		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(23)},
-		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(24)},
-		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(25)},
+		{name: "IfStmt", call: func() { ifStmt.stmtNode() }, node: ifStmt, want: testSpan(23)},
+		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(24)},
+		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(25)},
+		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(26)},
 	}
 
 	for _, tc := range tests {

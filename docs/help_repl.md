@@ -35,6 +35,21 @@ jbs> add(41)
 42
 ```
 
+Multiline `if` chunks also commit when all braces close:
+
+```jbs
+jbs> enabled = true
+jbs> if enabled {
+...>   x = 1
+...>   x
+...> } else {
+...>   2
+...> }
+1
+```
+
+`do`, `submit`, `analyse`, and `use` are not allowed inside `if` bodies. Put declarations and imports at top level and use `if` to choose values before them.
+
 Bare expression lines are part of normal top-level source. They are evaluated in the current module-aware session scope and then appended to the accepted session source.
 
 You can inspect a global variable by entering its bare name:

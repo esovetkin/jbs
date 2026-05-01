@@ -253,6 +253,8 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 		return formatGlobalAssign(s, srcRunes)
 	case ast.ExprStmt:
 		return formatExprStmt(s, srcRunes)
+	case ast.IfStmt:
+		return formatIfStmt(s, srcRunes)
 	case ast.UseStmt:
 		return formatUseStmt(s)
 	case ast.DoBlock:
@@ -264,6 +266,31 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 	default:
 		return nil
 	}
+}
+
+func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []string {
+	condLines := formatExprLines(stmt.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{`true`}
+		if stmt.Cond != nil {
+			condLines = []string{strings.TrimSpace(spanText(srcRunes, stmt.Cond.GetSpan()))}
+		}
+	}
+	lines := prefixFormattedLines("", "if ", condLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Then {
+		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+	}
+	if len(stmt.Else) == 0 {
+		lines = append(lines, "}")
+		return lines
+	}
+	lines = append(lines, "} else {")
+	for _, child := range stmt.Else {
+		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
 }
 
 func formatExprStmt(stmt ast.ExprStmt, srcRunes []rune) []string {
@@ -1112,9 +1139,36 @@ func formatFuncBodyStmtLines(stmt ast.FuncBodyStmt, srcRunes []rune) []string {
 		return prefixFormattedLines("", "return ", exprLines)
 	case ast.ExprStmt:
 		return formatExprLines(s.Expr, srcRunes)
+	case ast.FuncIfStmt:
+		return formatFuncIfStmtLines(s, srcRunes)
 	default:
 		return nil
 	}
+}
+
+func formatFuncIfStmtLines(stmt ast.FuncIfStmt, srcRunes []rune) []string {
+	condLines := formatExprLines(stmt.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{`true`}
+		if stmt.Cond != nil {
+			condLines = []string{strings.TrimSpace(spanText(srcRunes, stmt.Cond.GetSpan()))}
+		}
+	}
+	lines := prefixFormattedLines("", "if ", condLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Then {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
+	}
+	if len(stmt.Else) == 0 {
+		lines = append(lines, "}")
+		return lines
+	}
+	lines = append(lines, "} else {")
+	for _, child := range stmt.Else {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
 }
 
 func formatCallExprLines(call ast.CallExpr, srcRunes []rune) []string {

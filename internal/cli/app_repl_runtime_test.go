@@ -120,6 +120,43 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkIfOutputAndErrors(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"if true {",
+		"  x = 1",
+		"  x",
+		"} else {",
+		"  2",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected if chunk to succeed, diag=%q", first.DiagText)
+	}
+	if len(first.ExprOutput) != 1 || first.ExprOutput[0] != "1" {
+		t.Fatalf("unexpected selected branch output: %#v", first.ExprOutput)
+	}
+
+	second, err := commitReplChunk(cwd, first.Source, "if 1 { x = 2 }")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if !second.HasErrors || !strings.Contains(second.DiagText, "ERROR E102") {
+		t.Fatalf("expected E102, got errors=%v diag=%q", second.HasErrors, second.DiagText)
+	}
+
+	third, err := commitReplChunk(cwd, first.Source, "if true { do run { echo bad } }")
+	if err != nil {
+		t.Fatalf("unexpected third commit error: %v", err)
+	}
+	if !third.HasErrors || !strings.Contains(third.DiagText, "ERROR E080") {
+		t.Fatalf("expected E080, got errors=%v diag=%q", third.HasErrors, third.DiagText)
+	}
+}
+
 func TestCommitReplChunkAllowsReassignmentAndCompoundAssignment(t *testing.T) {
 	cwd := t.TempDir()
 	first, err := commitReplChunk(cwd, "", "a = 1")

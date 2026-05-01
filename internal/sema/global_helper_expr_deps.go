@@ -51,6 +51,11 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		for _, arg := range e.Args {
 			collectExprLocalIdentDeps(arg.Expr, out)
 		}
+	case ast.FunctionExpr:
+		for _, param := range e.Params {
+			collectExprLocalIdentDeps(param.Default, out)
+		}
+		collectFuncBodyLocalIdentDeps(e.Body, out)
 	case ast.AliasExpr:
 		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.IndexExpr:
@@ -70,6 +75,23 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		collectExprLocalIdentDeps(e.Then, out)
 		collectExprLocalIdentDeps(e.Cond, out)
 		collectExprLocalIdentDeps(e.Else, out)
+	}
+}
+
+func collectFuncBodyLocalIdentDeps(body []ast.FuncBodyStmt, out map[string]struct{}) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			collectExprLocalIdentDeps(node.Expr, out)
+		case ast.ReturnStmt:
+			collectExprLocalIdentDeps(node.Expr, out)
+		case ast.ExprStmt:
+			collectExprLocalIdentDeps(node.Expr, out)
+		case ast.FuncIfStmt:
+			collectExprLocalIdentDeps(node.Cond, out)
+			collectFuncBodyLocalIdentDeps(node.Then, out)
+			collectFuncBodyLocalIdentDeps(node.Else, out)
+		}
 	}
 }
 

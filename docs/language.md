@@ -2,11 +2,12 @@
 
 ## Canonical Core Syntax
 
-JBS has six canonical top-level statement forms:
+JBS has seven canonical top-level statement forms:
 
 - `use`
 - top-level assignment
 - top-level expression statement
+- `if`
 - `do`
 - `submit`
 - `analyse`
@@ -53,6 +54,7 @@ comment       := "#" COMMENT_TEXT
 stmt          := use_stmt
                | global_assign
                | expr_stmt
+               | if_stmt
                | do_block
                | submit_block
                | analyse_block
@@ -67,6 +69,8 @@ use_source    := IDENT | STRING
 
 global_assign := IDENT assign_op expr opt_comment
 expr_stmt     := expr opt_comment
+if_stmt       := "if" expr "{" if_stmt_body? "}" ("else" "{" if_stmt_body? "}")?
+if_stmt_body  := (global_assign | expr_stmt | if_stmt | sep)*
 assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 
 qualified_name := IDENT ("." IDENT)*
@@ -189,6 +193,39 @@ jsc.systemname
 names()
 ```
 
+## `if`
+
+Top-level `if` selects assignment and expression statements at source execution time.
+
+```jbs
+gpu = true
+
+if gpu {
+        queue = "booster"
+        cases = t(size = range(2))
+} else {
+        queue = "batch"
+        cases = t(size = range(5))
+}
+
+do run with cases {
+        echo ${size}
+}
+```
+
+Rules:
+
+- the condition must evaluate to `bool`
+- only the selected branch executes
+- `if` does not create a new scope
+- assignments in a selected branch create or update ordinary globals
+- nested `if` is supported
+- `else if` is not a separate syntax; write `else { if ... { ... } }`
+- `do`, `submit`, `analyse`, and `use` are not allowed inside `if` bodies
+- declarations and imports must remain at module top level
+
+Use `if` to choose values before a normal declaration, not to conditionally declare steps or imports.
+
 ## `use`
 
 `use` imports reusable definitions from embedded modules and quoted local `.jbs` modules.
@@ -275,6 +312,20 @@ Rules:
 - local assignments may still use `=` or compound operators; that mutability does not extend to the top level
 - function-valued globals are valid in expression contexts
 - function-valued globals are not valid `with` sources, `submit ... use ...` sources, or `analyse with ...` imports
+
+Function bodies support `if`:
+
+```jbs
+abs = function(x) {
+        if x < 0 {
+                return -x
+        } else {
+                x
+        }
+}
+```
+
+Function-body `if` uses strict boolean conditions, does not create a branch-local scope, and may contain local assignments, expression statements, `return`, and nested function-body `if`.
 
 ### Table Values
 

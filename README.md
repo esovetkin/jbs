@@ -104,10 +104,13 @@ Interactive mode:
 A JBS program uses the following statement forms:
 - `use`: import another JBS file
 - top-level assignments via expressions and function calls
+- `if`: select assignment and expression statements with a boolean condition
 - `do`, `submit`: blocks that define execution steps
 - `analyse`: blocks that define result analysis
 
 Top-level assignments define reusable globals, consisting of scalars, lists/tuples, tables, and functions. `do` and `submit` execution blocks import visible variables explicitly through `with` and based on the point where the block appears. The `analyse` blocks inherit variables from the execution blocks.
+
+Use `if condition { ... } else { ... }` to choose values before normal top-level declarations. `if` bodies may contain assignments, expression statements, and nested `if`; declarations and imports (`do`, `submit`, `analyse`, `use`) stay at module top level.
 
 ### `do <name> [with ...] [after ...] [<key>=<int> ...] { ... }`
 

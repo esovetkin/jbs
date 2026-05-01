@@ -57,9 +57,33 @@ func EvalExprWithOptions(expr ast.Expr, env map[string]Value, diags *diag.Diagno
 	})
 }
 
+func EvalBoolCondition(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions) (bool, bool) {
+	frame := opts.Frame
+	if frame == nil {
+		frame = NewRootFrame(env)
+	}
+	return evalBoolConditionWithCtx(expr, env, diags, opts, &evalCtx{
+		overflowWarned: make(map[string]struct{}),
+		frame:          frame,
+	})
+}
+
 type evalCtx struct {
 	overflowWarned map[string]struct{}
 	frame          *Frame
+}
+
+func evalBoolConditionWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (bool, bool) {
+	value := evalExprWithCtx(expr, env, diags, opts, ctx)
+	if value.Kind != KindBool {
+		span := diag.Span{}
+		if expr != nil {
+			span = expr.GetSpan()
+		}
+		diags.AddError(diag.CodeE102, "if condition requires boolean value", span, "ensure condition evaluates to true/false")
+		return false, false
+	}
+	return value.B, true
 }
 
 func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {

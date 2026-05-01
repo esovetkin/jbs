@@ -96,6 +96,26 @@ func TestLoadResultDetectsAliasLocalSymbolCollision(t *testing.T) {
 	}
 }
 
+func TestLoadResultDetectsAliasConditionalLocalSymbolCollision(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.jbs", "value = 1\n")
+	entry := writeTestFile(t, dir, "entry.jbs", strings.Join([]string{
+		"if true {",
+		"	dup = 0",
+		"}",
+		"use \"./a.jbs\" as dup",
+	}, "\n"))
+
+	diags := &diag.Diagnostics{}
+	_, err := LoadAndExpand(entry, dir, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpand failed: %v", err)
+	}
+	if !hasDiagCode(diags, "E534") {
+		t.Fatalf("expected E534 alias/local symbol collision, got: %s", diags.String())
+	}
+}
+
 func TestLoadResultDetectsDuplicateAliasCollision(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "a.jbs", "value = 1\n")

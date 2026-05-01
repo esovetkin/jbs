@@ -2,6 +2,8 @@
 package parser
 
 import (
+	"fmt"
+	"strings"
 	"unicode"
 
 	"jbs/internal/ast"
@@ -9,9 +11,80 @@ import (
 	"jbs/internal/lexer"
 )
 
+type topLevelParseContext struct {
+	InIfBody bool
+}
+
+func (p *Parser) parseStmtList(ctx topLevelParseContext, stopAtRBrace bool) []ast.Stmt {
+	stmts := make([]ast.Stmt, 0)
+	for {
+		p.skipTrivia()
+		if p.eof() {
+			break
+		}
+		if stopAtRBrace && p.peek() == '}' {
+			break
+		}
+		stmts = append(stmts, p.parseTopLevelStmt(ctx))
+	}
+	return stmts
+}
+
+func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
+	start := p.pos()
+	if p.isTopLevelAssignmentStart() {
+		return p.parseGlobalAssign(start)
+	}
+	word, ok := p.peekWord()
+	if ok {
+		switch word {
+		case "if":
+			p.consumeWord()
+			return p.parseIfStmt(start)
+		case "do":
+			p.consumeWord()
+			stmt := p.parseDoBlock(start)
+			p.rejectIfBodyDeclaration(ctx, "do", stmt.Span)
+			return stmt
+		case "submit":
+			p.consumeWord()
+			stmt := p.parseSubmitBlock(start)
+			p.rejectIfBodyDeclaration(ctx, "submit", stmt.Span)
+			return stmt
+		case "analyse":
+			p.consumeWord()
+			stmt := p.parseAnalyseBlock(start)
+			p.rejectIfBodyDeclaration(ctx, "analyse", stmt.Span)
+			return stmt
+		case "use":
+			p.consumeWord()
+			stmt := p.parseUseStmt(start)
+			p.rejectIfBodyDeclaration(ctx, "use", stmt.Span)
+			return stmt
+		}
+	}
+	return p.parseTopLevelExprStmt(start)
+}
+
+func (p *Parser) rejectIfBodyDeclaration(ctx topLevelParseContext, kind string, span diag.Span) {
+	if !ctx.InIfBody {
+		return
+	}
+	code := diag.CodeE080
+	if kind == "use" {
+		code = diag.CodeE430
+	}
+	p.diags.AddError(
+		code,
+		fmt.Sprintf("'%s' is not allowed inside if bodies", kind),
+		span,
+		"move declarations and imports to module top level; use if only for assignments and expressions",
+	)
+}
+
 func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
-	if !ok || word == "do" || word == "submit" || word == "analyse" || word == "use" {
+	if !ok || word == "if" || word == "else" || word == "do" || word == "submit" || word == "analyse" || word == "use" {
 		return false
 	}
 	i := p.off
@@ -260,6 +333,186 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 		Alias:  names[0],
 		Span:   span,
 	}
+}
+
+func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
+	cond, ok := p.parseIfCondition()
+	if !ok {
+		return ast.IfStmt{
+			Cond: cond,
+			Span: diag.NewSpan(p.file, start, p.pos()),
+		}
+	}
+	p.advance()
+	thenBody := p.parseStmtList(topLevelParseContext{InIfBody: true}, true)
+	closeThen := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close if body")
+
+	elseBody := []ast.Stmt(nil)
+	end := closeThen
+	p.skipTrivia()
+	if word, ok := p.peekWord(); ok && word == "else" {
+		p.consumeWord()
+		p.skipTrivia()
+		if p.peek() != '{' {
+			at := p.pos()
+			p.diags.AddError(
+				diag.CodeE080,
+				"expected '{' to start else body",
+				diag.NewSpan(p.file, at, at),
+				"use `else { ... }`; nested `else if` is not supported yet",
+			)
+			if word, ok := p.peekWord(); ok && word == "if" {
+				p.consumeWord()
+				discard := p.parseIfStmt(at)
+				end = discard.Span.End
+			}
+			return ast.IfStmt{
+				Cond: cond,
+				Then: thenBody,
+				Span: diag.NewSpan(p.file, start, end),
+			}
+		}
+		p.advance()
+		elseBody = p.parseStmtList(topLevelParseContext{InIfBody: true}, true)
+		end = p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close else body")
+	}
+
+	return ast.IfStmt{
+		Cond: cond,
+		Then: thenBody,
+		Else: elseBody,
+		Span: diag.NewSpan(p.file, start, end),
+	}
+}
+
+func (p *Parser) expectTopLevelRBrace(code diag.Code, message string) diag.Position {
+	if p.peek() == '}' {
+		p.advance()
+		return p.pos()
+	}
+	at := p.pos()
+	p.diags.AddError(code, message, diag.NewSpan(p.file, at, at), "close the block with '}'")
+	return at
+}
+
+func (p *Parser) parseIfCondition() (ast.Expr, bool) {
+	p.skipTriviaInline()
+	condText, condStart, ok := p.readUntilIfBodyBrace()
+	if strings.TrimSpace(condText) == "" {
+		at := condStart
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected if condition before '{'",
+			diag.NewSpan(p.file, at, at),
+			"use syntax: if condition { ... }",
+		)
+	}
+	tokens := lexer.LexFrom(p.file, condText, condStart, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipStmtSeparators()
+	cond := tp.parseExpr()
+	tp.skipStmtSeparators()
+	if tp.peek().Type != lexer.TokenEOF {
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after if condition",
+			tp.peek().Span,
+			"remove unsupported syntax before `{`",
+		)
+	}
+	if !ok {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' after if condition",
+			diag.NewSpan(p.file, at, at),
+			"use syntax: if condition { ... }",
+		)
+	}
+	return cond, ok
+}
+
+func (p *Parser) readUntilIfBodyBrace() (string, diag.Position, bool) {
+	start := p.pos()
+	startOff := p.off
+	mode := blockScanCode
+	escaped := false
+	parenDepth := 0
+	bracketDepth := 0
+	for !p.eof() {
+		r := p.peek()
+		switch mode {
+		case blockScanLineComment:
+			if r == '\n' {
+				mode = blockScanCode
+			}
+			p.advance()
+		case blockScanSingleQuote:
+			p.advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			p.advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '#':
+				mode = blockScanLineComment
+				p.advance()
+			case '\'':
+				mode = blockScanSingleQuote
+				escaped = false
+				p.advance()
+			case '"':
+				mode = blockScanDoubleQuote
+				escaped = false
+				p.advance()
+			case '(':
+				parenDepth++
+				p.advance()
+			case ')':
+				if parenDepth > 0 {
+					parenDepth--
+				}
+				p.advance()
+			case '[':
+				bracketDepth++
+				p.advance()
+			case ']':
+				if bracketDepth > 0 {
+					bracketDepth--
+				}
+				p.advance()
+			case '{':
+				if parenDepth == 0 && bracketDepth == 0 {
+					return string(p.src[startOff:p.off]), start, true
+				}
+				p.advance()
+			default:
+				p.advance()
+			}
+		}
+	}
+	return string(p.src[startOff:p.off]), start, false
 }
 
 func (p *Parser) readTopLevelStatement() (string, diag.Position) {

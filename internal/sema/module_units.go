@@ -137,17 +137,27 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 	for _, use := range info.Uses {
 		useByIndex[use.Index] = use
 	}
-	for index, stmt := range info.Program.Stmts {
+	appendModuleGlobalPlanSteps(plan, info.Program.Stmts, info.BaseDir, false, useByIndex, prep, prefixedByIndex)
+	assignGlobalPlanNameCatalogs(plan, baseSeed)
+	return plan
+}
+
+func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, inIfBody bool, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPlan, prefixedByIndex map[int]*moduleScope) []globalInputStep {
+	steps := make([]globalInputStep, 0, len(stmts))
+	for index, stmt := range stmts {
 		if use, ok := useByIndex[index]; ok {
+			if inIfBody {
+				continue
+			}
 			if use.Kind == imports.UseNamespace {
-				id := len(plan.Steps)
-				plan.Steps = append(plan.Steps, globalInputStep{
-					ID:             id,
+				step := globalInputStep{
+					ID:             nextGlobalStepID(plan),
 					Kind:           globalInputNamespaceImport,
 					NamespaceScope: prefixedByIndex[index],
 					Index:          index,
-					BaseDir:        info.BaseDir,
-				})
+					BaseDir:        baseDir,
+				}
+				plan.Steps = append(plan.Steps, step)
 				continue
 			}
 			for _, name := range use.Names {
@@ -155,90 +165,48 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 				if imp == nil {
 					continue
 				}
-				id := len(plan.Steps)
+				id := nextGlobalStepID(plan)
 				plan.Steps = append(plan.Steps, globalInputStep{
 					ID:      id,
 					Kind:    globalInputProjectedImport,
 					Name:    name,
 					Import:  imp,
 					Index:   index,
-					BaseDir: info.BaseDir,
+					BaseDir: baseDir,
 				})
 				plan.StepByName[name] = id
 			}
 			continue
 		}
-		switch n := stmt.(type) {
-		case ast.ExprStmt:
-			exprStmt := n
-			exprCopy := exprStmt
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:            id,
-				Kind:          globalInputExpr,
-				ExprStmt:      &exprCopy,
-				EffectiveExpr: exprStmt.Expr,
-				Reads:         globalExprReadRefs(exprStmt.Expr),
-				Index:         index,
-				BaseDir:       info.BaseDir,
-			})
-		case ast.GlobalAssign:
-			assign, ok := prep.AcceptedLocals[index]
-			if !ok {
-				continue
-			}
-			assignCopy := assign
-			effective := assignmentExpr(assignCopy.Name, assignCopy.Op, assignCopy.Expr, assignCopy.Span)
-			id := len(plan.Steps)
+		if ifStmt, ok := stmt.(ast.IfStmt); ok {
+			stmtCopy := ifStmt
 			step := globalInputStep{
-				ID:            id,
-				Kind:          globalInputAssign,
-				Name:          assign.Name,
-				Assign:        &assignCopy,
-				EffectiveExpr: effective,
-				Reads:         globalExprReadRefs(effective),
-				Index:         index,
-				BaseDir:       info.BaseDir,
-			}
-			plan.Steps = append(plan.Steps, step)
-			plan.StepByName[step.Name] = id
-		case ast.DoBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:      id,
-				Kind:    globalInputDo,
-				Name:    blockCopy.Name,
-				DoBlock: &blockCopy,
+				ID:      nextGlobalStepID(plan),
+				Kind:    globalInputIf,
+				IfStmt:  &stmtCopy,
+				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, true, nil, prep, prefixedByIndex),
+				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, true, nil, prep, prefixedByIndex),
 				Index:   index,
-				BaseDir: info.BaseDir,
-			})
-		case ast.SubmitBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:          id,
-				Kind:        globalInputSubmit,
-				Name:        blockCopy.Name,
-				SubmitBlock: &blockCopy,
-				Index:       index,
-				BaseDir:     info.BaseDir,
-			})
-		case ast.AnalyseBlock:
-			blockCopy := n
-			id := len(plan.Steps)
-			plan.Steps = append(plan.Steps, globalInputStep{
-				ID:           id,
-				Kind:         globalInputAnalyse,
-				Name:         blockCopy.StepName,
-				AnalyseBlock: &blockCopy,
-				Index:        index,
-				BaseDir:      info.BaseDir,
-			})
+				BaseDir: baseDir,
+			}
+			if inIfBody {
+				steps = append(steps, step)
+			} else {
+				plan.Steps = append(plan.Steps, step)
+			}
+			continue
+		}
+		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, inIfBody)
+		if !ok {
+			continue
+		}
+		if inIfBody {
+			steps = append(steps, step)
+		} else {
+			plan.Steps = append(plan.Steps, step)
 		}
 	}
-	assignGlobalPlanNameCatalogs(plan, baseSeed)
-	return plan
+	return steps
 }
 
 type projectedImportDecisionKey struct {
@@ -333,16 +301,26 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 			}
 			continue
 		}
-		assign, ok := stmt.(ast.GlobalAssign)
-		if !ok {
-			continue
-		}
-		out.AcceptedLocals[index] = assign
-		if !slices.Contains(out.LocalVisibleNames, assign.Name) {
-			out.LocalVisibleNames = append(out.LocalVisibleNames, assign.Name)
-		}
+		collectModuleBindingStmt(stmt, index, &out)
 	}
 	return out
+}
+
+func collectModuleBindingStmt(stmt ast.Stmt, index int, out *moduleBindingPlan) {
+	switch n := stmt.(type) {
+	case ast.GlobalAssign:
+		out.AcceptedLocals[index] = n
+		if !slices.Contains(out.LocalVisibleNames, n.Name) {
+			out.LocalVisibleNames = append(out.LocalVisibleNames, n.Name)
+		}
+	case ast.IfStmt:
+		for _, child := range n.Then {
+			collectModuleBindingStmt(child, index, out)
+		}
+		for _, child := range n.Else {
+			collectModuleBindingStmt(child, index, out)
+		}
+	}
 }
 
 type localSymbolKind int

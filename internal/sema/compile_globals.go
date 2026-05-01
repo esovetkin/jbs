@@ -76,21 +76,8 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 				nextBound[param.Name] = struct{}{}
 			}
 		}
-		for _, stmt := range e.Body {
-			if assign, ok := stmt.(ast.LocalAssignStmt); ok && assign.Name != "" {
-				nextBound[assign.Name] = struct{}{}
-			}
-		}
-		for _, stmt := range e.Body {
-			switch node := stmt.(type) {
-			case ast.LocalAssignStmt:
-				collectGlobalExprDepsBound(node.Expr, out, nextBound)
-			case ast.ReturnStmt:
-				collectGlobalExprDepsBound(node.Expr, out, nextBound)
-			case ast.ExprStmt:
-				collectGlobalExprDepsBound(node.Expr, out, nextBound)
-			}
-		}
+		collectFuncBodyLocalNames(e.Body, nextBound)
+		collectFuncBodyGlobalExprDeps(e.Body, out, nextBound)
 	case ast.AliasExpr:
 		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.IndexExpr:
@@ -107,6 +94,37 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		collectGlobalExprDepsBound(e.Then, out, bound)
 		collectGlobalExprDepsBound(e.Cond, out, bound)
 		collectGlobalExprDepsBound(e.Else, out, bound)
+	}
+}
+
+func collectFuncBodyLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			if node.Name != "" {
+				out[node.Name] = struct{}{}
+			}
+		case ast.FuncIfStmt:
+			collectFuncBodyLocalNames(node.Then, out)
+			collectFuncBodyLocalNames(node.Else, out)
+		}
+	}
+}
+
+func collectFuncBodyGlobalExprDeps(body []ast.FuncBodyStmt, out map[string]struct{}, bound map[string]struct{}) {
+	for _, stmt := range body {
+		switch node := stmt.(type) {
+		case ast.LocalAssignStmt:
+			collectGlobalExprDepsBound(node.Expr, out, bound)
+		case ast.ReturnStmt:
+			collectGlobalExprDepsBound(node.Expr, out, bound)
+		case ast.ExprStmt:
+			collectGlobalExprDepsBound(node.Expr, out, bound)
+		case ast.FuncIfStmt:
+			collectGlobalExprDepsBound(node.Cond, out, bound)
+			collectFuncBodyGlobalExprDeps(node.Then, out, bound)
+			collectFuncBodyGlobalExprDeps(node.Else, out, bound)
+		}
 	}
 }
 

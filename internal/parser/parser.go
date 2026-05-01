@@ -31,40 +31,7 @@ func Parse(file, source string, diags *diag.Diagnostics) ast.Program {
 }
 
 func (p *Parser) parseProgram() ast.Program {
-	stmts := make([]ast.Stmt, 0)
-	for {
-		p.skipTrivia()
-		if p.eof() {
-			break
-		}
-		start := p.pos()
-		if p.isTopLevelAssignmentStart() {
-			stmts = append(stmts, p.parseGlobalAssign(start))
-			continue
-		}
-		word, ok := p.peekWord()
-		if ok {
-			switch word {
-			case "do":
-				p.consumeWord()
-				stmts = append(stmts, p.parseDoBlock(start))
-				continue
-			case "submit":
-				p.consumeWord()
-				stmts = append(stmts, p.parseSubmitBlock(start))
-				continue
-			case "analyse":
-				p.consumeWord()
-				stmts = append(stmts, p.parseAnalyseBlock(start))
-				continue
-			case "use":
-				p.consumeWord()
-				stmts = append(stmts, p.parseUseStmt(start))
-				continue
-			}
-		}
-		stmts = append(stmts, p.parseTopLevelExprStmt(start))
-	}
+	stmts := p.parseStmtList(topLevelParseContext{}, false)
 
 	prog := ast.Program{
 		File:  p.file,

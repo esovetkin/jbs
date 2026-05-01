@@ -53,6 +53,24 @@ preprocess = {
 			wantBraceDepth: 1,
 		},
 		{
+			name: "multiline_if_else_complete",
+			src: `if true {
+  x = 1
+} else {
+  x = 2
+}`,
+			wantNeedsMore: false,
+		},
+		{
+			name: "multiline_if_needs_else_closing_brace",
+			src: `if true {
+  x = 1
+} else {
+  x = 2`,
+			wantNeedsMore:  true,
+			wantBraceDepth: 1,
+		},
+		{
 			name: "anonymous_multiline_call_needs_closing_paren",
 			src: `function(x) {
   x
