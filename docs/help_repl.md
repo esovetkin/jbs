@@ -48,7 +48,26 @@ jbs> if enabled {
 1
 ```
 
-`do`, `submit`, `analyse`, and `use` are not allowed inside `if` bodies. Put declarations and imports at top level and use `if` to choose values before them.
+Multiline loops behave the same way:
+
+```jbs
+jbs> total = 0
+jbs> for x in range(3) {
+...>   total += x
+...> }
+jbs> total
+3
+jbs> while total < 5 {
+...>   total += 1
+...>   if total == 4 {
+...>     continue
+...>   }
+...> }
+```
+
+`break` and `continue` work inside `for` and `while` bodies.
+
+`do`, `submit`, `analyse`, and `use` are not allowed inside `if` or loop bodies. Put declarations and imports at top level and use control flow to choose values before them.
 
 Bare expression lines are part of normal top-level source. They are evaluated in the current module-aware session scope and then appended to the accepted session source.
 

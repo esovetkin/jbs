@@ -524,6 +524,21 @@ func collectStmtLocalSymbols(stmt ast.Stmt, out map[string]diag.Span) {
 			collectStmtLocalSymbols(child, out)
 		}
 	}
+	if forStmt, ok := stmt.(ast.ForStmt); ok {
+		if strings.TrimSpace(forStmt.Target) != "" {
+			if _, exists := out[forStmt.Target]; !exists {
+				out[forStmt.Target] = forStmt.Span
+			}
+		}
+		for _, child := range forStmt.Body {
+			collectStmtLocalSymbols(child, out)
+		}
+	}
+	if whileStmt, ok := stmt.(ast.WhileStmt); ok {
+		for _, child := range whileStmt.Body {
+			collectStmtLocalSymbols(child, out)
+		}
+	}
 }
 
 func stmtLocalSymbol(stmt ast.Stmt) (string, diag.Span, bool) {

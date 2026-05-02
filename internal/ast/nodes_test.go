@@ -21,10 +21,16 @@ var (
 	_ Node         = LocalAssignStmt{}
 	_ Node         = ReturnStmt{}
 	_ Node         = FuncIfStmt{}
+	_ Node         = FuncForStmt{}
+	_ Node         = FuncWhileStmt{}
 	_ Stmt         = UseStmt{}
 	_ Stmt         = GlobalAssign{}
 	_ Stmt         = ExprStmt{}
 	_ Stmt         = IfStmt{}
+	_ Stmt         = ForStmt{}
+	_ Stmt         = WhileStmt{}
+	_ Stmt         = BreakStmt{}
+	_ Stmt         = ContinueStmt{}
 	_ Stmt         = AnalyseBlock{}
 	_ Stmt         = DoBlock{}
 	_ Stmt         = SubmitBlock{}
@@ -49,6 +55,10 @@ var (
 	_ FuncBodyStmt = LocalAssignStmt{}
 	_ FuncBodyStmt = ReturnStmt{}
 	_ FuncBodyStmt = FuncIfStmt{}
+	_ FuncBodyStmt = FuncForStmt{}
+	_ FuncBodyStmt = FuncWhileStmt{}
+	_ FuncBodyStmt = BreakStmt{}
+	_ FuncBodyStmt = ContinueStmt{}
 	_ CombExpr     = CombIdent{}
 	_ CombExpr     = CombBinary{}
 )
@@ -81,6 +91,8 @@ func TestPlainNodeGetSpan(t *testing.T) {
 		{name: "LocalAssignStmt", node: LocalAssignStmt{Span: testSpan(12)}, want: testSpan(12)},
 		{name: "ReturnStmt", node: ReturnStmt{Span: testSpan(13)}, want: testSpan(13)},
 		{name: "FuncIfStmt", node: FuncIfStmt{Span: testSpan(14)}, want: testSpan(14)},
+		{name: "FuncForStmt", node: FuncForStmt{Span: testSpan(15)}, want: testSpan(15)},
+		{name: "FuncWhileStmt", node: FuncWhileStmt{Span: testSpan(16)}, want: testSpan(16)},
 	}
 
 	for _, tc := range tests {
@@ -97,9 +109,13 @@ func TestStmtNodes(t *testing.T) {
 	globalAssign := GlobalAssign{Span: testSpan(21)}
 	exprStmt := ExprStmt{Span: testSpan(22)}
 	ifStmt := IfStmt{Span: testSpan(23)}
-	analyseBlock := AnalyseBlock{Span: testSpan(24)}
-	doBlock := DoBlock{Span: testSpan(25)}
-	submitBlock := SubmitBlock{Span: testSpan(26)}
+	forStmt := ForStmt{Span: testSpan(24)}
+	whileStmt := WhileStmt{Span: testSpan(25)}
+	breakStmt := BreakStmt{Span: testSpan(26)}
+	continueStmt := ContinueStmt{Span: testSpan(27)}
+	analyseBlock := AnalyseBlock{Span: testSpan(28)}
+	doBlock := DoBlock{Span: testSpan(29)}
+	submitBlock := SubmitBlock{Span: testSpan(30)}
 
 	tests := []struct {
 		name string
@@ -111,9 +127,13 @@ func TestStmtNodes(t *testing.T) {
 		{name: "GlobalAssign", call: func() { globalAssign.stmtNode() }, node: globalAssign, want: testSpan(21)},
 		{name: "ExprStmt", call: func() { exprStmt.stmtNode(); exprStmt.funcBodyStmtNode() }, node: exprStmt, want: testSpan(22)},
 		{name: "IfStmt", call: func() { ifStmt.stmtNode() }, node: ifStmt, want: testSpan(23)},
-		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(24)},
-		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(25)},
-		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(26)},
+		{name: "ForStmt", call: func() { forStmt.stmtNode() }, node: forStmt, want: testSpan(24)},
+		{name: "WhileStmt", call: func() { whileStmt.stmtNode() }, node: whileStmt, want: testSpan(25)},
+		{name: "BreakStmt", call: func() { breakStmt.stmtNode(); breakStmt.funcBodyStmtNode() }, node: breakStmt, want: testSpan(26)},
+		{name: "ContinueStmt", call: func() { continueStmt.stmtNode(); continueStmt.funcBodyStmtNode() }, node: continueStmt, want: testSpan(27)},
+		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(28)},
+		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(29)},
+		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(30)},
 	}
 
 	for _, tc := range tests {

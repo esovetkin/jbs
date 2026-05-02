@@ -43,6 +43,10 @@ const (
 	TokenGE           TokenType = ">="
 	TokenIf           TokenType = "if"
 	TokenElse         TokenType = "else"
+	TokenFor          TokenType = "for"
+	TokenWhile        TokenType = "while"
+	TokenBreak        TokenType = "break"
+	TokenContinue     TokenType = "continue"
 	TokenAnd          TokenType = "and"
 	TokenOr           TokenType = "or"
 	TokenFunction     TokenType = "function"
@@ -72,6 +76,10 @@ func (t Token) IsKeyword(tt TokenType) bool {
 var keywords = map[string]TokenType{
 	"if":       TokenIf,
 	"else":     TokenElse,
+	"for":      TokenFor,
+	"while":    TokenWhile,
+	"break":    TokenBreak,
+	"continue": TokenContinue,
 	"and":      TokenAnd,
 	"or":       TokenOr,
 	"function": TokenFunction,

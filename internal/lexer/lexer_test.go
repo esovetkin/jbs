@@ -65,8 +65,27 @@ func TestLexIfAndElseKeywords(t *testing.T) {
 	}
 }
 
+func TestLexLoopKeywords(t *testing.T) {
+	src := "for x in xs { while ok { break; continue } }\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+
+	found := map[TokenType]bool{}
+	for _, tok := range tokens {
+		found[tok.Type] = true
+	}
+	for _, tt := range []TokenType{TokenFor, TokenIn, TokenWhile, TokenBreak, TokenContinue} {
+		if !found[tt] {
+			t.Fatalf("expected token %s, got %#v", tt, tokens)
+		}
+	}
+}
+
 func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
-	src := "function_name = 1\nreturn_value = 2\nifdef = 3\nelseif = 4\n"
+	src := "function_name = 1\nreturn_value = 2\nifdef = 3\nelseif = 4\nforeach = 5\nwhiled = 6\nbreakfast = 7\ncontinued = 8\n"
 	diags := &diag.Diagnostics{}
 	tokens := Lex("in.jbs", src, diags)
 	if diags.HasErrors() {
@@ -84,6 +103,9 @@ func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
 	}
 	if found["ifdef"] != TokenIdent || found["elseif"] != TokenIdent {
 		t.Fatalf("expected identifier tokens for if-like names, got %#v", tokens)
+	}
+	if found["foreach"] != TokenIdent || found["whiled"] != TokenIdent || found["breakfast"] != TokenIdent || found["continued"] != TokenIdent {
+		t.Fatalf("expected identifier tokens for loop-keyword-like names, got %#v", tokens)
 	}
 }
 

@@ -91,6 +91,12 @@ func collectFuncBodyLocalIdentDeps(body []ast.FuncBodyStmt, out map[string]struc
 			collectExprLocalIdentDeps(node.Cond, out)
 			collectFuncBodyLocalIdentDeps(node.Then, out)
 			collectFuncBodyLocalIdentDeps(node.Else, out)
+		case ast.FuncForStmt:
+			collectExprLocalIdentDeps(node.Iterable, out)
+			collectFuncBodyLocalIdentDeps(node.Body, out)
+		case ast.FuncWhileStmt:
+			collectExprLocalIdentDeps(node.Cond, out)
+			collectFuncBodyLocalIdentDeps(node.Body, out)
 		}
 	}
 }

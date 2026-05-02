@@ -300,6 +300,52 @@ func TestRunMultilineFunctionLiteralWaitsForClosingBrace(t *testing.T) {
 	}
 }
 
+func TestRunMultilineLoopsWaitForClosingBrace(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []fakeEvent
+		want string
+	}{
+		{
+			name: "for",
+			in:   []fakeEvent{{line: "for x in range(2) {"}, {line: "x"}, {line: "}"}, {line: ":show"}, {err: io.EOF}},
+			want: "for x in range(2) {\nx\n}",
+		},
+		{
+			name: "while",
+			in:   []fakeEvent{{line: "while false {"}, {line: "break"}, {line: "}"}, {line: ":show"}, {err: io.EOF}},
+			want: "while false {\nbreak\n}",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := &fakeReader{events: tc.in}
+			var out, err strings.Builder
+			commitCalls := 0
+			opts := baseOptions(t, reader)
+			opts.Stdout = &out
+			opts.Stderr = &err
+			opts.Commit = func(source string, chunk string) (CommitResult, error) {
+				commitCalls++
+				if chunk != tc.want {
+					t.Fatalf("unexpected committed loop chunk: %q", chunk)
+				}
+				return defaultCommitForTest(source, chunk)
+			}
+			code := Run(opts)
+			if code != 0 {
+				t.Fatalf("Run returned %d, want 0", code)
+			}
+			if commitCalls != 1 {
+				t.Fatalf("expected one commit after closing brace, got %d", commitCalls)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("expected committed loop in show output, got: %q", out.String())
+			}
+		})
+	}
+}
+
 func TestRunTopLevelExprMultilineRequiresBackslash(t *testing.T) {
 	reader := &fakeReader{events: []fakeEvent{{line: "1 + \\"}, {line: "2"}, {err: io.EOF}}}
 	var out, err strings.Builder

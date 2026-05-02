@@ -157,6 +157,38 @@ func TestCommitReplChunkIfOutputAndErrors(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkLoopOutputBreakAndContinue(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"for x in range(5) {",
+		"  if x == 1 {",
+		"    continue",
+		"  }",
+		"  if x == 3 {",
+		"    break",
+		"  }",
+		"  x",
+		"}",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected loop chunk to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 2 || commit.ExprOutput[0] != "0" || commit.ExprOutput[1] != "2" {
+		t.Fatalf("unexpected loop expression output: %#v", commit.ExprOutput)
+	}
+
+	invalid, err := commitReplChunk(cwd, commit.Source, "while 1 { break }")
+	if err != nil {
+		t.Fatalf("unexpected invalid commit error: %v", err)
+	}
+	if !invalid.HasErrors || !strings.Contains(invalid.DiagText, "ERROR E102") {
+		t.Fatalf("expected E102, got errors=%v diag=%q", invalid.HasErrors, invalid.DiagText)
+	}
+}
+
 func TestCommitReplChunkAllowsReassignmentAndCompoundAssignment(t *testing.T) {
 	cwd := t.TempDir()
 	first, err := commitReplChunk(cwd, "", "a = 1")

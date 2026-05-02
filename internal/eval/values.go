@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"jbs/internal/diag"
 )
 
 type Kind string
@@ -194,4 +196,21 @@ func ToSeries(v Value) []Value {
 		return out
 	}
 	return []Value{v}
+}
+
+func IterableElements(v Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+	switch v.Kind {
+	case KindList, KindTuple:
+		out := make([]Value, len(v.L))
+		copy(out, v.L)
+		return out, true
+	default:
+		diags.AddError(
+			diag.CodeE106,
+			"for loop expects list or tuple value",
+			at,
+			"use range(...), list(...), tuple(...), or a list/tuple expression",
+		)
+		return nil, false
+	}
 }

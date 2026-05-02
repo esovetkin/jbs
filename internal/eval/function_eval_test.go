@@ -155,6 +155,171 @@ func TestFunctionIfRejectsNonBoolCondition(t *testing.T) {
 	}
 }
 
+func TestFunctionForLoopStatements(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   ast.FunctionExpr
+		want Value
+	}{
+		{
+			name: "sums list values",
+			fn: fnExpr([]ast.FuncParam{{Name: "values"}},
+				localAssign("total", intExpr(0)),
+				ast.FuncForStmt{
+					Target:   "x",
+					Iterable: ident("values"),
+					Body: []ast.FuncBodyStmt{
+						ast.LocalAssignStmt{Name: "total", Op: ast.AssignPlusEq, Expr: ident("x")},
+					},
+				},
+				exprStmt(ident("total")),
+			),
+			want: Int(6),
+		},
+		{
+			name: "continue skips body remainder",
+			fn: fnExpr([]ast.FuncParam{{Name: "values"}},
+				localAssign("total", intExpr(0)),
+				ast.FuncForStmt{
+					Target:   "x",
+					Iterable: ident("values"),
+					Body: []ast.FuncBodyStmt{
+						ast.FuncIfStmt{
+							Cond: ast.CompareExpr{Left: ident("x"), Op: "==", Right: intExpr(2)},
+							Then: []ast.FuncBodyStmt{ast.ContinueStmt{}},
+						},
+						ast.LocalAssignStmt{Name: "total", Op: ast.AssignPlusEq, Expr: ident("x")},
+					},
+				},
+				exprStmt(ident("total")),
+			),
+			want: Int(4),
+		},
+		{
+			name: "break exits nearest loop",
+			fn: fnExpr([]ast.FuncParam{{Name: "values"}},
+				localAssign("total", intExpr(0)),
+				ast.FuncForStmt{
+					Target:   "x",
+					Iterable: ident("values"),
+					Body: []ast.FuncBodyStmt{
+						ast.FuncIfStmt{
+							Cond: ast.CompareExpr{Left: ident("x"), Op: "==", Right: intExpr(3)},
+							Then: []ast.FuncBodyStmt{ast.BreakStmt{}},
+						},
+						ast.LocalAssignStmt{Name: "total", Op: ast.AssignPlusEq, Expr: ident("x")},
+					},
+				},
+				exprStmt(ident("total")),
+			),
+			want: Int(3),
+		},
+		{
+			name: "return exits function",
+			fn: fnExpr([]ast.FuncParam{{Name: "values"}},
+				ast.FuncForStmt{
+					Target:   "x",
+					Iterable: ident("values"),
+					Body:     []ast.FuncBodyStmt{ast.ReturnStmt{Expr: ident("x")}},
+				},
+				exprStmt(intExpr(0)),
+			),
+			want: Int(1),
+		},
+		{
+			name: "loop target remains visible",
+			fn: fnExpr([]ast.FuncParam{{Name: "values"}},
+				ast.FuncForStmt{
+					Target:   "x",
+					Iterable: ident("values"),
+					Body:     []ast.FuncBodyStmt{},
+				},
+				exprStmt(ident("x")),
+			),
+			want: Int(3),
+		},
+	}
+	args := []ast.CallArg{posArg(ast.ListExpr{Items: []ast.Expr{intExpr(1), intExpr(2), intExpr(3)}})}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(tc.fn, args...), nil, diags, ExprOptions{})
+			if !Equal(got, tc.want) {
+				t.Fatalf("got %#v want %#v", got, tc.want)
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestFunctionForLoopErrors(t *testing.T) {
+	t.Run("scalar iterable", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(nil, ast.FuncForStmt{Target: "x", Iterable: intExpr(1)})
+		_ = EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+		if diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+	t.Run("empty loop target unassigned", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(nil,
+			ast.FuncForStmt{Target: "x", Iterable: ast.ListExpr{}},
+			exprStmt(ident("x")),
+		)
+		_ = EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+		if diagCount(diags, "E100") == 0 || !strings.Contains(diags.String(), "before assignment") {
+			t.Fatalf("expected unassigned local diagnostic, got: %s", diags.String())
+		}
+	})
+}
+
+func TestFunctionWhileLoopStatements(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(nil,
+		localAssign("x", intExpr(0)),
+		ast.FuncWhileStmt{
+			Cond: ast.CompareExpr{Left: ident("x"), Op: "<", Right: intExpr(5)},
+			Body: []ast.FuncBodyStmt{
+				ast.LocalAssignStmt{Name: "x", Op: ast.AssignPlusEq, Expr: intExpr(1)},
+				ast.FuncIfStmt{
+					Cond: ast.CompareExpr{Left: ident("x"), Op: "==", Right: intExpr(3)},
+					Then: []ast.FuncBodyStmt{ast.BreakStmt{}},
+				},
+			},
+		},
+		exprStmt(ident("x")),
+	)
+	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+	if !Equal(got, Int(3)) {
+		t.Fatalf("got %#v want 3", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFunctionWhileLoopErrors(t *testing.T) {
+	t.Run("non bool condition", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(nil, ast.FuncWhileStmt{Cond: intExpr(1)})
+		_ = EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+		if diagCount(diags, "E102") == 0 {
+			t.Fatalf("expected E102, got: %s", diags.String())
+		}
+	})
+	t.Run("iteration limit", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(nil, ast.FuncWhileStmt{Cond: ast.BoolExpr{Value: true}})
+		_ = EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+		if diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected E106, got: %s", diags.String())
+		}
+	})
+}
+
 func TestFunctionNamedArgsDefaultsAndBindingErrors(t *testing.T) {
 	t.Run("named args", func(t *testing.T) {
 		diags := &diag.Diagnostics{}

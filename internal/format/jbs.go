@@ -255,6 +255,14 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 		return formatExprStmt(s, srcRunes)
 	case ast.IfStmt:
 		return formatIfStmt(s, srcRunes)
+	case ast.ForStmt:
+		return formatForStmt(s, srcRunes)
+	case ast.WhileStmt:
+		return formatWhileStmt(s, srcRunes)
+	case ast.BreakStmt:
+		return []string{"break"}
+	case ast.ContinueStmt:
+		return []string{"continue"}
 	case ast.UseStmt:
 		return formatUseStmt(s)
 	case ast.DoBlock:
@@ -287,6 +295,34 @@ func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []string {
 	}
 	lines = append(lines, "} else {")
 	for _, child := range stmt.Else {
+		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatForStmt(stmt ast.ForStmt, srcRunes []rune) []string {
+	exprLines := formatExprLines(stmt.Iterable, srcRunes)
+	if len(exprLines) == 0 {
+		exprLines = []string{`[]`}
+	}
+	lines := prefixFormattedLines("", "for "+stmt.Target+" in ", exprLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Body {
+		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatWhileStmt(stmt ast.WhileStmt, srcRunes []rune) []string {
+	condLines := formatExprLines(stmt.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{"true"}
+	}
+	lines := prefixFormattedLines("", "while ", condLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Body {
 		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
 	lines = append(lines, "}")
@@ -1141,6 +1177,14 @@ func formatFuncBodyStmtLines(stmt ast.FuncBodyStmt, srcRunes []rune) []string {
 		return formatExprLines(s.Expr, srcRunes)
 	case ast.FuncIfStmt:
 		return formatFuncIfStmtLines(s, srcRunes)
+	case ast.FuncForStmt:
+		return formatFuncForStmtLines(s, srcRunes)
+	case ast.FuncWhileStmt:
+		return formatFuncWhileStmtLines(s, srcRunes)
+	case ast.BreakStmt:
+		return []string{"break"}
+	case ast.ContinueStmt:
+		return []string{"continue"}
 	default:
 		return nil
 	}
@@ -1165,6 +1209,34 @@ func formatFuncIfStmtLines(stmt ast.FuncIfStmt, srcRunes []rune) []string {
 	}
 	lines = append(lines, "} else {")
 	for _, child := range stmt.Else {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatFuncForStmtLines(stmt ast.FuncForStmt, srcRunes []rune) []string {
+	exprLines := formatExprLines(stmt.Iterable, srcRunes)
+	if len(exprLines) == 0 {
+		exprLines = []string{`[]`}
+	}
+	lines := prefixFormattedLines("", "for "+stmt.Target+" in ", exprLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Body {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
+	}
+	lines = append(lines, "}")
+	return lines
+}
+
+func formatFuncWhileStmtLines(stmt ast.FuncWhileStmt, srcRunes []rune) []string {
+	condLines := formatExprLines(stmt.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{"true"}
+	}
+	lines := prefixFormattedLines("", "while ", condLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range stmt.Body {
 		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
 	}
 	lines = append(lines, "}")

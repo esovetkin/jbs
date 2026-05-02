@@ -991,6 +991,12 @@ func walkFuncBodyIdentRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 			walk(node.Cond)
 			walkFuncBodyIdentRefs(node.Then, walk)
 			walkFuncBodyIdentRefs(node.Else, walk)
+		case ast.FuncForStmt:
+			walk(node.Iterable)
+			walkFuncBodyIdentRefs(node.Body, walk)
+		case ast.FuncWhileStmt:
+			walk(node.Cond)
+			walkFuncBodyIdentRefs(node.Body, walk)
 		}
 	}
 }
@@ -1074,6 +1080,12 @@ func walkFuncBodyStringRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 			walk(node.Cond)
 			walkFuncBodyStringRefs(node.Then, walk)
 			walkFuncBodyStringRefs(node.Else, walk)
+		case ast.FuncForStmt:
+			walk(node.Iterable)
+			walkFuncBodyStringRefs(node.Body, walk)
+		case ast.FuncWhileStmt:
+			walk(node.Cond)
+			walkFuncBodyStringRefs(node.Body, walk)
 		}
 	}
 }

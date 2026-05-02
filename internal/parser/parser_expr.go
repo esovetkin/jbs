@@ -23,6 +23,15 @@ type tokenParser struct {
 	diags  *diag.Diagnostics
 }
 
+type functionParseContext struct {
+	LoopDepth int
+}
+
+func (ctx functionParseContext) nestedLoop() functionParseContext {
+	ctx.LoopDepth++
+	return ctx
+}
+
 func isAssignToken(tt lexer.TokenType) bool {
 	return tt == lexer.TokenEqual ||
 		tt == lexer.TokenPlusEqual ||
@@ -555,7 +564,7 @@ func (p *tokenParser) parseFunctionExpr() ast.Expr {
 	body := []ast.FuncBodyStmt(nil)
 	closeBrace := openBrace
 	if openBrace.Type == lexer.TokenLBrace {
-		body = p.parseFunctionBody()
+		body = p.parseFunctionBody(functionParseContext{})
 		closeBrace = p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close function body")
 	}
 	endSpan := closeBrace.Span
@@ -639,21 +648,29 @@ func (p *tokenParser) parseFunctionParams() []ast.FuncParam {
 	return params
 }
 
-func (p *tokenParser) parseFunctionBody() []ast.FuncBodyStmt {
+func (p *tokenParser) parseFunctionBody(ctx functionParseContext) []ast.FuncBodyStmt {
 	body := make([]ast.FuncBodyStmt, 0, 4)
 	for {
 		p.skipStmtSeparators()
 		if p.peek().Type == lexer.TokenRBrace || p.peek().Type == lexer.TokenEOF {
 			return body
 		}
-		body = append(body, p.parseFunctionBodyStmt())
+		body = append(body, p.parseFunctionBodyStmt(ctx))
 	}
 }
 
-func (p *tokenParser) parseFunctionBodyStmt() ast.FuncBodyStmt {
+func (p *tokenParser) parseFunctionBodyStmt(ctx functionParseContext) ast.FuncBodyStmt {
 	switch p.peek().Type {
 	case lexer.TokenIf:
-		return p.parseFuncIfStmt()
+		return p.parseFuncIfStmt(ctx)
+	case lexer.TokenFor:
+		return p.parseFuncForStmt(ctx)
+	case lexer.TokenWhile:
+		return p.parseFuncWhileStmt(ctx)
+	case lexer.TokenBreak:
+		return p.parseFuncBreakStmt(ctx)
+	case lexer.TokenContinue:
+		return p.parseFuncContinueStmt(ctx)
 	case lexer.TokenReturn:
 		return p.parseReturnStmt()
 	case lexer.TokenDo, lexer.TokenSubmit, lexer.TokenAnalyse, lexer.TokenUse:
@@ -662,7 +679,7 @@ func (p *tokenParser) parseFunctionBodyStmt() ast.FuncBodyStmt {
 			diag.CodeE058,
 			fmt.Sprintf("'%s' is not allowed inside function bodies", tok.Text),
 			tok.Span,
-			"use assignments, return statements, expressions, or if statements inside function bodies",
+			"use assignments, return statements, expressions, or control-flow statements inside function bodies",
 		)
 		p.consumeUntilFunctionBodyStmtEnd()
 		return ast.ExprStmt{
@@ -677,7 +694,7 @@ func (p *tokenParser) parseFunctionBodyStmt() ast.FuncBodyStmt {
 	return p.parseFunctionExprStmt()
 }
 
-func (p *tokenParser) parseFuncIfStmt() ast.FuncBodyStmt {
+func (p *tokenParser) parseFuncIfStmt(ctx functionParseContext) ast.FuncBodyStmt {
 	ifTok := p.expect(lexer.TokenIf, diag.CodeE080, "expected 'if'")
 	p.skipNewlines()
 	cond := p.parseExpr()
@@ -685,7 +702,7 @@ func (p *tokenParser) parseFuncIfStmt() ast.FuncBodyStmt {
 	thenBody := []ast.FuncBodyStmt(nil)
 	end := open.Span
 	if open.Type == lexer.TokenLBrace {
-		thenBody = p.parseFunctionBody()
+		thenBody = p.parseFunctionBody(ctx)
 		closeTok := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close if body")
 		end = closeTok.Span
 	}
@@ -703,7 +720,7 @@ func (p *tokenParser) parseFuncIfStmt() ast.FuncBodyStmt {
 				"use `else { ... }`; nested `else if` is not supported yet",
 			)
 			if p.peek().Type == lexer.TokenIf {
-				discard := p.parseFuncIfStmt()
+				discard := p.parseFuncIfStmt(ctx)
 				end = discard.GetSpan()
 			} else {
 				p.consumeUntilFunctionBodyStmtEnd()
@@ -712,7 +729,7 @@ func (p *tokenParser) parseFuncIfStmt() ast.FuncBodyStmt {
 			return ast.FuncIfStmt{Cond: cond, Then: thenBody, Span: diag.Merge(ifTok.Span, end)}
 		}
 		openElse := p.next()
-		elseBody = p.parseFunctionBody()
+		elseBody = p.parseFunctionBody(ctx)
 		closeElse := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close else body")
 		end = closeElse.Span
 		if openElse.Type != lexer.TokenLBrace {
@@ -726,6 +743,87 @@ func (p *tokenParser) parseFuncIfStmt() ast.FuncBodyStmt {
 		Else: elseBody,
 		Span: diag.Merge(ifTok.Span, end),
 	}
+}
+
+func (p *tokenParser) parseFuncForStmt(ctx functionParseContext) ast.FuncBodyStmt {
+	forTok := p.expect(lexer.TokenFor, diag.CodeE080, "expected 'for'")
+	p.skipNewlines()
+	nameTok := p.expect(lexer.TokenIdent, diag.CodeE080, "expected loop variable after 'for'")
+	p.expect(lexer.TokenIn, diag.CodeE080, "expected 'in' after loop variable")
+	iterable := p.parseExpr()
+	open := p.expect(lexer.TokenLBrace, diag.CodeE080, "expected '{' after for header")
+	body := []ast.FuncBodyStmt(nil)
+	end := open.Span
+	if open.Type == lexer.TokenLBrace {
+		body = p.parseFunctionBody(ctx.nestedLoop())
+		closeTok := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close for body")
+		end = closeTok.Span
+	}
+	target := ""
+	if nameTok.Type == lexer.TokenIdent {
+		target = nameTok.Value
+	}
+	p.skipStmtSeparators()
+	return ast.FuncForStmt{
+		Target:   target,
+		Iterable: iterable,
+		Body:     body,
+		Span:     diag.Merge(forTok.Span, end),
+	}
+}
+
+func (p *tokenParser) parseFuncWhileStmt(ctx functionParseContext) ast.FuncBodyStmt {
+	whileTok := p.expect(lexer.TokenWhile, diag.CodeE080, "expected 'while'")
+	p.skipNewlines()
+	cond := p.parseExpr()
+	open := p.expect(lexer.TokenLBrace, diag.CodeE080, "expected '{' after while condition")
+	body := []ast.FuncBodyStmt(nil)
+	end := open.Span
+	if open.Type == lexer.TokenLBrace {
+		body = p.parseFunctionBody(ctx.nestedLoop())
+		closeTok := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close while body")
+		end = closeTok.Span
+	}
+	p.skipStmtSeparators()
+	return ast.FuncWhileStmt{
+		Cond: cond,
+		Body: body,
+		Span: diag.Merge(whileTok.Span, end),
+	}
+}
+
+func (p *tokenParser) parseFuncBreakStmt(ctx functionParseContext) ast.FuncBodyStmt {
+	tok := p.expect(lexer.TokenBreak, diag.CodeE080, "expected 'break'")
+	p.validateFuncLoopControlTail(tok, "break", ctx)
+	return ast.BreakStmt{Span: tok.Span}
+}
+
+func (p *tokenParser) parseFuncContinueStmt(ctx functionParseContext) ast.FuncBodyStmt {
+	tok := p.expect(lexer.TokenContinue, diag.CodeE080, "expected 'continue'")
+	p.validateFuncLoopControlTail(tok, "continue", ctx)
+	return ast.ContinueStmt{Span: tok.Span}
+}
+
+func (p *tokenParser) validateFuncLoopControlTail(tok lexer.Token, keyword string, ctx functionParseContext) {
+	if ctx.LoopDepth == 0 {
+		p.diags.AddError(
+			diag.CodeE080,
+			fmt.Sprintf("'%s' is only allowed inside loops", keyword),
+			tok.Span,
+			fmt.Sprintf("move %s into a for/while body", keyword),
+		)
+	}
+	if !isFunctionBodyStmtTerminator(p.peek().Type) {
+		p.diags.AddError(
+			diag.CodeE061,
+			fmt.Sprintf("unexpected trailing tokens after %s", keyword),
+			p.peek().Span,
+			fmt.Sprintf("use `%s` without arguments", keyword),
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+		return
+	}
+	p.skipStmtSeparators()
 }
 
 func (p *tokenParser) parseLocalAssignStmt() ast.FuncBodyStmt {

@@ -12,7 +12,19 @@ import (
 )
 
 type topLevelParseContext struct {
-	InIfBody bool
+	InControlBody bool
+	LoopDepth     int
+}
+
+func (ctx topLevelParseContext) nestedControl() topLevelParseContext {
+	ctx.InControlBody = true
+	return ctx
+}
+
+func (ctx topLevelParseContext) nestedLoop() topLevelParseContext {
+	ctx.InControlBody = true
+	ctx.LoopDepth++
+	return ctx
 }
 
 func (p *Parser) parseStmtList(ctx topLevelParseContext, stopAtRBrace bool) []ast.Stmt {
@@ -40,34 +52,46 @@ func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
 		switch word {
 		case "if":
 			p.consumeWord()
-			return p.parseIfStmt(start)
+			return p.parseIfStmt(start, ctx)
+		case "for":
+			p.consumeWord()
+			return p.parseForStmt(start, ctx)
+		case "while":
+			p.consumeWord()
+			return p.parseWhileStmt(start, ctx)
+		case "break":
+			p.consumeWord()
+			return p.parseBreakStmt(start, ctx)
+		case "continue":
+			p.consumeWord()
+			return p.parseContinueStmt(start, ctx)
 		case "do":
 			p.consumeWord()
 			stmt := p.parseDoBlock(start)
-			p.rejectIfBodyDeclaration(ctx, "do", stmt.Span)
+			p.rejectControlBodyDeclaration(ctx, "do", stmt.Span)
 			return stmt
 		case "submit":
 			p.consumeWord()
 			stmt := p.parseSubmitBlock(start)
-			p.rejectIfBodyDeclaration(ctx, "submit", stmt.Span)
+			p.rejectControlBodyDeclaration(ctx, "submit", stmt.Span)
 			return stmt
 		case "analyse":
 			p.consumeWord()
 			stmt := p.parseAnalyseBlock(start)
-			p.rejectIfBodyDeclaration(ctx, "analyse", stmt.Span)
+			p.rejectControlBodyDeclaration(ctx, "analyse", stmt.Span)
 			return stmt
 		case "use":
 			p.consumeWord()
 			stmt := p.parseUseStmt(start)
-			p.rejectIfBodyDeclaration(ctx, "use", stmt.Span)
+			p.rejectControlBodyDeclaration(ctx, "use", stmt.Span)
 			return stmt
 		}
 	}
 	return p.parseTopLevelExprStmt(start)
 }
 
-func (p *Parser) rejectIfBodyDeclaration(ctx topLevelParseContext, kind string, span diag.Span) {
-	if !ctx.InIfBody {
+func (p *Parser) rejectControlBodyDeclaration(ctx topLevelParseContext, kind string, span diag.Span) {
+	if !ctx.InControlBody {
 		return
 	}
 	code := diag.CodeE080
@@ -76,15 +100,25 @@ func (p *Parser) rejectIfBodyDeclaration(ctx topLevelParseContext, kind string, 
 	}
 	p.diags.AddError(
 		code,
-		fmt.Sprintf("'%s' is not allowed inside if bodies", kind),
+		fmt.Sprintf("'%s' is not allowed inside control-flow bodies", kind),
 		span,
-		"move declarations and imports to module top level; use if only for assignments and expressions",
+		"move declarations and imports to module top level; use control flow only for assignments and expressions",
 	)
 }
 
 func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
-	if !ok || word == "if" || word == "else" || word == "do" || word == "submit" || word == "analyse" || word == "use" {
+	if !ok ||
+		word == "if" ||
+		word == "else" ||
+		word == "for" ||
+		word == "while" ||
+		word == "break" ||
+		word == "continue" ||
+		word == "do" ||
+		word == "submit" ||
+		word == "analyse" ||
+		word == "use" {
 		return false
 	}
 	i := p.off
@@ -335,8 +369,8 @@ func (p *Parser) parseUseStmt(start diag.Position) ast.UseStmt {
 	}
 }
 
-func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
-	cond, ok := p.parseIfCondition()
+func (p *Parser) parseIfStmt(start diag.Position, ctx topLevelParseContext) ast.IfStmt {
+	cond, ok := p.parseControlCondition("if")
 	if !ok {
 		return ast.IfStmt{
 			Cond: cond,
@@ -344,7 +378,7 @@ func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
 		}
 	}
 	p.advance()
-	thenBody := p.parseStmtList(topLevelParseContext{InIfBody: true}, true)
+	thenBody := p.parseStmtList(ctx.nestedControl(), true)
 	closeThen := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close if body")
 
 	elseBody := []ast.Stmt(nil)
@@ -363,7 +397,7 @@ func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
 			)
 			if word, ok := p.peekWord(); ok && word == "if" {
 				p.consumeWord()
-				discard := p.parseIfStmt(at)
+				discard := p.parseIfStmt(at, ctx)
 				end = discard.Span.End
 			}
 			return ast.IfStmt{
@@ -373,7 +407,7 @@ func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
 			}
 		}
 		p.advance()
-		elseBody = p.parseStmtList(topLevelParseContext{InIfBody: true}, true)
+		elseBody = p.parseStmtList(ctx.nestedControl(), true)
 		end = p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close else body")
 	}
 
@@ -383,6 +417,129 @@ func (p *Parser) parseIfStmt(start diag.Position) ast.IfStmt {
 		Else: elseBody,
 		Span: diag.NewSpan(p.file, start, end),
 	}
+}
+
+func (p *Parser) parseForStmt(start diag.Position, ctx topLevelParseContext) ast.ForStmt {
+	header, headerStart, ok := p.readUntilControlBodyBrace()
+	target, iterable := p.parseForHeader(header, headerStart)
+	if !ok {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' after for header",
+			diag.NewSpan(p.file, at, at),
+			"use syntax: for x in values { ... }",
+		)
+		return ast.ForStmt{
+			Target:   target,
+			Iterable: iterable,
+			Span:     diag.NewSpan(p.file, start, at),
+		}
+	}
+	p.advance()
+	body := p.parseStmtList(ctx.nestedLoop(), true)
+	end := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close for body")
+	return ast.ForStmt{
+		Target:   target,
+		Iterable: iterable,
+		Body:     body,
+		Span:     diag.NewSpan(p.file, start, end),
+	}
+}
+
+func (p *Parser) parseForHeader(src string, start diag.Position) (string, ast.Expr) {
+	tokens := lexer.LexFrom(p.file, src, start, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipStmtSeparators()
+	nameTok := tp.expect(lexer.TokenIdent, diag.CodeE080, "expected loop variable after 'for'")
+	inTok := tp.expect(lexer.TokenIn, diag.CodeE080, "expected 'in' after loop variable")
+	if tp.peek().Type == lexer.TokenEOF {
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected iterable expression after 'in'",
+			tp.peek().Span,
+			"use syntax: for x in values { ... }",
+		)
+		if nameTok.Type != lexer.TokenIdent || inTok.Type != lexer.TokenIn {
+			return "", nil
+		}
+		return nameTok.Value, nil
+	}
+	expr := tp.parseExpr()
+	tp.skipStmtSeparators()
+	if tp.peek().Type != lexer.TokenEOF {
+		p.diags.AddError(
+			diag.CodeE061,
+			"unexpected trailing tokens after for iterable",
+			tp.peek().Span,
+			"remove unsupported syntax before `{`",
+		)
+	}
+	if nameTok.Type != lexer.TokenIdent || inTok.Type != lexer.TokenIn {
+		return "", expr
+	}
+	return nameTok.Value, expr
+}
+
+func (p *Parser) parseWhileStmt(start diag.Position, ctx topLevelParseContext) ast.WhileStmt {
+	cond, ok := p.parseControlCondition("while")
+	if !ok {
+		return ast.WhileStmt{
+			Cond: cond,
+			Span: diag.NewSpan(p.file, start, p.pos()),
+		}
+	}
+	p.advance()
+	body := p.parseStmtList(ctx.nestedLoop(), true)
+	end := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close while body")
+	return ast.WhileStmt{
+		Cond: cond,
+		Body: body,
+		Span: diag.NewSpan(p.file, start, end),
+	}
+}
+
+func (p *Parser) parseBreakStmt(start diag.Position, ctx topLevelParseContext) ast.BreakStmt {
+	span := p.parseLoopControlTail(start, "break")
+	if ctx.LoopDepth == 0 {
+		p.diags.AddError(
+			diag.CodeE080,
+			"'break' is only allowed inside loops",
+			span,
+			"move break into a for/while body",
+		)
+	}
+	return ast.BreakStmt{Span: span}
+}
+
+func (p *Parser) parseContinueStmt(start diag.Position, ctx topLevelParseContext) ast.ContinueStmt {
+	span := p.parseLoopControlTail(start, "continue")
+	if ctx.LoopDepth == 0 {
+		p.diags.AddError(
+			diag.CodeE080,
+			"'continue' is only allowed inside loops",
+			span,
+			"move continue into a for/while body",
+		)
+	}
+	return ast.ContinueStmt{Span: span}
+}
+
+func (p *Parser) parseLoopControlTail(start diag.Position, keyword string) diag.Span {
+	stmt, stmtStart := p.readTopLevelStatement()
+	tokens := lexer.LexFrom(p.file, stmt, stmtStart, p.diags)
+	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	tp.skipStmtSeparators()
+	if tp.peek().Type != lexer.TokenEOF {
+		p.diags.AddError(
+			diag.CodeE061,
+			fmt.Sprintf("unexpected trailing tokens after %s", keyword),
+			tp.peek().Span,
+			fmt.Sprintf("use `%s` without arguments", keyword),
+		)
+		tp.consumeUntilStmtEnd()
+	}
+	return diag.NewSpan(p.file, start, p.pos())
 }
 
 func (p *Parser) expectTopLevelRBrace(code diag.Code, message string) diag.Position {
@@ -395,16 +552,16 @@ func (p *Parser) expectTopLevelRBrace(code diag.Code, message string) diag.Posit
 	return at
 }
 
-func (p *Parser) parseIfCondition() (ast.Expr, bool) {
+func (p *Parser) parseControlCondition(kind string) (ast.Expr, bool) {
 	p.skipTriviaInline()
-	condText, condStart, ok := p.readUntilIfBodyBrace()
+	condText, condStart, ok := p.readUntilControlBodyBrace()
 	if strings.TrimSpace(condText) == "" {
 		at := condStart
 		p.diags.AddError(
 			diag.CodeE080,
-			"expected if condition before '{'",
+			fmt.Sprintf("expected %s condition before '{'", kind),
 			diag.NewSpan(p.file, at, at),
-			"use syntax: if condition { ... }",
+			fmt.Sprintf("use syntax: %s condition { ... }", kind),
 		)
 	}
 	tokens := lexer.LexFrom(p.file, condText, condStart, p.diags)
@@ -415,7 +572,7 @@ func (p *Parser) parseIfCondition() (ast.Expr, bool) {
 	if tp.peek().Type != lexer.TokenEOF {
 		p.diags.AddError(
 			diag.CodeE061,
-			"unexpected trailing tokens after if condition",
+			fmt.Sprintf("unexpected trailing tokens after %s condition", kind),
 			tp.peek().Span,
 			"remove unsupported syntax before `{`",
 		)
@@ -424,15 +581,15 @@ func (p *Parser) parseIfCondition() (ast.Expr, bool) {
 		at := p.pos()
 		p.diags.AddError(
 			diag.CodeE080,
-			"expected '{' after if condition",
+			fmt.Sprintf("expected '{' after %s condition", kind),
 			diag.NewSpan(p.file, at, at),
-			"use syntax: if condition { ... }",
+			fmt.Sprintf("use syntax: %s condition { ... }", kind),
 		)
 	}
 	return cond, ok
 }
 
-func (p *Parser) readUntilIfBodyBrace() (string, diag.Position, bool) {
+func (p *Parser) readUntilControlBodyBrace() (string, diag.Position, bool) {
 	start := p.pos()
 	startOff := p.off
 	mode := blockScanCode

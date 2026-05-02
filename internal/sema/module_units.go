@@ -137,16 +137,16 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 	for _, use := range info.Uses {
 		useByIndex[use.Index] = use
 	}
-	appendModuleGlobalPlanSteps(plan, info.Program.Stmts, info.BaseDir, false, useByIndex, prep, prefixedByIndex)
+	appendModuleGlobalPlanSteps(plan, info.Program.Stmts, info.BaseDir, globalPlanContext{}, useByIndex, prep, prefixedByIndex)
 	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
 }
 
-func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, inIfBody bool, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPlan, prefixedByIndex map[int]*moduleScope) []globalInputStep {
+func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPlan, prefixedByIndex map[int]*moduleScope) []globalInputStep {
 	steps := make([]globalInputStep, 0, len(stmts))
 	for index, stmt := range stmts {
 		if use, ok := useByIndex[index]; ok {
-			if inIfBody {
+			if ctx.InControlBody {
 				continue
 			}
 			if use.Kind == imports.UseNamespace {
@@ -184,23 +184,66 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 				ID:      nextGlobalStepID(plan),
 				Kind:    globalInputIf,
 				IfStmt:  &stmtCopy,
-				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, true, nil, prep, prefixedByIndex),
-				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, true, nil, prep, prefixedByIndex),
+				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(), nil, prep, prefixedByIndex),
+				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(), nil, prep, prefixedByIndex),
 				Index:   index,
 				BaseDir: baseDir,
 			}
-			if inIfBody {
+			if ctx.InControlBody {
 				steps = append(steps, step)
 			} else {
 				plan.Steps = append(plan.Steps, step)
 			}
 			continue
 		}
-		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, inIfBody)
+		if forStmt, ok := stmt.(ast.ForStmt); ok {
+			stmtCopy := forStmt
+			id := nextGlobalStepID(plan)
+			step := globalInputStep{
+				ID:            id,
+				Kind:          globalInputFor,
+				Name:          stmtCopy.Target,
+				ForStmt:       &stmtCopy,
+				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(), nil, prep, prefixedByIndex),
+				EffectiveExpr: stmtCopy.Iterable,
+				Reads:         globalExprReadRefs(stmtCopy.Iterable),
+				Index:         index,
+				BaseDir:       baseDir,
+			}
+			if stmtCopy.Target != "" {
+				plan.StepByName[stmtCopy.Target] = id
+			}
+			if ctx.InControlBody {
+				steps = append(steps, step)
+			} else {
+				plan.Steps = append(plan.Steps, step)
+			}
+			continue
+		}
+		if whileStmt, ok := stmt.(ast.WhileStmt); ok {
+			stmtCopy := whileStmt
+			step := globalInputStep{
+				ID:            nextGlobalStepID(plan),
+				Kind:          globalInputWhile,
+				WhileStmt:     &stmtCopy,
+				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(), nil, prep, prefixedByIndex),
+				EffectiveExpr: stmtCopy.Cond,
+				Reads:         globalExprReadRefs(stmtCopy.Cond),
+				Index:         index,
+				BaseDir:       baseDir,
+			}
+			if ctx.InControlBody {
+				steps = append(steps, step)
+			} else {
+				plan.Steps = append(plan.Steps, step)
+			}
+			continue
+		}
+		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, ctx)
 		if !ok {
 			continue
 		}
-		if inIfBody {
+		if ctx.InControlBody {
 			steps = append(steps, step)
 		} else {
 			plan.Steps = append(plan.Steps, step)
@@ -320,6 +363,17 @@ func collectModuleBindingStmt(stmt ast.Stmt, index int, out *moduleBindingPlan) 
 		for _, child := range n.Else {
 			collectModuleBindingStmt(child, index, out)
 		}
+	case ast.ForStmt:
+		if n.Target != "" && !slices.Contains(out.LocalVisibleNames, n.Target) {
+			out.LocalVisibleNames = append(out.LocalVisibleNames, n.Target)
+		}
+		for _, child := range n.Body {
+			collectModuleBindingStmt(child, index, out)
+		}
+	case ast.WhileStmt:
+		for _, child := range n.Body {
+			collectModuleBindingStmt(child, index, out)
+		}
 	}
 }
 
@@ -369,6 +423,24 @@ func moduleLocalSymbolKind(prog ast.Program, name string) localSymbolKind {
 		case ast.AnalyseBlock:
 			if n.StepName == name {
 				return localSymbolAnalyse
+			}
+		case ast.IfStmt:
+			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Then}, name); kind != localSymbolNone {
+				return kind
+			}
+			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Else}, name); kind != localSymbolNone {
+				return kind
+			}
+		case ast.ForStmt:
+			if n.Target == name {
+				return localSymbolGlobal
+			}
+			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Body}, name); kind != localSymbolNone {
+				return kind
+			}
+		case ast.WhileStmt:
+			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Body}, name); kind != localSymbolNone {
+				return kind
 			}
 		}
 	}

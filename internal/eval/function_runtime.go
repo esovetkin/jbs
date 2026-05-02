@@ -31,6 +31,9 @@ type CallValueArg struct {
 type functionResult struct {
 	Value    Value
 	Returned bool
+	Break    bool
+	Continue bool
+	Span     diag.Span
 }
 
 func newFunctionValue(expr ast.FunctionExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -156,6 +159,13 @@ func collectFunctionLocalNames(body []ast.FuncBodyStmt, out map[string]struct{})
 		case ast.FuncIfStmt:
 			collectFunctionLocalNames(node.Then, out)
 			collectFunctionLocalNames(node.Else, out)
+		case ast.FuncForStmt:
+			if node.Target != "" {
+				out[node.Target] = struct{}{}
+			}
+			collectFunctionLocalNames(node.Body, out)
+		case ast.FuncWhileStmt:
+			collectFunctionLocalNames(node.Body, out)
 		}
 	}
 }
@@ -183,6 +193,24 @@ func functionBodyReferencesAnyName(body []ast.FuncBodyStmt, bound map[string]str
 				return true
 			}
 			if functionBodyReferencesAnyName(node.Else, bound, walk) {
+				return true
+			}
+		case ast.FuncForStmt:
+			if walk(node.Iterable, bound) {
+				return true
+			}
+			nextBound := cloneNameSet(bound)
+			if node.Target != "" {
+				nextBound[node.Target] = struct{}{}
+			}
+			if functionBodyReferencesAnyName(node.Body, nextBound, walk) {
+				return true
+			}
+		case ast.FuncWhileStmt:
+			if walk(node.Cond, bound) {
+				return true
+			}
+			if functionBodyReferencesAnyName(node.Body, bound, walk) {
 				return true
 			}
 		}
@@ -305,6 +333,10 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 	predeclareFunctionLocals(fn.Body, callFrame)
 	callOpts.Names = callNameCatalog(fn.Names, callFrame)
 	result := executeFunctionBody(fn.Body, env, diags, callOpts, ctx.withFrame(callFrame))
+	if result.Break || result.Continue {
+		diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
+		return Null()
+	}
 	return result.Value
 }
 
@@ -358,6 +390,13 @@ func predeclareFunctionLocals(body []ast.FuncBodyStmt, frame *Frame) {
 		case ast.FuncIfStmt:
 			predeclareFunctionLocals(node.Then, frame)
 			predeclareFunctionLocals(node.Else, frame)
+		case ast.FuncForStmt:
+			if node.Target != "" {
+				frame.DeclareLocal(node.Target)
+			}
+			predeclareFunctionLocals(node.Body, frame)
+		case ast.FuncWhileStmt:
+			predeclareFunctionLocals(node.Body, frame)
 		}
 	}
 }
@@ -378,14 +417,18 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 			}
 		case ast.ExprStmt:
 			last = evalExprWithCtx(node.Expr, env, diags, opts, ctx)
+		case ast.BreakStmt:
+			return functionResult{Value: last, Break: true, Span: node.Span}
+		case ast.ContinueStmt:
+			return functionResult{Value: last, Continue: true, Span: node.Span}
 		case ast.FuncIfStmt:
-			cond, ok := evalBoolConditionWithCtx(node.Cond, env, diags, opts, ctx)
+			cond, ok := evalBoolConditionWithCtx("if", node.Cond, env, diags, opts, ctx)
 			if !ok {
 				continue
 			}
 			if cond {
 				result := executeFunctionBody(node.Then, env, diags, opts, ctx)
-				if result.Returned {
+				if result.Returned || result.Break || result.Continue {
 					return result
 				}
 				last = result.Value
@@ -395,13 +438,87 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 				continue
 			}
 			result := executeFunctionBody(node.Else, env, diags, opts, ctx)
-			if result.Returned {
+			if result.Returned || result.Break || result.Continue {
+				return result
+			}
+			last = result.Value
+		case ast.FuncForStmt:
+			result := executeFuncForStmt(node, env, diags, opts, ctx)
+			if result.Returned || result.Break || result.Continue {
+				return result
+			}
+			last = result.Value
+		case ast.FuncWhileStmt:
+			result := executeFuncWhileStmt(node, env, diags, opts, ctx)
+			if result.Returned || result.Break || result.Continue {
 				return result
 			}
 			last = result.Value
 		}
 	}
 	return functionResult{Value: last}
+}
+
+func executeFuncForStmt(stmt ast.FuncForStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) functionResult {
+	iterable := evalExprWithCtx(stmt.Iterable, env, diags, opts, ctx)
+	items, ok := IterableElements(iterable, astExprSpan(stmt.Iterable), diags)
+	if !ok {
+		return functionResult{Value: Null()}
+	}
+	last := Null()
+	for i, item := range items {
+		if i >= MaxLoopIterations {
+			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the loop condition or iterable size")
+			return functionResult{Value: last}
+		}
+		if ctx != nil && ctx.frame != nil && stmt.Target != "" {
+			ctx.frame.AssignLocal(stmt.Target, item, stmt.Span)
+		}
+		result := executeFunctionBody(stmt.Body, env, diags, opts, ctx)
+		if result.Returned {
+			return result
+		}
+		if result.Break {
+			return functionResult{Value: result.Value}
+		}
+		last = result.Value
+		if result.Continue {
+			continue
+		}
+	}
+	return functionResult{Value: last}
+}
+
+func executeFuncWhileStmt(stmt ast.FuncWhileStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) functionResult {
+	last := Null()
+	for i := 0; ; i++ {
+		if i >= MaxLoopIterations {
+			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the while condition")
+			return functionResult{Value: last}
+		}
+		cond, ok := evalBoolConditionWithCtx("while", stmt.Cond, env, diags, opts, ctx)
+		if !ok || !cond {
+			return functionResult{Value: last}
+		}
+		result := executeFunctionBody(stmt.Body, env, diags, opts, ctx)
+		if result.Returned {
+			return result
+		}
+		if result.Break {
+			return functionResult{Value: result.Value}
+		}
+		last = result.Value
+		if result.Continue {
+			continue
+		}
+	}
+}
+
+func astExprSpan(expr ast.Expr) diag.Span {
+	if expr == nil {
+		return diag.Span{}
+	}
+	return expr.GetSpan()
 }
 
 func executeLocalAssign(stmt ast.LocalAssignStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) {

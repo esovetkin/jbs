@@ -107,6 +107,13 @@ func collectFuncBodyLocalNames(body []ast.FuncBodyStmt, out map[string]struct{})
 		case ast.FuncIfStmt:
 			collectFuncBodyLocalNames(node.Then, out)
 			collectFuncBodyLocalNames(node.Else, out)
+		case ast.FuncForStmt:
+			if node.Target != "" {
+				out[node.Target] = struct{}{}
+			}
+			collectFuncBodyLocalNames(node.Body, out)
+		case ast.FuncWhileStmt:
+			collectFuncBodyLocalNames(node.Body, out)
 		}
 	}
 }
@@ -124,6 +131,19 @@ func collectFuncBodyGlobalExprDeps(body []ast.FuncBodyStmt, out map[string]struc
 			collectGlobalExprDepsBound(node.Cond, out, bound)
 			collectFuncBodyGlobalExprDeps(node.Then, out, bound)
 			collectFuncBodyGlobalExprDeps(node.Else, out, bound)
+		case ast.FuncForStmt:
+			collectGlobalExprDepsBound(node.Iterable, out, bound)
+			nextBound := make(map[string]struct{}, len(bound)+1)
+			for name := range bound {
+				nextBound[name] = struct{}{}
+			}
+			if node.Target != "" {
+				nextBound[node.Target] = struct{}{}
+			}
+			collectFuncBodyGlobalExprDeps(node.Body, out, nextBound)
+		case ast.FuncWhileStmt:
+			collectGlobalExprDepsBound(node.Cond, out, bound)
+			collectFuncBodyGlobalExprDeps(node.Body, out, bound)
 		}
 	}
 }

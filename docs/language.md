@@ -2,12 +2,14 @@
 
 ## Canonical Core Syntax
 
-JBS has seven canonical top-level statement forms:
+JBS has nine canonical top-level statement forms:
 
 - `use`
 - top-level assignment
 - top-level expression statement
 - `if`
+- `for`
+- `while`
 - `do`
 - `submit`
 - `analyse`
@@ -55,6 +57,9 @@ stmt          := use_stmt
                | global_assign
                | expr_stmt
                | if_stmt
+               | for_stmt
+               | while_stmt
+               | loop_control_stmt
                | do_block
                | submit_block
                | analyse_block
@@ -70,7 +75,11 @@ use_source    := IDENT | STRING
 global_assign := IDENT assign_op expr opt_comment
 expr_stmt     := expr opt_comment
 if_stmt       := "if" expr "{" if_stmt_body? "}" ("else" "{" if_stmt_body? "}")?
-if_stmt_body  := (global_assign | expr_stmt | if_stmt | sep)*
+if_stmt_body  := (global_assign | expr_stmt | if_stmt | for_stmt | while_stmt | loop_control_stmt | sep)*
+loop_body     := (global_assign | expr_stmt | if_stmt | for_stmt | while_stmt | loop_control_stmt | sep)*
+for_stmt      := "for" IDENT "in" expr "{" loop_body? "}"
+while_stmt    := "while" expr "{" loop_body? "}"
+loop_control_stmt := "break" | "continue"
 assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
 
 qualified_name := IDENT ("." IDENT)*
@@ -225,6 +234,43 @@ Rules:
 - declarations and imports must remain at module top level
 
 Use `if` to choose values before a normal declaration, not to conditionally declare steps or imports.
+
+## `for` And `while`
+
+Top-level loops execute while JBS evaluates globals.
+
+```jbs
+sum = 0
+
+for x in range(5) {
+        if x == 3 {
+                continue
+        }
+        sum += x
+}
+
+while sum < 20 {
+        sum += 1
+        if sum == 15 {
+                break
+        }
+}
+```
+
+Rules:
+
+- `for x in expr` evaluates `expr` once before the loop starts
+- `expr` must evaluate to a list or tuple
+- the loop target is an ordinary global updated on each iteration
+- `while` conditions must evaluate to `bool`
+- `break` exits the nearest loop
+- `continue` skips to the next nearest-loop iteration
+- loops do not create a new scope
+- nested `if`, `for`, and `while` statements are supported
+- `do`, `submit`, `analyse`, and `use` are not allowed inside loop bodies
+- declarations and imports must remain at module top level
+
+Use loops to compute values before declarations. The final values are what later `do`, `submit`, and `analyse` snapshots see.
 
 ## `use`
 

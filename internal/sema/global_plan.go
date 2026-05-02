@@ -23,6 +23,10 @@ const (
 	globalInputAssign          globalInputKind = "assign"
 	globalInputExpr            globalInputKind = "expr"
 	globalInputIf              globalInputKind = "if"
+	globalInputFor             globalInputKind = "for"
+	globalInputWhile           globalInputKind = "while"
+	globalInputBreak           globalInputKind = "break"
+	globalInputContinue        globalInputKind = "continue"
 	globalInputProjectedImport globalInputKind = "projected_import"
 	globalInputNamespaceImport globalInputKind = "namespace_import"
 	globalInputDo              globalInputKind = "do"
@@ -44,8 +48,13 @@ type globalInputStep struct {
 	Assign         *ast.GlobalAssign
 	ExprStmt       *ast.ExprStmt
 	IfStmt         *ast.IfStmt
+	ForStmt        *ast.ForStmt
+	WhileStmt      *ast.WhileStmt
 	Then           []globalInputStep
 	Else           []globalInputStep
+	Body           []globalInputStep
+	BreakStmt      *ast.BreakStmt
+	ContinueStmt   *ast.ContinueStmt
 	Import         *projectedImport
 	NamespaceScope *moduleScope
 	DoBlock        *ast.DoBlock
@@ -64,6 +73,22 @@ type globalPlan struct {
 	StepByName        map[string]int
 	LocalVisibleNames []string
 	NextID            int
+}
+
+type globalPlanContext struct {
+	InControlBody bool
+	LoopDepth     int
+}
+
+func (ctx globalPlanContext) nestedControl() globalPlanContext {
+	ctx.InControlBody = true
+	return ctx
+}
+
+func (ctx globalPlanContext) nestedLoop() globalPlanContext {
+	ctx.InControlBody = true
+	ctx.LoopDepth++
+	return ctx
 }
 
 type globalExecResult struct {
@@ -90,19 +115,19 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir s
 		StepByName:        make(map[string]int),
 		LocalVisibleNames: append([]string(nil), prep.VisibleNames...),
 	}
-	appendGlobalPlanSteps(plan, prog.Stmts, baseDir, false)
+	appendGlobalPlanSteps(plan, prog.Stmts, baseDir, globalPlanContext{})
 	assignGlobalPlanNameCatalogs(plan, baseSeed)
 	return plan
 }
 
-func appendGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, inIfBody bool) []globalInputStep {
+func appendGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext) []globalInputStep {
 	steps := make([]globalInputStep, 0, len(stmts))
 	for index, stmt := range stmts {
-		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, inIfBody)
+		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, ctx)
 		if !ok {
 			continue
 		}
-		if inIfBody {
+		if ctx.InControlBody {
 			steps = append(steps, step)
 		} else {
 			plan.Steps = append(plan.Steps, step)
@@ -111,7 +136,7 @@ func appendGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, i
 	return steps
 }
 
-func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir string, inIfBody bool) (globalInputStep, bool) {
+func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir string, ctx globalPlanContext) (globalInputStep, bool) {
 	switch n := stmt.(type) {
 	case ast.IfStmt:
 		stmtCopy := n
@@ -120,10 +145,58 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			ID:      id,
 			Kind:    globalInputIf,
 			IfStmt:  &stmtCopy,
-			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, true),
-			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, true),
+			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl()),
+			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl()),
 			Index:   index,
 			BaseDir: baseDir,
+		}, true
+	case ast.ForStmt:
+		stmtCopy := n
+		id := nextGlobalStepID(plan)
+		step := globalInputStep{
+			ID:            id,
+			Kind:          globalInputFor,
+			Name:          stmtCopy.Target,
+			ForStmt:       &stmtCopy,
+			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop()),
+			EffectiveExpr: stmtCopy.Iterable,
+			Reads:         globalExprReadRefs(stmtCopy.Iterable),
+			Index:         index,
+			BaseDir:       baseDir,
+		}
+		if stmtCopy.Target != "" {
+			plan.StepByName[stmtCopy.Target] = id
+		}
+		return step, true
+	case ast.WhileStmt:
+		stmtCopy := n
+		return globalInputStep{
+			ID:            nextGlobalStepID(plan),
+			Kind:          globalInputWhile,
+			WhileStmt:     &stmtCopy,
+			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop()),
+			EffectiveExpr: stmtCopy.Cond,
+			Reads:         globalExprReadRefs(stmtCopy.Cond),
+			Index:         index,
+			BaseDir:       baseDir,
+		}, true
+	case ast.BreakStmt:
+		stmtCopy := n
+		return globalInputStep{
+			ID:        nextGlobalStepID(plan),
+			Kind:      globalInputBreak,
+			BreakStmt: &stmtCopy,
+			Index:     index,
+			BaseDir:   baseDir,
+		}, true
+	case ast.ContinueStmt:
+		stmtCopy := n
+		return globalInputStep{
+			ID:           nextGlobalStepID(plan),
+			Kind:         globalInputContinue,
+			ContinueStmt: &stmtCopy,
+			Index:        index,
+			BaseDir:      baseDir,
 		}, true
 	case ast.GlobalAssign:
 		assignCopy := n
@@ -153,7 +226,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			BaseDir:       baseDir,
 		}, true
 	case ast.DoBlock:
-		if inIfBody {
+		if ctx.InControlBody {
 			return globalInputStep{}, false
 		}
 		blockCopy := n
@@ -166,7 +239,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			BaseDir: baseDir,
 		}, true
 	case ast.SubmitBlock:
-		if inIfBody {
+		if ctx.InControlBody {
 			return globalInputStep{}, false
 		}
 		blockCopy := n
@@ -179,7 +252,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			BaseDir:     baseDir,
 		}, true
 	case ast.AnalyseBlock:
-		if inIfBody {
+		if ctx.InControlBody {
 			return globalInputStep{}, false
 		}
 		blockCopy := n
@@ -236,7 +309,27 @@ func collectProgramBindingStmt(stmt ast.Stmt, index int, out *programBindingPlan
 		for _, child := range n.Else {
 			collectProgramBindingStmt(child, index, out, seen)
 		}
+	case ast.ForStmt:
+		collectProgramBindingName(n.Target, out, seen)
+		for _, child := range n.Body {
+			collectProgramBindingStmt(child, index, out, seen)
+		}
+	case ast.WhileStmt:
+		for _, child := range n.Body {
+			collectProgramBindingStmt(child, index, out, seen)
+		}
 	}
+}
+
+func collectProgramBindingName(name string, out *programBindingPlan, seen map[string]struct{}) {
+	if name == "" {
+		return
+	}
+	if _, exists := seen[name]; exists {
+		return
+	}
+	seen[name] = struct{}{}
+	out.VisibleNames = append(out.VisibleNames, name)
 }
 
 func reportTopLevelCompoundAssign(diags *diag.Diagnostics, assign ast.GlobalAssign) {
@@ -291,6 +384,7 @@ func assignGlobalStepNameCatalogs(steps []globalInputStep, catalog *eval.NameCat
 		steps[i].Names = catalog
 		assignGlobalStepNameCatalogs(steps[i].Then, catalog)
 		assignGlobalStepNameCatalogs(steps[i].Else, catalog)
+		assignGlobalStepNameCatalogs(steps[i].Body, catalog)
 	}
 }
 
@@ -382,7 +476,9 @@ func (e *globalSeqEngine) execute() {
 	if e == nil || e.plan == nil {
 		return
 	}
-	e.executeSteps(e.plan.Steps, nil)
+	if result := e.executeSteps(e.plan.Steps, nil); result.active() {
+		e.diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
+	}
 	e.res.UserGlobals.Values = maps.Clone(e.values)
 	e.res.UserGlobals.Modes = maps.Clone(e.modes)
 	e.res.UserGlobals.Spans = maps.Clone(e.spans)
@@ -394,8 +490,26 @@ func (e *globalSeqEngine) execute() {
 	}
 }
 
-func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) {
+type globalLoopSignal int
+
+const (
+	globalLoopNone globalLoopSignal = iota
+	globalLoopBreak
+	globalLoopContinue
+)
+
+type globalStepResult struct {
+	Signal globalLoopSignal
+	Span   diag.Span
+}
+
+func (r globalStepResult) active() bool {
+	return r.Signal != globalLoopNone
+}
+
+func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) globalStepResult {
 	for _, step := range steps {
+		var result globalStepResult
 		switch step.Kind {
 		case globalInputAssign:
 			e.evalAssignStep(step, guardDeps)
@@ -406,11 +520,23 @@ func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []stri
 		case globalInputExpr:
 			e.evalExprStep(step)
 		case globalInputIf:
-			e.evalIfStep(step, guardDeps)
+			result = e.evalIfStep(step, guardDeps)
+		case globalInputFor:
+			result = e.evalForStep(step, guardDeps)
+		case globalInputWhile:
+			result = e.evalWhileStep(step, guardDeps)
+		case globalInputBreak:
+			return globalStepResult{Signal: globalLoopBreak, Span: globalStepSpan(step)}
+		case globalInputContinue:
+			return globalStepResult{Signal: globalLoopContinue, Span: globalStepSpan(step)}
 		case globalInputDo, globalInputSubmit, globalInputAnalyse:
 			e.recordDeclarationSnapshot(step)
 		}
+		if result.active() {
+			return result
+		}
 	}
+	return globalStepResult{}
 }
 
 func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []string) {
@@ -484,9 +610,9 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	e.publishGlobalVar(gv)
 }
 
-func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) {
+func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) globalStepResult {
 	if step.IfStmt == nil {
-		return
+		return globalStepResult{}
 	}
 	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, eval.ExprOptions{
 		GlobalAssignmentTupleArithmetic: true,
@@ -496,16 +622,124 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) {
 		Frame:                           e.rootFrame,
 	})
 	if !ok {
-		return
+		return globalStepResult{}
 	}
 	nextGuardDeps := append([]string(nil), guardDeps...)
 	nextGuardDeps = append(nextGuardDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
 	nextGuardDeps = uniqueSortedNamesExcept(nextGuardDeps, "")
 	if cond {
-		e.executeSteps(step.Then, nextGuardDeps)
-		return
+		return e.executeSteps(step.Then, nextGuardDeps)
 	}
-	e.executeSteps(step.Else, nextGuardDeps)
+	return e.executeSteps(step.Else, nextGuardDeps)
+}
+
+func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) globalStepResult {
+	if step.ForStmt == nil {
+		return globalStepResult{}
+	}
+	iterable := eval.EvalExprWithOptions(step.ForStmt.Iterable, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	items, ok := eval.IterableElements(iterable, exprSpan(step.ForStmt.Iterable), e.diags)
+	if !ok {
+		return globalStepResult{}
+	}
+	loopDeps := append([]string(nil), guardDeps...)
+	loopDeps = append(loopDeps, globalExprDependencies(step.ForStmt.Iterable, "")...)
+	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	for i, item := range items {
+		if i >= eval.MaxLoopIterations {
+			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.ForStmt.Span, "check the iterable size")
+			return globalStepResult{}
+		}
+		if !e.publishLoopVariable(step.ForStmt.Target, item, step.ForStmt.Span, loopDeps, step) {
+			return globalStepResult{}
+		}
+		result := e.executeSteps(step.Body, loopDeps)
+		switch result.Signal {
+		case globalLoopBreak:
+			return globalStepResult{}
+		case globalLoopContinue:
+			continue
+		default:
+			if result.active() {
+				return result
+			}
+		}
+	}
+	return globalStepResult{}
+}
+
+func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string) globalStepResult {
+	if step.WhileStmt == nil {
+		return globalStepResult{}
+	}
+	loopDeps := append([]string(nil), guardDeps...)
+	loopDeps = append(loopDeps, globalExprDependencies(step.WhileStmt.Cond, "")...)
+	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	for i := 0; ; i++ {
+		if i >= eval.MaxLoopIterations {
+			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.WhileStmt.Span, "check the while condition")
+			return globalStepResult{}
+		}
+		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, eval.ExprOptions{
+			GlobalAssignmentTupleArithmetic: true,
+			Context:                         eval.EvalCtxBindingAssign,
+			Names:                           e.currentNameCatalog(),
+			Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+			Frame:                           e.rootFrame,
+		})
+		if !ok || !cond {
+			return globalStepResult{}
+		}
+		result := e.executeSteps(step.Body, loopDeps)
+		switch result.Signal {
+		case globalLoopBreak:
+			return globalStepResult{}
+		case globalLoopContinue:
+			continue
+		default:
+			if result.active() {
+				return result
+			}
+		}
+	}
+}
+
+func (e *globalSeqEngine) publishLoopVariable(name string, value eval.Value, span diag.Span, deps []string, step globalInputStep) bool {
+	if name == "" {
+		return false
+	}
+	if hasNestedList(value) {
+		e.diags.AddError(
+			diag.CodeE305,
+			"nested tuple/list value is not allowed for global variable '"+name+"'",
+			span,
+			"use flat tuple/list values only",
+		)
+		return false
+	}
+	directDeps := uniqueSortedNamesExcept(deps, name)
+	orderNames, vars := globalVarSeries(name, value)
+	gv := &GlobalVar{
+		Name:          name,
+		Value:         value,
+		Span:          span,
+		Order:         orderNames,
+		Vars:          vars,
+		DependsOn:     e.expandGlobalDeps(directDeps, name),
+		DependsOnKeys: e.expandGlobalDepKeys(directDeps, name),
+		VersionID:     bindingVersionID(step),
+	}
+	if !e.acceptGlobalVar(gv) {
+		return false
+	}
+	e.publishGlobalVar(gv)
+	return true
 }
 
 func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
@@ -927,6 +1161,13 @@ func errorCount(diags *diag.Diagnostics) int {
 	return count
 }
 
+func exprSpan(expr ast.Expr) diag.Span {
+	if expr == nil {
+		return diag.Span{}
+	}
+	return expr.GetSpan()
+}
+
 func sortedGlobalDeps(deps map[string]struct{}, self string) []string {
 	if len(deps) == 0 {
 		return nil
@@ -975,6 +1216,22 @@ func globalStepSpan(step globalInputStep) diag.Span {
 	case globalInputIf:
 		if step.IfStmt != nil {
 			return step.IfStmt.Span
+		}
+	case globalInputFor:
+		if step.ForStmt != nil {
+			return step.ForStmt.Span
+		}
+	case globalInputWhile:
+		if step.WhileStmt != nil {
+			return step.WhileStmt.Span
+		}
+	case globalInputBreak:
+		if step.BreakStmt != nil {
+			return step.BreakStmt.Span
+		}
+	case globalInputContinue:
+		if step.ContinueStmt != nil {
+			return step.ContinueStmt.Span
 		}
 	case globalInputProjectedImport:
 		if step.Import != nil {
@@ -1103,6 +1360,12 @@ func walkFuncBodyExprRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 			walk(node.Cond)
 			walkFuncBodyExprRefs(node.Then, walk)
 			walkFuncBodyExprRefs(node.Else, walk)
+		case ast.FuncForStmt:
+			walk(node.Iterable)
+			walkFuncBodyExprRefs(node.Body, walk)
+		case ast.FuncWhileStmt:
+			walk(node.Cond)
+			walkFuncBodyExprRefs(node.Body, walk)
 		}
 	}
 }

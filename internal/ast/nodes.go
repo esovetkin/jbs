@@ -141,6 +141,41 @@ type IfStmt struct {
 func (i IfStmt) stmtNode()          {}
 func (i IfStmt) GetSpan() diag.Span { return i.Span }
 
+type ForStmt struct {
+	Target   string
+	Iterable Expr
+	Body     []Stmt
+	Span     diag.Span
+}
+
+func (s ForStmt) stmtNode()          {}
+func (s ForStmt) GetSpan() diag.Span { return s.Span }
+
+type WhileStmt struct {
+	Cond Expr
+	Body []Stmt
+	Span diag.Span
+}
+
+func (s WhileStmt) stmtNode()          {}
+func (s WhileStmt) GetSpan() diag.Span { return s.Span }
+
+type BreakStmt struct {
+	Span diag.Span
+}
+
+func (s BreakStmt) stmtNode()          {}
+func (s BreakStmt) funcBodyStmtNode()  {}
+func (s BreakStmt) GetSpan() diag.Span { return s.Span }
+
+type ContinueStmt struct {
+	Span diag.Span
+}
+
+func (s ContinueStmt) stmtNode()          {}
+func (s ContinueStmt) funcBodyStmtNode()  {}
+func (s ContinueStmt) GetSpan() diag.Span { return s.Span }
+
 type AnalyseBlock struct {
 	StepName    string
 	WithItems   []WithItem
@@ -396,6 +431,25 @@ type FuncIfStmt struct {
 
 func (s FuncIfStmt) funcBodyStmtNode()  {}
 func (s FuncIfStmt) GetSpan() diag.Span { return s.Span }
+
+type FuncForStmt struct {
+	Target   string
+	Iterable Expr
+	Body     []FuncBodyStmt
+	Span     diag.Span
+}
+
+func (s FuncForStmt) funcBodyStmtNode()  {}
+func (s FuncForStmt) GetSpan() diag.Span { return s.Span }
+
+type FuncWhileStmt struct {
+	Cond Expr
+	Body []FuncBodyStmt
+	Span diag.Span
+}
+
+func (s FuncWhileStmt) funcBodyStmtNode()  {}
+func (s FuncWhileStmt) GetSpan() diag.Span { return s.Span }
 
 type AliasExpr struct {
 	Expr  Expr

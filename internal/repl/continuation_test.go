@@ -71,6 +71,20 @@ preprocess = {
 			wantBraceDepth: 1,
 		},
 		{
+			name: "multiline_for_needs_closing_brace",
+			src: `for x in range(3) {
+  x`,
+			wantNeedsMore:  true,
+			wantBraceDepth: 1,
+		},
+		{
+			name: "multiline_while_complete",
+			src: `while false {
+  break
+}`,
+			wantNeedsMore: false,
+		},
+		{
 			name: "anonymous_multiline_call_needs_closing_paren",
 			src: `function(x) {
   x
