@@ -473,6 +473,8 @@ Supported forms:
 - `with cases[x, y]`
 - `with cases[x, y], env[host]`
 
+XXX explain taking slices from the table cases[x,y]
+
 Rules for `do` and `submit`:
 
 - variables are visible only through explicit `with` imports or inherited `after` dependencies

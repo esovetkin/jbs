@@ -25,7 +25,7 @@ do <name>
 
 ### `after`: step dependency declarations
 
-`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. If the same visible name would come from different sources, JBS reports an error.
+`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. Any name collisions result in an error.
 
 ### `with`: import data bindings into the step
 
@@ -43,7 +43,7 @@ Rules:
 - variables are not visible unless imported through `with` or inherited through `after`
 - importing a table source such as `with cases` exposes all of its columns
 - importing selected columns such as `with cases[x, y]` exposes only those names
-- importing multiple sources such as `with cases[x], env[host]` creates the expected JUBE product across those sources
+- importing multiple sources such as `with cases[x], env[host]` creates a Cartesian product across those sources
 - name collisions across imported or inherited variables are errors
 
 ### `${jube_...}`: useful JUBE variables inside `do`
@@ -63,6 +63,7 @@ Use `$jube_benchmark_home` when you need files near the benchmark definition rat
 ## Example
 
 ```jbs
+# do.jbs
 a = (1, 2)
 b = ("a", "b")
 base_cases = table(a = a, b = b)
@@ -90,3 +91,22 @@ In that example:
 - `step1` waits for `step0`
 - `a` and `b` come from inherited visibility through `after step0`
 - `d` is added by the explicit `with extra_cases[d]`
+
+```bash
+% jbs do.jbs -o do.yaml
+% jube-autorun do.yaml
+...
+  | stepname | all | open | wait | error | done |
+  |----------|-----|------|------|-------|------|
+  |    step0 |   2 |    0 |    0 |     0 |    2 |
+  |    step1 |   4 |    0 |    0 |     0 |    4 |
+...
+```
+
+### Submitting `sbatch` jobs with `do`
+
+[This example](../examples/do_sbatch.jbs) creates sbatch scripts in the `write_sbatch` step. Then `runwait_sbatch` submits a job with `sbatch -W`, which waits for job completion.
+
+The steps in JUBE are executed [serially](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#parallel-workpackages). The `procs` argument can be used to increase the number of jobs running in parallel (`procs=0` doesn't work as expected in JUBE).
+
+Another way is to use the `done` file. However, there seems to be no support for this in JUBE YAML, only XML.

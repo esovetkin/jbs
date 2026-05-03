@@ -12,34 +12,32 @@ Here is a small example. The following script runs `step` six times (without Slu
 
 ```bash
 % cat > taster.jbs
+x = (1, 2)
+a = ("a", "b", "c")
 
-# Build a table of variable combinations (`*` is a Cartesian product, `+` is a direct sum).
-# Variables ${a} and ${x} become visible whenever `cases` is imported via `with`.
-cases = t(a = ("a", "b", "c")) * t(x = (1,2))
-
-# The `do` sections define the shell code to run.
-# The `submit` sections define an sbatch script to submit.
-do step with cases {
+# The `do` sections define shell code to run.
+# The `$x` and `$a` variables receive values from the Cartesian product of the tuples x and a.
+do step with a, x {
         echo "Number: ${x}"  > ex_ofile
         echo "Letter: ${a}" >> ex_ofile
 }
 
-# The `analyse` sections define patterns to be searched
+# The `analyse` sections define patterns to search for
 # and how they should be presented in the result table.
 analyse step {
-        # define which pattern is searched in which file
+        # define which pattern is searched for in which file
         # %d, %f, %w are shortcuts for JUBE pattern variables
         number = "Number: %d" in "ex_ofile"
         letter = "Letter: %w" in "ex_ofile"
 
-        # the last expression defines result table columns
+        # the final expression defines result table columns
         (a as "name of a column", x, number, letter)
 }
 % jbs taster.jbs -o taster.yaml
 % awk '!/^[[:space:]]*(#|$)/' taster.jbs
-     10      52     321
+     11      50     290
 % awk '!/^[[:space:]]*(#|$)/' taster.yaml
-     59     133    1472
+     74     166    1878
 % jube-autorun taster.yaml
 ...
   | stepname | all | open | wait | error | done |
@@ -102,20 +100,17 @@ Interactive mode:
 ```
 
 A JBS program uses the following statement forms:
-- `use`: import another JBS file
-- top-level assignments via expressions and function calls
-- `if`: select assignment and expression statements with a boolean condition
-- `for`, `while`: compute globals with compile-time loops; `break` and `continue` work inside loop bodies
-- `do`, `submit`: blocks that define execution steps
-- `analyse`: blocks that define result analysis
+- `use`: imports another JBS file.
+- top-level assignments via expressions and [function calls](docs/help_functions.md). Expressions can use `if`/`else` statements, `for` loops, and `while` loops.
+- declared variables can be [scalars](... XXX section in language.md ...) (`int`, `float`, `str`, `bool`), [`list` and `tuple`](... XXX section in language.md ...), or [`table`](docs/language.md#table-values). These variables can be used in `do` and `submit` blocks.
+- `do`, `submit`: blocks that define execution steps.
+- `analyse`: blocks that define result analysis. They also inherit variables from execution blocks.
 
-Top-level assignments define reusable globals, consisting of scalars, lists/tuples, tables, and functions. `do` and `submit` execution blocks import visible variables explicitly through `with` and based on the point where the block appears. The `analyse` blocks inherit variables from the execution blocks.
-
-Use `if condition { ... } else { ... }`, `for x in values { ... }`, and `while condition { ... }` to choose or compute values before normal top-level declarations. Control-flow bodies may contain assignments, expression statements, and nested control flow; declarations and imports (`do`, `submit`, `analyse`, `use`) stay at module top level.
+As an alternative to defining benchmark cases directly in JBS, you can import test cases from a [CSV/TSV file into a table](... direct to concrete example ...) and use the table in execution steps.
 
 ### `do <name> [with ...] [after ...] [<key>=<int> ...] { ... }`
 
-`do` defines the step computation via a shell script using variables from parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)). [Step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) are defined by `after`, and dependent steps still inherit predecessor-visible variables through those dependencies. Circular dependencies are not allowed.
+`do` defines the step computation via a shell script using variables from parameter sets provided via `with` (see [Import Semantics](docs/language.md#import-semantics-with)). [Step dependencies](https://apps.fz-juelich.de/jsc/jube/docu/tutorial.html#step-dependencies) are defined by `after`, and dependent steps inherit predecessor-visible variables. Circular dependencies are not allowed.
 
 Read more in `jbs help do` or [docs/help_do.md](docs/help_do.md).
 
@@ -181,7 +176,7 @@ Use `:help <function_name>` or `?<function_name>` to view documentation for a sp
 
 - The main idea behind JBS is to design a compact language while maintaining JUBE functionality. Hence, JBS is designed to compile JBS programs into JUBE YAML.
 
-  If JBS becomes useful, the next step would be to implement `jbs run`, which would run benchmarks with the same functionality as JUBE.
+  If JBS becomes useful, the next step would be to implement `jbs run`, which would run benchmarks with the same functionality as JUBE. Probably, it's just cleaner to keep JBS independent and much smaller than JUBE.
 
 - No XML generation.
 

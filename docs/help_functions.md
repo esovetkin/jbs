@@ -51,9 +51,16 @@ jbs>
 
 - recursions are allowed, but they are not optimized
 
+```
+jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
+jbs> factorial(5)
+120
+```
+
+- a `return` inside a selected branch returns from the enclosing function
+- a `return` inside a loop returns from the enclosing function
 - `if` conditions must evaluate to `bool`
 - `if` does not create a new local scope
-- a `return` inside a selected branch returns from the enclosing function
 - `else if` is not separate syntax; write nested `if` inside `else`
 - `for` iterates over list or tuple values
 - `while` conditions must evaluate to `bool`
@@ -61,13 +68,6 @@ jbs>
 - loop targets are ordinary function locals
 - `break` exits the nearest enclosing loop
 - `continue` skips to the next nearest-loop iteration
-- a `return` inside a loop returns from the enclosing function
-
-```
-jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
-jbs> factorial(5)
-120
-```
 
 ```jbs
 abs = function(x) {

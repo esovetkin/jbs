@@ -1,0 +1,34 @@
+use systemname, queue from jsc
+
+cases = t(id = (1, 2), label = ("alpha", "beta"))
+
+do write_sbatch
+        with cases, queue, systemname
+{
+        cat > run.sbatch <<EOF
+#!/bin/bash
+
+#SBATCH --account=atmlaml
+#SBATCH --partition=${queue}
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:4
+#SBATCH --time=00:02:00
+
+echo ${id}
+echo ${label}
+
+touch done
+
+EOF
+    # and extra do-nothing is needed is JUBE blindly adds `&& env ...` stuff, that brakes EOF
+    :
+}
+
+do runwait_sbatch
+        after write_sbatch
+        # run at most 2 slurm jobs at a time
+        procs=2
+{
+        sbatch -W write_sbatch/run.sbatch
+}
