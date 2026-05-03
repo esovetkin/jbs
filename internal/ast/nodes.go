@@ -239,6 +239,7 @@ type SubmitBlock struct {
 	Header     []HeaderElem
 	Fields     []SubmitField
 	BodyRaw    string
+	BodyStart  diag.Position
 	Span       diag.Span
 	Comments   NodeComments
 }

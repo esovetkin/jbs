@@ -79,6 +79,77 @@ func TestWriteFileAtomicAndRunFmtNoChange(t *testing.T) {
 	}
 }
 
+func TestRunFmtPreservesDoRawHeredoc(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := "do write_sbatch with cases {\n    cat > run.sbatch <<EOF  \n#!/bin/bash\n\nEOF\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, false, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected runFmt to succeed, code=%d stderr=%s", code, stderr.String())
+	}
+	formatted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read formatted file: %v", err)
+	}
+	if !strings.Contains(string(formatted), "    cat > run.sbatch <<EOF  \n#!/bin/bash\n\nEOF\n") {
+		t.Fatalf("raw heredoc payload was changed:\n%s", string(formatted))
+	}
+}
+
+func TestRunFmtStrictPreservesDoRawHeredoc(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do write_sbatch {`,
+		`    cat > run.sbatch <<EOF  `,
+		`#!/bin/bash`,
+		`EOF`,
+		`}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, true, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected strict runFmt to succeed, code=%d stderr=%s", code, stderr.String())
+	}
+	formatted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read formatted file: %v", err)
+	}
+	if !strings.Contains(string(formatted), "    cat > run.sbatch <<EOF  \n#!/bin/bash\nEOF\n") {
+		t.Fatalf("strict fmt changed raw heredoc payload:\n%s", string(formatted))
+	}
+}
+
+func TestRunFmtPreservesSubmitRawField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := "submit run {\npreprocess = {\n\tprintf 'x'  \nEOF\n}\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runFmt(path, false, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected runFmt to succeed, code=%d stderr=%s", code, stderr.String())
+	}
+	formatted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read formatted file: %v", err)
+	}
+	if !strings.Contains(string(formatted), "\tprintf 'x'  \nEOF\n") {
+		t.Fatalf("submit raw payload was changed:\n%s", string(formatted))
+	}
+}
+
 func TestRunFmtStrictAcceptsCanonicalSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

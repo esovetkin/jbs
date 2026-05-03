@@ -91,6 +91,17 @@ func TestParseSubmitBlockBranches(t *testing.T) {
 		if block.BodyRaw == "" {
 			t.Fatalf("expected non-empty submit body raw text")
 		}
+		if block.BodyStart.Offset <= block.Span.Start.Offset || block.BodyStart.Offset >= block.Span.End.Offset {
+			t.Fatalf("expected submit BodyStart to point inside block: bodyStart=%+v span=%+v", block.BodyStart, block.Span)
+		}
+		srcRunes := []rune(src)
+		bodyRunes := []rune(block.BodyRaw)
+		if block.BodyStart.Offset+len(bodyRunes) > len(srcRunes) {
+			t.Fatalf("submit BodyStart/body length exceeds source")
+		}
+		if got := string(srcRunes[block.BodyStart.Offset : block.BodyStart.Offset+len(bodyRunes)]); got != block.BodyRaw {
+			t.Fatalf("BodyStart does not point at BodyRaw: got=%q want=%q", got, block.BodyRaw)
+		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
 		}

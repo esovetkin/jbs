@@ -130,6 +130,7 @@ func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
 		Header:     headerElems,
 		Fields:     fields,
 		BodyRaw:    body,
+		BodyStart:  innerStart,
 		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }

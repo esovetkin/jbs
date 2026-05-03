@@ -340,15 +340,15 @@ func TestActiveBlockFormatters(t *testing.T) {
 		Iterations: intPtr(1),
 		Body:       "echo one \\\ntwo",
 	}
-	doLines := formatDoBlock(doBlock)
+	doLines := formattedLineTexts(formatDoBlock(doBlock))
 	if len(doLines) == 0 || doLines[0] != "do run" {
 		t.Fatalf("unexpected do block header: %v", doLines)
 	}
 	if !containsLine(doLines, "        with p") {
 		t.Fatalf("missing with clause in do block: %v", doLines)
 	}
-	if !containsLine(doLines, "            two") {
-		t.Fatalf("missing continuation indentation in do block: %v", doLines)
+	if !containsLine(doLines, "two") {
+		t.Fatalf("missing preserved raw line in do block: %v", doLines)
 	}
 
 	analyseBlock := ast.AnalyseBlock{
@@ -371,7 +371,7 @@ preprocess = {
 echo pre
 }`,
 	}
-	submitLines := formatSubmitBlock(submitRaw, nil)
+	submitLines := formattedLineTexts(formatSubmitBlock(submitRaw, nil))
 	if len(submitLines) == 0 || submitLines[0] != "submit run" {
 		t.Fatalf("unexpected submit block header: %v", submitLines)
 	}
@@ -411,7 +411,7 @@ func TestRenderSubmitFieldsOperators(t *testing.T) {
 			Expr: nil,
 		},
 	}
-	got := renderSubmitFields(fields, src)
+	got := formattedLineTexts(renderSubmitFields(fields, src))
 	want := []string{
 		`        queue += "batch"`,
 		`        tasks *= 4`,

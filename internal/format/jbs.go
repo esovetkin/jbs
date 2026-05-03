@@ -20,6 +20,35 @@ const (
 	continuationIndent = "    "
 )
 
+type formattedLine struct {
+	Text                  string
+	PreserveTrailingSpace bool
+}
+
+func plainLine(text string) formattedLine {
+	return formattedLine{Text: text}
+}
+
+func rawLine(text string) formattedLine {
+	return formattedLine{Text: text, PreserveTrailingSpace: true}
+}
+
+func plainLines(lines []string) []formattedLine {
+	out := make([]formattedLine, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, plainLine(line))
+	}
+	return out
+}
+
+func formattedLineTexts(lines []formattedLine) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, line.Text)
+	}
+	return out
+}
+
 // JBS normalizes source formatting from syntax only.
 // Semantic validation happens in CLI analysis flow.
 func JBS(file string, src string, diags *diag.Diagnostics) (string, error) {
@@ -37,20 +66,20 @@ func formatProgram(prog ast.Program, src string) string {
 		return formatSourceWithoutStatements(normalized)
 	}
 	ranges := collectStmtRanges(prog.Stmts, len(srcRunes))
-	lines := make([]string, 0)
+	lines := make([]formattedLine, 0)
 	var prev ast.Stmt
 	cursor := 0
 	for idx, rng := range ranges {
 		allowInline := idx > 0 && !isLineStartOffset(srcRunes, cursor)
 		trivia := extractTopLevelTrivia(sliceSourceRange(srcRunes, cursor, rng.Start), allowInline)
 		if trivia.InlineSuffix != "" && len(lines) > 0 {
-			lines[len(lines)-1] += trivia.InlineSuffix
+			lines[len(lines)-1].Text += trivia.InlineSuffix
 		}
 		if len(trivia.Lines) > 0 {
-			lines = append(lines, trivia.Lines...)
+			lines = append(lines, plainLines(trivia.Lines)...)
 		} else if idx > 0 {
 			if !(isGlobal(prev) && isGlobal(rng.Stmt)) {
-				lines = append(lines, "")
+				lines = append(lines, plainLine(""))
 			}
 		}
 		lines = append(lines, formatStmt(rng.Stmt, srcRunes)...)
@@ -60,15 +89,17 @@ func formatProgram(prog ast.Program, src string) string {
 	allowTrailingInline := len(ranges) > 0 && !isLineStartOffset(srcRunes, cursor)
 	trailingTrivia := extractTopLevelTrivia(sliceSourceRange(srcRunes, cursor, len(srcRunes)), allowTrailingInline)
 	if trailingTrivia.InlineSuffix != "" && len(lines) > 0 {
-		lines[len(lines)-1] += trailingTrivia.InlineSuffix
+		lines[len(lines)-1].Text += trailingTrivia.InlineSuffix
 	}
 	if len(trailingTrivia.Lines) > 0 {
-		lines = append(lines, trailingTrivia.Lines...)
+		lines = append(lines, plainLines(trailingTrivia.Lines)...)
 	}
 	for i := range lines {
-		lines[i] = strings.TrimRight(lines[i], " \t")
+		if !lines[i].PreserveTrailingSpace {
+			lines[i].Text = strings.TrimRight(lines[i].Text, " \t")
+		}
 	}
-	return strings.Join(lines, "\n") + "\n"
+	return strings.Join(formattedLineTexts(lines), "\n") + "\n"
 }
 
 func formatSourceWithoutStatements(src string) string {
@@ -247,12 +278,12 @@ func isGlobal(stmt ast.Stmt) bool {
 	return ok
 }
 
-func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
+func formatStmt(stmt ast.Stmt, srcRunes []rune) []formattedLine {
 	switch s := stmt.(type) {
 	case ast.GlobalAssign:
-		return formatGlobalAssign(s, srcRunes)
+		return plainLines(formatGlobalAssign(s, srcRunes))
 	case ast.ExprStmt:
-		return formatExprStmt(s, srcRunes)
+		return plainLines(formatExprStmt(s, srcRunes))
 	case ast.IfStmt:
 		return formatIfStmt(s, srcRunes)
 	case ast.ForStmt:
@@ -260,23 +291,23 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []string {
 	case ast.WhileStmt:
 		return formatWhileStmt(s, srcRunes)
 	case ast.BreakStmt:
-		return []string{"break"}
+		return []formattedLine{plainLine("break")}
 	case ast.ContinueStmt:
-		return []string{"continue"}
+		return []formattedLine{plainLine("continue")}
 	case ast.UseStmt:
-		return formatUseStmt(s)
+		return plainLines(formatUseStmt(s))
 	case ast.DoBlock:
 		return formatDoBlock(s)
 	case ast.SubmitBlock:
 		return formatSubmitBlock(s, srcRunes)
 	case ast.AnalyseBlock:
-		return formatAnalyseBlock(s)
+		return plainLines(formatAnalyseBlock(s))
 	default:
 		return nil
 	}
 }
 
-func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []string {
+func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []formattedLine {
 	condLines := formatExprLines(stmt.Cond, srcRunes)
 	if len(condLines) == 0 {
 		condLines = []string{`true`}
@@ -284,48 +315,48 @@ func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []string {
 			condLines = []string{strings.TrimSpace(spanText(srcRunes, stmt.Cond.GetSpan()))}
 		}
 	}
-	lines := prefixFormattedLines("", "if ", condLines)
-	lines[len(lines)-1] += " {"
+	lines := plainLines(prefixFormattedLines("", "if ", condLines))
+	lines[len(lines)-1].Text += " {"
 	for _, child := range stmt.Then {
-		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
 	if len(stmt.Else) == 0 {
-		lines = append(lines, "}")
+		lines = append(lines, plainLine("}"))
 		return lines
 	}
-	lines = append(lines, "} else {")
+	lines = append(lines, plainLine("} else {"))
 	for _, child := range stmt.Else {
-		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
-	lines = append(lines, "}")
+	lines = append(lines, plainLine("}"))
 	return lines
 }
 
-func formatForStmt(stmt ast.ForStmt, srcRunes []rune) []string {
+func formatForStmt(stmt ast.ForStmt, srcRunes []rune) []formattedLine {
 	exprLines := formatExprLines(stmt.Iterable, srcRunes)
 	if len(exprLines) == 0 {
 		exprLines = []string{`[]`}
 	}
-	lines := prefixFormattedLines("", "for "+stmt.Target+" in ", exprLines)
-	lines[len(lines)-1] += " {"
+	lines := plainLines(prefixFormattedLines("", "for "+stmt.Target+" in ", exprLines))
+	lines[len(lines)-1].Text += " {"
 	for _, child := range stmt.Body {
-		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
-	lines = append(lines, "}")
+	lines = append(lines, plainLine("}"))
 	return lines
 }
 
-func formatWhileStmt(stmt ast.WhileStmt, srcRunes []rune) []string {
+func formatWhileStmt(stmt ast.WhileStmt, srcRunes []rune) []formattedLine {
 	condLines := formatExprLines(stmt.Cond, srcRunes)
 	if len(condLines) == 0 {
 		condLines = []string{"true"}
 	}
-	lines := prefixFormattedLines("", "while ", condLines)
-	lines[len(lines)-1] += " {"
+	lines := plainLines(prefixFormattedLines("", "while ", condLines))
+	lines[len(lines)-1].Text += " {"
 	for _, child := range stmt.Body {
-		lines = append(lines, indentLines(formatStmt(child, srcRunes), continuationIndent)...)
+		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
-	lines = append(lines, "}")
+	lines = append(lines, plainLine("}"))
 	return lines
 }
 
@@ -356,24 +387,19 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 	return prefixFormattedLines("", g.Name+" "+op+" ", exprLines)
 }
 
-func formatDoBlock(d ast.DoBlock) []string {
-	lines := renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations, d.Header)
-	lines = append(lines, "{")
-	body := normalizeBody(d.Body, bodyIndent)
-	lines = append(lines, body...)
-	lines = append(lines, "}")
+func formatDoBlock(d ast.DoBlock) []formattedLine {
+	lines := plainLines(renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations, d.Header))
+	lines = append(lines, plainLine("{"))
+	lines = append(lines, preserveRawBodyLines(d.Body)...)
+	lines = append(lines, plainLine("}"))
 	return lines
 }
 
-func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []string {
-	lines := renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations, s.Header)
-	lines = append(lines, "{")
-	body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
-	if len(body) == 0 && len(s.Fields) > 0 {
-		body = renderSubmitFields(s.Fields, srcRunes)
-	}
-	lines = append(lines, body...)
-	lines = append(lines, "}")
+func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
+	lines := plainLines(renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations, s.Header))
+	lines = append(lines, plainLine("{"))
+	lines = append(lines, renderSubmitBodyPreservingRawFields(s, srcRunes)...)
+	lines = append(lines, plainLine("}"))
 	return lines
 }
 
@@ -386,27 +412,200 @@ func formatAnalyseBlock(a ast.AnalyseBlock) []string {
 	return lines
 }
 
-func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []string {
-	lines := make([]string, 0, len(fields)*2)
+func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []formattedLine {
+	lines := make([]formattedLine, 0, len(fields)*2)
 	for _, f := range fields {
 		if f.IsRaw {
-			lines = append(lines, bodyIndent+f.Name+" = {")
-			raw := normalizeBody(f.Raw, bodyIndent+bodyIndent)
-			lines = append(lines, raw...)
-			lines = append(lines, bodyIndent+"}")
+			lines = append(lines, plainLine(bodyIndent+f.Name+" = {"))
+			lines = append(lines, preserveRawBodyLines(f.Raw)...)
+			lines = append(lines, plainLine(bodyIndent+"}"))
 			continue
 		}
-		op := string(f.Op)
-		if op == "" {
-			op = string(ast.AssignEq)
-		}
-		exprLines := formatExprLines(f.Expr, srcRunes)
-		if len(exprLines) == 0 {
-			exprLines = []string{`""`}
-		}
-		lines = append(lines, prefixFormattedLines(bodyIndent, f.Name+" "+op+" ", exprLines)...)
+		lines = append(lines, plainLines(renderSubmitValueField(f, srcRunes))...)
 	}
 	return lines
+}
+
+func renderSubmitValueField(f ast.SubmitField, srcRunes []rune) []string {
+	op := string(f.Op)
+	if op == "" {
+		op = string(ast.AssignEq)
+	}
+	exprLines := formatExprLines(f.Expr, srcRunes)
+	if len(exprLines) == 0 {
+		exprLines = []string{`""`}
+	}
+	return prefixFormattedLines(bodyIndent, f.Name+" "+op+" ", exprLines)
+}
+
+func preserveRawBodyLines(raw string) []formattedLine {
+	body := rawBodyForCanonicalBraces(normalizeLineEndings(raw))
+	if body == "" {
+		return nil
+	}
+	parts := strings.Split(body, "\n")
+	out := make([]formattedLine, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, rawLine(part))
+	}
+	return out
+}
+
+func rawBodyForCanonicalBraces(raw string) string {
+	if raw == "" || raw == "\n" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "\n") && strings.HasSuffix(raw, "\n") {
+		return raw[1 : len(raw)-1]
+	}
+	if strings.HasPrefix(raw, "\n") {
+		return raw[1:]
+	}
+	if strings.HasSuffix(raw, "\n") {
+		return raw[:len(raw)-1]
+	}
+	return raw
+}
+
+func submitHasRawFields(s ast.SubmitBlock) bool {
+	for _, field := range s.Fields {
+		if field.IsRaw {
+			return true
+		}
+	}
+	return false
+}
+
+func renderSubmitBodyPreservingRawFields(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
+	if !submitHasRawFields(s) {
+		body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
+		if len(body) == 0 && len(s.Fields) > 0 {
+			return renderSubmitFields(s.Fields, srcRunes)
+		}
+		return plainLines(body)
+	}
+	if !submitFieldSpansUsable(s) {
+		return renderSubmitFields(s.Fields, srcRunes)
+	}
+	return renderSubmitBodyWithProtectedRanges(s, srcRunes)
+}
+
+func submitFieldSpansUsable(s ast.SubmitBlock) bool {
+	bodyRunes := []rune(s.BodyRaw)
+	if s.BodyStart.Offset <= 0 || len(bodyRunes) == 0 {
+		return false
+	}
+	base := s.BodyStart.Offset
+	prevEnd := 0
+	for _, field := range s.Fields {
+		start := field.Span.Start.Offset - base
+		end := field.Span.End.Offset - base
+		if start < prevEnd || start < 0 || end < start || end > len(bodyRunes) {
+			return false
+		}
+		prevEnd = end
+	}
+	return true
+}
+
+func renderSubmitBodyWithProtectedRanges(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
+	bodyRunes := []rune(s.BodyRaw)
+	contentStart, contentEnd := rawBodyRuneContentBounds(bodyRunes)
+	out := make([]formattedLine, 0)
+	cursor := contentStart
+	afterField := false
+	base := s.BodyStart.Offset
+	for _, field := range s.Fields {
+		start := field.Span.Start.Offset - base
+		end := field.Span.End.Offset - base
+		if start < contentStart || start > contentEnd || end < contentStart {
+			continue
+		}
+		if start > cursor {
+			out = append(out, renderSubmitTrivia(string(bodyRunes[cursor:start]), afterField)...)
+		}
+		if field.IsRaw {
+			out = append(out, plainLine(bodyIndent+field.Name+" = {"))
+			out = append(out, preserveRawBodyLines(field.Raw)...)
+			out = append(out, plainLine(bodyIndent+"}"))
+		} else {
+			out = append(out, plainLines(renderSubmitValueField(field, srcRunes))...)
+		}
+		cursor = end
+		afterField = true
+	}
+	if cursor < contentEnd {
+		out = append(out, renderSubmitTrivia(string(bodyRunes[cursor:contentEnd]), afterField)...)
+	}
+	return out
+}
+
+func rawBodyRuneContentBounds(body []rune) (int, int) {
+	start := 0
+	end := len(body)
+	if start < end {
+		if body[start] == '\r' && start+1 < end && body[start+1] == '\n' {
+			start += 2
+		} else if body[start] == '\r' || body[start] == '\n' {
+			start++
+		}
+	}
+	if end > start {
+		if end-2 >= start && body[end-2] == '\r' && body[end-1] == '\n' {
+			end -= 2
+		} else if body[end-1] == '\r' || body[end-1] == '\n' {
+			end--
+		}
+	}
+	return start, end
+}
+
+func renderSubmitTrivia(segment string, dropLeadingSeparator bool) []formattedLine {
+	segment = normalizeLineEndings(segment)
+	if dropLeadingSeparator {
+		segment = dropSubmitFieldSeparator(segment)
+	}
+	if segment == "" {
+		return nil
+	}
+	if strings.Trim(segment, " \t;") == "" {
+		return nil
+	}
+	parts := strings.Split(segment, "\n")
+	if len(parts) > 0 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	out := make([]formattedLine, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		switch {
+		case trimmed == "":
+			out = append(out, plainLine(""))
+		case strings.HasPrefix(trimmed, "#"):
+			out = append(out, plainLine(bodyIndent+trimmed))
+		default:
+			out = append(out, plainLine(bodyIndent+strings.TrimLeft(part, " \t")))
+		}
+	}
+	return out
+}
+
+func dropSubmitFieldSeparator(segment string) string {
+	i := 0
+	for i < len(segment) && (segment[i] == ' ' || segment[i] == '\t') {
+		i++
+	}
+	if i < len(segment) && segment[i] == ';' {
+		i++
+		for i < len(segment) && (segment[i] == ' ' || segment[i] == '\t') {
+			i++
+		}
+		return segment[i:]
+	}
+	if i < len(segment) && segment[i] == '\n' {
+		return segment[i+1:]
+	}
+	return segment
 }
 
 func formatUseStmt(u ast.UseStmt) []string {
@@ -980,6 +1179,20 @@ func indentLines(lines []string, indent string) []string {
 			continue
 		}
 		out = append(out, indent+line)
+	}
+	return out
+}
+
+func indentFormattedLines(lines []formattedLine, indent string) []formattedLine {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]formattedLine, 0, len(lines))
+	for _, line := range lines {
+		if line.Text != "" {
+			line.Text = indent + line.Text
+		}
+		out = append(out, line)
 	}
 	return out
 }

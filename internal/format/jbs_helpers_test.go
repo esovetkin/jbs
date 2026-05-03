@@ -130,13 +130,13 @@ func TestFormatSubmitBlockRendersFieldFallback(t *testing.T) {
 			{Name: "preprocess", IsRaw: true, Raw: "echo pre"},
 		},
 	}
-	got := formatSubmitBlock(submit, nil)
+	got := formattedLineTexts(formatSubmitBlock(submit, nil))
 	want := []string{
 		"submit run",
 		"{",
 		`        queue = ""`,
 		`        preprocess = {`,
-		`                echo pre`,
+		`echo pre`,
 		`        }`,
 		"}",
 	}
