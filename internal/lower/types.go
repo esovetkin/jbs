@@ -5,6 +5,8 @@
 package lower
 
 import (
+	"strings"
+
 	"gopkg.in/yaml.v3"
 
 	"jbs/internal/diag"
@@ -19,8 +21,31 @@ const escapedAliasPrefix = "_ja__"
 type Literal string
 
 func (l Literal) MarshalYAML() (interface{}, error) {
-	n := yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: string(l), Style: yaml.LiteralStyle}
+	value := string(l)
+	style := yaml.LiteralStyle
+	if literalBlockNeedsQuotedFallback(value) {
+		style = yaml.DoubleQuotedStyle
+	}
+	n := yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: style}
 	return &n, nil
+}
+
+func literalBlockNeedsQuotedFallback(value string) bool {
+	firstIndent := -1
+	for _, line := range strings.Split(value, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := leadingIndent(line)
+		if firstIndent < 0 {
+			firstIndent = indent
+			continue
+		}
+		if indent < firstIndent {
+			return true
+		}
+	}
+	return false
 }
 
 type SingleQuoted string

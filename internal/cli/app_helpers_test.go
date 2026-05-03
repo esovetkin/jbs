@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestRunEmbedListSpecificAndUnknown(t *testing.T) {
@@ -278,6 +280,43 @@ func TestRunYAMLIgnoresTopLevelExprOutput(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "juwelsbooster") {
 		t.Fatalf("did not expect bare expr output to leak into yaml, got %q", stdout.String())
+	}
+}
+
+func TestRunYAMLDoBlockHeredocWithUnindentedPayload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := `cases = t(id = (1, 2), label = ("alpha", "beta"))
+
+do write_sbatch
+   with cases
+{
+    cat > run.sbatch <<EOF
+#!/bin/bash
+
+echo ${id}
+echo ${label}
+
+EOF
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(stdout.Bytes(), &root); err != nil {
+		t.Fatalf("encoded YAML does not parse: %v\n%s", err, stdout.String())
+	}
+	for _, want := range []string{"cat > run.sbatch <<EOF", "#!/bin/bash", "echo ${id}", "echo ${label}", "EOF"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("missing %q in YAML:\n%s", want, stdout.String())
+		}
 	}
 }
 

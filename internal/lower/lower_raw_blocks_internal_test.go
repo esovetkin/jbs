@@ -81,6 +81,14 @@ func TestNormalizeRawBlock(t *testing.T) {
 	}
 }
 
+func TestNormalizeRawBlockPreservesIndentedHeredocPayloadWhenDelimiterIsColumnZero(t *testing.T) {
+	in := "\n    cat > file <<EOF\n    keep spaces\nEOF\n"
+	want := "    cat > file <<EOF\n    keep spaces\nEOF"
+	if got := normalizeRawBlock(in); got != want {
+		t.Fatalf("normalizeRawBlock(%q)=%q, want %q", in, got, want)
+	}
+}
+
 func TestStripIndent(t *testing.T) {
 	tests := []struct {
 		name string

@@ -41,6 +41,35 @@ func findParameterNode(setNode *yaml.Node, name string) *yaml.Node {
 	return nil
 }
 
+func TestYAMLRaggedLiteralIndentRoundTrips(t *testing.T) {
+	value := "    cat > file <<EOF\n#!/bin/bash\nEOF\n"
+	doc := lower.Document{
+		Name:    "demo",
+		Outpath: "out",
+		Step: []lower.Step{{
+			Name: "s",
+			Do:   []interface{}{lower.Literal(value)},
+		}},
+	}
+	data, err := YAML(doc)
+	if err != nil {
+		t.Fatalf("YAML() failed: %v", err)
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		t.Fatalf("encoded YAML does not parse: %v", err)
+	}
+	stepNode := findStepNodeByName(mapValueNode(rootMap(&root), "step"), "s")
+	if stepNode == nil {
+		t.Fatalf("missing step node in YAML:\n%s", string(data))
+	}
+	doSeq := mapValueNode(stepNode, "do")
+	doNode := seqItem(doSeq, 0)
+	if doNode == nil || doNode.Value != value {
+		t.Fatalf("expected do literal value %q, got %#v", value, doNode)
+	}
+}
+
 func TestYAMLRoundTripIncludesCommentsAndOmitRawSeparator(t *testing.T) {
 	doc := lower.Document{
 		Name:    "demo",
