@@ -321,7 +321,7 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 			diags.AddError(diag.CodeE106, fmt.Sprintf("missing required argument '%s'", param.Name), at, "pass a value for every required parameter")
 			return Null()
 		}
-		value := Null()
+		var value Value
 		if defaultValue, ok := fn.Defaults[i]; ok && defaultValue.PreEvaluated {
 			value = defaultValue.Value
 		} else {

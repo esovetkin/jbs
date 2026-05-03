@@ -332,31 +332,6 @@ func collectProgramBindingName(name string, out *programBindingPlan, seen map[st
 	out.VisibleNames = append(out.VisibleNames, name)
 }
 
-func reportTopLevelCompoundAssign(diags *diag.Diagnostics, assign ast.GlobalAssign) {
-	if diags == nil {
-		return
-	}
-	diags.AddError(
-		diag.CodeE307,
-		"top-level binding '"+assign.Name+"' cannot use '"+string(assign.Op)+"'",
-		assign.Span,
-		"define a new name instead of mutating an existing global",
-	)
-}
-
-func reportDuplicateTopLevelBinding(diags *diag.Diagnostics, name string, span diag.Span, firstSpan diag.Span) {
-	if diags == nil {
-		return
-	}
-	diags.AddError(
-		diag.CodeE306,
-		"duplicate top-level binding '"+name+"'",
-		span,
-		"define each top-level binding once; introduce a new name instead of rebinding or re-importing it",
-		diag.RelatedSpan{Message: "first definition", Span: firstSpan},
-	)
-}
-
 func assignGlobalPlanNameCatalogs(plan *globalPlan, seed map[string]eval.Value) {
 	if plan == nil {
 		return
@@ -386,11 +361,6 @@ func assignGlobalStepNameCatalogs(steps []globalInputStep, catalog *eval.NameCat
 		assignGlobalStepNameCatalogs(steps[i].Else, catalog)
 		assignGlobalStepNameCatalogs(steps[i].Body, catalog)
 	}
-}
-
-func isCompoundAssignOp(op ast.AssignOp) bool {
-	_, ok := mapAssignOpToBinary(op)
-	return ok
 }
 
 func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalExecResult {
@@ -975,8 +945,7 @@ func (e *globalSeqEngine) expandGlobalDepKeys(deps []string, self string) []Bind
 	}
 	seen := make(map[BindingVersionKey]struct{}, len(deps))
 	seenNames := make(map[string]struct{}, len(deps))
-	var addKey func(BindingVersionKey)
-	addKey = func(key BindingVersionKey) {
+	addKey := func(key BindingVersionKey) {
 		if key == (BindingVersionKey{}) || key.Public == self {
 			return
 		}
@@ -1166,24 +1135,6 @@ func exprSpan(expr ast.Expr) diag.Span {
 		return diag.Span{}
 	}
 	return expr.GetSpan()
-}
-
-func sortedGlobalDeps(deps map[string]struct{}, self string) []string {
-	if len(deps) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(deps))
-	for name := range deps {
-		if name == "" || name == self {
-			continue
-		}
-		out = append(out, name)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	slices.Sort(out)
-	return out
 }
 
 func uniqueSortedNamesExcept(names []string, except string) []string {

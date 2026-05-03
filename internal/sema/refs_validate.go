@@ -199,11 +199,10 @@ func (c *warningCatalog) keyForSource(bindings map[string]*GlobalBinding, source
 func warningVarOrigins(binding *GlobalBinding, order []string) map[string]diag.Span {
 	origins := make(map[string]diag.Span, len(order))
 	for _, name := range order {
-		origin := diag.Span{}
 		if binding == nil {
 			continue
 		}
-		origin = binding.Origins[name]
+		origin := binding.Origins[name]
 		if origin.IsZero() {
 			origin = binding.Span
 		}

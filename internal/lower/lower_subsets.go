@@ -70,7 +70,7 @@ func (ctx *lowerContext) ensureSubsetParameterSetForStep(stepName, source string
 	}
 
 	params := make([]Parameter, 0, len(vars)+2)
-	rowContext := sourceRowContext{}
+	var rowContext sourceRowContext
 	if inherited.VarName == "" {
 		groups := planutil.BuildProjectedRowGroups(planutil.SequentialIndices(rowCount), visibleNames, valuesByName, full, pythonLiteral)
 		repIndices := make([]int, 0, len(groups))

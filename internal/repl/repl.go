@@ -189,19 +189,6 @@ func isREPLCommandLine(line string) bool {
 	return strings.HasPrefix(line, ":") || strings.HasPrefix(line, "?")
 }
 
-func appendChunk(accepted string, chunk string) string {
-	if strings.TrimSpace(chunk) == "" {
-		return accepted
-	}
-	if accepted == "" {
-		return chunk
-	}
-	if strings.HasSuffix(accepted, "\n") {
-		return accepted + chunk
-	}
-	return accepted + "\n" + chunk
-}
-
 func handleCommand(
 	line string,
 	cwd string,
