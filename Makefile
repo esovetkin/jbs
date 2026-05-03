@@ -1,4 +1,4 @@
-.PHONY: build test fmt docs docs-check coverage clean
+.PHONY: build test fmt docs docs-check coverage clean staticcheck
 
 build: docs
 	go build -o jbs ./cmd/jbs
@@ -14,6 +14,9 @@ docs:
 
 docs-check:
 	go run ./cmd/gendiagdocs -check
+
+staticcheck:
+	staticcheck ./...
 
 coverage:
 	go test ./... -coverprofile coverage.out
