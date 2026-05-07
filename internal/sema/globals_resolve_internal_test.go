@@ -9,87 +9,11 @@ import (
 	"jbs/internal/eval"
 )
 
-func TestResolveTopLevelGlobalsMixedValidationAndState(t *testing.T) {
-	span := func(off int) diag.Span {
-		start := diag.NewPos(off, 1, off+1)
-		end := diag.NewPos(off+1, 1, off+2)
-		return diag.NewSpan("in.jbs", start, end)
-	}
-	defaults := map[string]eval.Value{
-		"jbs_name":    eval.String("default_name"),
-		"jbs_outpath": eval.String("default_out"),
-		"jbs_comment": eval.String(""),
-	}
-	prog := ast.Program{
-		File: "in.jbs",
-		Stmts: []ast.Stmt{
-			ast.GlobalAssign{
-				Name: "unknown_global",
-				Expr: ast.StringExpr{Value: "x", Span: span(1)},
-				Span: span(1),
-			},
-			ast.GlobalAssign{
-				Name: "jbs_name",
-				Expr: ast.ModeExpr{
-					Mode: "python",
-					Expr: ast.StringExpr{Value: "ignored", Span: span(2)},
-					Span: span(2),
-				},
-				Span: span(2),
-			},
-			ast.GlobalAssign{
-				Name: "jbs_outpath",
-				Expr: ast.NumberExpr{Int: true, IntValue: 42, Raw: "42", Span: span(4)},
-				Span: span(4),
-			},
-			ast.GlobalAssign{
-				Name: "jbs_comment",
-				Expr: ast.ModeExpr{
-					Mode: "shell",
-					Expr: ast.NumberExpr{Int: true, IntValue: 7, Raw: "7", Span: span(7)},
-					Span: span(7),
-				},
-				Span: span(7),
-			},
-		},
-	}
-
-	diags := &diag.Diagnostics{}
-	got := resolveTopLevelGlobals(prog, defaults, diags)
-
-	if countDiagCode(diags, "E303") != 1 {
-		t.Fatalf("expected 1 E303, got %d: %s", countDiagCode(diags, "E303"), diags.String())
-	}
-	if countDiagCode(diags, "E302") != 1 {
-		t.Fatalf("expected 1 E302, got %d: %s", countDiagCode(diags, "E302"), diags.String())
-	}
-	if countDiagCode(diags, "E215") != 1 {
-		t.Fatalf("expected 1 E215 from shell(number), got %d: %s", countDiagCode(diags, "E215"), diags.String())
-	}
-
-	if got.Values["jbs_name"].Kind != eval.KindString || got.Values["jbs_name"].S != "default_name" {
-		t.Fatalf("unexpected jbs_name value: %#v", got.Values["jbs_name"])
-	}
-	if got.Values["jbs_outpath"].Kind != eval.KindString || got.Values["jbs_outpath"].S != "default_out" {
-		t.Fatalf("unexpected jbs_outpath value: %#v", got.Values["jbs_outpath"])
-	}
-	if got.Values["jbs_comment"].Kind != eval.KindString || got.Values["jbs_comment"].S != "" {
-		t.Fatalf("expected invalid shell(number) assignment to leave default jbs_comment, got %#v", got.Values["jbs_comment"])
-	}
-	if got.Modes["jbs_comment"] != "" {
-		t.Fatalf("expected invalid jbs_comment mode not to publish, got %#v", got.Modes)
-	}
-	if !got.Spans["jbs_comment"].IsZero() {
-		t.Fatalf("expected invalid jbs_comment span not to publish, got=%+v", got.Spans["jbs_comment"])
-	}
-}
-
 func TestResolveTopLevelGlobalsJbsNameLiteralRule(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
 	defaults := map[string]eval.Value{
-		"jbs_name":    eval.String("default_name"),
-		"jbs_outpath": eval.String("default_out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name":  eval.String("default_name"),
+		"jbs_nproc": eval.Int(0),
 	}
 	prog := ast.Program{
 		File: "in.jbs",
@@ -115,16 +39,19 @@ func TestResolveTopLevelGlobalsJbsNameLiteralRule(t *testing.T) {
 func TestResolveTopLevelGlobalsKeepsSeedPriorityOverForwardOverride(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
 	defaults := map[string]eval.Value{
-		"jbs_name":    eval.String("default_name"),
-		"jbs_outpath": eval.String("default_out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name":  eval.String("default_name"),
+		"jbs_nproc": eval.Int(0),
 	}
 	prog := ast.Program{
 		File: "in.jbs",
 		Stmts: []ast.Stmt{
 			ast.GlobalAssign{
-				Name: "jbs_comment",
-				Expr: ast.IdentExpr{Name: "jbs_name", Span: span},
+				Name: "jbs_nproc",
+				Expr: ast.CallExpr{
+					Callee: ast.IdentExpr{Name: "len", Span: span},
+					Args:   ast.PosCallArgs(ast.IdentExpr{Name: "jbs_name", Span: span}),
+					Span:   span,
+				},
 				Span: span,
 			},
 			ast.GlobalAssign{
@@ -139,8 +66,8 @@ func TestResolveTopLevelGlobalsKeepsSeedPriorityOverForwardOverride(t *testing.T
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if got.Values["jbs_comment"].S != "default_name" {
-		t.Fatalf("expected jbs_comment to read the seed value for jbs_name, got %#v", got.Values["jbs_comment"])
+	if got.Values["jbs_nproc"].I != int64(len("default_name")) {
+		t.Fatalf("expected jbs_nproc to read the seed value for jbs_name, got %#v", got.Values["jbs_nproc"])
 	}
 	if got.Values["jbs_name"].S != "override" {
 		t.Fatalf("expected later jbs_name assignment to apply to jbs_name itself, got %#v", got.Values["jbs_name"])
@@ -154,9 +81,8 @@ func TestResolveTopLevelGlobalsAllowsDuplicateBuiltinDefinitionsAndCompoundAssig
 		return diag.NewSpan("in.jbs", start, end)
 	}
 	defaults := map[string]eval.Value{
-		"jbs_name":    eval.String("default_name"),
-		"jbs_outpath": eval.String("default_out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name":  eval.String("default_name"),
+		"jbs_nproc": eval.Int(0),
 	}
 	prog := ast.Program{
 		File: "in.jbs",
@@ -172,12 +98,12 @@ func TestResolveTopLevelGlobalsAllowsDuplicateBuiltinDefinitionsAndCompoundAssig
 				Span: span(2),
 			},
 			ast.GlobalAssign{
-				Name: "jbs_comment",
+				Name: "jbs_name",
 				Expr: ast.StringExpr{Value: "head", Span: span(3)},
 				Span: span(3),
 			},
 			ast.GlobalAssign{
-				Name: "jbs_comment",
+				Name: "jbs_name",
 				Op:   ast.AssignPlusEq,
 				Expr: ast.StringExpr{Value: "_tail", Span: span(4)},
 				Span: span(4),
@@ -190,29 +116,25 @@ func TestResolveTopLevelGlobalsAllowsDuplicateBuiltinDefinitionsAndCompoundAssig
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if got.Values["jbs_name"].S != "other" {
-		t.Fatalf("expected later jbs_name definition to win, got %#v", got.Values["jbs_name"])
+	if got.Values["jbs_name"].S != "head_tail" {
+		t.Fatalf("expected jbs_name += to append, got %#v", got.Values["jbs_name"])
 	}
-	if got.Values["jbs_comment"].S != "head_tail" {
-		t.Fatalf("expected jbs_comment += to append, got %#v", got.Values["jbs_comment"])
-	}
-	if got.Spans["jbs_comment"] != span(4) {
-		t.Fatalf("expected jbs_comment span to point to the compound assignment, got=%+v want=%+v", got.Spans["jbs_comment"], span(4))
+	if got.Spans["jbs_name"] != span(4) {
+		t.Fatalf("expected jbs_name span to point to the compound assignment, got=%+v want=%+v", got.Spans["jbs_name"], span(4))
 	}
 }
 
 func TestResolveTopLevelGlobalsRejectsTupleBuiltinValue(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
 	defaults := map[string]eval.Value{
-		"jbs_name":    eval.String("default_name"),
-		"jbs_outpath": eval.String("default_out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name":  eval.String("default_name"),
+		"jbs_nproc": eval.Int(0),
 	}
 	prog := ast.Program{
 		File: "in.jbs",
 		Stmts: []ast.Stmt{
 			ast.GlobalAssign{
-				Name: "jbs_comment",
+				Name: "jbs_nproc",
 				Expr: ast.TupleExpr{
 					Items: []ast.Expr{ast.StringExpr{Value: "bad", Span: span}},
 					Span:  span,
@@ -227,8 +149,8 @@ func TestResolveTopLevelGlobalsRejectsTupleBuiltinValue(t *testing.T) {
 	if countDiagCode(diags, "E304") != 1 {
 		t.Fatalf("expected one tuple/list scalar-global diagnostic, got %d: %s", countDiagCode(diags, "E304"), diags.String())
 	}
-	if got.Values["jbs_comment"].S != "" {
-		t.Fatalf("expected default jbs_comment to remain unchanged, got %#v", got.Values["jbs_comment"])
+	if got.Values["jbs_nproc"].I != 0 {
+		t.Fatalf("expected default jbs_nproc to remain unchanged, got %#v", got.Values["jbs_nproc"])
 	}
 }
 

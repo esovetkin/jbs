@@ -1,7 +1,7 @@
 // implement the `jbs fmt`
 //
 // parse source into AST and rewrite the code in a canonical layout.
-// Handle here bash blocks inside `do` and `submit`.
+// Handle here bash blocks inside `do`.
 package format
 
 import (
@@ -298,8 +298,6 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []formattedLine {
 		return plainLines(formatUseStmt(s))
 	case ast.DoBlock:
 		return formatDoBlock(s)
-	case ast.SubmitBlock:
-		return formatSubmitBlock(s, srcRunes)
 	case ast.AnalyseBlock:
 		return plainLines(formatAnalyseBlock(s))
 	default:
@@ -388,54 +386,20 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 }
 
 func formatDoBlock(d ast.DoBlock) []formattedLine {
-	lines := plainLines(renderBlockHeader("do", d.Name, d.After, nil, d.WithItems, d.MaxAsync, d.Procs, d.Iterations, d.Header))
+	lines := plainLines(renderBlockHeader("do", d.Name, d.After, d.WithItems, d.NProc, d.Header))
 	lines = append(lines, plainLine("{"))
 	lines = append(lines, preserveRawBodyLines(d.Body)...)
 	lines = append(lines, plainLine("}"))
 	return lines
 }
 
-func formatSubmitBlock(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
-	lines := plainLines(renderBlockHeader("submit", s.Name, s.After, s.UseNames, s.WithItems, s.MaxAsync, s.Procs, s.Iterations, s.Header))
-	lines = append(lines, plainLine("{"))
-	lines = append(lines, renderSubmitBodyPreservingRawFields(s, srcRunes)...)
-	lines = append(lines, plainLine("}"))
-	return lines
-}
-
 func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, nil, a.WithItems, nil, nil, nil, a.Header)
+	lines := renderBlockHeader("analyse", a.StepName, nil, a.WithItems, nil, a.Header)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)
 	lines = append(lines, "}")
 	return lines
-}
-
-func renderSubmitFields(fields []ast.SubmitField, srcRunes []rune) []formattedLine {
-	lines := make([]formattedLine, 0, len(fields)*2)
-	for _, f := range fields {
-		if f.IsRaw {
-			lines = append(lines, plainLine(bodyIndent+f.Name+" = {"))
-			lines = append(lines, preserveRawBodyLines(f.Raw)...)
-			lines = append(lines, plainLine(bodyIndent+"}"))
-			continue
-		}
-		lines = append(lines, plainLines(renderSubmitValueField(f, srcRunes))...)
-	}
-	return lines
-}
-
-func renderSubmitValueField(f ast.SubmitField, srcRunes []rune) []string {
-	op := string(f.Op)
-	if op == "" {
-		op = string(ast.AssignEq)
-	}
-	exprLines := formatExprLines(f.Expr, srcRunes)
-	if len(exprLines) == 0 {
-		exprLines = []string{`""`}
-	}
-	return prefixFormattedLines(bodyIndent, f.Name+" "+op+" ", exprLines)
 }
 
 func preserveRawBodyLines(raw string) []formattedLine {
@@ -467,147 +431,6 @@ func rawBodyForCanonicalBraces(raw string) string {
 	return raw
 }
 
-func submitHasRawFields(s ast.SubmitBlock) bool {
-	for _, field := range s.Fields {
-		if field.IsRaw {
-			return true
-		}
-	}
-	return false
-}
-
-func renderSubmitBodyPreservingRawFields(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
-	if !submitHasRawFields(s) {
-		body := normalizeSubmitBody(s.BodyRaw, bodyIndent)
-		if len(body) == 0 && len(s.Fields) > 0 {
-			return renderSubmitFields(s.Fields, srcRunes)
-		}
-		return plainLines(body)
-	}
-	if !submitFieldSpansUsable(s) {
-		return renderSubmitFields(s.Fields, srcRunes)
-	}
-	return renderSubmitBodyWithProtectedRanges(s, srcRunes)
-}
-
-func submitFieldSpansUsable(s ast.SubmitBlock) bool {
-	bodyRunes := []rune(s.BodyRaw)
-	if s.BodyStart.Offset <= 0 || len(bodyRunes) == 0 {
-		return false
-	}
-	base := s.BodyStart.Offset
-	prevEnd := 0
-	for _, field := range s.Fields {
-		start := field.Span.Start.Offset - base
-		end := field.Span.End.Offset - base
-		if start < prevEnd || start < 0 || end < start || end > len(bodyRunes) {
-			return false
-		}
-		prevEnd = end
-	}
-	return true
-}
-
-func renderSubmitBodyWithProtectedRanges(s ast.SubmitBlock, srcRunes []rune) []formattedLine {
-	bodyRunes := []rune(s.BodyRaw)
-	contentStart, contentEnd := rawBodyRuneContentBounds(bodyRunes)
-	out := make([]formattedLine, 0)
-	cursor := contentStart
-	afterField := false
-	base := s.BodyStart.Offset
-	for _, field := range s.Fields {
-		start := field.Span.Start.Offset - base
-		end := field.Span.End.Offset - base
-		if start < contentStart || start > contentEnd || end < contentStart {
-			continue
-		}
-		if start > cursor {
-			out = append(out, renderSubmitTrivia(string(bodyRunes[cursor:start]), afterField)...)
-		}
-		if field.IsRaw {
-			out = append(out, plainLine(bodyIndent+field.Name+" = {"))
-			out = append(out, preserveRawBodyLines(field.Raw)...)
-			out = append(out, plainLine(bodyIndent+"}"))
-		} else {
-			out = append(out, plainLines(renderSubmitValueField(field, srcRunes))...)
-		}
-		cursor = end
-		afterField = true
-	}
-	if cursor < contentEnd {
-		out = append(out, renderSubmitTrivia(string(bodyRunes[cursor:contentEnd]), afterField)...)
-	}
-	return out
-}
-
-func rawBodyRuneContentBounds(body []rune) (int, int) {
-	start := 0
-	end := len(body)
-	if start < end {
-		if body[start] == '\r' && start+1 < end && body[start+1] == '\n' {
-			start += 2
-		} else if body[start] == '\r' || body[start] == '\n' {
-			start++
-		}
-	}
-	if end > start {
-		if end-2 >= start && body[end-2] == '\r' && body[end-1] == '\n' {
-			end -= 2
-		} else if body[end-1] == '\r' || body[end-1] == '\n' {
-			end--
-		}
-	}
-	return start, end
-}
-
-func renderSubmitTrivia(segment string, dropLeadingSeparator bool) []formattedLine {
-	segment = normalizeLineEndings(segment)
-	if dropLeadingSeparator {
-		segment = dropSubmitFieldSeparator(segment)
-	}
-	if segment == "" {
-		return nil
-	}
-	if strings.Trim(segment, " \t;") == "" {
-		return nil
-	}
-	parts := strings.Split(segment, "\n")
-	if len(parts) > 0 && parts[len(parts)-1] == "" {
-		parts = parts[:len(parts)-1]
-	}
-	out := make([]formattedLine, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		switch {
-		case trimmed == "":
-			out = append(out, plainLine(""))
-		case strings.HasPrefix(trimmed, "#"):
-			out = append(out, plainLine(bodyIndent+trimmed))
-		default:
-			out = append(out, plainLine(bodyIndent+strings.TrimLeft(part, " \t")))
-		}
-	}
-	return out
-}
-
-func dropSubmitFieldSeparator(segment string) string {
-	i := 0
-	for i < len(segment) && (segment[i] == ' ' || segment[i] == '\t') {
-		i++
-	}
-	if i < len(segment) && segment[i] == ';' {
-		i++
-		for i < len(segment) && (segment[i] == ' ' || segment[i] == '\t') {
-			i++
-		}
-		return segment[i:]
-	}
-	if i < len(segment) && segment[i] == '\n' {
-		return segment[i+1:]
-	}
-	return segment
-}
-
 func formatUseStmt(u ast.UseStmt) []string {
 	if len(u.Names) == 0 {
 		if u.Source.Kind == ast.UseSourcePath {
@@ -630,7 +453,6 @@ type headerClauseKind int
 
 const (
 	headerClauseAfter headerClauseKind = iota
-	headerClauseUse
 	headerClauseWith
 	headerClauseOptions
 )
@@ -645,9 +467,9 @@ type headerCommentBucket struct {
 	Inline string
 }
 
-func renderBlockHeader(kind, name string, after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int, header []ast.HeaderElem) []string {
+func renderBlockHeader(kind, name string, after []string, with []ast.WithItem, nproc *int, header []ast.HeaderElem) []string {
 	lines := []string{kind + " " + name}
-	clauses := buildRenderedHeaderClauses(after, useNames, with, maxAsync, procs, iterations)
+	clauses := buildRenderedHeaderClauses(after, with, nproc)
 	if len(header) == 0 {
 		for _, clause := range clauses {
 			lines = append(lines, clauseIndent+clause.Text)
@@ -675,18 +497,12 @@ func renderBlockHeader(kind, name string, after []string, useNames []string, wit
 	return lines
 }
 
-func buildRenderedHeaderClauses(after []string, useNames []string, with []ast.WithItem, maxAsync *int, procs *int, iterations *int) []renderedHeaderClause {
+func buildRenderedHeaderClauses(after []string, with []ast.WithItem, nproc *int) []renderedHeaderClause {
 	clauses := make([]renderedHeaderClause, 0, 4)
 	if len(after) > 0 {
 		clauses = append(clauses, renderedHeaderClause{
 			Kind: headerClauseAfter,
 			Text: "after " + strings.Join(after, ", "),
-		})
-	}
-	if len(useNames) > 0 {
-		clauses = append(clauses, renderedHeaderClause{
-			Kind: headerClauseUse,
-			Text: "use " + strings.Join(useNames, ", "),
 		})
 	}
 	if len(with) > 0 {
@@ -695,7 +511,7 @@ func buildRenderedHeaderClauses(after []string, useNames []string, with []ast.Wi
 			Text: "with " + renderWithClause(with),
 		})
 	}
-	if optionLine := renderStepOptionClause(maxAsync, procs, iterations); optionLine != "" {
+	if optionLine := renderStepOptionClause(nproc); optionLine != "" {
 		clauses = append(clauses, renderedHeaderClause{
 			Kind: headerClauseOptions,
 			Text: optionLine,
@@ -707,7 +523,6 @@ func buildRenderedHeaderClauses(after []string, useNames []string, with []ast.Wi
 func collectHeaderCommentBuckets(header []ast.HeaderElem) (map[headerClauseKind]*headerCommentBucket, []string) {
 	buckets := map[headerClauseKind]*headerCommentBucket{
 		headerClauseAfter:   {},
-		headerClauseUse:     {},
 		headerClauseWith:    {},
 		headerClauseOptions: {},
 	}
@@ -731,7 +546,7 @@ func collectHeaderCommentBuckets(header []ast.HeaderElem) (map[headerClauseKind]
 			} else {
 				pending = append(pending, "#")
 			}
-		case ast.HeaderElemAfter, ast.HeaderElemUse, ast.HeaderElemWith, ast.HeaderElemOption:
+		case ast.HeaderElemAfter, ast.HeaderElemWith, ast.HeaderElemOption:
 			kind := toHeaderClauseKind(elem.Kind)
 			if elem.Inline != nil && buckets[kind].Inline != "" {
 				buckets[kind].Before = append(buckets[kind].Before, buckets[kind].Inline)
@@ -762,8 +577,6 @@ func toHeaderClauseKind(kind ast.HeaderElemKind) headerClauseKind {
 	switch kind {
 	case ast.HeaderElemAfter:
 		return headerClauseAfter
-	case ast.HeaderElemUse:
-		return headerClauseUse
 	case ast.HeaderElemWith:
 		return headerClauseWith
 	default:
@@ -778,16 +591,10 @@ func renderHeaderCommentLine(text string) string {
 	return clauseIndent + text
 }
 
-func renderStepOptionClause(maxAsync *int, procs *int, iterations *int) string {
-	parts := make([]string, 0, 3)
-	if maxAsync != nil {
-		parts = append(parts, "max_async="+strconv.Itoa(*maxAsync))
-	}
-	if procs != nil {
-		parts = append(parts, "procs="+strconv.Itoa(*procs))
-	}
-	if iterations != nil {
-		parts = append(parts, "iterations="+strconv.Itoa(*iterations))
+func renderStepOptionClause(nproc *int) string {
+	parts := make([]string, 0, 1)
+	if nproc != nil {
+		parts = append(parts, "nproc "+strconv.Itoa(*nproc))
 	}
 	return strings.Join(parts, " ")
 }
@@ -930,47 +737,6 @@ func rebaseInlineBodyIndent(lines []string) []string {
 	return out
 }
 
-func normalizeSubmitBody(raw string, indent string) []string {
-	lines := prepareBodyLines(raw)
-	return renderSubmitTopLevelBody(lines, indent)
-}
-
-func renderSubmitTopLevelBody(lines []string, indent string) []string {
-	if len(lines) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(lines))
-	depth := 0
-	prevContinues := false
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			out = append(out, "")
-			prevContinues = false
-			continue
-		}
-		trimmedLeft := strings.TrimLeft(line, " \t")
-		indentDepth := depth
-		if strings.HasPrefix(trimmedLeft, "}") && indentDepth > 0 {
-			indentDepth--
-		}
-		if indentDepth == 0 {
-			trimmedLeft = canonicalizeTopLevelSubmitLine(trimmedLeft)
-		}
-		prefix := strings.Repeat(indent, 1+indentDepth)
-		if prevContinues {
-			prefix += continuationIndent
-		}
-		out = append(out, prefix+trimmedLeft)
-		open, close := countBracesOutsideQuotes(trimmedLeft)
-		depth += open - close
-		if depth < 0 {
-			depth = 0
-		}
-		prevContinues = endsWithLineContinuation(trimmedLeft)
-	}
-	return out
-}
-
 func endsWithLineContinuation(line string) bool {
 	if strings.TrimSpace(line) == "" {
 		return false
@@ -1013,23 +779,6 @@ func endsWithLineContinuation(line string) bool {
 	return semanticRunes[len(semanticRunes)-1] == '\\'
 }
 
-func canonicalizeTopLevelSubmitLine(line string) string {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return trimmed
-	}
-	eq := strings.Index(trimmed, "=")
-	if eq <= 0 {
-		return trimmed
-	}
-	left := strings.TrimSpace(trimmed[:eq])
-	if !isIdent(left) {
-		return trimmed
-	}
-	right := strings.TrimSpace(trimmed[eq+1:])
-	return left + " = " + right
-}
-
 func isIdent(s string) bool {
 	if s == "" {
 		return false
@@ -1046,39 +795,6 @@ func isIdent(s string) bool {
 		}
 	}
 	return true
-}
-
-func countBracesOutsideQuotes(line string) (openCount int, closeCount int) {
-	var quote rune
-	escaped := false
-	for _, r := range line {
-		if quote != 0 {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if r == '\\' {
-				escaped = true
-				continue
-			}
-			if r == quote {
-				quote = 0
-			}
-			continue
-		}
-		if r == '"' || r == '\'' {
-			quote = r
-			continue
-		}
-		if r == '{' {
-			openCount++
-			continue
-		}
-		if r == '}' {
-			closeCount++
-		}
-	}
-	return openCount, closeCount
 }
 
 func countGroupingDelimsOutsideQuotes(line string) (openCount int, closeCount int) {
@@ -1272,8 +988,6 @@ func needsStructuredExprFormatting(expr ast.Expr) bool {
 		return needsStructuredExprFormatting(e.Left) || needsStructuredExprFormatting(e.Right)
 	case ast.ConditionalExpr:
 		return needsStructuredExprFormatting(e.Then) || needsStructuredExprFormatting(e.Cond) || needsStructuredExprFormatting(e.Else)
-	case ast.ModeExpr:
-		return needsStructuredExprFormatting(e.Expr)
 	}
 	return false
 }
@@ -1344,8 +1058,6 @@ func formatExprInline(expr ast.Expr, srcRunes []rune) string {
 		return formatExprInline(e.Left, srcRunes) + " " + e.Op + " " + formatExprInline(e.Right, srcRunes)
 	case ast.ConditionalExpr:
 		return formatExprInline(e.Then, srcRunes) + " if " + formatExprInline(e.Cond, srcRunes) + " else " + formatExprInline(e.Else, srcRunes)
-	case ast.ModeExpr:
-		return e.Mode + "(" + formatExprInline(e.Expr, srcRunes) + ")"
 	default:
 		return strings.TrimSpace(spanText(srcRunes, expr.GetSpan()))
 	}

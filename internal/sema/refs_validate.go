@@ -1,6 +1,6 @@
 // validate variable-reference usage across steps and emits warnings
 //
-// scan do/submit raw text and relevant string/expression payloads for
+// scan do raw text and relevant string/expression payloads for
 // `$var`/ `${var}` and identifier refs, compares references with
 // effective imports, accounts usage per source variable, emits W311
 // for referenced-but-not-imported vars and W310 for
@@ -538,76 +538,6 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		explicitImports := resolveExplicitImports(block.Name, bindings)
 		collectStepUnusedImports(block.Name, explicitImports, refs)
 	}
-	for _, block := range res.Submits {
-		snap := snapshotForSubmitBlock(res, block)
-		bindings := snapshotBindingsWithResult(res, snap)
-		namespaces := snapshotNamespaces(res, snap)
-		for _, useName := range block.UseNames {
-			markSubmitUseBindingRefs(bindings, namespaces, useName, func(binding *GlobalBinding, sourceVar string) {
-				if binding == nil {
-					return
-				}
-				used.mark(BindingVersionKeyForBinding(binding, binding.Name), sourceVar)
-			})
-		}
-
-		imports := resolveEffectiveImports(block.Name, bindings)
-		explicitImports := resolveExplicitImports(block.Name, bindings)
-		if spec := res.SubmitByName[block.Name]; spec != nil {
-			for _, helper := range spec.Helpers {
-				source := helper.Source
-				if source == "" {
-					source = helper.UseName
-					if binding := bindings[helper.UseName+"."+helper.Original]; binding != nil {
-						source = binding.Name
-					}
-				}
-				sourceVar := helper.SourceVar
-				if sourceVar == "" {
-					sourceVar = helper.Original
-				}
-				sourceKey := catalog.keyForSource(bindings, source)
-				imports[helper.Original] = append(imports[helper.Original], importedVar{
-					Name:      helper.Original,
-					SourceVar: sourceVar,
-					Source:    source,
-					SourceKey: sourceKey,
-					Display:   helper.UseName,
-					Span:      helper.Span,
-				})
-			}
-		}
-
-		refs := make([]varRef, 0)
-		for _, field := range block.Fields {
-			if field.IsRaw {
-				base := field.RawStart
-				if base.Line == 0 {
-					base = field.Span.Start
-				}
-				refs = append(refs, collectShellLikeRefs(field.Raw, base, field.Span.File)...)
-				continue
-			}
-			refs = append(refs, collectExprIdentRefs(field.Expr)...)
-			refs = append(refs, collectExprStringRefsWith(field.Expr, collectSubmitStringRefs)...)
-		}
-		if spec := res.SubmitByName[block.Name]; spec != nil {
-			for _, value := range spec.Values {
-				if value.IsRaw {
-					base := value.Span.Start
-					if base.Line == 0 {
-						base = block.Span.Start
-					}
-					refs = append(refs, collectShellLikeRefs(value.Raw, base, value.Span.File)...)
-					continue
-				}
-				refs = append(refs, collectEvalStringRefsWith(value.Value, value.Span, collectSubmitStringRefs)...)
-			}
-		}
-		candidatesByVar := stepWarningCandidates(res, catalog, block.Name, snap)
-		processStepWithImports(block.Name, imports, refs, candidatesByVar)
-		collectStepUnusedImports(block.Name, explicitImports, refs)
-	}
 	for _, stmt := range res.Program.Stmts {
 		block, ok := stmt.(ast.AnalyseBlock)
 		if !ok {
@@ -630,7 +560,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			if usedForW310.has(src.Key, varName) {
 				continue
 			}
-			message := fmt.Sprintf("exposed variable '%s' from global '%s' is never used in any do/submit/analyse block", varName, src.Display)
+			message := fmt.Sprintf("exposed variable '%s' from global '%s' is never used in any do/analyse block", varName, src.Display)
 			hint := fmt.Sprintf("remove it from the global binding or reference it with %s via imports", varName)
 			diags.AddWarning(
 				diag.CodeW310,
@@ -674,32 +604,6 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			"remove it from the with-clause or reference it in this step",
 			related...,
 		)
-	}
-}
-
-func markSubmitUseBindingRefs(bindings map[string]*GlobalBinding, namespaces map[string]*Namespace, useName string, mark func(*GlobalBinding, string)) {
-	if binding := bindings[useName]; binding != nil {
-		for _, name := range planutil.SourceVarNames(binding.Order, binding.Vars) {
-			mark(binding, name)
-		}
-		return
-	}
-	ns := namespaces[useName]
-	if ns == nil {
-		return
-	}
-	for _, bindingName := range ns.Bindings {
-		rest := strings.TrimPrefix(bindingName, useName+".")
-		if rest == bindingName || strings.Contains(rest, ".") {
-			continue
-		}
-		binding := bindings[bindingName]
-		if binding == nil || !binding.Supports(ImportIntoSubmitUse) {
-			continue
-		}
-		for _, name := range planutil.SourceVarNames(binding.Order, binding.Vars) {
-			mark(binding, name)
-		}
 	}
 }
 
@@ -837,72 +741,6 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 	return refs
 }
 
-// collectSubmitStringRefs scans submit expression string payloads to detect
-// unqualified variable references for W310/W311 usage accounting.
-//
-// Unlike collectShellLikeRefs, this intentionally does not apply shell quote
-// or comment suppression because submit expression values often embed nested
-// shell snippets inside JBS strings (e.g. args_exec = "-lc '...${x}...'").
-func collectSubmitStringRefs(text string, base diag.Position, file string) []varRef {
-	runes := []rune(text)
-	refs := make([]varRef, 0)
-	line := base.Line
-	col := base.Column
-	off := base.Offset
-	i := 0
-
-	advance := func() {
-		if i >= len(runes) {
-			return
-		}
-		r := runes[i]
-		i++
-		off++
-		if r == '\n' {
-			line++
-			col = 1
-		} else {
-			col++
-		}
-	}
-	advanceN := func(target int) {
-		for i < target {
-			advance()
-		}
-	}
-	appendRef := func(name string, start diag.Position) {
-		end := diag.NewPos(off, line, col)
-		refs = append(refs, varRef{
-			Name: name,
-			Span: diag.NewSpan(file, start, end),
-		})
-	}
-
-	for i < len(runes) {
-		if runes[i] == '$' && !isEscapedDollar(runes, i) {
-			start := diag.NewPos(off, line, col)
-			if i+1 < len(runes) && runes[i+1] == '{' {
-				name, end, ok := parseBracedVarRef(runes, i+2)
-				if ok {
-					advanceN(end + 1)
-					appendRef(name, start)
-					continue
-				}
-				advance()
-				continue
-			}
-			if end, ok := parseBareVarName(runes, i+1); ok {
-				name := string(runes[i+1 : end])
-				advanceN(end)
-				appendRef(name, start)
-				continue
-			}
-		}
-		advance()
-	}
-	return refs
-}
-
 func collectExprStringRefs(expr ast.Expr) []varRef {
 	return collectExprStringRefsWith(expr, collectShellLikeRefs)
 }
@@ -969,8 +807,6 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 			walk(n.Then)
 			walk(n.Cond)
 			walk(n.Else)
-		case ast.ModeExpr:
-			walk(n.Expr)
 		}
 	}
 	walk(expr)
@@ -1058,8 +894,6 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 			walk(n.Then)
 			walk(n.Cond)
 			walk(n.Else)
-		case ast.ModeExpr:
-			walk(n.Expr)
 		}
 	}
 	walk(expr)

@@ -16,19 +16,14 @@ x
 do run {
   echo hi
 }
-submit s {
-  account = "a"
-  queue = "q"
-  args_exec = "-lc hostname"
-}
 analyse run {
   n = "N: %d" in "out.log"
   (n)
 }
 	`
 	prog := Parse("in.jbs", src, diags)
-	if len(prog.Stmts) != 6 {
-		t.Fatalf("expected 6 top-level statements, got %d (%#v)", len(prog.Stmts), prog.Stmts)
+	if len(prog.Stmts) != 5 {
+		t.Fatalf("expected 5 top-level statements, got %d (%#v)", len(prog.Stmts), prog.Stmts)
 	}
 	if prog.File != "in.jbs" {
 		t.Fatalf("unexpected program file: %q", prog.File)

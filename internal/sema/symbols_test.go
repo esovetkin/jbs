@@ -12,9 +12,6 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if nilBinding.Supports(ImportIntoStep) {
 		t.Fatalf("nil binding should not support step imports")
 	}
-	if nilBinding.Supports(ImportIntoSubmitUse) {
-		t.Fatalf("nil binding should not support submit use imports")
-	}
 	if nilBinding.Supports(ImportIntoAnalyse) {
 		t.Fatalf("nil binding should not support analyse imports")
 	}
@@ -62,13 +59,6 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if !tableBinding.Supports(ImportIntoStep) {
 		t.Fatalf("table binding should support step imports")
 	}
-	if !scalarString.Supports(ImportIntoSubmitUse) {
-		t.Fatalf("scalar binding should support submit use imports")
-	}
-	if tableBinding.Supports(ImportIntoSubmitUse) {
-		t.Fatalf("table binding should not support submit use imports")
-	}
-
 	if !scalarString.Supports(ImportIntoAnalyse) {
 		t.Fatalf("single-column string scalar should support analyse imports")
 	}

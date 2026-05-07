@@ -1,187 +1,62 @@
-# `jbs repl`
+# jbs help repl
 
-`jbs repl` starts an interactive shell for building and checking JBS snippets incrementally.
+The REPL evaluates JBS chunks interactively.
 
-`jbs` with no arguments is equivalent to `jbs repl`.
+Start it with:
 
-## Prompt and multiline behavior
-
-- Primary prompt: `jbs> `
-- Continuation prompt: `...> `
-
-Input is committed only when it is complete. Completion waits for:
-
-- balanced `{}`
-- closed single/double quotes
-- no trailing backslash continuation
-
-So multiline blocks work naturally:
-
-```jbs
-jbs> do run {
-...>   echo hi
-...> }
+```bash
+jbs
+jbs repl
 ```
 
-The same applies to multiline function literals:
+## Expressions
 
-```jbs
-jbs> add = function(a, b = 1) {
-...>   a + b
-...> }
-jbs> add
-<function>
-jbs> add(41)
-42
-```
+Top-level expressions print their values:
 
-Multiline `if` chunks also commit when all braces close:
-
-```jbs
-jbs> enabled = true
-jbs> if enabled {
-...>   x = 1
-...>   x
-...> } else {
-...>   2
-...> }
-1
-```
-
-Multiline loops behave the same way:
-
-```jbs
-jbs> total = 0
-jbs> for x in range(3) {
-...>   total += x
-...> }
-jbs> total
-3
-jbs> while total < 5 {
-...>   total += 1
-...>   if total == 4 {
-...>     continue
-...>   }
-...> }
-```
-
-`break` and `continue` work inside `for` and `while` bodies.
-
-`do`, `submit`, `analyse`, and `use` are not allowed inside `if` or loop bodies. Put declarations and imports at top level and use control flow to choose values before them.
-
-Bare expression lines are part of normal top-level source. They are evaluated in the current module-aware session scope and then appended to the accepted session source.
-
-You can inspect a global variable by entering its bare name:
-
-```jbs
-jbs> x = range(10)
-jbs> x
-[0, 1, 2, ...]
-```
-
-REPL globals use the same mutable source-order assignment rules as files:
-
-```jbs
+```text
 jbs> x = 1
-jbs> x = 2
-jbs> x += 3
-jbs> x
-5
-```
-
-Namespace imports work the same way:
-
-```jbs
-jbs> use jsc
-jbs> jsc.systemname
-# prints the imported value of jsc.systemname
-```
-
-Imported functions behave the same way:
-
-```jbs
-jbs> use "./lib.jbs" as lib
-jbs> lib.add(1, 2)
+jbs> x + 2
 3
 ```
 
-Returned closures also persist once bound into accepted session source:
+`names()` is useful for inspecting the current scope:
 
-```jbs
-jbs> make_adder = function(delta) {
-...>   function(x) {
-...>     x + delta
-...>   }
-...> }
-jbs> add2 = make_adder(2)
-jbs> add2(3)
-5
+```text
+jbs> names()
+["jbs_name", "jbs_nproc", "x"]
 ```
 
-Top-level expression continuation is line-oriented, like file mode:
+## Multi-Line Input
 
-- `1 + \` followed by the next line continues the same expression chunk
-- open `(` or `[` alone do not keep the prompt in continuation mode
+The REPL continues reading while braces, brackets, parentheses, strings, or trailing line continuations remain open.
 
-## Using `use` in REPL
-
-REPL supports the same `use` import flow as file mode.
-
-```jbs
-jbs> use submit_defaults from jsc
-jbs> queue = "batch"
-jbs> submit run
-...>         use submit_defaults
-...> {
-...>         account = "myacct"
-...>         executable = "/bin/bash"
-...>         args_exec = "-lc hostname"
-...> }
+```text
+jbs> f = function(x) {
+...   x + 1
+... }
 ```
 
-Path resolution:
+## Declarations
 
-- bare `use jsc`-style imports resolve embedded modules only
-- `use "./lib.jbs" as lib` resolves relative to the REPL working directory (`<cwd>` where `jbs repl` was started)
-- `use value from "./lib.jbs"` follows the same REPL-relative rule for the in-memory entry module
-- nested quoted imports resolve relative to the importer module path
+`do`, `analyse`, and `use` declarations are accepted at top level.
 
-## Key bindings
-
-- `Ctrl+R`: reverse history search (readline default)
-- `Ctrl+C`: cancel current pending multiline input and return to prompt
-- `Ctrl+D`: exit REPL
-
-History is stored locally in `<cwd>/.jbs_history`, where `<cwd>` is the directory from which `jbs` was started.
-
-## REPL commands
-
-- `:help`: show command help
-- `:help <function_name>`: show help for an internal function
-- `?<function_name>`: shortcut for `:help <function_name>`
-- `:show`: print current accepted session source
-- `:check`: run parser/sema checks on accepted source
-- `:yaml`: print lowered YAML for accepted source
-- `:save <filename>`: write lowered YAML to file
-- `:reset`: clear accepted source and pending input
-- `:quit` or `:exit`: exit REPL
-
-Notes:
-
-- `:yaml` and `:save` use the same lowering path.
-- `:save` writes atomically (temporary file + rename).
-- `:save` paths are resolved relative to the REPL process working directory when given as relative paths.
-- help queries such as `?range` and `:help range` do not modify accepted source
-- REPL output prints errors only; warnings are suppressed in interactive mode.
-- assignments, imports, and blocks do not print values automatically
-- bare expression line output is ignored by normal file compilation; only REPL prints it
-- function values print as `<function>`
-
-Example:
-
-```jbs
-jbs> ?range
-# `range(...)`
-jbs> :help table
-# `table(...)`
+```text
+jbs> cases = table(x = (1, 2))
+jbs> do run with cases {
+...   echo "${x}"
+... }
 ```
+
+Control-flow bodies can contain assignments and expressions, but declarations remain top-level only.
+
+## Commands
+
+```text
+:help             show REPL help
+:show             print accepted source
+:reset            clear accepted source
+:save <filename>  write accepted source to a file
+:quit             exit
+```
+
+`:save` writes the accepted JBS source, the same content shown by `:show`.

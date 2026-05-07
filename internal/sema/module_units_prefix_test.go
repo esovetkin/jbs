@@ -31,8 +31,7 @@ func TestPrefixModuleScope(t *testing.T) {
 	original.BindingsByName["value"] = binding
 	original.Env["value"] = eval.Int(1)
 	original.DoBlocks = []ast.DoBlock{{Name: "run", Span: span}}
-	original.Submits = []ast.SubmitBlock{{Name: "submit_extra", Span: span}}
-	original.StepOrder = []string{"run", "submit_extra"}
+	original.StepOrder = []string{"run"}
 	original.Namespaces["inner"] = &Namespace{Name: "inner", Members: []string{"inner.value"}, Bindings: []string{"inner.value"}, Steps: []string{"inner.run"}}
 
 	prefixed := prefixModuleScope(original, "mod")
@@ -51,7 +50,7 @@ func TestPrefixModuleScope(t *testing.T) {
 	if prefixed.Namespaces["mod"] == nil || prefixed.Namespaces["mod.inner"] == nil {
 		t.Fatalf("expected prefixed namespaces, got %#v", prefixed.Namespaces)
 	}
-	if !reflect.DeepEqual(prefixed.StepOrder, []string{"mod.run", "mod.submit_extra"}) {
+	if !reflect.DeepEqual(prefixed.StepOrder, []string{"mod.run"}) {
 		t.Fatalf("unexpected prefixed step order: %#v", prefixed.StepOrder)
 	}
 	if !eval.Equal(prefixed.Env["mod.value"], eval.Int(1)) {
@@ -72,9 +71,8 @@ func TestMergeModuleScope(t *testing.T) {
 	dst.BindingsByName["a.value"] = existingBinding
 	dst.Env["a.value"] = eval.Int(1)
 	dst.DoBlocks = []ast.DoBlock{{Name: "a.run", Span: span}}
-	dst.Submits = []ast.SubmitBlock{{Name: "a.submit_extra", Span: span}}
-	dst.StepOrder = []string{"a.run", "a.submit_extra"}
-	dst.Namespaces["a"] = &Namespace{Name: "a", Members: []string{"a.value"}, Bindings: []string{"a.value"}, Steps: []string{"a.run", "a.submit_extra"}}
+	dst.StepOrder = []string{"a.run"}
+	dst.Namespaces["a"] = &Namespace{Name: "a", Members: []string{"a.value"}, Bindings: []string{"a.value"}, Steps: []string{"a.run"}}
 
 	src := emptyModuleScope()
 	src.ExportsByName["a.value"] = existingExport
@@ -84,9 +82,8 @@ func TestMergeModuleScope(t *testing.T) {
 	src.BindingsByName["a.other"] = newBinding
 	src.Env["a.other"] = eval.Int(2)
 	src.DoBlocks = []ast.DoBlock{{Name: "a.run", Span: span}, {Name: "a.extra", Span: span}}
-	src.Submits = []ast.SubmitBlock{{Name: "a.submit_extra", Span: span}}
-	src.StepOrder = []string{"a.run", "a.extra", "a.submit_extra"}
-	src.Namespaces["a"] = &Namespace{Name: "a", Members: []string{"a.value", "a.other"}, Bindings: []string{"a.value", "a.other"}, Steps: []string{"a.run", "a.extra", "a.submit_extra"}}
+	src.StepOrder = []string{"a.run", "a.extra"}
+	src.Namespaces["a"] = &Namespace{Name: "a", Members: []string{"a.value", "a.other"}, Bindings: []string{"a.value", "a.other"}, Steps: []string{"a.run", "a.extra"}}
 
 	mergeModuleScope(dst, src)
 	if len(dst.ExportsByName) != 2 || dst.ExportsByName["a.other"] == nil {
@@ -98,7 +95,7 @@ func TestMergeModuleScope(t *testing.T) {
 	if len(dst.DoBlocks) != 2 || dst.DoBlocks[1].Name != "a.extra" {
 		t.Fatalf("expected mergeModuleScope to append only new do blocks, got %#v", dst.DoBlocks)
 	}
-	if !reflect.DeepEqual(dst.Namespaces["a"].Members, []string{"a.value", "a.other"}) || !reflect.DeepEqual(dst.Namespaces["a"].Bindings, []string{"a.value", "a.other"}) || !reflect.DeepEqual(dst.Namespaces["a"].Steps, []string{"a.run", "a.submit_extra", "a.extra"}) {
+	if !reflect.DeepEqual(dst.Namespaces["a"].Members, []string{"a.value", "a.other"}) || !reflect.DeepEqual(dst.Namespaces["a"].Bindings, []string{"a.value", "a.other"}) || !reflect.DeepEqual(dst.Namespaces["a"].Steps, []string{"a.run", "a.extra"}) {
 		t.Fatalf("unexpected merged namespace: %#v", dst.Namespaces["a"])
 	}
 }

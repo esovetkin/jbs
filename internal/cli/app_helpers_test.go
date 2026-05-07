@@ -2,41 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
-
-func TestRunEmbedListSpecificAndUnknown(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := runEmbed("", &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful embedded file listing, code=%d stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "jsc") {
-		t.Fatalf("expected embedded file list to mention jsc, got %q", stdout.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := runEmbed("jsc", &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful embedded file read, code=%d stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "systemname") {
-		t.Fatalf("expected embedded jsc content, got %q", stdout.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	if code := runEmbed("missing-embed", &stdout, &stderr); code != 1 {
-		t.Fatalf("expected unknown embed to fail, code=%d stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "unknown embedded file") {
-		t.Fatalf("expected unknown embed error message, got %q", stderr.String())
-	}
-}
 
 func TestWriteFileAtomicAndRunFmtNoChange(t *testing.T) {
 	dir := t.TempDir()
@@ -77,6 +49,73 @@ func TestWriteFileAtomicAndRunFmtNoChange(t *testing.T) {
 	if string(formatted) != "x = 1\n" {
 		t.Fatalf("expected runFmt no-op for already formatted file, got %q", string(formatted))
 	}
+}
+
+func TestDefaultFileRunMatchesExplicitRunTree(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}()
+
+	runCase := func(args func(string) []string) []string {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "main.jbs")
+		src := strings.Join([]string{
+			`jbs_name = "bench"`,
+			`do step {`,
+			`        echo ok`,
+			`}`,
+			"",
+		}, "\n")
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatalf("write input: %v", err)
+		}
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("chdir: %v", err)
+		}
+		var stdout, stderr bytes.Buffer
+		if code := Run(args(path), &stdout, &stderr); code != 0 {
+			t.Fatalf("run failed: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		return collectRunTree(t, filepath.Join(dir, "bench", "000000"))
+	}
+
+	gotDefault := runCase(func(path string) []string { return []string{path} })
+	gotExplicit := runCase(func(path string) []string { return []string{"run", path} })
+	if !reflect.DeepEqual(gotDefault, gotExplicit) {
+		t.Fatalf("default and explicit run trees differ:\ndefault=%#v\nexplicit=%#v", gotDefault, gotExplicit)
+	}
+}
+
+func collectRunTree(t *testing.T, root string) []string {
+	t.Helper()
+	var entries []string
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			rel += "/"
+		}
+		entries = append(entries, rel)
+		return nil
+	}); err != nil {
+		t.Fatalf("walk run tree: %v", err)
+	}
+	return entries
 }
 
 func TestRunFmtPreservesDoRawHeredoc(t *testing.T) {
@@ -126,27 +165,6 @@ func TestRunFmtStrictPreservesDoRawHeredoc(t *testing.T) {
 	}
 	if !strings.Contains(string(formatted), "    cat > run.sbatch <<EOF  \n#!/bin/bash\nEOF\n") {
 		t.Fatalf("strict fmt changed raw heredoc payload:\n%s", string(formatted))
-	}
-}
-
-func TestRunFmtPreservesSubmitRawField(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := "submit run {\npreprocess = {\n\tprintf 'x'  \nEOF\n}\n}\n"
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	if code := runFmt(path, false, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected runFmt to succeed, code=%d stderr=%s", code, stderr.String())
-	}
-	formatted, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read formatted file: %v", err)
-	}
-	if !strings.Contains(string(formatted), "\tprintf 'x'  \nEOF\n") {
-		t.Fatalf("submit raw payload was changed:\n%s", string(formatted))
 	}
 }
 
@@ -287,7 +305,7 @@ func TestPrintHelpTopic(t *testing.T) {
 	if err := printHelpTopic(&out, "use"); err != nil {
 		t.Fatalf("expected help topic to render, got %v", err)
 	}
-	if !strings.Contains(out.String(), "use <module>") {
+	if !strings.Contains(out.String(), "use value from") {
 		t.Fatalf("expected use help content, got %q", out.String())
 	}
 
@@ -301,8 +319,6 @@ func TestRunCheckWithTopLevelExprLinesProducesNoExprOutput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
-		"use jsc",
-		"jsc.systemname",
 		"x = (1, 2)",
 		"do run with x {",
 		"  echo ${x}",
@@ -321,73 +337,6 @@ func TestRunCheckWithTopLevelExprLinesProducesNoExprOutput(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "" {
 		t.Fatalf("expected no stdout output from top-level expr lines in check mode, got %q", stdout.String())
-	}
-}
-
-func TestRunYAMLIgnoresTopLevelExprOutput(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"use jsc",
-		"jsc.systemname",
-		"x = (1, 2)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"x",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "name:") {
-		t.Fatalf("expected yaml output, got %q", stdout.String())
-	}
-	if strings.Contains(stdout.String(), "juwelsbooster") {
-		t.Fatalf("did not expect bare expr output to leak into yaml, got %q", stdout.String())
-	}
-}
-
-func TestRunYAMLDoBlockHeredocWithUnindentedPayload(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := `cases = t(id = (1, 2), label = ("alpha", "beta"))
-
-do write_sbatch
-   with cases
-{
-    cat > run.sbatch <<EOF
-#!/bin/bash
-
-echo ${id}
-echo ${label}
-
-EOF
-}
-`
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
-	}
-	var root yaml.Node
-	if err := yaml.Unmarshal(stdout.Bytes(), &root); err != nil {
-		t.Fatalf("encoded YAML does not parse: %v\n%s", err, stdout.String())
-	}
-	for _, want := range []string{"cat > run.sbatch <<EOF", "#!/bin/bash", "echo ${id}", "echo ${label}", "EOF"} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("missing %q in YAML:\n%s", want, stdout.String())
-		}
 	}
 }
 
@@ -451,74 +400,6 @@ func TestRunCheckWithMapReduceExprLinesProducesNoExprOutput(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "" {
 		t.Fatalf("expected no stdout output from map/reduce expr lines in check mode, got %q", stdout.String())
-	}
-}
-
-func TestRunYAMLIgnoresTopLevelFunctionCallOutput(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"marker = function() {",
-		"  \"TOPLEVEL_FUNCTION_OUTPUT_SHOULD_NOT_APPEAR\"",
-		"}",
-		"marker()",
-		"x = (1, 2)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "name:") {
-		t.Fatalf("expected yaml output, got %q", out)
-	}
-	if strings.Contains(out, "TOPLEVEL_FUNCTION_OUTPUT_SHOULD_NOT_APPEAR") {
-		t.Fatalf("did not expect top-level function call result to leak into yaml, got %q", out)
-	}
-}
-
-func TestRunYAMLIgnoresTopLevelMapReduceOutput(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"marker = function(x) {",
-		"  \"MAP_EXPR_SHOULD_NOT_APPEAR\"",
-		"}",
-		"sum2 = function(acc, x) {",
-		"  acc + x",
-		"}",
-		"map(marker, [1])",
-		"reduce(sum2, [1,2])",
-		"x = (1, 2)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--output", "-", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful yaml run, code=%d stderr=%s", code, stderr.String())
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "name:") {
-		t.Fatalf("expected yaml output, got %q", out)
-	}
-	if strings.Contains(out, "MAP_EXPR_SHOULD_NOT_APPEAR") {
-		t.Fatalf("did not expect top-level map result to leak into yaml, got %q", out)
 	}
 }
 

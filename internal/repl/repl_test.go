@@ -72,9 +72,6 @@ func baseOptions(t *testing.T, reader *fakeReader) Options {
 		Check: func(source string) (string, bool, error) {
 			return "", false, nil
 		},
-		YAML: func(source string) (string, string, bool, error) {
-			return "name: test\n", "", false, nil
-		},
 		Commit: defaultCommitForTest,
 	}
 }
@@ -153,24 +150,9 @@ func TestRunInterruptClearsPendingInput(t *testing.T) {
 	}
 }
 
-func TestRunYAMLCommand(t *testing.T) {
-	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":yaml"}, {err: io.EOF}}}
-	var out, err strings.Builder
-	opts := baseOptions(t, reader)
-	opts.Stdout = &out
-	opts.Stderr = &err
-	code := Run(opts)
-	if code != 0 {
-		t.Fatalf("Run returned %d, want 0", code)
-	}
-	if !strings.Contains(out.String(), "name: test") {
-		t.Fatalf("expected yaml output, got: %q", out.String())
-	}
-}
-
 func TestRunSaveCommandWritesFile(t *testing.T) {
 	cwd := t.TempDir()
-	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":save out.yaml"}, {err: io.EOF}}}
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {line: ":save out.jbs"}, {err: io.EOF}}}
 	var out, err strings.Builder
 	opts := baseOptions(t, reader)
 	opts.Stdout = &out
@@ -180,12 +162,12 @@ func TestRunSaveCommandWritesFile(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	target := filepath.Join(cwd, "out.yaml")
+	target := filepath.Join(cwd, "out.jbs")
 	data, readErr := os.ReadFile(target)
 	if readErr != nil {
 		t.Fatalf("failed to read saved file: %v", readErr)
 	}
-	if string(data) != "name: test\n" {
+	if string(data) != "x = 1" {
 		t.Fatalf("unexpected saved file content: %q", string(data))
 	}
 }
@@ -404,8 +386,6 @@ func TestRunHelpFunctionCommand(t *testing.T) {
 	}{
 		{name: "range", line: ":help range", contains: "# `range(...)`"},
 		{name: "t alias", line: ":help t", contains: "Alias of `table(...)`"},
-		{name: "shell", line: ":help shell", contains: "mode: shell"},
-		{name: "python", line: ":help python", contains: "mode: python"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

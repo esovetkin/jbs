@@ -68,8 +68,8 @@ func TestIsGlobalAndFormatStmtFallback(t *testing.T) {
 }
 
 func TestFormatGlobalAssignDefaults(t *testing.T) {
-	got := formatGlobalAssign(ast.GlobalAssign{Name: "jbs_comment"}, nil)
-	want := []string{`jbs_comment = ""`}
+	got := formatGlobalAssign(ast.GlobalAssign{Name: "label"}, nil)
+	want := []string{`label = ""`}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("formatGlobalAssign mismatch: got=%v want=%v", got, want)
 	}
@@ -119,29 +119,6 @@ func TestFormatFunctionExprHelpers(t *testing.T) {
 	}
 	if got := flattenFormattedLines(formatExprLines(call, src)); got != "f(1, b = 2)" {
 		t.Fatalf("unexpected call formatting: %q", got)
-	}
-}
-
-func TestFormatSubmitBlockRendersFieldFallback(t *testing.T) {
-	submit := ast.SubmitBlock{
-		Name: "run",
-		Fields: []ast.SubmitField{
-			{Name: "queue"},
-			{Name: "preprocess", IsRaw: true, Raw: "echo pre"},
-		},
-	}
-	got := formattedLineTexts(formatSubmitBlock(submit, nil))
-	want := []string{
-		"submit run",
-		"{",
-		`        queue = ""`,
-		`        preprocess = {`,
-		`echo pre`,
-		`        }`,
-		"}",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("formatSubmitBlock mismatch\n--- got ---\n%v\n--- want ---\n%v", got, want)
 	}
 }
 
@@ -266,38 +243,6 @@ func TestRebaseInlineBodyIndentBranches(t *testing.T) {
 	want := []string{"first", "second", "  third"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rebaseInlineBodyIndent mismatch: got=%v want=%v", got, want)
-	}
-}
-
-func TestRenderSubmitTopLevelBodyAndCanonHelpers(t *testing.T) {
-	lines := []string{
-		"queue=\"batch\"",
-		"preprocess = {",
-		"echo one \\",
-		"two",
-		"}",
-		"",
-		"# trailing",
-	}
-	got := renderSubmitTopLevelBody(lines, bodyIndent)
-	want := []string{
-		`        queue = "batch"`,
-		`        preprocess = {`,
-		`                echo one \`,
-		`                    two`,
-		`        }`,
-		"",
-		`        # trailing`,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("renderSubmitTopLevelBody mismatch\n--- got ---\n%v\n--- want ---\n%v", got, want)
-	}
-
-	if got := canonicalizeTopLevelSubmitLine("  # c"); got != "# c" {
-		t.Fatalf("comment canonicalization mismatch: %q", got)
-	}
-	if got := canonicalizeTopLevelSubmitLine("  not-an-ident+=x"); got != "not-an-ident+=x" {
-		t.Fatalf("non-ident left side should stay unchanged, got %q", got)
 	}
 }
 

@@ -12,7 +12,6 @@ func resolveTopLevelGlobals(prog ast.Program, defaults map[string]eval.Value, di
 	exec := execGlobalPlan(buildGlobalPlan(prog, defaults, baseDirForProgramFile(prog.File), diags), defaults, defaults, diags)
 	return GlobalState{
 		Values: maps.Clone(exec.ScalarGlobals.Values),
-		Modes:  maps.Clone(exec.ScalarGlobals.Modes),
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 }

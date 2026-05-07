@@ -28,7 +28,6 @@ type moduleScope struct {
 	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
 	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 	DoBlocks              []ast.DoBlock
-	Submits               []ast.SubmitBlock
 	AnalyseBlocks         []ast.AnalyseBlock
 	StepOrder             []string
 	Namespaces            map[string]*Namespace
@@ -79,7 +78,6 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	}
 	scope.Globals = GlobalState{
 		Values: maps.Clone(exec.ScalarGlobals.Values),
-		Modes:  maps.Clone(exec.ScalarGlobals.Modes),
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
@@ -108,9 +106,6 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		switch n := stmt.(type) {
 		case ast.DoBlock:
 			scope.DoBlocks = append(scope.DoBlocks, n)
-			scope.StepOrder = appendUniqueString(scope.StepOrder, n.Name)
-		case ast.SubmitBlock:
-			scope.Submits = append(scope.Submits, n)
 			scope.StepOrder = appendUniqueString(scope.StepOrder, n.Name)
 		case ast.AnalyseBlock:
 			scope.AnalyseBlocks = append(scope.AnalyseBlocks, n)
@@ -302,7 +297,7 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 				if span, exists := nonGlobalSymbols[name]; exists {
 					diags.AddError(
 						diag.CodeE534,
-						"import name collision: projected global '"+name+"' conflicts with local step/submit symbol",
+						"import name collision: projected global '"+name+"' conflicts with local step symbol",
 						use.Span,
 						"rename the imported global or conflicting symbol",
 						diag.RelatedSpan{Message: "conflicting symbol", Span: span},
@@ -316,7 +311,7 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 				}
 				if exported == nil {
 					switch moduleLocalSymbolKind(moduleProgram(child, info, index), name) {
-					case localSymbolDo, localSymbolSubmit, localSymbolAnalyse:
+					case localSymbolDo, localSymbolAnalyse:
 						diags.AddError(
 							diag.CodeE533,
 							"symbol '"+name+"' in module '"+use.Source.Label+"' is not importable",
@@ -383,7 +378,6 @@ const (
 	localSymbolNone localSymbolKind = iota
 	localSymbolGlobal
 	localSymbolDo
-	localSymbolSubmit
 	localSymbolAnalyse
 )
 
@@ -415,10 +409,6 @@ func moduleLocalSymbolKind(prog ast.Program, name string) localSymbolKind {
 		case ast.DoBlock:
 			if n.Name == name {
 				return localSymbolDo
-			}
-		case ast.SubmitBlock:
-			if n.Name == name {
-				return localSymbolSubmit
 			}
 		case ast.AnalyseBlock:
 			if n.StepName == name {
@@ -452,10 +442,6 @@ func collectModuleNonGlobalSymbols(prog ast.Program) map[string]diag.Span {
 	for _, stmt := range prog.Stmts {
 		switch n := stmt.(type) {
 		case ast.DoBlock:
-			if _, exists := out[n.Name]; !exists {
-				out[n.Name] = n.Span
-			}
-		case ast.SubmitBlock:
 			if _, exists := out[n.Name]; !exists {
 				out[n.Name] = n.Span
 			}
@@ -508,9 +494,6 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 	}
 	for _, block := range scope.DoBlocks {
 		out.DoBlocks = append(out.DoBlocks, prefixDoBlock(block, prefix))
-	}
-	for _, block := range scope.Submits {
-		out.Submits = append(out.Submits, prefixSubmitBlock(block, prefix))
 	}
 	for index, snap := range scope.ScopeSnapshotsByIndex {
 		out.ScopeSnapshotsByIndex[index] = prefixScopeSnapshot(snap, prefix)
@@ -611,12 +594,6 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 		}
 		dst.DoBlocks = append(dst.DoBlocks, block)
 	}
-	for _, block := range src.Submits {
-		if containsSubmitName(dst.Submits, block.Name) {
-			continue
-		}
-		dst.Submits = append(dst.Submits, block)
-	}
 	for _, stepName := range src.StepOrder {
 		dst.StepOrder = appendUniqueString(dst.StepOrder, stepName)
 	}
@@ -644,7 +621,7 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 
 func emptyModuleScope() *moduleScope {
 	return &moduleScope{
-		Globals:               GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
+		Globals:               GlobalState{Values: map[string]eval.Value{}, Spans: map[string]diag.Span{}},
 		GlobalVarByName:       make(map[string]*GlobalVar),
 		GlobalVarOrder:        make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
@@ -658,7 +635,6 @@ func emptyModuleScope() *moduleScope {
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
 		BaseDirByFile:         make(map[string]string),
 		DoBlocks:              make([]ast.DoBlock, 0),
-		Submits:               make([]ast.SubmitBlock, 0),
 		AnalyseBlocks:         make([]ast.AnalyseBlock, 0),
 		StepOrder:             make([]string, 0),
 		Namespaces:            make(map[string]*Namespace),
@@ -676,13 +652,11 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	out.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	out.Globals = GlobalState{
 		Values: maps.Clone(scope.Globals.Values),
-		Modes:  maps.Clone(scope.Globals.Modes),
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
 	out.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
 	out.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
-	out.Submits = append([]ast.SubmitBlock(nil), scope.Submits...)
 	out.AnalyseBlocks = append([]ast.AnalyseBlock(nil), scope.AnalyseBlocks...)
 	out.StepOrder = append([]string(nil), scope.StepOrder...)
 	out.Env = maps.Clone(scope.Env)
@@ -738,7 +712,6 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 	next := *binding
 	next.Order = append([]string(nil), binding.Order...)
 	next.Origins = maps.Clone(binding.Origins)
-	next.Modes = maps.Clone(binding.Modes)
 	next.Vars = cloneSeriesMap(binding.Vars)
 	next.BaseVars = cloneSeriesMap(binding.BaseVars)
 	next.Rows = cloneCombRows(binding.Rows, binding.Span)
@@ -755,7 +728,6 @@ func cloneScopeSnapshot(snap *ScopeSnapshot) *ScopeSnapshot {
 		Index: snap.Index,
 		Globals: GlobalState{
 			Values: maps.Clone(snap.Globals.Values),
-			Modes:  maps.Clone(snap.Globals.Modes),
 			Spans:  maps.Clone(snap.Globals.Spans),
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(snap.Bindings)),
@@ -1028,14 +1000,6 @@ func prefixDoBlock(block ast.DoBlock, prefix string) ast.DoBlock {
 	return block
 }
 
-func prefixSubmitBlock(block ast.SubmitBlock, prefix string) ast.SubmitBlock {
-	block.Name = prefix + "." + block.Name
-	block.After = prefixNames(prefix, block.After)
-	block.UseNames = prefixNames(prefix, block.UseNames)
-	block.WithItems = prefixWithItems(block.WithItems, prefix)
-	return block
-}
-
 func prefixWithItems(items []ast.WithItem, prefix string) []ast.WithItem {
 	out := make([]ast.WithItem, len(items))
 	for i, item := range items {
@@ -1085,7 +1049,6 @@ func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 	}
 	out := cloneScopeSnapshot(snap)
 	out.Globals.Values = prefixValueMap(prefix, out.Globals.Values)
-	out.Globals.Modes = prefixStringMap(prefix, out.Globals.Modes)
 	out.Globals.Spans = prefixSpanMap(prefix, out.Globals.Spans)
 	out.GlobalVarByName = make(map[string]*GlobalVar, len(snap.GlobalVarByName))
 	out.GlobalVarOrder = prefixNames(prefix, snap.GlobalVarOrder)
@@ -1154,14 +1117,6 @@ func prefixValueMap(prefix string, in map[string]eval.Value) map[string]eval.Val
 	return out
 }
 
-func prefixStringMap(prefix string, in map[string]string) map[string]string {
-	out := make(map[string]string, len(in))
-	for name, value := range in {
-		out[prefix+"."+name] = value
-	}
-	return out
-}
-
 func prefixSpanMap(prefix string, in map[string]diag.Span) map[string]diag.Span {
 	out := make(map[string]diag.Span, len(in))
 	for name, value := range in {
@@ -1171,15 +1126,6 @@ func prefixSpanMap(prefix string, in map[string]diag.Span) map[string]diag.Span 
 }
 
 func containsStepName(blocks []ast.DoBlock, name string) bool {
-	for _, block := range blocks {
-		if block.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSubmitName(blocks []ast.SubmitBlock, name string) bool {
 	for _, block := range blocks {
 		if block.Name == name {
 			return true

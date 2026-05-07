@@ -1,6 +1,6 @@
 // implement top-level `use` imports by resolving modules into a graph.
 //
-// The loader resolves embedded and quoted file modules, parses them, resolves
+// The loader resolves quoted file modules, parses them, resolves
 // top-level `use` statements into namespace/selective edges, detects module
 // cycles, and returns per-module source text for diagnostics. Semantic import
 // behavior is handled later in sema; the loader no longer flattens imported
@@ -18,7 +18,6 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/parser"
-	"jbs/shared"
 )
 
 type LoadResult struct {
@@ -91,7 +90,7 @@ func LoadAndExpand(entryPath string, cwd string, diags *diag.Diagnostics) (*Load
 // LoadAndExpandSource resolves `use` imports for an in-memory entry module.
 //
 // The source is parsed under entryLabel and uses baseDir as importer base for
-// quoted path imports. Bare module resolution only checks embedded modules.
+// quoted path imports. Bare import names are rejected.
 func LoadAndExpandSource(entryLabel string, source string, baseDir string, cwd string, diags *diag.Diagnostics) (*LoadResult, error) {
 	r, err := newResolver(cwd, diags)
 	if err != nil {
@@ -214,40 +213,6 @@ func (r *resolver) loadFileModule(absPath string) (ModuleRef, error) {
 	return ref, nil
 }
 
-func (r *resolver) loadEmbeddedModule(name string) (ModuleRef, error) {
-	norm := normalizeEmbeddedName(name)
-	id := "embed:" + norm
-	label := filepath.ToSlash(filepath.Join("shared", norm))
-	if raw, ok := r.raw[id]; ok {
-		return raw.Ref, nil
-	}
-	src, err := shared.Read(norm)
-	if err != nil {
-		return ModuleRef{}, err
-	}
-	prog := parser.Parse(label, src, r.diags)
-	ref := ModuleRef{ID: id, Label: label}
-	r.raw[id] = &rawModule{
-		Ref:     ref,
-		Source:  src,
-		Program: prog,
-		BaseDir: r.cwd,
-	}
-	r.sources[label] = src
-	return ref, nil
-}
-
-func normalizeEmbeddedName(name string) string {
-	n := strings.TrimSpace(name)
-	if n == "" {
-		return ""
-	}
-	if !strings.HasSuffix(n, ".jbs") {
-		n += ".jbs"
-	}
-	return n
-}
-
 type bareModuleResolutionError struct {
 	Name      string
 	LocalPath string
@@ -260,16 +225,13 @@ func (e *bareModuleResolutionError) Error() string {
 	if e.LocalPath != "" {
 		return fmt.Sprintf("bare import '%s' matches local file '%s'", e.Name, e.LocalPath)
 	}
-	return fmt.Sprintf("bare import '%s' does not resolve to an embedded module", e.Name)
+	return fmt.Sprintf("bare import '%s' is not supported", e.Name)
 }
 
 func (r *resolver) resolveBareModule(name string, importerBaseDir string) (ModuleRef, error) {
 	n := strings.TrimSpace(name)
 	if n == "" {
 		return ModuleRef{}, fmt.Errorf("empty module name")
-	}
-	if shared.Has(n) {
-		return r.loadEmbeddedModule(n)
 	}
 	if localPath, ok := sameNamedLocalModule(importerBaseDir, r.cwd, n); ok {
 		return ModuleRef{}, &bareModuleResolutionError{Name: n, LocalPath: localPath}
@@ -310,7 +272,7 @@ func bareImportHint(useStmt ast.UseStmt, localPath string) string {
 	if localPath != "" {
 		return fmt.Sprintf("rewrite it as `%s` for the local file", replacement)
 	}
-	return fmt.Sprintf("bare import names are for embedded modules only; use `%s` for local files", replacement)
+	return fmt.Sprintf("use `%s` for local files", replacement)
 }
 
 func (r *resolver) reportResolveUseError(useStmt ast.UseStmt, err error) {
@@ -322,7 +284,7 @@ func (r *resolver) reportResolveUseError(useStmt ast.UseStmt, err error) {
 		}
 		r.diags.AddError(
 			code,
-			fmt.Sprintf("bare import '%s' does not resolve to an embedded module", bareErr.Name),
+			fmt.Sprintf("bare import '%s' is not supported", bareErr.Name),
 			useStmt.Span,
 			bareImportHint(useStmt, bareErr.LocalPath),
 		)
@@ -546,8 +508,6 @@ func stmtLocalSymbol(stmt ast.Stmt) (string, diag.Span, bool) {
 	case ast.GlobalAssign:
 		return n.Name, n.Span, true
 	case ast.DoBlock:
-		return n.Name, n.Span, true
-	case ast.SubmitBlock:
 		return n.Name, n.Span, true
 	default:
 		return "", diag.Span{}, false

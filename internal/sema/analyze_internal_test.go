@@ -12,50 +12,6 @@ import (
 	"jbs/internal/parser"
 )
 
-func TestAnalyzeCollectsSubmitAndCompilesSubmitSpec(t *testing.T) {
-	src := `
-x = 1
-
-do prep {
-  echo prep
-}
-
-submit run
-  after prep
-{
-  account = "a"
-  queue = "q"
-  args_exec = "-lc hostname"
-}
-`
-	diags := &diag.Diagnostics{}
-	prog := parser.Parse("in.jbs", src, diags)
-	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
-	}, diags)
-
-	if res == nil {
-		t.Fatalf("Analyze returned nil result")
-	}
-	if len(res.DoBlocks) != 1 || res.DoBlocks[0].Name != "prep" {
-		t.Fatalf("unexpected do blocks in analysis result: %#v", res.DoBlocks)
-	}
-	if len(res.Submits) != 1 || res.Submits[0].Name != "run" {
-		t.Fatalf("unexpected submit blocks in analysis result: %#v", res.Submits)
-	}
-	if _, ok := res.SubmitByName["run"]; !ok {
-		t.Fatalf("expected compiled submit spec for run, got %#v", res.SubmitByName)
-	}
-	if _, ok := res.StepScopeByName["run"]; !ok {
-		t.Fatalf("expected step scope plan for run submit step, got %#v", res.StepScopeByName)
-	}
-	if _, ok := res.GlobalVarByName["x"]; !ok {
-		t.Fatalf("expected global variable x to be compiled, got %#v", res.GlobalVarByName)
-	}
-}
-
 func TestAnalyzeCollectsAnalyseBlocks(t *testing.T) {
 	src := `
 do run {
@@ -70,9 +26,7 @@ analyse run {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 
 	if res == nil {
@@ -91,9 +45,7 @@ func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -111,9 +63,7 @@ func TestAnalyzeReturnsNamesResults(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -123,9 +73,7 @@ func TestAnalyzeReturnsNamesResults(t *testing.T) {
 	}
 	want := eval.List([]eval.Value{
 		eval.String("add"),
-		eval.String("jbs_comment"),
 		eval.String("jbs_name"),
-		eval.String("jbs_outpath"),
 		eval.String("x"),
 	})
 	if !eval.Equal(res.TopLevelExprs[0].Value, want) {
@@ -145,9 +93,7 @@ func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
 	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -172,9 +118,7 @@ func TestAnalyzeWithImportsReturnsNamesNamespaceResults(t *testing.T) {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
 	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -200,18 +144,14 @@ func TestAnalyzeWithImportsReturnsNamesSelectiveFunctionResults(t *testing.T) {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
 	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	want := eval.List([]eval.Value{
 		eval.String("add"),
-		eval.String("jbs_comment"),
 		eval.String("jbs_name"),
-		eval.String("jbs_outpath"),
 	})
 	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, want) {
 		t.Fatalf("unexpected selective names() result: %#v", res.TopLevelExprs)
@@ -230,9 +170,7 @@ func TestAnalyzeWithImportsNamesNamespaceRespectsVisibilityOrder(t *testing.T) {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
 	_ = AnalyzeWithImports(loadRes, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if !diags.HasErrors() {
 		t.Fatalf("expected visibility-order error")
@@ -247,9 +185,7 @@ func TestAnalyzeReturnsTableNamesResults(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -268,9 +204,7 @@ func TestAnalyzeSupportsTableShortcut(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -296,9 +230,7 @@ value
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("functions.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -336,9 +268,7 @@ total
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("higher_order.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -449,9 +379,7 @@ func TestAnalyzeWithImportsSupportsMapReduceCallbacks(t *testing.T) {
 		t.Fatalf("LoadAndExpandSource failed: %v", err)
 	}
 	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
-		"jbs_name":    eval.String("bench"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name": eval.String("bench"),
 	}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())

@@ -41,7 +41,6 @@ type HeaderElemKind string
 
 const (
 	HeaderElemAfter   HeaderElemKind = "after"
-	HeaderElemUse     HeaderElemKind = "use"
 	HeaderElemWith    HeaderElemKind = "with"
 	HeaderElemOption  HeaderElemKind = "option"
 	HeaderElemComment HeaderElemKind = "comment"
@@ -210,54 +209,20 @@ type AnalyseColumn struct {
 func (a AnalyseColumn) GetSpan() diag.Span { return a.Span }
 
 type DoBlock struct {
-	Name       string
-	After      []string
-	WithItems  []WithItem
-	MaxAsync   *int
-	Procs      *int
-	Iterations *int
-	HeaderRaw  string
-	Header     []HeaderElem
-	Body       string
-	BodyStart  diag.Position
-	Span       diag.Span
-	Comments   NodeComments
+	Name      string
+	After     []string
+	WithItems []WithItem
+	NProc     *int
+	HeaderRaw string
+	Header    []HeaderElem
+	Body      string
+	BodyStart diag.Position
+	Span      diag.Span
+	Comments  NodeComments
 }
 
 func (d DoBlock) stmtNode()          {}
 func (d DoBlock) GetSpan() diag.Span { return d.Span }
-
-type SubmitBlock struct {
-	Name       string
-	After      []string
-	UseNames   []string
-	WithItems  []WithItem
-	MaxAsync   *int
-	Procs      *int
-	Iterations *int
-	HeaderRaw  string
-	Header     []HeaderElem
-	Fields     []SubmitField
-	BodyRaw    string
-	BodyStart  diag.Position
-	Span       diag.Span
-	Comments   NodeComments
-}
-
-func (s SubmitBlock) stmtNode()          {}
-func (s SubmitBlock) GetSpan() diag.Span { return s.Span }
-
-type SubmitField struct {
-	Name     string
-	Op       AssignOp
-	Expr     Expr
-	Raw      string
-	RawStart diag.Position
-	IsRaw    bool
-	Span     diag.Span
-}
-
-func (s SubmitField) GetSpan() diag.Span { return s.Span }
 
 type Expr interface {
 	Node
@@ -499,15 +464,6 @@ type ConditionalExpr struct {
 
 func (e ConditionalExpr) exprNode()          {}
 func (e ConditionalExpr) GetSpan() diag.Span { return e.Span }
-
-type ModeExpr struct {
-	Mode string
-	Expr Expr
-	Span diag.Span
-}
-
-func (e ModeExpr) exprNode()          {}
-func (e ModeExpr) GetSpan() diag.Span { return e.Span }
 
 type CombExpr interface {
 	Node

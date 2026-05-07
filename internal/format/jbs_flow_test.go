@@ -58,27 +58,16 @@ func TestJBSInvalidSource(t *testing.T) {
 
 func TestJBSMixedActiveStatements(t *testing.T) {
 	src := `
-jbs_name="bench" # inline global
-jbs_outpath="out"
-# use comment
+	jbs_name="bench" # inline global
+	jbs_nproc=2
+	# use comment
 use "./lib.jbs" as m
 do prep
    with p[x,y]
-   max_async=2 procs=4 iterations=1
+   nproc 2
 {
 echo one \
 two
-}
-submit run
-        after prep
-        use defaults
-        with p0, p1[x]
-{
-queue="batch"
-preprocess = {
-echo pre
-}
-args_exec="-lc hostname"
 }
 analyse run
    with p[x]
@@ -97,16 +86,12 @@ n = "N: %d" in "out.log"
 	}
 	checks := []string{
 		`jbs_name = "bench" # inline global`,
-		`jbs_outpath = "out"`,
+		`jbs_nproc = 2`,
 		`# use comment`,
 		`use "./lib.jbs" as m`,
 		`do prep`,
 		`        with p[x,y]`,
-		`        max_async=2 procs=4 iterations=1`,
-		`submit run`,
-		`        after prep`,
-		`        use defaults`,
-		`        queue = "batch"`,
+		`        nproc 2`,
 		`analyse run`,
 		`        with p[x]`,
 	}
@@ -119,11 +104,11 @@ n = "N: %d" in "out.log"
 
 func TestJBSFormatsTopLevelExprLines(t *testing.T) {
 	src := `
-use jsc
-  jsc.systemname
+use "./lib.jbs" as lib
+  lib.value
 x=(1, 2)
- x
-`
+	 x
+	`
 	var diags diag.Diagnostics
 	got, err := JBS("exprs.jbs", src, &diags)
 	if err != nil {
@@ -133,8 +118,8 @@ x=(1, 2)
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 	checks := []string{
-		"use jsc",
-		"jsc.systemname",
+		`use "./lib.jbs" as lib`,
+		"lib.value",
 		"x = (1, 2)",
 		"x",
 	}
@@ -303,23 +288,20 @@ func TestHeaderClauseRenderingCoverage(t *testing.T) {
 	}
 	clauses := buildRenderedHeaderClauses(
 		[]string{"s0", "s1"},
-		[]string{"defaults"},
 		with,
 		intPtr(2),
-		intPtr(4),
-		intPtr(1),
 	)
-	if len(clauses) != 4 {
+	if len(clauses) != 3 {
 		t.Fatalf("unexpected clause count: %d", len(clauses))
 	}
-	if got := clauses[2].Text; got != "with p[x,y], p0[x]" {
+	if got := clauses[1].Text; got != "with p[x,y], p0[x]" {
 		t.Fatalf("unexpected with clause: %q", got)
 	}
-	if got := clauses[3].Text; got != "max_async=2 procs=4 iterations=1" {
+	if got := clauses[2].Text; got != "nproc 2" {
 		t.Fatalf("unexpected option clause: %q", got)
 	}
 
-	if got := renderStepOptionClause(nil, nil, nil); got != "" {
+	if got := renderStepOptionClause(nil); got != "" {
 		t.Fatalf("expected empty step options, got %q", got)
 	}
 	if got := toHeaderClauseKind(ast.HeaderElemWith); got != headerClauseWith {
@@ -332,13 +314,11 @@ func TestHeaderClauseRenderingCoverage(t *testing.T) {
 
 func TestActiveBlockFormatters(t *testing.T) {
 	doBlock := ast.DoBlock{
-		Name:       "run",
-		After:      []string{"setup"},
-		WithItems:  []ast.WithItem{{Source: "p"}},
-		MaxAsync:   intPtr(2),
-		Procs:      intPtr(3),
-		Iterations: intPtr(1),
-		Body:       "echo one \\\ntwo",
+		Name:      "run",
+		After:     []string{"setup"},
+		WithItems: []ast.WithItem{{Source: "p"}},
+		NProc:     intPtr(2),
+		Body:      "echo one \\\ntwo",
 	}
 	doLines := formattedLineTexts(formatDoBlock(doBlock))
 	if len(doLines) == 0 || doLines[0] != "do run" {
@@ -362,63 +342,6 @@ func TestActiveBlockFormatters(t *testing.T) {
 	}
 	if !containsLine(analyseLines, "        with p") {
 		t.Fatalf("missing with clause in analyse block: %v", analyseLines)
-	}
-
-	submitRaw := ast.SubmitBlock{
-		Name: "run",
-		BodyRaw: `queue="batch"
-preprocess = {
-echo pre
-}`,
-	}
-	submitLines := formattedLineTexts(formatSubmitBlock(submitRaw, nil))
-	if len(submitLines) == 0 || submitLines[0] != "submit run" {
-		t.Fatalf("unexpected submit block header: %v", submitLines)
-	}
-	if !containsLine(submitLines, `        queue = "batch"`) {
-		t.Fatalf("missing queue assignment in submit raw-body formatting: %v", submitLines)
-	}
-	if !containsLine(submitLines, `                echo pre`) {
-		t.Fatalf("missing nested raw-block indentation in submit formatting: %v", submitLines)
-	}
-}
-
-func TestRenderSubmitFieldsOperators(t *testing.T) {
-	src := []rune(`"batch" 4 2`)
-	fields := []ast.SubmitField{
-		{
-			Name: "queue",
-			Op:   ast.AssignPlusEq,
-			Expr: ast.StringExpr{
-				Span: diag.Span{
-					Start: diag.Position{Offset: 0},
-					End:   diag.Position{Offset: 7},
-				},
-			},
-		},
-		{
-			Name: "tasks",
-			Op:   ast.AssignStarEq,
-			Expr: ast.NumberExpr{
-				Span: diag.Span{
-					Start: diag.Position{Offset: 8},
-					End:   diag.Position{Offset: 9},
-				},
-			},
-		},
-		{
-			Name: "nodes",
-			Expr: nil,
-		},
-	}
-	got := formattedLineTexts(renderSubmitFields(fields, src))
-	want := []string{
-		`        queue += "batch"`,
-		`        tasks *= 4`,
-		`        nodes = ""`,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected rendered submit fields\n--- got ---\n%v\n--- want ---\n%v", got, want)
 	}
 }
 

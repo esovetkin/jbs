@@ -1,4 +1,4 @@
-// row-grouping utilities for import/lowering planning
+// row-grouping utilities for import and runtime planning
 //
 // group row indices by identical tuples of variable values
 // (`BuildRowGroups`), using a stable tuple-key encoding

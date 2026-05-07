@@ -151,13 +151,10 @@ func classifyHeaderElemKind(code string) ast.HeaderElemKind {
 	if hasKeywordPrefix(code, "after") {
 		return ast.HeaderElemAfter
 	}
-	if hasKeywordPrefix(code, "use") {
-		return ast.HeaderElemUse
-	}
 	if hasKeywordPrefix(code, "with") {
 		return ast.HeaderElemWith
 	}
-	if isStepOptionLine(code) {
+	if isDoHeaderOptionLine(code) {
 		return ast.HeaderElemOption
 	}
 	return ast.HeaderElemUnknown
@@ -174,24 +171,9 @@ func hasKeywordPrefix(text string, keyword string) bool {
 	return unicode.IsSpace(r)
 }
 
-func isStepOptionLine(text string) bool {
-	key := leadingIdent(text)
-	if !isAllowedStepOptionKey(key) {
+func isDoHeaderOptionLine(text string) bool {
+	if !hasKeywordPrefix(text, "nproc") {
 		return false
 	}
-	rest := strings.TrimSpace(text[len(key):])
-	return strings.HasPrefix(rest, "=")
-}
-
-func leadingIdent(text string) string {
-	i := 0
-	for i < len(text) {
-		r := rune(text[i])
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-			i++
-			continue
-		}
-		break
-	}
-	return text[:i]
+	return strings.TrimSpace(text[len("nproc"):]) != ""
 }

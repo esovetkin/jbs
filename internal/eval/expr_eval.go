@@ -8,7 +8,7 @@
 // ```
 //
 // implement the `a` and `b` assignments. It also handles operations
-// with literals/unary/binary/compare/conditional/mode/calls
+// with literals/unary/binary/compare/conditional/calls
 package eval
 
 import (
@@ -30,7 +30,6 @@ const (
 	EvalCtxDefault EvalContext = iota
 	EvalCtxBindingAssign
 	EvalCtxScalarGlobalAssign
-	EvalCtxSubmitField
 	EvalCtxAnalyseAssign
 )
 
@@ -236,8 +235,6 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			return evalExprWithCtx(e.Then, env, diags, opts, ctx)
 		}
 		return evalExprWithCtx(e.Else, env, diags, opts, ctx)
-	case ast.ModeExpr:
-		return evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 	default:
 		diags.AddError(diag.CodeE199, "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()
@@ -815,8 +812,6 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 	case ast.BinaryExpr:
 		return binaryNeedsRelaxedCombEval(e.Left) || binaryNeedsRelaxedCombEval(e.Right)
 	case ast.UnaryExpr:
-		return binaryNeedsRelaxedCombEval(e.Expr)
-	case ast.ModeExpr:
 		return binaryNeedsRelaxedCombEval(e.Expr)
 	case ast.CallExpr:
 		if binaryNeedsRelaxedCombEval(e.Callee) {

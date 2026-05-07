@@ -11,7 +11,7 @@ import (
 	"jbs/internal/eval"
 )
 
-func TestRunLowersLoopComputedGlobals(t *testing.T) {
+func TestRunCheckAcceptsLoopComputedGlobals(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
 	src := `
@@ -28,12 +28,11 @@ do run with values {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful run, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
 	}
-	out := stdout.String()
-	if !strings.Contains(out, "name: loop_demo") || !strings.Contains(out, "name: run") || !strings.Contains(out, "_: 0,1,2") {
-		t.Fatalf("unexpected lowered output:\n%s", out)
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no check output, got %q", stdout.String())
 	}
 }
 
@@ -71,7 +70,7 @@ func TestRunRejectsDeclarationInsideLoop(t *testing.T) {
 		t.Fatalf("expected run failure, stdout=%s stderr=%s", stdout.String(), stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no YAML on parser error, got %q", stdout.String())
+		t.Fatalf("expected no stdout on parser error, got %q", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "ERROR E080") {
 		t.Fatalf("expected E080, got %q", stderr.String())

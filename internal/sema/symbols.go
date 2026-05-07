@@ -16,9 +16,8 @@ const (
 type ImportContext string
 
 const (
-	ImportIntoStep      ImportContext = "step"
-	ImportIntoSubmitUse ImportContext = "submit_use"
-	ImportIntoAnalyse   ImportContext = "analyse"
+	ImportIntoStep    ImportContext = "step"
+	ImportIntoAnalyse ImportContext = "analyse"
 )
 
 type GlobalBinding struct {
@@ -30,7 +29,6 @@ type GlobalBinding struct {
 	Vars            map[string][]eval.Value
 	BaseVars        map[string][]eval.Value
 	Origins         map[string]diag.Span
-	Modes           map[string]string
 	Order           []string
 	Span            diag.Span
 	DependsOn       []string
@@ -46,8 +44,6 @@ func (b *GlobalBinding) Supports(ctx ImportContext) bool {
 	switch ctx {
 	case ImportIntoStep:
 		return true
-	case ImportIntoSubmitUse:
-		return b.Shape == BindingScalar
 	case ImportIntoAnalyse:
 		if b.Shape != BindingScalar {
 			return false
@@ -68,14 +64,12 @@ func (b *GlobalBinding) Supports(ctx ImportContext) bool {
 
 type GlobalState struct {
 	Values map[string]eval.Value
-	Modes  map[string]string
 	Spans  map[string]diag.Span
 }
 
 type GlobalVar struct {
 	Name          string
 	Value         eval.Value
-	Mode          string
 	Span          diag.Span
 	Order         []string
 	Vars          map[string][]eval.Value
@@ -121,9 +115,7 @@ type Result struct {
 	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 	Namespaces            map[string]*Namespace
 	DoBlocks              []ast.DoBlock
-	Submits               []ast.SubmitBlock
 	StepOrder             []string
-	SubmitByName          map[string]*SubmitSpec
 	StepScopeByName       map[string]*StepScopePlan
 	Analyse               []*AnalyseSpec
 }
@@ -152,36 +144,7 @@ type StepScopePlan struct {
 	InheritedSteps []string
 }
 
-type SubmitValue struct {
-	Name  string
-	Mode  string
-	Value eval.Value
-	Raw   string
-	IsRaw bool
-	Span  diag.Span
-}
-
-type SubmitHelper struct {
-	Original  string
-	Aliased   string
-	Mode      string
-	Value     eval.Value
-	Span      diag.Span
-	UseName   string
-	Source    string
-	SourceVar string
-}
-
-type SubmitSpec struct {
-	Name    string
-	Values  []SubmitValue
-	Helpers []SubmitHelper
-	Span    diag.Span
-}
-
 type PatternTemplate struct {
-	Group string
-	Name  string
 	Regex string
 	Type  string
 	Span  diag.Span
@@ -199,8 +162,6 @@ type AnalyseSpec struct {
 
 type AnalyseAssignmentSpec struct {
 	Name     string
-	Group    string
-	Pattern  string
 	File     string
 	Template PatternTemplate
 	Span     diag.Span

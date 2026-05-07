@@ -50,8 +50,6 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		}
 	case ast.MemberExpr:
 		collectGlobalExprDepsBound(e.Base, out, bound)
-	case ast.ModeExpr:
-		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.ListExpr:
 		for _, it := range e.Items {
 			collectGlobalExprDepsBound(it, out, bound)
@@ -171,19 +169,9 @@ func globalVarFromImportedBinding(name string, binding *GlobalBinding, span diag
 		return nil
 	}
 	order, vars := globalVarSeries(name, binding.Value)
-	mode := ""
-	if len(order) == 1 {
-		if binding.Modes != nil {
-			mode = binding.Modes[order[0]]
-			if mode == "" && binding.Name != "" {
-				mode = binding.Modes[binding.Name]
-			}
-		}
-	}
 	return &GlobalVar{
 		Name:          name,
 		Value:         binding.Value,
-		Mode:          mode,
 		Span:          span,
 		Order:         order,
 		Vars:          vars,
@@ -198,14 +186,9 @@ func globalVarFromImportedGlobal(name string, source *GlobalVar, span diag.Span)
 		return nil
 	}
 	order, vars := globalVarSeries(name, source.Value)
-	mode := ""
-	if len(order) == 1 {
-		mode = source.Mode
-	}
 	return &GlobalVar{
 		Name:          name,
 		Value:         source.Value,
-		Mode:          mode,
 		Span:          span,
 		Order:         order,
 		Vars:          vars,
@@ -227,12 +210,8 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 	vars := cloneSeriesMap(gv.Vars)
 	baseVars := cloneSeriesMap(gv.Vars)
 	origins := make(map[string]diag.Span, len(order))
-	modes := make(map[string]string)
 	for _, col := range order {
 		origins[col] = gv.Span
-	}
-	if gv.Mode != "" && len(order) == 1 {
-		modes[order[0]] = gv.Mode
 	}
 
 	rows := make([]eval.Row, 0)
@@ -262,7 +241,6 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 		Vars:            vars,
 		BaseVars:        baseVars,
 		Origins:         origins,
-		Modes:           modes,
 		Order:           order,
 		Span:            gv.Span,
 		DependsOn:       append([]string(nil), gv.DependsOn...),
@@ -279,9 +257,6 @@ func mergeGlobalVarsIntoState(state *GlobalState, byName map[string]*GlobalVar) 
 	if state.Values == nil {
 		state.Values = make(map[string]eval.Value)
 	}
-	if state.Modes == nil {
-		state.Modes = make(map[string]string)
-	}
 	if state.Spans == nil {
 		state.Spans = make(map[string]diag.Span)
 	}
@@ -291,11 +266,6 @@ func mergeGlobalVarsIntoState(state *GlobalState, byName map[string]*GlobalVar) 
 		}
 		state.Values[name] = gv.Value
 		state.Spans[name] = gv.Span
-		if gv.Mode != "" {
-			state.Modes[name] = gv.Mode
-		} else {
-			delete(state.Modes, name)
-		}
 	}
 }
 

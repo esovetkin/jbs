@@ -31,35 +31,31 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 				Expr: ast.CallExpr{
 					Callee: ast.IdentExpr{Name: "list", Span: sp},
 					Args: ast.PosCallArgs(
-						ast.ModeExpr{
-							Mode: "python",
-							Expr: ast.ListExpr{
-								Items: []ast.Expr{
-									ast.IdentExpr{Name: "a", Span: sp},
-									ast.QualifiedIdentExpr{Namespace: "ns", Name: "skip", Span: sp},
-									ast.MemberExpr{
-										Base: ast.IndexExpr{
-											Base:  ast.IdentExpr{Name: "m", Span: sp},
-											Items: []ast.Expr{ast.IdentExpr{Name: "ignored", Span: sp}},
+						ast.ListExpr{
+							Items: []ast.Expr{
+								ast.IdentExpr{Name: "a", Span: sp},
+								ast.QualifiedIdentExpr{Namespace: "ns", Name: "skip", Span: sp},
+								ast.MemberExpr{
+									Base: ast.IndexExpr{
+										Base:  ast.IdentExpr{Name: "m", Span: sp},
+										Items: []ast.Expr{ast.IdentExpr{Name: "ignored", Span: sp}},
+										Span:  sp,
+									},
+									Name: "member",
+									Span: sp,
+								},
+								ast.TupleExpr{
+									Items: []ast.Expr{
+										ast.IdentExpr{Name: "b", Span: sp},
+										ast.CompareExpr{
+											Left:  ast.IdentExpr{Name: "c", Span: sp},
+											Op:    "==",
+											Right: ast.IdentExpr{Name: "d", Span: sp},
 											Span:  sp,
 										},
-										Name: "member",
-										Span: sp,
 									},
-									ast.TupleExpr{
-										Items: []ast.Expr{
-											ast.IdentExpr{Name: "b", Span: sp},
-											ast.CompareExpr{
-												Left:  ast.IdentExpr{Name: "c", Span: sp},
-												Op:    "==",
-												Right: ast.IdentExpr{Name: "d", Span: sp},
-												Span:  sp,
-											},
-										},
-										Span: sp,
-									},
+									Span: sp,
 								},
-								Span: sp,
 							},
 							Span: sp,
 						},

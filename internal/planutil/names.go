@@ -4,7 +4,7 @@
 // compute effective row count across imported variables deterministic
 // source variable ordering (`SourceVarNames`), and expand a
 // variable's base values to row-count length with cyclic
-// indexing/null fill (`ExpandValues`) for downstream import/lowering
+// indexing/null fill (`ExpandValues`) for downstream import and runtime planning
 package planutil
 
 import (

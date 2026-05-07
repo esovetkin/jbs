@@ -28,21 +28,21 @@ func TestScanContinuationState(t *testing.T) {
 		{name: "unmatched_closer_does_not_require_more", src: "x = 1}", wantNeedsMore: false},
 		{
 			name: "raw_block_like_nested",
-			src: `submit run {
-preprocess = {
-  echo hi
-}
-`,
+			src: `do run {
+	if true {
+	  echo hi
+	}
+	`,
 			wantNeedsMore:  true,
 			wantBraceDepth: 1,
 		},
 		{
 			name: "raw_block_like_complete",
-			src: `submit run {
-preprocess = {
-  echo hi
-}
-}`,
+			src: `do run {
+	if true {
+	  echo hi
+	}
+	}`,
 			wantNeedsMore: false,
 		},
 		{

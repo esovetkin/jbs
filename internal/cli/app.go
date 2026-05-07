@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -12,15 +13,13 @@ import (
 	helpdocs "jbs/docs"
 	"jbs/internal/ast"
 	"jbs/internal/diag"
-	"jbs/internal/emit"
 	"jbs/internal/eval"
 	jbsformat "jbs/internal/format"
 	"jbs/internal/imports"
-	"jbs/internal/lower"
 	"jbs/internal/printparam"
 	jbsrepl "jbs/internal/repl"
+	jbsrun "jbs/internal/run"
 	"jbs/internal/sema"
-	"jbs/shared"
 )
 
 // analysisBundle contains the entire parsed AST, corresponding
@@ -57,49 +56,92 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Fmt {
 		return runFmt(flags.Input, flags.FmtStrict, stdout, stderr)
 	}
-	if flags.Embed {
-		return runEmbed(flags.EmbedName, stdout, stderr)
-	}
 	if flags.PrintParam {
 		return runPrintParam(flags, stdout, stderr)
+	}
+	if flags.Run {
+		return runBenchmark(flags.Input, stdout, stderr)
+	}
+	if flags.Continue {
+		return continueBenchmark(flags.Input, stdout, stderr)
+	}
+	if flags.Check {
+		return checkInput(flags.Input, stdout, stderr)
 	}
 	if flags.Input == "" {
 		fmt.Fprintln(stderr, "missing input file")
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
+	return runBenchmark(flags.Input, stdout, stderr)
+}
 
+func checkInput(path string, stdout, stderr io.Writer) int {
+	_ = stdout
 	diags := &diag.Diagnostics{}
-	bundle, err := analyzeInput(flags.Input, diags)
+	bundle, err := analyzeInput(path, diags)
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to load input %q: %v\n", flags.Input, err)
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
 		return 1
 	}
-	doc := lower.ToJUBEYAML(bundle.Result, diags)
-
 	if len(diags.Items) > 0 {
 		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
 	if diags.HasErrors() {
 		return 1
 	}
-	if flags.Check {
-		return 0
-	}
+	return 0
+}
 
-	outBytes, err := emit.YAML(doc)
+func runBenchmark(path string, stdout, stderr io.Writer) int {
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(path, diags)
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to encode YAML: %v\n", err)
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
 		return 1
 	}
-
-	if flags.Output == "-" {
-		_, err = stdout.Write(outBytes)
-	} else {
-		err = os.WriteFile(flags.Output, outBytes, 0o644)
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
+	if diags.HasErrors() {
+		return 1
+	}
+	if err := jbsrun.Run(context.Background(), jbsrun.Options{
+		Input:       path,
+		Result:      bundle.Result,
+		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Stdout:      stdout,
+		Stderr:      stderr,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func continueBenchmark(path string, stdout, stderr io.Writer) int {
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(path, diags)
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to write output: %v\n", err)
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
+		return 1
+	}
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
+	}
+	if diags.HasErrors() {
+		return 1
+	}
+	if err := jbsrun.Continue(context.Background(), jbsrun.Options{
+		Input:       path,
+		Result:      bundle.Result,
+		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Stdout:      stdout,
+		Stderr:      stderr,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
@@ -213,27 +255,6 @@ func runRepl(stdout, stderr io.Writer) int {
 		}
 		return diagText, diags.HasErrors(), nil
 	}
-	yaml := func(source string) (string, string, bool, error) {
-		diags := &diag.Diagnostics{}
-		bundle, err := analyzeSource("<repl>", source, cwd, diags)
-		if err != nil {
-			return "", "", true, err
-		}
-		doc := lower.ToJUBEYAML(bundle.Result, diags)
-		diagText := ""
-		errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
-		if len(errorDiags.Items) > 0 {
-			diagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
-		}
-		if diags.HasErrors() {
-			return "", diagText, true, nil
-		}
-		out, err := emit.YAML(doc)
-		if err != nil {
-			return "", diagText, true, err
-		}
-		return string(out), diagText, false, nil
-	}
 	commit := func(source, chunk string) (jbsrepl.CommitResult, error) {
 		return commitReplChunk(cwd, source, chunk)
 	}
@@ -242,7 +263,6 @@ func runRepl(stdout, stderr io.Writer) int {
 		Stderr: stderr,
 		Cwd:    cwd,
 		Check:  check,
-		YAML:   yaml,
 		Commit: commit,
 	})
 }
@@ -409,7 +429,7 @@ func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error)
 	if err != nil {
 		return nil, err
 	}
-	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImports(loadRes, sema.BuiltinGlobalValues(), diags)
 	prog := ast.Program{}
 	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
 		prog = info.Program
@@ -426,7 +446,7 @@ func analyzeSource(file string, source string, cwd string, diags *diag.Diagnosti
 	if err != nil {
 		return nil, err
 	}
-	res := sema.AnalyzeWithImports(loadRes, lower.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImports(loadRes, sema.BuiltinGlobalValues(), diags)
 	prog := ast.Program{}
 	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
 		prog = info.Program
@@ -436,31 +456,6 @@ func analyzeSource(file string, source string, cwd string, diags *diag.Diagnosti
 		Sources: loadRes.Sources,
 		Result:  res,
 	}, nil
-}
-
-func runEmbed(name string, stdout, stderr io.Writer) int {
-	if strings.TrimSpace(name) == "" {
-		files, err := shared.List()
-		if err != nil {
-			fmt.Fprintf(stderr, "failed to list embedded files: %v\n", err)
-			return 1
-		}
-		for _, file := range files {
-			fmt.Fprintln(stdout, file)
-		}
-		return 0
-	}
-	text, err := shared.Read(name)
-	if err != nil {
-		fmt.Fprintf(stderr, "unknown embedded file %q\n", name)
-		return 1
-	}
-	_, err = io.WriteString(stdout, text)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to write embedded content: %v\n", err)
-		return 1
-	}
-	return 0
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

@@ -15,13 +15,14 @@ func mustParseFlags(t *testing.T, args []string) Flags {
 	return f
 }
 
-func TestParseFlagsCompileModeCases(t *testing.T) {
+func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 	cases := []struct {
 		name       string
 		args       []string
 		wantInput  string
 		wantOutput string
 		wantCheck  bool
+		wantRun    bool
 	}{
 		{
 			name:       "defaults",
@@ -29,27 +30,29 @@ func TestParseFlagsCompileModeCases(t *testing.T) {
 			wantInput:  "input.jbs",
 			wantOutput: "-",
 			wantCheck:  false,
+			wantRun:    true,
 		},
 		{
-			name:       "check_and_output",
-			args:       []string{"--check", "-o", "JUBE.yaml", "input.jbs"},
+			name:       "check",
+			args:       []string{"--check", "input.jbs"},
 			wantInput:  "input.jbs",
-			wantOutput: "JUBE.yaml",
+			wantOutput: "-",
 			wantCheck:  true,
 		},
 		{
-			name:       "short_check_and_output",
-			args:       []string{"-c", "-o", "JUBE.yaml", "input.jbs"},
+			name:       "short_check",
+			args:       []string{"-c", "input.jbs"},
 			wantInput:  "input.jbs",
-			wantOutput: "JUBE.yaml",
+			wantOutput: "-",
 			wantCheck:  true,
 		},
 		{
-			name:       "output_after_input",
-			args:       []string{"input.jbs", "-o", "JUBE.yaml"},
+			name:       "run_command",
+			args:       []string{"run", "input.jbs"},
 			wantInput:  "input.jbs",
-			wantOutput: "JUBE.yaml",
+			wantOutput: "-",
 			wantCheck:  false,
+			wantRun:    true,
 		},
 	}
 
@@ -65,6 +68,9 @@ func TestParseFlagsCompileModeCases(t *testing.T) {
 			}
 			if f.Check != tc.wantCheck {
 				t.Fatalf("unexpected check flag: got=%v want=%v", f.Check, tc.wantCheck)
+			}
+			if f.Run != tc.wantRun {
+				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
 			}
 		})
 	}
@@ -188,38 +194,6 @@ func TestHelpUsageTextMatchesTopicRegistry(t *testing.T) {
 	want := "usage: jbs help [" + helpUsageTopics() + "]"
 	if got := helpUsageMessage(); got != want {
 		t.Fatalf("unexpected help usage message: got=%q want=%q", got, want)
-	}
-}
-
-func TestParseFlagsEmbedModes(t *testing.T) {
-	cases := []struct {
-		name          string
-		args          []string
-		wantEmbed     bool
-		wantEmbedName string
-	}{
-		{
-			name:          "embed_list",
-			args:          []string{"embed"},
-			wantEmbed:     true,
-			wantEmbedName: "",
-		},
-		{
-			name:          "embed_name",
-			args:          []string{"embed", "jsc"},
-			wantEmbed:     true,
-			wantEmbedName: "jsc",
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			f := mustParseFlags(t, tc.args)
-			if f.Embed != tc.wantEmbed || f.EmbedName != tc.wantEmbedName {
-				t.Fatalf("unexpected embed flags: got=%#v", f)
-			}
-		})
 	}
 }
 
@@ -356,6 +330,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "printparam_rejects_check", args: []string{"printparam", "--check", "input.jbs"}},
 		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
 		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
+		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
+		{name: "run_rejects_option", args: []string{"run", "-o", "out.yaml", "input.jbs"}},
+		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "repl_extra_argument", args: []string{"repl", "extra"}},
 		{name: "too_many_args", args: []string{"a.jbs", "b.jbs"}},
 	}

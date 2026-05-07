@@ -12,7 +12,7 @@ func TestParseHeaderElementsKindsAndComments(t *testing.T) {
 		"  # lead comment\n" +
 		"with p[x], q # inline note\n" +
 		"\n" +
-		"max_async = 2\n" +
+		"nproc 2\n" +
 		"after prep\n" +
 		"use defaults\n" +
 		"unknown header line\n" +
@@ -34,14 +34,14 @@ func TestParseHeaderElementsKindsAndComments(t *testing.T) {
 	if elems[2].Kind != ast.HeaderElemBlank {
 		t.Fatalf("expected internal blank line to be preserved, got %#v", elems[2])
 	}
-	if elems[3].Kind != ast.HeaderElemOption || elems[3].Text != "max_async = 2" {
+	if elems[3].Kind != ast.HeaderElemOption || elems[3].Text != "nproc 2" {
 		t.Fatalf("unexpected option element: %#v", elems[3])
 	}
 	if elems[4].Kind != ast.HeaderElemAfter {
 		t.Fatalf("expected after element, got %#v", elems[4])
 	}
-	if elems[5].Kind != ast.HeaderElemUse {
-		t.Fatalf("expected use element, got %#v", elems[5])
+	if elems[5].Kind != ast.HeaderElemUnknown {
+		t.Fatalf("expected use line to be unknown element, got %#v", elems[5])
 	}
 	if elems[6].Kind != ast.HeaderElemUnknown || elems[6].Text != "unknown header line" {
 		t.Fatalf("unexpected unknown element: %#v", elems[6])
@@ -188,16 +188,13 @@ func TestClassifyHeaderElemKind(t *testing.T) {
 		want ast.HeaderElemKind
 	}{
 		{code: "after a", want: ast.HeaderElemAfter},
-		{code: "use p", want: ast.HeaderElemUse},
+		{code: "use p", want: ast.HeaderElemUnknown},
 		{code: "with p", want: ast.HeaderElemWith},
 		{code: "afterx p", want: ast.HeaderElemUnknown},
 		{code: "usex p", want: ast.HeaderElemUnknown},
-		{code: "procs = 4", want: ast.HeaderElemOption},
-		{code: "max_async=1", want: ast.HeaderElemOption},
-		{code: "iterations = 3", want: ast.HeaderElemOption},
+		{code: "nproc 4", want: ast.HeaderElemOption},
 		{code: "withx p", want: ast.HeaderElemUnknown},
-		{code: "iterattions = 1", want: ast.HeaderElemUnknown},
-		{code: "max_async 1", want: ast.HeaderElemUnknown},
+		{code: "np 1", want: ast.HeaderElemUnknown},
 	}
 	for _, tt := range tests {
 		if got := classifyHeaderElemKind(tt.code); got != tt.want {
@@ -226,43 +223,19 @@ func TestHasKeywordPrefix(t *testing.T) {
 	}
 }
 
-func TestIsStepOptionLine(t *testing.T) {
+func TestIsDoHeaderOptionLine(t *testing.T) {
 	tests := []struct {
 		text string
 		want bool
 	}{
-		{text: "max_async=1", want: true},
-		{text: "max_async = 1", want: true},
-		{text: "max_async\t=\t1", want: true},
-		{text: "procs = 2", want: true},
-		{text: "iterations=3", want: true},
-		{text: "iterattions=3", want: false},
-		{text: "max_async 1", want: false},
-		{text: "_max_async=1", want: false},
-		{text: "=1", want: false},
+		{text: "nproc 1", want: true},
+		{text: "nproc\t1", want: true},
+		{text: "np 1", want: false},
+		{text: "nproc", want: false},
 	}
 	for _, tt := range tests {
-		if got := isStepOptionLine(tt.text); got != tt.want {
-			t.Fatalf("isStepOptionLine(%q)=%v, want %v", tt.text, got, tt.want)
-		}
-	}
-}
-
-func TestLeadingIdent(t *testing.T) {
-	tests := []struct {
-		text string
-		want string
-	}{
-		{text: "max_async = 1", want: "max_async"},
-		{text: "name42=7", want: "name42"},
-		{text: "_x=1", want: "_x"},
-		{text: "a.b=1", want: "a"},
-		{text: "=1", want: ""},
-		{text: " x=1", want: ""},
-	}
-	for _, tt := range tests {
-		if got := leadingIdent(tt.text); got != tt.want {
-			t.Fatalf("leadingIdent(%q)=%q, want %q", tt.text, got, tt.want)
+		if got := isDoHeaderOptionLine(tt.text); got != tt.want {
+			t.Fatalf("isDoHeaderOptionLine(%q)=%v, want %v", tt.text, got, tt.want)
 		}
 	}
 }

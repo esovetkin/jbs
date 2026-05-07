@@ -1,14 +1,13 @@
 # jbs help globals
 
-```jbs
+Built-in globals:
 
-# Benchmark name (root `name` field). maps_to: root:name. mode: -
+```jbs
+# Benchmark directory name.
 jbs_name = "jbs_benchmark"
 
-# Benchmark output path (root `outpath` field). maps_to: root:outpath. mode: -
-jbs_outpath = "out"
-
-# Benchmark comment (root `comment` field). maps_to: root:comment. mode: -
-jbs_comment = ""
-
+# Global concurrency limit. 0 uses available CPU count.
+jbs_nproc = 0
 ```
+
+User globals can hold scalars, lists, tuples, tables, and functions. `do` and `analyse` blocks see the globals visible at the point where the block is declared.

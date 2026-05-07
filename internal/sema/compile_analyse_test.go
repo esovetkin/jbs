@@ -10,14 +10,30 @@ import (
 	"jbs/internal/eval"
 )
 
+func testScalarBinding(name, publicName string, value eval.Value, span diag.Span) *GlobalBinding {
+	return &GlobalBinding{
+		Name:       name,
+		PublicName: publicName,
+		Shape:      BindingScalar,
+		Order:      []string{publicName},
+		Vars:       map[string][]eval.Value{publicName: {value}},
+		Origins:    map[string]diag.Span{publicName: span},
+		Span:       span,
+	}
+}
+
 func TestNormalizePatternRegexAndHasErrorCodeSince(t *testing.T) {
 	regex, typ, ok := normalizePatternRegex("value=%d%%-%f-%w")
-	if !ok || regex != "value=$jube_pat_int%-$jube_pat_fp-$jube_pat_wrd" || typ != "float" {
+	if !ok || regex != "value="+runtimeIntPattern+"%-"+runtimeFloatPattern+"-"+runtimeWordPattern || typ != "float" {
 		t.Fatalf("unexpected normalized regex: regex=%q type=%q ok=%v", regex, typ, ok)
 	}
 	regex, typ, ok = normalizePatternRegex("count=%d")
-	if !ok || regex != "count=$jube_pat_int" || typ != "int" {
+	if !ok || regex != "count="+runtimeIntPattern || typ != "int" {
 		t.Fatalf("unexpected int normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+	}
+	regex, typ, ok = normalizePatternRegex("pair=([A-Z]+)-([0-9]+)")
+	if !ok || regex != "pair=([A-Z]+)-([0-9]+)" || typ != "string" {
+		t.Fatalf("unexpected manual group normalization: regex=%q type=%q ok=%v", regex, typ, ok)
 	}
 	regex, typ, ok = normalizePatternRegex("literal%")
 	if !ok || regex != "literal%" || typ != "string" {
@@ -57,8 +73,8 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 			},
 		},
 		BindingsByName: map[string]*GlobalBinding{
-			"pattern":     scalarBinding("pattern", "pattern", eval.String("%d"), span),
-			"pattern_dup": scalarBinding("pattern_dup", "pattern", eval.String("%w"), span),
+			"pattern":     testScalarBinding("pattern", "pattern", eval.String("%d"), span),
+			"pattern_dup": testScalarBinding("pattern_dup", "pattern", eval.String("%w"), span),
 			"empty": {
 				Name:    "empty",
 				Shape:   BindingScalar,
@@ -67,7 +83,7 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 				Origins: map[string]diag.Span{"empty": span},
 				Span:    span,
 			},
-			"other": scalarBinding("other", "other", eval.String("%f"), span),
+			"other": testScalarBinding("other", "other", eval.String("%f"), span),
 		},
 	}
 	items := []ast.WithItem{
@@ -118,7 +134,7 @@ func TestCompileAnalyseBlock(t *testing.T) {
 				Origins: map[string]diag.Span{"stepVar": span, "otherStepVar": span},
 				Span:    span,
 			},
-			"pattern": scalarBinding("pattern", "pattern", eval.String("%d"), span),
+			"pattern": testScalarBinding("pattern", "pattern", eval.String("%d"), span),
 		},
 		DoBlocks: []ast.DoBlock{{Name: "run", Span: span}},
 		StepScopeByName: map[string]*StepScopePlan{
@@ -161,10 +177,10 @@ func TestCompileAnalyseBlock(t *testing.T) {
 	if len(spec.Assignments) != 2 {
 		t.Fatalf("expected two valid analyse extraction assignments, got %#v", spec.Assignments)
 	}
-	if spec.Assignments[0].Group != "pattern" || spec.Assignments[0].Pattern != "pattern" || spec.Assignments[0].Template.Regex != "$jube_pat_int" || spec.Assignments[0].Template.Type != "int" {
+	if spec.Assignments[0].Name != "capture" || spec.Assignments[0].Template.Regex != runtimeIntPattern || spec.Assignments[0].Template.Type != "int" {
 		t.Fatalf("unexpected imported analyse assignment: %#v", spec.Assignments[0])
 	}
-	if spec.Assignments[1].Group != "_ja_run_localCap" || spec.Assignments[1].Pattern != "localCap" || spec.Assignments[1].Template.Regex != "$jube_pat_fp" || spec.Assignments[1].Template.Type != "float" {
+	if spec.Assignments[1].Name != "localCap" || spec.Assignments[1].Template.Regex != runtimeFloatPattern || spec.Assignments[1].Template.Type != "float" {
 		t.Fatalf("unexpected synthetic analyse assignment: %#v", spec.Assignments[1])
 	}
 	if len(spec.Columns) != 2 || spec.Columns[0].Source != "stepVar" || spec.Columns[1].Source != "capture" {

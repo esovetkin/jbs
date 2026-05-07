@@ -2,11 +2,112 @@
 package parser
 
 import (
+	"strings"
 	"unicode"
 
 	"jbs/internal/diag"
 	"jbs/internal/lexer"
 )
+
+type blockScanMode uint8
+
+const (
+	blockScanCode blockScanMode = iota
+	blockScanLineComment
+	blockScanSingleQuote
+	blockScanDoubleQuote
+)
+
+func readBalancedBlockShared(
+	src []rune,
+	peek func() rune,
+	advance func() rune,
+	eof func() bool,
+	pos func() diag.Position,
+	offset func() int,
+) (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
+	if eof() || peek() != '{' {
+		p := pos()
+		return "", p, p, false
+	}
+	advance()
+	innerStart = pos()
+	startOff := offset()
+	depth := 1
+	mode := blockScanCode
+	escaped := false
+	for !eof() {
+		r := peek()
+		switch mode {
+		case blockScanLineComment:
+			if r == '\n' {
+				mode = blockScanCode
+			}
+			advance()
+		case blockScanSingleQuote:
+			advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			advance()
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '#':
+				mode = blockScanLineComment
+				advance()
+			case '\'':
+				mode = blockScanSingleQuote
+				escaped = false
+				advance()
+			case '"':
+				mode = blockScanDoubleQuote
+				escaped = false
+				advance()
+			case '{':
+				depth++
+				advance()
+			case '}':
+				depth--
+				if depth == 0 {
+					endOff := offset()
+					blockEnd = pos()
+					advance()
+					if startOff < 0 || endOff < startOff || startOff > len(src) {
+						return "", innerStart, blockEnd, false
+					}
+					if endOff > len(src) {
+						endOff = len(src)
+					}
+					return strings.TrimRight(string(src[startOff:endOff]), "\r\n"), innerStart, blockEnd, true
+				}
+				advance()
+			default:
+				advance()
+			}
+		}
+	}
+	return string(src[startOff:]), innerStart, pos(), false
+}
 
 func (p *Parser) readBalancedBlock() (content string, innerStart diag.Position, blockEnd diag.Position, ok bool) {
 	content, innerStart, blockEnd, ok = readBalancedBlockShared(

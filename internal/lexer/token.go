@@ -52,7 +52,6 @@ const (
 	TokenFunction     TokenType = "function"
 	TokenReturn       TokenType = "return"
 	TokenDo           TokenType = "do"
-	TokenSubmit       TokenType = "submit"
 	TokenAnalyse      TokenType = "analyse"
 	TokenWith         TokenType = "with"
 	TokenFrom         TokenType = "from"
@@ -85,7 +84,6 @@ var keywords = map[string]TokenType{
 	"function": TokenFunction,
 	"return":   TokenReturn,
 	"do":       TokenDo,
-	"submit":   TokenSubmit,
 	"analyse":  TokenAnalyse,
 	"with":     TokenWith,
 	"from":     TokenFrom,

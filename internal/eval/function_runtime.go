@@ -94,8 +94,6 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 			return target && !isBound(n.Namespace, bound)
 		case ast.MemberExpr:
 			return walk(n.Base, bound)
-		case ast.ModeExpr:
-			return walk(n.Expr, bound)
 		case ast.ListExpr:
 			for _, item := range n.Items {
 				if walk(item, bound) {

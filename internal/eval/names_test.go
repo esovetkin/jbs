@@ -60,8 +60,8 @@ func TestEvalNamesCall(t *testing.T) {
 		Names: NewNameCatalog(
 			[]string{"z", "x", "jbs_name"},
 			map[string][]string{
-				"jsc":       {"systemname", "wnodes"},
-				"jsc.inner": {"value"},
+				"lib":       {"systemname", "wnodes"},
+				"lib.inner": {"value"},
 			},
 		),
 	}
@@ -87,7 +87,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "namespace argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "jsc", Span: span}),
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "lib", Span: span}),
 				Span:   span,
 			},
 			opts: opts,
@@ -97,7 +97,7 @@ func TestEvalNamesCall(t *testing.T) {
 			name: "nested namespace argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},
-				Args:   ast.PosCallArgs(ast.QualifiedIdentExpr{Namespace: "jsc", Name: "inner", Span: span}),
+				Args:   ast.PosCallArgs(ast.QualifiedIdentExpr{Namespace: "lib", Name: "inner", Span: span}),
 				Span:   span,
 			},
 			opts: opts,

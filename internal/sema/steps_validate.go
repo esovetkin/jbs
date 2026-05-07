@@ -1,6 +1,6 @@
 // perform semantic validation for step headers/import usage
 //
-// validate do/submit uniqueness, dependency existence and cycle
+// validate do uniqueness, dependency existence and cycle
 // freedom, and `with`-clause source/variable correctness via resolver
 // policies, including conflicting imported-name diagnostics.
 package sema
@@ -20,13 +20,13 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 	edges := make(map[string][]string)
 
 	for _, b := range res.DoBlocks {
-		validateStepHeaderOptions("do", b.Name, b.MaxAsync, b.Procs, b.Iterations, b.Span, diags)
+		validateDoNProc(b.Name, b.NProc, b.Span, diags)
 		if prev, exists := nameToSpan[b.Name]; exists {
 			diags.AddError(
 				diag.CodeE211,
 				fmt.Sprintf("duplicate step name '%s'", b.Name),
 				b.Span,
-				"use unique names for do/submit blocks",
+				"use unique names for do blocks",
 				diag.RelatedSpan{Message: "first definition", Span: prev},
 			)
 			continue
@@ -34,22 +34,6 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 		nameToSpan[b.Name] = b.Span
 		edges[b.Name] = append([]string(nil), b.After...)
 	}
-	for _, b := range res.Submits {
-		validateStepHeaderOptions("submit", b.Name, b.MaxAsync, b.Procs, b.Iterations, b.Span, diags)
-		if prev, exists := nameToSpan[b.Name]; exists {
-			diags.AddError(
-				diag.CodeE211,
-				fmt.Sprintf("duplicate step name '%s'", b.Name),
-				b.Span,
-				"use unique names for do/submit blocks",
-				diag.RelatedSpan{Message: "first definition", Span: prev},
-			)
-			continue
-		}
-		nameToSpan[b.Name] = b.Span
-		edges[b.Name] = append([]string(nil), b.After...)
-	}
-
 	for step, deps := range edges {
 		for _, dep := range deps {
 			if _, ok := nameToSpan[dep]; !ok {
@@ -57,7 +41,7 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 					diag.CodeE212,
 					fmt.Sprintf("unknown dependency '%s' for step '%s'", dep, step),
 					nameToSpan[step],
-					"depend only on existing do/submit block names",
+					"depend only on existing do block names",
 				)
 			}
 		}
@@ -99,29 +83,13 @@ func validateSteps(res *Result, diags *diag.Diagnostics) {
 	}
 }
 
-func validateStepHeaderOptions(kind, stepName string, maxAsync *int, procs *int, iterations *int, at diag.Span, diags *diag.Diagnostics) {
-	if maxAsync != nil && *maxAsync < 0 {
-		diags.AddError(
-			diag.CodeE216,
-			fmt.Sprintf("%s step '%s' has invalid max_async=%d (expected >= 0)", kind, stepName, *maxAsync),
-			at,
-			"set max_async to an integer value >= 0",
-		)
-	}
-	if procs != nil && *procs < 0 {
+func validateDoNProc(stepName string, nproc *int, at diag.Span, diags *diag.Diagnostics) {
+	if nproc != nil && *nproc < 0 {
 		diags.AddError(
 			diag.CodeE219,
-			fmt.Sprintf("%s step '%s' has invalid procs=%d (expected >= 0)", kind, stepName, *procs),
+			fmt.Sprintf("do step '%s' has invalid nproc=%d (expected >= 0)", stepName, *nproc),
 			at,
-			"set procs to an integer value >= 0",
-		)
-	}
-	if iterations != nil && *iterations < 1 {
-		diags.AddError(
-			diag.CodeE217,
-			fmt.Sprintf("%s step '%s' has invalid iterations=%d (expected >= 1)", kind, stepName, *iterations),
-			at,
-			"set iterations to an integer value >= 1",
+			"set nproc to 0 to use the available CPU count or to a positive integer",
 		)
 	}
 }
@@ -129,9 +97,6 @@ func validateStepHeaderOptions(kind, stepName string, maxAsync *int, procs *int,
 func validateUseClauses(res *Result, diags *diag.Diagnostics) {
 	for _, block := range res.DoBlocks {
 		validateWithItems(block.WithItems, res, snapshotForDoBlock(res, block), diags)
-	}
-	for _, block := range res.Submits {
-		validateWithItems(block.WithItems, res, snapshotForSubmitBlock(res, block), diags)
 	}
 }
 

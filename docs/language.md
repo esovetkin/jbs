@@ -1,616 +1,151 @@
 # JBS Language
 
-## Canonical Core Syntax
+JBS files are evaluated top to bottom. They contain global assignments, imports, `do` blocks, `analyse` blocks, and top-level expression statements.
 
-JBS has nine canonical top-level statement forms:
+## Program Shape
 
-- `use`
-- top-level assignment
-- top-level expression statement
-- `if`
-- `for`
-- `while`
-- `do`
-- `submit`
-- `analyse`
-
-Top-level expression statements remain legal in files. They are evaluated, but normal file-mode YAML output ignores their display result. In practice, they are mainly useful in the REPL and for quick local inspection while editing a file.
-
-Example:
-
-```jbs
-use "./lib/math.jbs" as math
-
-jbs_name = "bench"
-cases = table(id = id, label = label)
-
-do run
-        with cases
-{
-        echo "${id} ${label}"
-}
-
-submit train
-        with cases
-{
-        account = "myacct"
-        executable = "/bin/bash"
-        args_exec = "-lc hostname"
-}
-
-analyse run {
-        parsed = "Value: %d" in "out.log"
-        (parsed)
-}
-```
-
-## Grammar
-
-```ebnf
-program       := trivia? stmt (sep stmt)* sep? EOF
-sep           := (NEWLINE | ";" | comment)+
-trivia        := (NEWLINE | comment)*
-opt_comment   := comment?
-comment       := "#" COMMENT_TEXT
-
-stmt          := use_stmt
-               | global_assign
-               | expr_stmt
-               | if_stmt
-               | for_stmt
-               | while_stmt
-               | loop_control_stmt
-               | do_block
-               | submit_block
-               | analyse_block
-
-use_stmt      := "use" (
-                   IDENT
-                 | STRING "as" IDENT
-                 | ident_list "from" use_source
-               )
-ident_list    := IDENT ("," IDENT)*
-use_source    := IDENT | STRING
-
-global_assign := IDENT assign_op expr opt_comment
-expr_stmt     := expr opt_comment
-if_stmt       := "if" expr "{" if_stmt_body? "}" ("else" "{" if_stmt_body? "}")?
-if_stmt_body  := (global_assign | expr_stmt | if_stmt | for_stmt | while_stmt | loop_control_stmt | sep)*
-loop_body     := (global_assign | expr_stmt | if_stmt | for_stmt | while_stmt | loop_control_stmt | sep)*
-for_stmt      := "for" IDENT "in" expr "{" loop_body? "}"
-while_stmt    := "while" expr "{" loop_body? "}"
-loop_control_stmt := "break" | "continue"
+```text
+program       := statement*
+statement     := assignment | use_stmt | do_block | analyse_block | expr_stmt
+assignment    := IDENT assign_op expr
 assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
-
-qualified_name := IDENT ("." IDENT)*
-
-with_clause   := "with" with_item ("," with_item)*
-with_item     := qualified_name ("from" qualified_name)? ("as" IDENT)?
-               | "(" qualified_name ("," qualified_name)+ ")" ("from" qualified_name)?
-               | qualified_name "[" qualified_name ("," qualified_name)* "]" ("as" IDENT)?
-               | "(" qualified_name ("," qualified_name)+ ")" "in" qualified_name
-
-after_clause  := "after" IDENT ("," IDENT)*
-use_clause    := "use" IDENT ("," IDENT)*
-step_opt_clause := IDENT "=" INT
-
-do_block      := "do" IDENT do_header_item* raw_block
-submit_block  := "submit" IDENT submit_header_item* "{" submit_item* "}"
-analyse_block := "analyse" IDENT with_clause? analyse_header_item* "{" analyse_item* analyse_tuple opt_comment "}"
-
-do_header_item      := do_header_clause opt_comment | NEWLINE | comment
-submit_header_item  := submit_header_clause opt_comment | NEWLINE | comment
-analyse_header_item := NEWLINE | comment
-
-do_header_clause     := after_clause | with_clause | step_opt_clause
-submit_header_clause := after_clause | use_clause | with_clause | step_opt_clause
-
-raw_block      := "{" RAW_TEXT "}"
-
-submit_item    := submit_stmt | sep
-submit_stmt    := submit_key assign_op submit_value opt_comment
-submit_value   := expr | raw_block
-
-analyse_item   := analyse_stmt | sep
-analyse_stmt   := IDENT assign_op expr ("in" STRING)? opt_comment
-analyse_tuple  := "(" analyse_col ("," analyse_col)* ","? ")"
-analyse_col    := IDENT ("as" STRING)?
+use_stmt      := "use" import_items "from" STRING
+do_block      := "do" IDENT header_item* "{" raw_body "}"
+analyse_block := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
 ```
 
-Numeric literals use the usual `int`, `float`, and scientific-notation forms. Unary `+` and `-` are parsed as operators, not as part of the number token.
+Top-level expression statements are evaluated. In files they are mainly useful for validation and quick inspection; in the REPL their values are printed.
 
-## Statement Separators And Comments
+## Built-In Globals
 
-- Top-level statements are separated by a newline or `;`.
-- Multiline top-level expressions require explicit backslash-newline continuation.
-- JBS uses `#` line comments.
-- Comments are preserved by `jbs fmt` around top-level statements and block headers.
+`jbs_name` names the benchmark directory. It defaults to `jbs_benchmark` and must evaluate to a string.
 
-Example:
+`jbs_nproc` is the global concurrency limit. It defaults to `0`. A value of `0` means the number of available CPUs.
 
 ```jbs
-use jsc
-jsc.systemname
-x = (1, 2)
-x
+jbs_name = "sweep"
+jbs_nproc = 8
 ```
 
-## Top-Level Assignments
+## Values
 
-Top-level assignments define reusable global values. A global may hold:
+JBS supports:
 
-- scalar data
-- tuple or list data
-- table data built by `table(...)`, `t(...)`, `zip(...)`, `product(...)`, `select(...)`, or `read_csv(...)`
-- function values
-- imported values projected into the current module
+- `int`, `float`, `str`, `bool`, and `null`
+- lists: `[1, 2, 3]`
+- tuples: `(1, 2, 3)`
+- tables, created with `table(...)` or `t(...)`
+- functions: `function(x) { x + 1 }`
 
-Built-in benchmark globals are also ordinary top-level assignments:
+Tuple syntax requires a comma for one item: `(1,)`.
 
-- `jbs_name`
-- `jbs_outpath`
-- `jbs_comment`
+## Tables
 
-Rules:
-
-- globals are introduced and updated by top-level assignment
-- top-level assignments execute in source order
-- `name = expr` creates or overwrites the current global value
-- `+=`, `-=`, `*=`, `/=`, and `%=` read the current value, compute the operator result, and overwrite the global
-- a compound assignment before the first value for that name reports an unknown-variable error
-- a global may read only values that are already visible at that point in the file
-- `do`, `submit`, and `analyse` blocks use a snapshot of globals visible where the block appears
-- module exports use final global values after the module has executed
-- `jbs_name` and `jbs_outpath` must evaluate to plain strings without `shell(...)` or `python(...)` mode
-
-Example:
+Tables are named columns with equal row counts.
 
 ```jbs
-jbs_name = "demo"
-jbs_outpath = "results"
-
-sizes = (1, 2, 4)
-labels = ("small", "medium", "large")
-cases = table(label = labels, size = sizes)
-
-seed0 = 1
-seed0 += 1
-seed1 = seed0 + 1
-
-cases = table(size = sizes)
-do first with cases { echo ${size} }
-cases = table(size = (8, 16))
-do second with cases { echo ${size} }
+cases = table(x = (1, 2), label = ("a", "b"))
 ```
 
-## Top-Level Expression Statements
+Useful table operations:
 
-Bare expression lines are valid top-level statements.
+- `product(a, b)` or `a * b` computes a Cartesian product.
+- `zip(a, b)` or `a + b` combines rows by position.
+- `select(table, col1, col2)` projects columns.
+- `names(value)` lists visible names or table columns.
 
-They:
+## Control Flow
 
-- are parsed and evaluated
-- do not create globals or steps
-- produce REPL output in interactive mode
-- are ignored by normal file-mode YAML generation
-
-Example:
+`if`, `for`, and `while` can compute globals before declarations.
 
 ```jbs
-use jsc
-jsc.systemname
-names()
-```
-
-## `if`
-
-Top-level `if` selects assignment and expression statements at source execution time.
-
-```jbs
-gpu = true
-
-if gpu {
-        queue = "booster"
-        cases = t(size = range(2))
-} else {
-        queue = "batch"
-        cases = t(size = range(5))
-}
-
-do run with cases {
-        echo ${size}
+values = ()
+for x in range(3) {
+        values += (x,)
 }
 ```
 
-Rules:
+`do`, `analyse`, and `use` declarations are top-level only. They are not allowed inside control-flow bodies.
 
-- the condition must evaluate to `bool`
-- only the selected branch executes
-- `if` does not create a new scope
-- assignments in a selected branch create or update ordinary globals
-- nested `if` is supported
-- `else if` is not a separate syntax; write `else { if ... { ... } }`
-- `do`, `submit`, `analyse`, and `use` are not allowed inside `if` bodies
-- declarations and imports must remain at module top level
+## Imports
 
-Use `if` to choose values before a normal declaration, not to conditionally declare steps or imports.
-
-## `for` And `while`
-
-Top-level loops execute while JBS evaluates globals.
+Imports load another `.jbs` file and merge selected declarations into the current program.
 
 ```jbs
-sum = 0
+use cases from "./params.jbs"
+use "./steps.jbs" as steps
+```
 
-for x in range(5) {
-        if x == 3 {
-                continue
-        }
-        sum += x
-}
+Namespaced imports are referenced with dot syntax:
 
-while sum < 20 {
-        sum += 1
-        if sum == 15 {
-                break
-        }
+```jbs
+do run with steps.cases {
+        echo "${x}"
 }
 ```
 
-Rules:
-
-- `for x in expr` evaluates `expr` once before the loop starts
-- `expr` must evaluate to a list or tuple
-- the loop target is an ordinary global updated on each iteration
-- `while` conditions must evaluate to `bool`
-- `break` exits the nearest loop
-- `continue` skips to the next nearest-loop iteration
-- loops do not create a new scope
-- nested `if`, `for`, and `while` statements are supported
-- `do`, `submit`, `analyse`, and `use` are not allowed inside loop bodies
-- declarations and imports must remain at module top level
-
-Use loops to compute values before declarations. The final values are what later `do`, `submit`, and `analyse` snapshots see.
-
-## `use`
-
-`use` imports reusable definitions from embedded modules and quoted local `.jbs` modules.
-
-```jbs
-use jsc
-use "./defaults.jbs" as defaults
-use queue, account from "./defaults.jbs"
-use add from "./lib/math.jbs"
-```
-
-Rules:
-
-- `use <module>` resolves embedded `shared/<module>.jbs` only
-- installed bare modules are not implemented yet, so bare names currently mean embedded modules only
-- `use "<path>.jbs" as alias` resolves the path relative to the importing file
-- selective imports use `from` and may target either an embedded bare module name or a quoted path
-- local files must always be imported by quoted path such as `use "./defaults.jbs" as defaults` or `use queue from "./defaults.jbs"`
-- chained quoted imports resolve from each importer's own base directory, not from the process working directory
-- namespace imports expose members as `alias.name`
-- selective imports project chosen members into local scope
-- importing a `do` or `submit` symbol also pulls in its required step dependencies
-- `analyse` blocks are not importable by symbol name
-
-Migration rule: bare import names are for embedded modules; local files must be quoted paths.
-
-## Expressions
-
-Supported expression forms include:
-
-- string, int, float, and bool literals
-- tuples and lists
-- identifiers and qualified identifiers
-- unary `+`, `-`, `!`
-- binary `+`, `-`, `*`, `/`, `%`
-- logical `&`, `|`
-- comparisons
-- conditional `a if cond else b`
-- function literals and call expressions
-- mode expressions: `shell(...)`, `python(...)`
-
-Builtins:
-
-- `tuple(...)`
-- `list(...)`
-- `int(...)`
-- `float(...)`
-- `str(...)`
-- `range(...)`
-- `rev(...)`
-- `table(...)` / `t(...)`
-- `zip(...)`
-- `product(...)`
-- `select(...)`
-- `len(...)`
-- `names()`, `names(value)`
-- `read_csv(path)`
-- `filter(values, mask)`
-- `map(function_value, values)`
-- `reduce(function_value, values)`
-- `all(value)`
-- `any(value)`
-
-### Function Values
-
-Functions are first-class values.
-
-```jbs
-make_adder = function(delta) {
-        function(x) {
-                x + delta
-        }
-}
-
-add2 = make_adder(2)
-add2(3)
-```
-
-Rules:
-
-- functions can be assigned, returned, passed, stored, and imported
-- nested functions capture outer locals lexically
-- local assignments inside a function body stay local to that function
-- local assignments may still use `=` or compound operators; that mutability does not extend to the top level
-- function-valued globals are valid in expression contexts
-- function-valued globals are not valid `with` sources, `submit ... use ...` sources, or `analyse with ...` imports
-
-Function bodies support `if`:
-
-```jbs
-abs = function(x) {
-        if x < 0 {
-                return -x
-        } else {
-                x
-        }
-}
-```
-
-Function-body `if` uses strict boolean conditions, does not create a branch-local scope, and may contain local assignments, expression statements, `return`, and nested function-body `if`.
-
-### Table Values
-
-JBS now uses explicit table operations instead of operator-overloaded `comb` algebra.
-
-### `table(...)` and `t(...)`
-
-`table(...)` constructs one table from named columns. `t(...)` is a short alias with identical semantics.
-
-- column names come from named arguments
-- all columns must have the same length
-- `table(...)`/`t(...)` do not broadcast columns
-- positional arguments are rejected
-
-Example:
-
-```jbs
-ids = (1, 2)
-labels = ("a", "b")
-cases = t(id = ids, label = labels)
-```
-
-### `zip(...)`
-
-`zip(...)` combines existing tables row-by-row.
-
-- every argument must be a table value
-- row counts must match exactly
-- duplicate column names are rejected
-- `zip(...)` does not broadcast rows
-
-Example:
-
-```jbs
-env = zip(
-        table(host = ("h0", "h1")),
-        table(port = (8080, 8081)),
-)
-```
-
-### `product(...)`
-
-`product(...)` builds the Cartesian product of one or more tables.
-
-- every argument must be a table value
-- duplicate column names are rejected
-- column order follows argument order
-
-Example:
-
-```jbs
-x = (1, 2)
-y = ("a", "b", "c")
-cases = product(table(x = x), table(y = y))
-```
-
-### `select(...)`
-
-`select(...)` projects a subset of columns from a table.
-
-- the first argument must be a table value
-- the remaining arguments are identifier selectors
-- selector order is preserved
-
-Example:
-
-```jbs
-grid = product(table(id = (1, 2)), table(replica = (0, 1)))
-view = select(grid, id, replica)
-```
-
-### `read_csv(...)`
-
-`read_csv(...)` reads CSV or TSV data and returns one table value.
-
-- the first row is the header row
-- header names must be unique valid table column names
-- relative paths resolve from the source file that contains the call
-- type inference is per column across the full file
-
-Example:
-
-```jbs
-cases = read_csv("./cases.csv")
-names(cases)
-len(cases)
-```
-
-## Import Semantics (`with`)
-
-`with` makes data bindings visible to `do`, `submit`, and `analyse`.
-
-Supported forms:
-
-- `with cases`
-- `with cases, more_cases`
-- `with cases[x]`
-- `with lib.cases[x]`
-- `with cases[x, y]`
-- `with cases[x, y], env[host]`
-
-XXX explain taking slices from the table cases[x,y]
-
-Rules for `do` and `submit`:
-
-- variables are visible only through explicit `with` imports or inherited `after` dependencies
-- importing a full table source exposes all of its columns
-- importing selected variables with `with source[col0, col1]` generates a synthetic subset parameter set during lowering
-- conflicting visible names from different sources are errors
-- `after` also carries inherited visible bindings from dependency steps, including names already inherited by those predecessors
-
-Rules for `analyse`:
-
-- `analyse with ...` is scalar-only
-- imported values must be string data bindings
-- function-valued globals are rejected
+Importing a `do` step also imports the dependencies required by its `after` chain.
 
 ## `do`
 
-`do` defines the shell body for a JUBE step.
+`do` blocks define shell code to execute. Each block runs once for every row visible through its `with` data.
 
 ```jbs
-do <name>
-        [after <step0>, <step1>, ...]
-        [with <source>, <source2>[<col0>, <col1>, ...], ...]
-        [<key>=<int> ...]
+do run
+        with cases
+        nproc 4
 {
-        # shell commands
+        echo "x=${x}" > out.txt
 }
 ```
 
-Allowed step header options:
+Header clauses:
 
-- `max_async=<int>` with `int >= 0`
-- `procs=<int>` with `int >= 0`
-- `iterations=<int>` with `int >= 1`
+- `with source` imports all columns from a data source.
+- `with source[a,b]` imports selected columns.
+- `after step` waits for another step and inherits that step's visible variables.
+- `nproc N` limits concurrent workpackages for this step.
 
-`after` declares execution dependencies. A dependent step also inherits variables visible in predecessor steps.
-
-## `submit`
-
-`submit` defines scheduler-facing fields and lowers to JUBE submit templates.
-
-```jbs
-submit <name>
-        [after <step0>, <step1>, ...]
-        [with <source>, <source2>[<col0>, <col1>, ...], ...]
-        [use <name0>, <name1>, ...]
-        [<key>=<int> ...]
-{
-        <field> = <expr>
-        <raw_field> = {
-                # raw shell block
-        }
-}
-```
-
-Current JBS lowering targets Slurm-oriented submit templates.
-
-Notes:
-
-- `with` imports row-varying data used by the submit body
-- `submit ... use ...` imports scalar defaults from a scalar global or from a module namespace
-- later `use` sources win on key collisions and emit warning `W072`
-- raw submit keys are `preprocess` and `postprocess`
-
-Common submit keys include:
-
-- `account`
-- `queue`
-- `nodes`
-- `tasks`
-- `threadspertask`
-- `timelimit`
-- `measurement`
-- `starter`
-- `args_starter`
-- `executable`
-- `args_exec`
-- `outlogfile`
-- `outerrfile`
-- `gres`
-- `mail`
-- `notification`
-- `preprocess`
-- `postprocess`
+`nproc 0` means the number of available CPUs. The effective step concurrency is limited by both `jbs_nproc` and the step's own `nproc`.
 
 ## `analyse`
 
-`analyse` targets an existing `do` or `submit` step and lowers to JUBE `patternset`, `analyser`, and `result` sections.
+An `analyse` block belongs to one step. Pattern assignments search files inside each workpackage directory.
 
 ```jbs
-analyse <step_name>
-        [with <scalar0>, <scalar1>, ...]
-{
-        helper = <expr>
-
-        p0 = <pattern_expr> in "<file>"
-        p1 = <pattern_expr> in "<file>"
-
-        (p0, p1 as "Title")
+analyse run {
+        x = "x=(%d)" in "out.txt"
+        label = "label=(%w)" in "out.txt"
+        (x as "value", label)
 }
 ```
 
-Rules:
+Pattern shortcuts:
 
-- the target must be an existing `do` or `submit` step
-- helper assignments omit `in "<file>"`
-- extraction assignments use `expr in "<file>"`
-- extraction expressions must evaluate to strings
-- `%d`, `%f`, `%w`, and `%%` are supported in extraction patterns
-- the final tuple is required and defines result-table columns
-- step-visible variables are available automatically
+- `%d` captures an integer.
+- `%f` captures a floating-point value.
+- `%w` captures a word.
 
-## Formatter (`jbs fmt`)
+Plain regular expressions are also allowed. If a pattern has multiple capture groups, result columns are suffixed with `.0`, `.1`, and so on. Multiple matches in one file produce multiple rows. Generated CSV files include `run_id`.
 
-`jbs fmt [-s|--strict] <file.jbs>` rewrites a script in place using canonical layout.
+## Running
 
-Default `fmt` is syntax-only. `-s` / `--strict` also runs import expansion and semantic validation before writing.
+`jbs run file.jbs` and `jbs file.jbs` create a benchmark directory named from `jbs_name`. Each run uses the next numeric run id:
 
-Formatting rules:
+```text
+benchmark/
+  000000/
+    status
+    step/
+      analyse.csv
+      000000/
+        run.sh
+        status
+        stdout
+        stderr
+        exitcode
+```
 
-- global assignments stay in assignment form; the formatter does not invent block syntax
-- block headers are emitted as `do <name>`, `submit <name>`, or `analyse <step>`
-- `after`, `with`, `use`, and step options are emitted on continuation lines
-- braces use canonical block layout
-- comments are preserved where possible
-- output always ends with a trailing newline
+The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
 
-If invalid syntax is present, formatting fails with the parser diagnostic rather than rewriting it into something implicit.
-
-## Diagnostics
-
-All diagnostics include source locations.
-
-Relevant semantic diagnostics for top-level bindings:
-
-- `E100`: unknown variable, including a forward reference or a compound assignment before the first value
-- `E301` / `E302` / `E303`: invalid `jbs_name` or `jbs_outpath`
-- `E304` / `E305`: invalid scalar or nested list/tuple global value
-
-The full catalog is documented in [docs/diagnostics.md](diagnostics.md).
+`jbs continue file.jbs` resumes interrupted work when the script hash matches and the benchmark is not already marked `RUNNING`.

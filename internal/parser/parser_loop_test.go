@@ -116,11 +116,9 @@ func TestParseLoopsRejectDeclarations(t *testing.T) {
 		code string
 	}{
 		{name: "for do", src: "for x in xs { do run { echo hi } }\n", code: "E080"},
-		{name: "for submit", src: "for x in xs { submit s { executable = \"x\" } }\n", code: "E080"},
 		{name: "for analyse", src: "for x in xs { analyse s { x = \"X: %d\" in \"out\" } }\n", code: "E080"},
 		{name: "for use", src: "for x in xs { use lib }\n", code: "E430"},
 		{name: "while do", src: "while true { do run { echo hi } }\n", code: "E080"},
-		{name: "while submit", src: "while true { submit s { executable = \"x\" } }\n", code: "E080"},
 		{name: "while analyse", src: "while true { analyse s { x = \"X: %d\" in \"out\" } }\n", code: "E080"},
 		{name: "while use", src: "while true { use lib }\n", code: "E430"},
 	}

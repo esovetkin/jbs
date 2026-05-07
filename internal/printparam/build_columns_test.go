@@ -107,15 +107,15 @@ func TestCollectStepsInResultOrderAndDeps(t *testing.T) {
 		StepOrder: []string{"step0", "step1", "step2", "missing"},
 		DoBlocks: []ast.DoBlock{
 			{Name: "step0", Span: s0},
+			{Name: "step1", After: []string{"step0"}, Span: s1},
 			{Name: "step2", After: []string{"step0", "step1"}, Span: s2},
 		},
-		Submits: []ast.SubmitBlock{{Name: "step1", After: []string{"step0"}, Span: s1}},
 	}
 	got := collectStepsInResultOrder(res)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 steps, got %d", len(got))
 	}
-	if got[0].Name != "step0" || got[0].Kind != "do" || got[1].Kind != "submit" || got[2].Name != "step2" {
+	if got[0].Name != "step0" || got[0].Kind != "do" || got[1].Kind != "do" || got[2].Name != "step2" {
 		t.Fatalf("unexpected collected step order: %#v", got)
 	}
 	deps := stepDeps(map[string]stepDef{"step0": got[0], "step1": got[1], "step2": got[2]})

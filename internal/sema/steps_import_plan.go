@@ -232,20 +232,6 @@ func collectStepDefinitions(res *Result) (map[string]stepDefinition, []string) {
 			order = append(order, node.Name)
 			goto nextStep
 		}
-		for _, node := range res.Submits {
-			if node.Name != stepName {
-				continue
-			}
-			defs[node.Name] = stepDefinition{
-				Name:      node.Name,
-				After:     append([]string(nil), node.After...),
-				WithItems: append([]ast.WithItem(nil), node.WithItems...),
-				Span:      node.Span,
-				Snapshot:  snapshotForSubmitBlock(res, node),
-			}
-			order = append(order, node.Name)
-			break
-		}
 	nextStep:
 	}
 	return defs, order

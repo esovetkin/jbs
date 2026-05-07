@@ -3,8 +3,7 @@
 // implement expression grammar with precedence/associativity
 // (logical, compare, arithmetic, unary),
 // literals/identifiers/qualified identifiers, lists/tuples,
-// conditional expressions, call expressions, and mode forms (`shell`,
-// `python`), emitting syntax diagnostics for
+// conditional expressions and call expressions, emitting syntax diagnostics for
 // malformed expression constructs.
 package parser
 
@@ -271,17 +270,6 @@ func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 		if tok.Value == "false" || tok.Value == "False" || tok.Value == "FALSE" {
 			p.next()
 			return ast.BoolExpr{Value: false, Span: tok.Span}
-		}
-		if (tok.Value == "shell" || tok.Value == "python") && p.peekN(1).Type == lexer.TokenLParen {
-			modeTok := p.next()
-			p.expect(lexer.TokenLParen, diag.CodeE062, "expected '(' after mode expression")
-			arg := p.parseExpr()
-			close := p.expect(lexer.TokenRParen, diag.CodeE063, "expected ')' to close mode expression")
-			return ast.ModeExpr{
-				Mode: modeTok.Value,
-				Expr: arg,
-				Span: diag.Merge(modeTok.Span, close.Span),
-			}
 		}
 		nameTok := p.next()
 		return ast.IdentExpr{Name: nameTok.Value, Span: nameTok.Span}
@@ -673,7 +661,7 @@ func (p *tokenParser) parseFunctionBodyStmt(ctx functionParseContext) ast.FuncBo
 		return p.parseFuncContinueStmt(ctx)
 	case lexer.TokenReturn:
 		return p.parseReturnStmt()
-	case lexer.TokenDo, lexer.TokenSubmit, lexer.TokenAnalyse, lexer.TokenUse:
+	case lexer.TokenDo, lexer.TokenAnalyse, lexer.TokenUse:
 		tok := p.next()
 		p.diags.AddError(
 			diag.CodeE058,

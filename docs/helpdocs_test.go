@@ -71,14 +71,6 @@ func TestFunctionHelpCoversEvaluatorBuiltins(t *testing.T) {
 	}
 }
 
-func TestFunctionHelpCoversModeForms(t *testing.T) {
-	for _, name := range []string{"shell", "python"} {
-		if _, err := FunctionPage(name); err != nil {
-			t.Fatalf("missing help for mode form %q: %v", name, err)
-		}
-	}
-}
-
 func TestFunctionHelpAliasT(t *testing.T) {
 	text, err := FunctionPage("t")
 	if err != nil {
@@ -113,7 +105,7 @@ func TestUnknownFunctionHelpReturnsError(t *testing.T) {
 }
 
 func TestHelpTopicsRemainStable(t *testing.T) {
-	want := []string{"analyse", "do", "functions", "globals", "repl", "submit", "use"}
+	want := []string{"analyse", "do", "functions", "globals", "repl", "use"}
 	if got := Topics(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected help topics: got=%#v want=%#v", got, want)
 	}

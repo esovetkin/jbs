@@ -24,8 +24,7 @@ const helpText = `REPL commands:
 ?<function_name>       shortcut for :help <function_name>
 :show                  print accepted session source
 :check                 run parser+sema validation on accepted source
-:yaml                  print lowered YAML for accepted source
-:save <filename>       write lowered YAML to file
+:save <filename>       write accepted session source to file
 :reset                 clear accepted source and pending input
 :quit / :exit          exit REPL`
 
@@ -43,7 +42,7 @@ func Run(opts Options) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	if opts.Check == nil || opts.YAML == nil || opts.Commit == nil {
+	if opts.Check == nil || opts.Commit == nil {
 		fmt.Fprintln(stderr, "repl evaluator is not configured")
 		return 1
 	}
@@ -117,7 +116,7 @@ func Run(opts Options) int {
 			continue
 		}
 		if state.pending == "" && isREPLCommandLine(trimmed) {
-			exit, code := handleCommand(trimmed, absCwd, &state, stdout, stderr, opts.Check, opts.YAML)
+			exit, code := handleCommand(trimmed, absCwd, &state, stdout, stderr, opts.Check)
 			if exit {
 				return code
 			}
@@ -196,7 +195,6 @@ func handleCommand(
 	stdout io.Writer,
 	stderr io.Writer,
 	check CheckFunc,
-	yaml YAMLFunc,
 ) (bool, int) {
 	if name, ok, valid := parseQuestionHelp(line); ok {
 		if !valid {
@@ -249,26 +247,6 @@ func handleCommand(
 		if !hasErrors && strings.TrimSpace(diagText) == "" {
 			fmt.Fprintln(stdout, "OK")
 		}
-	case ":yaml":
-		if strings.TrimSpace(state.accepted) == "" {
-			fmt.Fprintln(stderr, "no accepted input to render")
-			return false, 0
-		}
-		yamlText, diagText, hasErrors, err := yaml(state.accepted)
-		if err != nil {
-			fmt.Fprintf(stderr, "yaml rendering failed: %v\n", err)
-			return false, 0
-		}
-		if strings.TrimSpace(diagText) != "" {
-			fmt.Fprintln(stderr, diagText)
-		}
-		if hasErrors {
-			return false, 0
-		}
-		_, _ = io.WriteString(stdout, yamlText)
-		if !strings.HasSuffix(yamlText, "\n") {
-			_, _ = io.WriteString(stdout, "\n")
-		}
 	case ":save":
 		if len(fields) != 2 {
 			fmt.Fprintln(stderr, "usage: :save <filename>")
@@ -276,17 +254,6 @@ func handleCommand(
 		}
 		if strings.TrimSpace(state.accepted) == "" {
 			fmt.Fprintln(stderr, "no accepted input to save")
-			return false, 0
-		}
-		yamlText, diagText, hasErrors, err := yaml(state.accepted)
-		if err != nil {
-			fmt.Fprintf(stderr, "yaml rendering failed: %v\n", err)
-			return false, 0
-		}
-		if strings.TrimSpace(diagText) != "" {
-			fmt.Fprintln(stderr, diagText)
-		}
-		if hasErrors {
 			return false, 0
 		}
 		target := fields[1]
@@ -297,7 +264,7 @@ func handleCommand(
 		if info, statErr := os.Stat(target); statErr == nil {
 			perm = info.Mode().Perm()
 		}
-		if err := writeFileAtomic(target, []byte(yamlText), perm); err != nil {
+		if err := writeFileAtomic(target, []byte(state.accepted), perm); err != nil {
 			fmt.Fprintf(stderr, "failed to write %q: %v\n", target, err)
 			return false, 0
 		}

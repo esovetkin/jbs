@@ -16,16 +16,6 @@ func snapshotForDoBlock(res *Result, block ast.DoBlock) *ScopeSnapshot {
 	return res.ScopeSnapshotsByIndex[stmtIndexBySpan(res.Program, block.Span)]
 }
 
-func snapshotForSubmitBlock(res *Result, block ast.SubmitBlock) *ScopeSnapshot {
-	if res == nil {
-		return nil
-	}
-	if snap := res.ScopeSnapshotsByBlock[submitBlockSnapshotKey(block)]; snap != nil {
-		return snap
-	}
-	return res.ScopeSnapshotsByIndex[stmtIndexBySpan(res.Program, block.Span)]
-}
-
 func snapshotForAnalyseBlock(res *Result, block ast.AnalyseBlock) *ScopeSnapshot {
 	if res == nil {
 		return nil

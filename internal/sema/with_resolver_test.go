@@ -133,9 +133,6 @@ func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {
 	if got, issue := resolver.resolveBinding("missing", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoStep}); got != nil || issue == nil || issue.Kind != IssueUnknownSource {
 		t.Fatalf("expected unknown-source issue, got binding=%#v issue=%#v", got, issue)
 	}
-	if got, issue := resolver.resolveBinding("table", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoSubmitUse}); got != nil || issue == nil || issue.Kind != IssueDisallowedBinding {
-		t.Fatalf("expected disallowed-binding issue, got binding=%#v issue=%#v", got, issue)
-	}
 	if got, issue := resolver.resolveBinding("scalar", ast.WithItem{Span: span}, ResolveOptions{Context: ImportIntoAnalyse}); got != scalar || issue != nil {
 		t.Fatalf("expected scalar binding to resolve for analyse context, got binding=%#v issue=%#v", got, issue)
 	}

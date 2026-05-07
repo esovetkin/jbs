@@ -329,9 +329,8 @@ func TestAnalyzeInputImportedFunctionsCoexistWithDataGlobals(t *testing.T) {
 	}
 	wantNames := eval.List([]eval.Value{
 		eval.String("add"),
-		eval.String("jbs_comment"),
 		eval.String("jbs_name"),
-		eval.String("jbs_outpath"),
+		eval.String("jbs_nproc"),
 		eval.String("mk"),
 		eval.String("value"),
 	})
@@ -512,27 +511,6 @@ func TestRunPrintParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "WARNING W310") {
 		t.Fatalf("expected warning diagnostics for unused d, got %q", stderr.String())
-	}
-}
-
-func TestRunYAMLWithImportedModule(t *testing.T) {
-	cwd := t.TempDir()
-	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\n"+
-		"do s\n"+
-		"        with lib.jobs\n"+
-		"{\n"+
-		"        echo ${x}\n"+
-		"}\n")
-	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = table(x = x)\n")
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--output", "-", mainPath}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful YAML run, code=%d stderr=%s", code, stderr.String())
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "name:") || !strings.Contains(out, "step:") || !strings.Contains(out, "- name: s") {
-		t.Fatalf("expected benchmark YAML output for imported module input, got:\n%s", out)
 	}
 }
 

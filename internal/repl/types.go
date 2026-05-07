@@ -4,8 +4,6 @@ import "io"
 
 type CheckFunc func(source string) (diagText string, hasErrors bool, err error)
 
-type YAMLFunc func(source string) (yamlText string, diagText string, hasErrors bool, err error)
-
 type CommitResult struct {
 	Source     string
 	ExprOutput []string
@@ -29,7 +27,6 @@ type Options struct {
 	Cwd         string
 	HistoryFile string
 	Check       CheckFunc
-	YAML        YAMLFunc
 	Commit      CommitFunc
 	NewReader   ReaderFactory
 }

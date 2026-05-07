@@ -17,6 +17,7 @@ import (
 	"jbs/internal/eval"
 	"jbs/internal/planutil"
 	"jbs/internal/sema"
+	"jbs/internal/workplan"
 )
 
 type stepDef struct {
@@ -51,53 +52,35 @@ type sourceChoice struct {
 }
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
+	plan := workplan.Build(res, diags)
 	candidateColumns := collectQualifiedColumns(res.BindingsByName)
-	steps := collectStepsInResultOrder(res)
-	defs := make(map[string]stepDef, len(steps))
-	preferred := make([]string, 0, len(steps))
-	for _, step := range steps {
-		defs[step.Name] = step
-		preferred = append(preferred, step.Name)
-	}
-
-	statesByStep := make(map[string][]wpState, len(steps))
-	for _, stepName := range planutil.TopoStepOrder(stepDeps(defs), preferred) {
-		step := defs[stepName]
-		plan := res.StepScopeByName[stepName]
-		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
-		groups := groupExplicitDeltaBySource(plan, res.BindingsByName)
-		statesByStep[stepName] = expandStep(parents, groups, res.BindingsByName, step.Span, diags)
-	}
 
 	rows := make([]Row, 0)
 	usedCols := make(map[string]struct{})
-	for _, step := range steps {
-		plan := res.StepScopeByName[step.Name]
-		states := statesByStep[step.Name]
-		for _, state := range states {
-			vals := make(map[string]string)
-			for name, value := range state.Values {
-				if plan == nil {
-					continue
-				}
-				origin, ok := plan.Effective[name]
-				if !ok || origin.Source == "" {
-					continue
-				}
-				sourceVar := name
-				if origin.SourceVar != "" {
-					sourceVar = origin.SourceVar
-				}
-				key := displayColumnKey(res.BindingsByName, origin.Source, sourceVar)
-				vals[key] = value.String()
-				usedCols[key] = struct{}{}
+	for _, work := range plan.Work {
+		scopePlan := res.StepScopeByName[work.StepName]
+		vals := make(map[string]string)
+		for name, value := range work.Values {
+			if scopePlan == nil {
+				continue
 			}
-			rows = append(rows, Row{
-				StepKind: step.Kind,
-				StepName: step.Name,
-				Values:   vals,
-			})
+			origin, ok := scopePlan.Effective[name]
+			if !ok || origin.Source == "" {
+				continue
+			}
+			sourceVar := name
+			if origin.SourceVar != "" {
+				sourceVar = origin.SourceVar
+			}
+			key := displayColumnKey(res.BindingsByName, origin.Source, sourceVar)
+			vals[key] = value.String()
+			usedCols[key] = struct{}{}
 		}
+		rows = append(rows, Row{
+			StepKind: work.StepKind,
+			StepName: work.StepName,
+			Values:   vals,
+		})
 	}
 
 	columns := filterColumnsByUsage(candidateColumns, usedCols)
@@ -174,12 +157,6 @@ func collectStepsInResultOrder(res *sema.Result) []stepDef {
 			if n.Name == name {
 				out = append(out, stepDef{Name: n.Name, Kind: "do", After: append([]string(nil), n.After...), Span: n.Span})
 				goto next
-			}
-		}
-		for _, n := range res.Submits {
-			if n.Name == name {
-				out = append(out, stepDef{Name: n.Name, Kind: "submit", After: append([]string(nil), n.After...), Span: n.Span})
-				break
 			}
 		}
 	next:

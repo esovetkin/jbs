@@ -370,7 +370,7 @@ func TestLexCommentTrailingBackslashDoesNotContinue(t *testing.T) {
 }
 
 func TestLexUseKeyword(t *testing.T) {
-	src := "use jsc\n"
+	src := "use lib\n"
 	diags := &diag.Diagnostics{}
 	tokens := Lex("in.jbs", src, diags)
 	if diags.HasErrors() {
@@ -382,7 +382,7 @@ func TestLexUseKeyword(t *testing.T) {
 	if tokens[0].Type != TokenUse {
 		t.Fatalf("expected first token to be TokenUse, got %s", tokens[0].Type)
 	}
-	if tokens[1].Type != TokenIdent || tokens[1].Value != "jsc" {
+	if tokens[1].Type != TokenIdent || tokens[1].Value != "lib" {
 		t.Fatalf("unexpected second token: %#v", tokens[1])
 	}
 }

@@ -2,8 +2,7 @@
 //
 // validate target step existence/kind, resolve step-visible/imported
 // symbols, evaluate helper assignments, validate extraction
-// expressions/files/placeholders, build pattern templates/group
-// naming, check result-tuple columns
+// expressions/files/placeholders, build pattern templates, check result-tuple columns
 package sema
 
 import (
@@ -13,6 +12,12 @@ import (
 	"jbs/internal/ast"
 	"jbs/internal/diag"
 	"jbs/internal/eval"
+)
+
+const (
+	runtimeIntPattern   = `([-+]?[0-9]+)`
+	runtimeFloatPattern = `([-+]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][-+]?[0-9]+)?)`
+	runtimeWordPattern  = `([A-Za-z0-9_]+)`
 )
 
 func normalizePatternRegex(input string) (string, string, bool) {
@@ -35,13 +40,13 @@ func normalizePatternRegex(input string) (string, string, bool) {
 		case '%':
 			out.WriteRune('%')
 		case 'd':
-			out.WriteString("$jube_pat_int")
+			out.WriteString(runtimeIntPattern)
 			sawInt = true
 		case 'f':
-			out.WriteString("$jube_pat_fp")
+			out.WriteString(runtimeFloatPattern)
 			sawFloat = true
 		case 'w':
-			out.WriteString("$jube_pat_wrd")
+			out.WriteString(runtimeWordPattern)
 		default:
 			return "", "", false
 		}
@@ -78,19 +83,11 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 		}
 	}
 	if stepKind == "" {
-		for _, submit := range res.Submits {
-			if submit.Name == block.StepName {
-				stepKind = "submit"
-				break
-			}
-		}
-	}
-	if stepKind == "" {
 		diags.AddError(
 			diag.CodeE410,
 			fmt.Sprintf("unknown analyse target step '%s'", block.StepName),
 			block.Span,
-			"analyse must reference an existing do/submit block name",
+			"analyse must reference an existing do block name",
 		)
 	}
 	spec.StepKind = stepKind
@@ -142,7 +139,6 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 					diag.RelatedSpan{Message: "step variable", Span: existing},
 				)
 			}
-			warnModeExprInCollections(effectiveExpr, diags)
 			value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 				Context: eval.EvalCtxAnalyseAssign,
 				Names:   scopeNameCatalog(visibleNamesFromEnv(env), analyseNamespaces),
@@ -179,7 +175,6 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			)
 			continue
 		}
-		warnModeExprInCollections(effectiveExpr, diags)
 		before := len(diags.Items)
 		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
 			Context: eval.EvalCtxAnalyseAssign,
@@ -218,27 +213,10 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			continue
 		}
 
-		groupName := ""
-		patternName := ""
-		if ident, ok := effectiveExpr.(ast.IdentExpr); ok {
-			if imported, exists := analyseImports[ident.Name]; exists {
-				groupName = imported.Source
-				patternName = imported.SourceVar
-			}
-		}
-		if groupName == "" {
-			groupName = "_ja_" + sanitizeStepName(block.StepName) + "_" + sanitizeStepName(assign.Name)
-			patternName = assign.Name
-		}
-
 		spec.Assignments = append(spec.Assignments, AnalyseAssignmentSpec{
-			Name:    assign.Name,
-			Group:   groupName,
-			Pattern: patternName,
-			File:    assign.File,
+			Name: assign.Name,
+			File: assign.File,
 			Template: PatternTemplate{
-				Group: groupName,
-				Name:  patternName,
 				Regex: regex,
 				Type:  inferredType,
 				Span:  assign.Span,

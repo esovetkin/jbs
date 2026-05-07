@@ -9,12 +9,11 @@ import (
 	"jbs/internal/diag"
 )
 
-func TestLoadAndExpandSourceSupportsSelectiveEmbeddedAndLocalImports(t *testing.T) {
+func TestLoadAndExpandSourceSupportsSelectiveLocalImports(t *testing.T) {
 	cwd := t.TempDir()
 	localPath := writeTestFile(t, cwd, "mylib.jbs", "local_value = 9\n")
 
 	src := strings.Join([]string{
-		"use queue from jsc",
 		"use local_value from \"./mylib.jbs\"",
 		"result = local_value",
 	}, "\n")
@@ -34,9 +33,6 @@ func TestLoadAndExpandSourceSupportsSelectiveEmbeddedAndLocalImports(t *testing.
 	}
 	if _, ok := res.Sources[localPath]; !ok {
 		t.Fatalf("expected local module source in map")
-	}
-	if _, ok := res.Sources["shared/jsc.jbs"]; !ok {
-		t.Fatalf("expected embedded module source in map")
 	}
 	if hasErrorDiagnostics(diags) {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())

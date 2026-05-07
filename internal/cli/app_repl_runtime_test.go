@@ -7,9 +7,7 @@ import (
 	"testing"
 
 	"jbs/internal/diag"
-	"jbs/internal/emit"
 	"jbs/internal/eval"
-	"jbs/internal/lower"
 )
 
 func TestFilterDiagnosticsBySeverity(t *testing.T) {
@@ -227,7 +225,7 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_comment\", \"jbs_name\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_name\", \"jbs_nproc\"]" {
 		t.Fatalf("unexpected names() expr output: %#v", second.ExprOutput)
 	}
 }
@@ -339,7 +337,7 @@ func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_comment\", \"jbs_name\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_name\", \"jbs_nproc\"]" {
 		t.Fatalf("unexpected names() output for function globals: %#v", second.ExprOutput)
 	}
 }
@@ -508,27 +506,6 @@ func TestCommitReplChunkWithNamespaceImport(t *testing.T) {
 	}
 }
 
-func TestCommitReplChunkWithEmbeddedJSCNamespace(t *testing.T) {
-	cwd := t.TempDir()
-	first, err := commitReplChunk(cwd, "", "use jsc")
-	if err != nil {
-		t.Fatalf("unexpected first commit error: %v", err)
-	}
-	if first.HasErrors || len(first.ExprOutput) != 0 {
-		t.Fatalf("expected namespace import commit without output, got %#v", first)
-	}
-	second, err := commitReplChunk(cwd, first.Source, "jsc.systemname")
-	if err != nil {
-		t.Fatalf("unexpected second commit error: %v", err)
-	}
-	if second.HasErrors {
-		t.Fatalf("expected embedded namespace expr to succeed, diag=%q", second.DiagText)
-	}
-	if len(second.ExprOutput) != 1 || strings.TrimSpace(second.ExprOutput[0]) == "" {
-		t.Fatalf("expected one non-empty expr output, got %#v", second.ExprOutput)
-	}
-}
-
 func TestCommitReplChunkWithNamespaceNames(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")
@@ -639,38 +616,6 @@ func TestCommitReplChunkUseImportFailureDiagnostics(t *testing.T) {
 	}
 	if strings.TrimSpace(commit.DiagText) == "" {
 		t.Fatalf("expected non-empty diagnostics")
-	}
-}
-
-func TestAnalyzeSourceYAMLWithUseImport(t *testing.T) {
-	cwd := t.TempDir()
-	libPath := filepath.Join(cwd, "lib.jbs")
-	if err := os.WriteFile(libPath, []byte("value = 3\n"), 0o644); err != nil {
-		t.Fatalf("write lib: %v", err)
-	}
-	src := "use value from \"./lib.jbs\"\n" +
-		"a = value + 1\n"
-	diags := &diag.Diagnostics{}
-	bundle, err := analyzeSource("<repl>", src, cwd, diags)
-	if err != nil {
-		t.Fatalf("analyzeSource failed: %v", err)
-	}
-	if bundle == nil {
-		t.Fatalf("expected analysis bundle")
-	}
-	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
-		t.Fatalf("expected no error diagnostics: %s", diags.String())
-	}
-	doc := lower.ToJUBEYAML(bundle.Result, diags)
-	if len(filterDiagnosticsBySeverity(diags, diag.SeverityError).Items) > 0 {
-		t.Fatalf("unexpected lowering errors: %s", diags.String())
-	}
-	out, err := emit.YAML(doc)
-	if err != nil {
-		t.Fatalf("emit YAML failed: %v", err)
-	}
-	if !strings.Contains(string(out), "name:") {
-		t.Fatalf("expected benchmark YAML output, got: %s", string(out))
 	}
 }
 

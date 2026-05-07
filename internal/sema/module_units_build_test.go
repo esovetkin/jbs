@@ -40,7 +40,7 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 				BaseDir: "/mods/child",
 				Program: ast.Program{File: childRef.Label, Stmts: []ast.Stmt{
 					ast.GlobalAssign{Name: "child_value", Op: ast.AssignEq, Expr: numberExpr(span, 3), Span: span},
-					ast.SubmitBlock{Name: "child_submit", Span: span},
+					ast.DoBlock{Name: "child_run", Span: span},
 				}},
 			},
 			aRef.ID: {
@@ -74,7 +74,7 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if !reflect.DeepEqual(scope.StepOrder, []string{"a.child.child_submit", "a.run", "z.run"}) {
+	if !reflect.DeepEqual(scope.StepOrder, []string{"a.child.child_run", "a.run", "z.run"}) {
 		t.Fatalf("unexpected prefixed step order: %#v", scope.StepOrder)
 	}
 	if _, ok := scope.BindingsByName["a.a_value"]; !ok {
@@ -113,7 +113,7 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	if _, ok := root1.BindingsByName["a_value"]; !ok {
 		t.Fatalf("expected cached module clone to preserve binding names, got %#v", root1.BindingsByName)
 	}
-	if !reflect.DeepEqual(root1.StepOrder, []string{"child.child_submit", "run"}) {
+	if !reflect.DeepEqual(root1.StepOrder, []string{"child.child_run", "run"}) {
 		t.Fatalf("expected cached module clone to preserve step order, got %#v", root1.StepOrder)
 	}
 	if !eval.Equal(root1.Env["a_value"], eval.Int(1)) {

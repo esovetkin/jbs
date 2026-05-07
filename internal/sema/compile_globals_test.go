@@ -81,20 +81,16 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 						Right: ast.ConditionalExpr{
 							Then: ast.IdentExpr{Name: "d", Span: span},
 							Cond: ast.BoolExpr{Value: true, Span: span},
-							Else: ast.ModeExpr{
-								Mode: "python",
-								Expr: ast.AliasExpr{
-									Expr: ast.IndexExpr{
-										Base: ast.IdentExpr{Name: "f", Span: span},
-										Items: []ast.Expr{
-											ast.IdentExpr{Name: "index_ignored", Span: span},
-										},
-										Span: span,
+							Else: ast.AliasExpr{
+								Expr: ast.IndexExpr{
+									Base: ast.IdentExpr{Name: "f", Span: span},
+									Items: []ast.Expr{
+										ast.IdentExpr{Name: "index_ignored", Span: span},
 									},
-									Alias: "alias",
-									Span:  span,
+									Span: span,
 								},
-								Span: span,
+								Alias: "alias",
+								Span:  span,
 							},
 							Span: span,
 						},
@@ -187,9 +183,6 @@ func TestCompileUserGlobalsAllowsSeedOverrideCompoundAssignAndTracksDeps(t *test
 	}
 	if !eval.Equal(out["x"].Value, eval.Int(3)) {
 		t.Fatalf("expected x += 2 to publish x=3, got %#v", out["x"].Value)
-	}
-	if out["x"].Mode != "" {
-		t.Fatalf("expected empty mode for x, got %q", out["x"].Mode)
 	}
 	if out["x"].DependsOn != nil {
 		t.Fatalf("expected self reference to be dropped from x dependencies, got %#v", out["x"].DependsOn)
@@ -347,7 +340,6 @@ func TestGlobalVarSeriesBindingFromGlobalVarAndCloneCombRows(t *testing.T) {
 	scalarBinding := bindingFromGlobalVar("x", &GlobalVar{
 		Name:      "x",
 		Value:     eval.String("shell-value"),
-		Mode:      "shell",
 		Span:      span,
 		Order:     []string{"x"},
 		Vars:      map[string][]eval.Value{"x": {eval.String("shell-value")}},
@@ -355,9 +347,6 @@ func TestGlobalVarSeriesBindingFromGlobalVarAndCloneCombRows(t *testing.T) {
 	})
 	if scalarBinding.Shape != BindingScalar || !scalarBinding.SyntheticGlobal {
 		t.Fatalf("unexpected scalar binding metadata: %#v", scalarBinding)
-	}
-	if scalarBinding.Modes["x"] != "shell" {
-		t.Fatalf("expected single-column mode to be preserved, got %#v", scalarBinding.Modes)
 	}
 	if len(scalarBinding.Rows) != 1 || !eval.Equal(scalarBinding.Rows[0].Values["x"].Value, eval.String("shell-value")) {
 		t.Fatalf("unexpected scalar binding rows: %#v", scalarBinding.Rows)
@@ -390,7 +379,7 @@ func TestGlobalVarSeriesBindingFromGlobalVarAndCloneCombRows(t *testing.T) {
 	}
 
 	importedScalar := globalVarFromImportedBinding("renamed", scalarBinding, span)
-	if importedScalar == nil || importedScalar.Name != "renamed" || importedScalar.Mode != "shell" {
+	if importedScalar == nil || importedScalar.Name != "renamed" {
 		t.Fatalf("unexpected imported scalar global var: %#v", importedScalar)
 	}
 	if !reflect.DeepEqual(importedScalar.Order, []string{"renamed"}) {

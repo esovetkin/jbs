@@ -52,7 +52,6 @@ func TestParseTopLevelIfRejectsDeclarations(t *testing.T) {
 		code string
 	}{
 		{name: "do", src: "if true { do run { echo hi } }\n", code: "E080"},
-		{name: "submit", src: "if true { submit s { queue = \"q\" } }\n", code: "E080"},
 		{name: "analyse", src: "if true { analyse run { x = \"X: %d\" in \"out\" } }\n", code: "E080"},
 		{name: "use", src: "if true { use lib }\n", code: "E430"},
 	}

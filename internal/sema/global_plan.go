@@ -30,7 +30,6 @@ const (
 	globalInputProjectedImport globalInputKind = "projected_import"
 	globalInputNamespaceImport globalInputKind = "namespace_import"
 	globalInputDo              globalInputKind = "do"
-	globalInputSubmit          globalInputKind = "submit"
 	globalInputAnalyse         globalInputKind = "analyse"
 )
 
@@ -58,7 +57,6 @@ type globalInputStep struct {
 	Import         *projectedImport
 	NamespaceScope *moduleScope
 	DoBlock        *ast.DoBlock
-	SubmitBlock    *ast.SubmitBlock
 	AnalyseBlock   *ast.AnalyseBlock
 	EffectiveExpr  ast.Expr
 	Reads          []globalReadRef
@@ -238,19 +236,6 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			Index:   index,
 			BaseDir: baseDir,
 		}, true
-	case ast.SubmitBlock:
-		if ctx.InControlBody {
-			return globalInputStep{}, false
-		}
-		blockCopy := n
-		return globalInputStep{
-			ID:          nextGlobalStepID(plan),
-			Kind:        globalInputSubmit,
-			Name:        blockCopy.Name,
-			SubmitBlock: &blockCopy,
-			Index:       index,
-			BaseDir:     baseDir,
-		}, true
 	case ast.AnalyseBlock:
 		if ctx.InControlBody {
 			return globalInputStep{}, false
@@ -381,10 +366,8 @@ type globalSeqEngine struct {
 	diags               *diag.Diagnostics
 	rootFrame           *eval.Frame
 	values              map[string]eval.Value
-	modes               map[string]string
 	spans               map[string]diag.Span
 	scalarSeed          map[string]eval.Value
-	scalarModes         map[string]string
 	scalarSpans         map[string]diag.Span
 	globalVars          map[string]*GlobalVar
 	globalOrder         []string
@@ -409,13 +392,12 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 	res := &globalExecResult{
 		UserGlobals: GlobalState{
 			Values: make(map[string]eval.Value),
-			Modes:  make(map[string]string),
 			Spans:  make(map[string]diag.Span),
 		},
 		UserGlobalVarByName:   make(map[string]*GlobalVar),
 		UserGlobalOrder:       make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
-		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Modes: make(map[string]string), Spans: make(map[string]diag.Span)},
+		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Spans: make(map[string]diag.Span)},
 		SnapshotBindings:      make([]*GlobalBinding, 0),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
@@ -425,10 +407,8 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		diags:               diags,
 		rootFrame:           eval.NewRootFrame(values),
 		values:              values,
-		modes:               make(map[string]string),
 		spans:               make(map[string]diag.Span),
 		scalarSeed:          scalars,
-		scalarModes:         make(map[string]string),
 		scalarSpans:         make(map[string]diag.Span),
 		globalVars:          make(map[string]*GlobalVar),
 		globalOrder:         make([]string, 0),
@@ -450,12 +430,10 @@ func (e *globalSeqEngine) execute() {
 		e.diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
 	}
 	e.res.UserGlobals.Values = maps.Clone(e.values)
-	e.res.UserGlobals.Modes = maps.Clone(e.modes)
 	e.res.UserGlobals.Spans = maps.Clone(e.spans)
 	e.res.UserGlobalVarByName, e.res.UserGlobalOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
 	e.res.ScalarGlobals = GlobalState{
 		Values: maps.Clone(e.scalarSeed),
-		Modes:  maps.Clone(e.scalarModes),
 		Spans:  maps.Clone(e.scalarSpans),
 	}
 }
@@ -499,7 +477,7 @@ func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []stri
 			return globalStepResult{Signal: globalLoopBreak, Span: globalStepSpan(step)}
 		case globalInputContinue:
 			return globalStepResult{Signal: globalLoopContinue, Span: globalStepSpan(step)}
-		case globalInputDo, globalInputSubmit, globalInputAnalyse:
+		case globalInputDo, globalInputAnalyse:
 			e.recordDeclarationSnapshot(step)
 		}
 		if result.active() {
@@ -515,37 +493,20 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	}
 	assign := *step.Assign
 	effective := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
-	warnModeExprInCollections(effective, e.diags)
-
-	mode := ""
-	expr := effective
-	if assign.Op == "" || assign.Op == ast.AssignEq {
-		if foundMode, inner, ok := unwrapModeExpr(assign.Expr); ok {
-			mode = foundMode
-			expr = inner
-		}
-	} else if prev := e.modes[assign.Name]; prev != "" {
-		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
-			return
-		}
-		mode = prev
-	} else {
+	if assign.Op != "" && assign.Op != ast.AssignEq {
 		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
 			return
 		}
 	}
 
 	before := errorCount(e.diags)
-	value := eval.EvalExprWithOptions(expr, nil, e.diags, eval.ExprOptions{
+	value := eval.EvalExprWithOptions(effective, nil, e.diags, eval.ExprOptions{
 		GlobalAssignmentTupleArithmetic: true,
 		Context:                         eval.EvalCtxBindingAssign,
 		Names:                           e.currentNameCatalog(),
 		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
 		Frame:                           e.rootFrame,
 	})
-	if (assign.Op == "" || assign.Op == ast.AssignEq) && mode != "" {
-		value = coerceModeValue(mode, value, assign.Span, e.diags)
-	}
 	if errorCount(e.diags) > before {
 		return
 	}
@@ -566,7 +527,6 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	gv := &GlobalVar{
 		Name:          assign.Name,
 		Value:         value,
-		Mode:          mode,
 		Span:          assign.Span,
 		Order:         orderNames,
 		Vars:          vars,
@@ -806,7 +766,6 @@ func (e *globalSeqEngine) cloneSnapshot(index int) *ScopeSnapshot {
 		Index: index,
 		Globals: GlobalState{
 			Values: maps.Clone(e.values),
-			Modes:  maps.Clone(e.modes),
 			Spans:  maps.Clone(e.spans),
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(e.currentBindings)),
@@ -877,23 +836,10 @@ func (e *globalSeqEngine) acceptGlobalVar(gv *GlobalVar) bool {
 	if gv == nil {
 		return false
 	}
-	if gv.Name == "jbs_name" || gv.Name == "jbs_outpath" {
-		if gv.Mode != "" {
-			e.diags.AddError(
-				diag.CodeE303,
-				gv.Name+" must be a simple string, not shell()/python()",
-				gv.Span,
-				"assign a plain string literal",
-			)
-			return false
-		}
+	if gv.Name == "jbs_name" {
 		if gv.Value.Kind != eval.KindString {
-			code := diag.CodeE301
-			if gv.Name == "jbs_outpath" {
-				code = diag.CodeE302
-			}
 			e.diags.AddError(
-				code,
+				diag.CodeE301,
 				gv.Name+" must be a simple string literal",
 				gv.Span,
 				"assign a plain quoted string",
@@ -906,7 +852,7 @@ func (e *globalSeqEngine) acceptGlobalVar(gv *GlobalVar) bool {
 			diag.CodeE304,
 			"global variable '"+gv.Name+"' must be scalar; tuples/lists are not allowed",
 			gv.Span,
-			"use string/int/float/bool or shell()/python() scalar values",
+			"use string/int/float/bool scalar values",
 		)
 		return false
 	}
@@ -1008,21 +954,11 @@ func (e *globalSeqEngine) publishGlobalVar(gv *GlobalVar) {
 	}
 	e.values[gv.Name] = gv.Value
 	e.spans[gv.Name] = gv.Span
-	if gv.Mode != "" {
-		e.modes[gv.Name] = gv.Mode
-	} else {
-		delete(e.modes, gv.Name)
-	}
 	e.rootFrame.AssignLocal(gv.Name, gv.Value, gv.Span)
 
 	if _, ok := e.scalarSeed[gv.Name]; ok {
 		e.scalarSeed[gv.Name] = gv.Value
 		e.scalarSpans[gv.Name] = gv.Span
-		if gv.Mode != "" {
-			e.scalarModes[gv.Name] = gv.Mode
-		} else {
-			delete(e.scalarModes, gv.Name)
-		}
 	}
 
 	e.globalVars[gv.Name] = cloneGlobalVar(gv)
@@ -1070,7 +1006,7 @@ func namespaceHead(name string) string {
 }
 
 func isBuiltinGlobalName(name string) bool {
-	return name == "jbs_name" || name == "jbs_outpath" || name == "jbs_comment"
+	return name == "jbs_name" || name == "jbs_nproc"
 }
 
 func bindingDisplayName(binding *GlobalBinding) string {
@@ -1089,10 +1025,6 @@ func globalStepBlockKey(step globalInputStep) string {
 		if step.DoBlock != nil {
 			return doBlockSnapshotKey(*step.DoBlock)
 		}
-	case globalInputSubmit:
-		if step.SubmitBlock != nil {
-			return submitBlockSnapshotKey(*step.SubmitBlock)
-		}
 	case globalInputAnalyse:
 		if step.AnalyseBlock != nil {
 			return analyseBlockSnapshotKey(*step.AnalyseBlock)
@@ -1103,10 +1035,6 @@ func globalStepBlockKey(step globalInputStep) string {
 
 func doBlockSnapshotKey(block ast.DoBlock) string {
 	return blockSnapshotKey("do", block.Name, block.Span)
-}
-
-func submitBlockSnapshotKey(block ast.SubmitBlock) string {
-	return blockSnapshotKey("submit", block.Name, block.Span)
 }
 
 func analyseBlockSnapshotKey(block ast.AnalyseBlock) string {
@@ -1192,10 +1120,6 @@ func globalStepSpan(step globalInputStep) diag.Span {
 		if step.DoBlock != nil {
 			return step.DoBlock.Span
 		}
-	case globalInputSubmit:
-		if step.SubmitBlock != nil {
-			return step.SubmitBlock.Span
-		}
 	case globalInputAnalyse:
 		if step.AnalyseBlock != nil {
 			return step.AnalyseBlock.Span
@@ -1256,8 +1180,6 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			}
 		case ast.MemberExpr:
 			walk(n.Base)
-		case ast.ModeExpr:
-			walk(n.Expr)
 		case ast.ListExpr:
 			for _, item := range n.Items {
 				walk(item)

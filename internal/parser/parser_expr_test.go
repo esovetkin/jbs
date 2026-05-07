@@ -342,16 +342,6 @@ func TestParsePrimaryBoolModeCallAndQualified(t *testing.T) {
 			},
 		},
 		{
-			name: "mode expr shell",
-			src:  `shell("x")`,
-			want: func(t *testing.T, expr ast.Expr) {
-				m, ok := expr.(ast.ModeExpr)
-				if !ok || m.Mode != "shell" {
-					t.Fatalf("expected shell ModeExpr, got %#v", expr)
-				}
-			},
-		},
-		{
 			name: "kernel call list",
 			src:  "list(1)",
 			want: func(t *testing.T, expr ast.Expr) {
@@ -937,7 +927,7 @@ func TestParseReturnOutsideFunctionBodyReportsE058(t *testing.T) {
 
 func TestParseFunctionBodyRejectsUnsupportedStatements(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	tp := parseExprTP("function() { use jsc }", diags)
+	tp := parseExprTP("function() { use lib }", diags)
 	_ = tp.parseExpr()
 	if !hasCode(diags, "E058") {
 		t.Fatalf("expected E058 for unsupported function body statement, got: %s", diags.String())

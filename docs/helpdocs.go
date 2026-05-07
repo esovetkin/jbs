@@ -21,7 +21,6 @@ var topicToFile = map[string]string{
 	"functions": "help_functions.md",
 	"globals":   "help_globals.md",
 	"repl":      "help_repl.md",
-	"submit":    "help_submit.md",
 	"use":       "help_use.md",
 }
 
@@ -42,13 +41,11 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "map", File: "function_help/map.md"},
 	{Name: "names", File: "function_help/names.md"},
 	{Name: "product", File: "function_help/product.md"},
-	{Name: "python", File: "function_help/python.md"},
 	{Name: "range", File: "function_help/range.md"},
 	{Name: "read_csv", File: "function_help/read_csv.md"},
 	{Name: "reduce", File: "function_help/reduce.md"},
 	{Name: "rev", File: "function_help/rev.md"},
 	{Name: "select", File: "function_help/select.md"},
-	{Name: "shell", File: "function_help/shell.md"},
 	{Name: "str", File: "function_help/str.md"},
 	{Name: "table", File: "function_help/table.md"},
 	{Name: "t", File: "function_help/table.md", AliasOf: "table"},

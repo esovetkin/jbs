@@ -134,7 +134,6 @@ Data-only boundary:
 
 - function-valued globals are expression-visible
 - they are not valid `with` sources
-- they are not valid `submit ... use ...` sources
 - they are not valid `analyse with ...` imports
 
 When printed in REPL or via `str(...)`, a function value renders as `<function>`.
@@ -217,14 +216,14 @@ grid = product(table(x = (1,2,3)), table(y = ("a","b","c","d")))
 - `names(table)` returns table column names
 
 ```jbs
-use jsc
+use "./lib.jbs" as lib
 
 ids = range(2)
 labels = ("a", "b")
 params = table(id = ids, label = labels)
 
 names()
-names(jsc)
+names(lib)
 names(params)
 names(select(params, id))
 ```

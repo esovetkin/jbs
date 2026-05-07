@@ -1,0 +1,85 @@
+package run
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
+
+func TestProgressSnapshotDone(t *testing.T) {
+	s := ProgressSnapshot{
+		Total:       10,
+		Finished:    4,
+		Error:       2,
+		Interrupted: 1,
+		Running:     3,
+	}
+	if got, want := s.Done(), 7; got != want {
+		t.Fatalf("Done() = %d, want %d", got, want)
+	}
+}
+
+func TestProgressSuffix(t *testing.T) {
+	got := progressSuffix(ProgressSnapshot{Running: 3, Error: 1})
+	if got != "3R|1E" {
+		t.Fatalf("suffix = %q", got)
+	}
+	got = progressSuffix(ProgressSnapshot{Running: 0, Error: 1, Interrupted: 2})
+	if got != "0R|1E|2I" {
+		t.Fatalf("suffix with interrupted = %q", got)
+	}
+}
+
+func TestProgressLineMode(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{Mode: ProgressLines})
+	p.Update(ProgressSnapshot{Total: 100, Finished: 40, Error: 2, Running: 3})
+
+	got := buf.String()
+	if !strings.Contains(got, "42% (42/100)") {
+		t.Fatalf("line output missing count: %q", got)
+	}
+	if !strings.Contains(got, "3R|2E") {
+		t.Fatalf("line output missing status suffix: %q", got)
+	}
+	if strings.Contains(got, "\r") {
+		t.Fatalf("line output should not contain carriage returns: %q", got)
+	}
+}
+
+func TestProgressBarModeSmoke(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{
+		Mode:  ProgressBar,
+		Width: 8,
+	})
+	p.Update(ProgressSnapshot{Total: 10})
+	p.Update(ProgressSnapshot{Total: 10, Finished: 4, Error: 1, Running: 2})
+	p.Close(StatusError)
+
+	got := buf.String()
+	for _, want := range []string{"50%", "5/10", "2R|1E"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("bar output missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestInterruptedProgressBarDoesNotForceComplete(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{
+		Mode:  ProgressBar,
+		Width: 8,
+	})
+	p.Update(ProgressSnapshot{Total: 10})
+	p.Update(ProgressSnapshot{Total: 10, Finished: 1, Interrupted: 1})
+	p.Close(StatusInterrupted)
+
+	got := buf.String()
+	if strings.Contains(got, "100%") {
+		t.Fatalf("interrupted progress should not force completion: %q", got)
+	}
+	if !strings.Contains(got, "2/10") {
+		t.Fatalf("interrupted progress should show terminal count: %q", got)
+	}
+}

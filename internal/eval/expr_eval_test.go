@@ -365,33 +365,6 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 	})
 }
 
-func TestEvalExprWithCtxModeExprPassthrough(t *testing.T) {
-	diags := &diag.Diagnostics{}
-	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}
-	got := evalExprWithCtx(
-		ast.ModeExpr{
-			Mode: "shell",
-			Expr: ast.BinaryExpr{
-				Left:  ast.NumberExpr{Int: true, IntValue: 2},
-				Op:    "+",
-				Right: ast.NumberExpr{Int: true, IntValue: 3},
-				Span:  spanAt(84, 1),
-			},
-			Span: spanAt(84, 1),
-		},
-		map[string]Value{},
-		diags,
-		ExprOptions{},
-		ctx,
-	)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected errors: %s", diags.String())
-	}
-	if got.Kind != KindInt || got.I != 5 {
-		t.Fatalf("expected passthrough evaluated value 5, got %#v", got)
-	}
-}
-
 func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 	tests := []struct {
 		name         string

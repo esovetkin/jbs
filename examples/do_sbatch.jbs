@@ -1,9 +1,10 @@
-use systemname, queue from jsc
+systemname = "local"
+queue = "debug"
 
 cases = t(id = (1, 2), label = ("alpha", "beta"))
 
 do write_sbatch
-        with cases, queue, systemname
+        with cases
 {
         cat > run.sbatch <<EOF
 #!/bin/bash
@@ -21,14 +22,14 @@ echo ${label}
 touch done
 
 EOF
-    # and extra do-nothing is needed is JUBE blindly adds `&& env ...` stuff, that brakes EOF
+    # keep the block non-empty after the heredoc
     :
 }
 
 do runwait_sbatch
         after write_sbatch
         # run at most 2 slurm jobs at a time
-        procs=2
+        nproc 2
 {
         sbatch -W write_sbatch/run.sbatch
 }

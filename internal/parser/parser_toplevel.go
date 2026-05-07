@@ -70,11 +70,6 @@ func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
 			stmt := p.parseDoBlock(start)
 			p.rejectControlBodyDeclaration(ctx, "do", stmt.Span)
 			return stmt
-		case "submit":
-			p.consumeWord()
-			stmt := p.parseSubmitBlock(start)
-			p.rejectControlBodyDeclaration(ctx, "submit", stmt.Span)
-			return stmt
 		case "analyse":
 			p.consumeWord()
 			stmt := p.parseAnalyseBlock(start)
@@ -116,7 +111,6 @@ func (p *Parser) isTopLevelAssignmentStart() bool {
 		word == "break" ||
 		word == "continue" ||
 		word == "do" ||
-		word == "submit" ||
 		word == "analyse" ||
 		word == "use" {
 		return false

@@ -52,13 +52,13 @@ func TestIsTopLevelAssignmentStart(t *testing.T) {
 		{src: `jbs_name + "x"`, want: false},
 		{src: `param p {`, want: false},
 		{src: `do run {`, want: false},
-		{src: `submit run {`, want: false},
+		{src: `unknown run {`, want: false},
 		{src: `let x {`, want: false},
 		{src: `analyse run {`, want: false},
-		{src: `use jsc`, want: false},
+		{src: `use lib`, want: false},
 		{src: `1x = 2`, want: false},
 		{src: `name`, want: false},
-		{src: `jsc.systemname`, want: false},
+		{src: `lib.value`, want: false},
 	}
 
 	for _, tt := range tests {
@@ -103,7 +103,7 @@ func TestParseGlobalAssignSuccess(t *testing.T) {
 
 func TestParseTopLevelExprStmtSuccess(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("jsc.systemname\n", diags)
+	p := newTopLevelParser("lib.value\n", diags)
 	start := p.pos()
 	got := p.parseTopLevelExprStmt(start)
 	if diags.HasErrors() {
@@ -174,7 +174,7 @@ func TestParseUseStmtErrorBranches(t *testing.T) {
 		{name: "path alias missing identifier", src: `use "./x.jbs" as 1` + "\n"},
 		{name: "from invalid source token", src: "use x from 1\n"},
 		{name: "namespace import with many names", src: "use a, b\n"},
-		{name: "trailing tokens", src: "use jsc extra\n"},
+		{name: "trailing tokens", src: "use lib extra\n"},
 	}
 
 	for _, tt := range tests {
@@ -326,14 +326,14 @@ func TestParseUseStmtSelectiveFromPath(t *testing.T) {
 }
 
 func TestParseUseStmtSelectiveFromBareModule(t *testing.T) {
-	stmt, diags := parseUseDirect("use helper, tool from jsc\n")
+	stmt, diags := parseUseDirect("use helper, tool from lib\n")
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
 	if len(stmt.Names) != 2 || stmt.Names[0] != "helper" || stmt.Names[1] != "tool" {
 		t.Fatalf("unexpected selective names: %#v", stmt.Names)
 	}
-	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "jsc" {
+	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "lib" {
 		t.Fatalf("unexpected selective source: %#v", stmt.Source)
 	}
 }
@@ -352,20 +352,20 @@ func TestParseUseStmtPathAliasSuccess(t *testing.T) {
 }
 
 func TestParseUseStmtNamespaceImportSuccess(t *testing.T) {
-	stmt, diags := parseUseDirect("use jsc\n")
+	stmt, diags := parseUseDirect("use lib\n")
 	if diags.HasErrors() {
 		t.Fatalf("unexpected errors: %s", diags.String())
 	}
-	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "jsc" {
+	if stmt.Source.Kind != ast.UseSourceBare || stmt.Source.Value != "lib" {
 		t.Fatalf("unexpected source: %#v", stmt.Source)
 	}
-	if stmt.Alias != "jsc" {
+	if stmt.Alias != "lib" {
 		t.Fatalf("unexpected alias: %#v", stmt.Alias)
 	}
 }
 
 func TestParseUseStmtMissingIdentifierAfterComma(t *testing.T) {
-	_, diags := parseUseDirect("use a, from jsc\n")
+	_, diags := parseUseDirect("use a, from lib\n")
 	if !hasDiag(diags, "E430") {
 		t.Fatalf("expected E430, got: %s", diags.String())
 	}
@@ -375,7 +375,7 @@ func TestParseUseStmtMissingIdentifierAfterComma(t *testing.T) {
 }
 
 func TestParseUseStmtUnexpectedTrailingTokensMessage(t *testing.T) {
-	_, diags := parseUseDirect("use jsc trailing\n")
+	_, diags := parseUseDirect("use lib trailing\n")
 	if !hasDiag(diags, "E430") {
 		t.Fatalf("expected E430, got: %s", diags.String())
 	}

@@ -36,8 +36,6 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		return
 	case ast.MemberExpr:
 		collectExprLocalIdentDeps(e.Base, out)
-	case ast.ModeExpr:
-		collectExprLocalIdentDeps(e.Expr, out)
 	case ast.ListExpr:
 		for _, it := range e.Items {
 			collectExprLocalIdentDeps(it, out)

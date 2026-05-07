@@ -16,9 +16,8 @@ func analyzeRefValidationSource(t *testing.T, file, src string) (*Result, *diag.
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse(file, src, diags)
 	res := Analyze(prog, map[string]eval.Value{
-		"jbs_name":    eval.String("jbs_benchmark"),
-		"jbs_outpath": eval.String("out"),
-		"jbs_comment": eval.String(""),
+		"jbs_name":  eval.String("jbs_benchmark"),
+		"jbs_nproc": eval.Int(0),
 	}, diags)
 	return res, diags
 }
@@ -148,7 +147,6 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 		Program: ast.Program{Stmts: []ast.Stmt{
 			ast.AnalyseBlock{StepName: "step_used", WithItems: []ast.WithItem{{Source: "pattern", Span: patternSpan}}, Span: bodySpan},
 		}},
-		SubmitByName: map[string]*SubmitSpec{},
 	}
 
 	diags := &diag.Diagnostics{}
@@ -250,73 +248,6 @@ do step1
 	}
 }
 
-func TestValidateStepVarReferencesCountsSubmitUseBindingsAndHelperRefs(t *testing.T) {
-	span := diag.NewSpan("submit_refs.jbs", diag.NewPos(1, 1, 1), diag.NewPos(5, 5, 5))
-	queueBinding := &GlobalBinding{
-		Name:  "defaults.queue",
-		Shape: BindingScalar,
-		Order: []string{"queue"},
-		Vars: map[string][]eval.Value{
-			"queue": {eval.String("batch")},
-		},
-		Origins: map[string]diag.Span{"queue": span},
-		Span:    span,
-	}
-	helperBinding := &GlobalBinding{
-		Name:  "defaults.helper",
-		Shape: BindingScalar,
-		Order: []string{"helper"},
-		Vars: map[string][]eval.Value{
-			"helper": {eval.String("hostname")},
-		},
-		Origins: map[string]diag.Span{"helper": span},
-		Span:    span,
-	}
-	res := &Result{
-		Bindings: []*GlobalBinding{queueBinding, helperBinding},
-		BindingsByName: map[string]*GlobalBinding{
-			"defaults.queue":  queueBinding,
-			"defaults.helper": helperBinding,
-		},
-		Namespaces: map[string]*Namespace{
-			"defaults": {Name: "defaults", Bindings: []string{"defaults.queue", "defaults.helper"}},
-		},
-		Submits: []ast.SubmitBlock{{
-			Name:     "run",
-			UseNames: []string{"defaults"},
-			Fields: []ast.SubmitField{
-				{Name: "args_exec", Op: ast.AssignEq, Expr: ast.IdentExpr{Name: "helper", Span: span}, Span: span},
-				{Name: "preprocess", IsRaw: true, Raw: "echo ${helper}", RawStart: span.Start, Span: span},
-			},
-			Span: span,
-		}},
-		SubmitByName: map[string]*SubmitSpec{
-			"run": {
-				Name:    "run",
-				Helpers: []SubmitHelper{{Original: "helper", UseName: "defaults", Span: span}},
-				Values: []SubmitValue{
-					{Name: "launcher", Value: eval.String("$helper"), Span: span},
-					{Name: "postprocess", IsRaw: true, Raw: "echo ${helper}", Span: span},
-				},
-			},
-		},
-		StepScopeByName: map[string]*StepScopePlan{},
-	}
-
-	diags := &diag.Diagnostics{}
-	validateStepVarReferences(res, diags)
-
-	if hasW310ForGlobal(diags, "queue", "defaults.queue") || hasW310ForGlobal(diags, "helper", "defaults.helper") {
-		t.Fatalf("did not expect W310 for submit-use bindings, got: %s", diags.String())
-	}
-	if countDiagCode(diags, string(diag.CodeW311)) != 0 {
-		t.Fatalf("did not expect W311 for helper refs imported from submit use, got: %s", diags.String())
-	}
-	if countDiagCode(diags, string(diag.CodeW313)) != 0 {
-		t.Fatalf("did not expect W313 for submit-use helper refs, got: %s", diags.String())
-	}
-}
-
 func TestValidateStepVarReferencesUsesVersionedGlobalDependenciesForW310(t *testing.T) {
 	src := `
 base = (1, 2)
@@ -407,27 +338,6 @@ do step1
 	}
 	if w313.Related[0].Span.IsZero() {
 		t.Fatalf("expected W313 related span to point at source origin, got %#v", w313.Related[0])
-	}
-}
-
-func TestValidateStepVarReferencesCountsSubmitUseSnapshotBeforeRebind(t *testing.T) {
-	src := `
-helper = "old"
-
-submit run
-        use helper
-{
-        args_exec = "$helper"
-}
-
-helper = "new"
-`
-	_, diags := analyzeRefValidationSource(t, "submit_rebind_use.jbs", src)
-	if got := countWarningsWithParts(diags, diag.CodeW310, "exposed variable 'helper'", "global 'helper'"); got != 1 {
-		t.Fatalf("expected only rebound helper version to be unused, got %d: %s", got, diags.String())
-	}
-	if countDiagCode(diags, string(diag.CodeW311)) != 0 {
-		t.Fatalf("did not expect W311 for submit helper from use snapshot, got: %s", diags.String())
 	}
 }
 

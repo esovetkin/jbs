@@ -41,13 +41,13 @@ func ParseStandaloneExpr(file, source string, start diag.Position, diags *diag.D
 
 func looksLikeTopLevelStatementStart(tp *tokenParser) bool {
 	first := tp.peek()
-	if first.Type == lexer.TokenDo || first.Type == lexer.TokenSubmit || first.Type == lexer.TokenAnalyse || first.Type == lexer.TokenUse {
+	if first.Type == lexer.TokenDo || first.Type == lexer.TokenAnalyse || first.Type == lexer.TokenUse {
 		return true
 	}
 	if first.Type != lexer.TokenIdent {
 		return false
 	}
-	if first.Value == "do" || first.Value == "submit" || first.Value == "analyse" || first.Value == "use" {
+	if first.Value == "do" || first.Value == "analyse" || first.Value == "use" {
 		return true
 	}
 	return isAssignToken(tp.peekN(1).Type)

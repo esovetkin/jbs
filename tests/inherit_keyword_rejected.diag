@@ -1,6 +1,0 @@
-ERROR E031 /home/jackson/jülich/jbs_review2/tests/inherit_keyword_rejected.jbs:11:9
-expected '{' to start do block body
-    11 |         inherit prep
-       |         ^
-    12 | {
-Hint: add '{' before do script body

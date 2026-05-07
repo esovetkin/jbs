@@ -9,7 +9,7 @@ import (
 func TestParseDoBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("do run after prep with p[x] max_async=1 procs=2 iterations=3 {\n  echo ${x}\n}\n", diags)
+		p := newTopLevelParser("do run after prep with p[x] nproc 2 {\n  echo ${x}\n}\n", diags)
 		start := p.pos()
 		p.consumeWord()
 		block := p.parseDoBlock(start)
@@ -22,8 +22,8 @@ func TestParseDoBlockBranches(t *testing.T) {
 		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
 			t.Fatalf("unexpected with-items: %#v", block.WithItems)
 		}
-		if block.MaxAsync == nil || *block.MaxAsync != 1 || block.Procs == nil || *block.Procs != 2 || block.Iterations == nil || *block.Iterations != 3 {
-			t.Fatalf("unexpected do options: %#v", block)
+		if block.NProc == nil || *block.NProc != 2 {
+			t.Fatalf("unexpected nproc option: %#v", block)
 		}
 		if block.Body == "" {
 			t.Fatalf("expected non-empty do body")
@@ -55,80 +55,6 @@ func TestParseDoBlockBranches(t *testing.T) {
 		block := p.parseDoBlock(start)
 		if block.Body != "" {
 			t.Fatalf("expected empty body for unterminated do block, got %#v", block)
-		}
-		if !hasDiag(diags, "E025") {
-			t.Fatalf("expected E025 from unterminated balanced block, got: %s", diags.String())
-		}
-	})
-}
-
-func TestParseSubmitBlockBranches(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		src := "submit run after prep use defs with p[x] max_async=1 procs=2 iterations=3 {\n  account = \"a\"\n  queue = \"q\"\n  args_exec = \"-lc hostname\"\n}\n"
-		p := newTopLevelParser(src, diags)
-		start := p.pos()
-		p.consumeWord()
-		block := p.parseSubmitBlock(start)
-		if block.Name != "run" {
-			t.Fatalf("unexpected submit name: %#v", block)
-		}
-		if len(block.After) != 1 || block.After[0] != "prep" {
-			t.Fatalf("unexpected submit after list: %#v", block.After)
-		}
-		if len(block.UseNames) != 1 || block.UseNames[0] != "defs" {
-			t.Fatalf("unexpected submit use list: %#v", block.UseNames)
-		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
-			t.Fatalf("unexpected submit with-items: %#v", block.WithItems)
-		}
-		if block.MaxAsync == nil || *block.MaxAsync != 1 || block.Procs == nil || *block.Procs != 2 || block.Iterations == nil || *block.Iterations != 3 {
-			t.Fatalf("unexpected submit options: %#v", block)
-		}
-		if len(block.Fields) != 3 {
-			t.Fatalf("expected three submit fields, got %#v", block.Fields)
-		}
-		if block.BodyRaw == "" {
-			t.Fatalf("expected non-empty submit body raw text")
-		}
-		if block.BodyStart.Offset <= block.Span.Start.Offset || block.BodyStart.Offset >= block.Span.End.Offset {
-			t.Fatalf("expected submit BodyStart to point inside block: bodyStart=%+v span=%+v", block.BodyStart, block.Span)
-		}
-		srcRunes := []rune(src)
-		bodyRunes := []rune(block.BodyRaw)
-		if block.BodyStart.Offset+len(bodyRunes) > len(srcRunes) {
-			t.Fatalf("submit BodyStart/body length exceeds source")
-		}
-		if got := string(srcRunes[block.BodyStart.Offset : block.BodyStart.Offset+len(bodyRunes)]); got != block.BodyRaw {
-			t.Fatalf("BodyStart does not point at BodyRaw: got=%q want=%q", got, block.BodyRaw)
-		}
-		if diags.HasErrors() {
-			t.Fatalf("unexpected diagnostics: %s", diags.String())
-		}
-	})
-
-	t.Run("missing opening brace", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("submit run with p", diags)
-		start := p.pos()
-		p.consumeWord()
-		block := p.parseSubmitBlock(start)
-		if len(block.Fields) != 0 {
-			t.Fatalf("expected zero fields when brace is missing: %#v", block.Fields)
-		}
-		if !hasDiag(diags, "E041") {
-			t.Fatalf("expected E041, got: %s", diags.String())
-		}
-	})
-
-	t.Run("unterminated body", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("submit run {", diags)
-		start := p.pos()
-		p.consumeWord()
-		block := p.parseSubmitBlock(start)
-		if len(block.Fields) != 0 || block.BodyRaw != "" {
-			t.Fatalf("expected empty parsed fields/body for unterminated submit block: %#v", block)
 		}
 		if !hasDiag(diags, "E025") {
 			t.Fatalf("expected E025 from unterminated balanced block, got: %s", diags.String())

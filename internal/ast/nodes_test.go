@@ -15,7 +15,6 @@ var (
 	_ Node         = Assignment{}
 	_ Node         = AnalyseAssign{}
 	_ Node         = AnalyseColumn{}
-	_ Node         = SubmitField{}
 	_ Node         = CallArg{}
 	_ Node         = FuncParam{}
 	_ Node         = LocalAssignStmt{}
@@ -33,7 +32,6 @@ var (
 	_ Stmt         = ContinueStmt{}
 	_ Stmt         = AnalyseBlock{}
 	_ Stmt         = DoBlock{}
-	_ Stmt         = SubmitBlock{}
 	_ Expr         = IdentExpr{}
 	_ Expr         = QualifiedIdentExpr{}
 	_ Expr         = MemberExpr{}
@@ -50,7 +48,6 @@ var (
 	_ Expr         = BinaryExpr{}
 	_ Expr         = CompareExpr{}
 	_ Expr         = ConditionalExpr{}
-	_ Expr         = ModeExpr{}
 	_ FuncBodyStmt = ExprStmt{}
 	_ FuncBodyStmt = LocalAssignStmt{}
 	_ FuncBodyStmt = ReturnStmt{}
@@ -85,7 +82,6 @@ func TestPlainNodeGetSpan(t *testing.T) {
 		{name: "Assignment", node: Assignment{Span: testSpan(6)}, want: testSpan(6)},
 		{name: "AnalyseAssign", node: AnalyseAssign{Span: testSpan(7)}, want: testSpan(7)},
 		{name: "AnalyseColumn", node: AnalyseColumn{Span: testSpan(8)}, want: testSpan(8)},
-		{name: "SubmitField", node: SubmitField{Span: testSpan(9)}, want: testSpan(9)},
 		{name: "CallArg", node: CallArg{Span: testSpan(10)}, want: testSpan(10)},
 		{name: "FuncParam", node: FuncParam{Span: testSpan(11)}, want: testSpan(11)},
 		{name: "LocalAssignStmt", node: LocalAssignStmt{Span: testSpan(12)}, want: testSpan(12)},
@@ -115,7 +111,6 @@ func TestStmtNodes(t *testing.T) {
 	continueStmt := ContinueStmt{Span: testSpan(27)}
 	analyseBlock := AnalyseBlock{Span: testSpan(28)}
 	doBlock := DoBlock{Span: testSpan(29)}
-	submitBlock := SubmitBlock{Span: testSpan(30)}
 
 	tests := []struct {
 		name string
@@ -133,7 +128,6 @@ func TestStmtNodes(t *testing.T) {
 		{name: "ContinueStmt", call: func() { continueStmt.stmtNode(); continueStmt.funcBodyStmtNode() }, node: continueStmt, want: testSpan(27)},
 		{name: "AnalyseBlock", call: func() { analyseBlock.stmtNode() }, node: analyseBlock, want: testSpan(28)},
 		{name: "DoBlock", call: func() { doBlock.stmtNode() }, node: doBlock, want: testSpan(29)},
-		{name: "SubmitBlock", call: func() { submitBlock.stmtNode() }, node: submitBlock, want: testSpan(30)},
 	}
 
 	for _, tc := range tests {
@@ -163,7 +157,6 @@ func TestExprNodes(t *testing.T) {
 	binary := BinaryExpr{Span: testSpan(44)}
 	compare := CompareExpr{Span: testSpan(45)}
 	conditional := ConditionalExpr{Span: testSpan(46)}
-	mode := ModeExpr{Span: testSpan(47)}
 
 	tests := []struct {
 		name string
@@ -187,7 +180,6 @@ func TestExprNodes(t *testing.T) {
 		{name: "BinaryExpr", call: func() { binary.exprNode() }, node: binary, want: testSpan(44)},
 		{name: "CompareExpr", call: func() { compare.exprNode() }, node: compare, want: testSpan(45)},
 		{name: "ConditionalExpr", call: func() { conditional.exprNode() }, node: conditional, want: testSpan(46)},
-		{name: "ModeExpr", call: func() { mode.exprNode() }, node: mode, want: testSpan(47)},
 	}
 
 	for _, tc := range tests {

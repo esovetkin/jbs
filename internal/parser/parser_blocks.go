@@ -1,6 +1,6 @@
 // parse top-level block statements
 //
-// parse `do`, `submit`, and `analyse` blocks and capture their
+// parse `do` and `analyse` blocks and capture their
 // structural boundaries/spans. Coordinate header parsing, balanced
 // raw-body extraction, block-specific body parsers, and block-level
 // syntax diagnostics for malformed or unterminated blocks.
@@ -28,110 +28,39 @@ func (p *Parser) parseDoBlock(blockStart diag.Position) ast.DoBlock {
 			"add '{' before do script body",
 		)
 		return ast.DoBlock{
-			Name:       name,
-			After:      after,
-			WithItems:  withItems,
-			MaxAsync:   opts.MaxAsync,
-			Procs:      opts.Procs,
-			Iterations: opts.Iterations,
-			HeaderRaw:  headerRaw,
-			Header:     headerElems,
-			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			NProc:     opts.NProc,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	body, innerStart, blockEnd, ok := p.readBalancedBlock()
 	if !ok {
 		return ast.DoBlock{
-			Name:       name,
-			After:      after,
-			WithItems:  withItems,
-			MaxAsync:   opts.MaxAsync,
-			Procs:      opts.Procs,
-			Iterations: opts.Iterations,
-			HeaderRaw:  headerRaw,
-			Header:     headerElems,
-			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
+			Name:      name,
+			After:     after,
+			WithItems: withItems,
+			NProc:     opts.NProc,
+			HeaderRaw: headerRaw,
+			Header:    headerElems,
+			Span:      diag.NewSpan(p.file, blockStart, nameSpan.End),
 		}
 	}
 
 	return ast.DoBlock{
-		Name:       name,
-		After:      after,
-		WithItems:  withItems,
-		MaxAsync:   opts.MaxAsync,
-		Procs:      opts.Procs,
-		Iterations: opts.Iterations,
-		HeaderRaw:  headerRaw,
-		Header:     headerElems,
-		Body:       body,
-		BodyStart:  innerStart,
-		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
-	}
-}
-
-func (p *Parser) parseSubmitBlock(blockStart diag.Position) ast.SubmitBlock {
-	name, nameSpan := p.parseRequiredIdent(diag.CodeE040, "expected submit block name")
-	headerStart := nameSpan.End
-	after, useNames, withItems, opts := p.parseOptionalSubmitHeaderClauses()
-	headerEnd := p.pos()
-	headerRaw := string(p.src[headerStart.Offset:headerEnd.Offset])
-	headerElems := parseHeaderElements(p.file, headerRaw, headerStart)
-	p.skipTrivia()
-
-	if p.peek() != '{' {
-		pos := p.pos()
-		p.diags.AddError(diag.CodeE041,
-			"expected '{' to start submit block body",
-			diag.NewSpan(p.file, pos, pos),
-			"add '{' after submit header",
-		)
-		return ast.SubmitBlock{
-			Name:       name,
-			After:      after,
-			UseNames:   useNames,
-			WithItems:  withItems,
-			MaxAsync:   opts.MaxAsync,
-			Procs:      opts.Procs,
-			Iterations: opts.Iterations,
-			HeaderRaw:  headerRaw,
-			Header:     headerElems,
-			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
-		}
-	}
-
-	body, innerStart, blockEnd, ok := p.readBalancedBlock()
-	if !ok {
-		return ast.SubmitBlock{
-			Name:       name,
-			After:      after,
-			UseNames:   useNames,
-			WithItems:  withItems,
-			MaxAsync:   opts.MaxAsync,
-			Procs:      opts.Procs,
-			Iterations: opts.Iterations,
-			HeaderRaw:  headerRaw,
-			Header:     headerElems,
-			Span:       diag.NewSpan(p.file, blockStart, nameSpan.End),
-		}
-	}
-
-	fields := parseSubmitFields(p.file, body, innerStart, p.diags)
-
-	return ast.SubmitBlock{
-		Name:       name,
-		After:      after,
-		UseNames:   useNames,
-		WithItems:  withItems,
-		MaxAsync:   opts.MaxAsync,
-		Procs:      opts.Procs,
-		Iterations: opts.Iterations,
-		HeaderRaw:  headerRaw,
-		Header:     headerElems,
-		Fields:     fields,
-		BodyRaw:    body,
-		BodyStart:  innerStart,
-		Span:       diag.NewSpan(p.file, blockStart, blockEnd),
+		Name:      name,
+		After:     after,
+		WithItems: withItems,
+		NProc:     opts.NProc,
+		HeaderRaw: headerRaw,
+		Header:    headerElems,
+		Body:      body,
+		BodyStart: innerStart,
+		Span:      diag.NewSpan(p.file, blockStart, blockEnd),
 	}
 }
 

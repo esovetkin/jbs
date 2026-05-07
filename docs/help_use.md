@@ -1,124 +1,57 @@
 # jbs help use
 
-The `use` statement imports reusable definitions from embedded modules and quoted local `.jbs` scripts.
+`use` imports values and step declarations from another `.jbs` file.
 
-`use` is JBS-only syntax. During compilation, imported modules are resolved and analyzed together with the entry file before one YAML document is produced.
-
-## Syntax
+## Forms
 
 ```jbs
-# Bare module import (embedded modules only)
-use <module>
-
-# Path import with alias
-use "<path>.jbs" as <alias>
-
-# Selective symbol import
-use <name> from <module>
-use <name0>, <name1> from <module>
-use <name> from "<path>.jbs"
+use value from "./params.jbs"
+use value, cases from "./params.jbs"
+use "./params.jbs" as params
 ```
 
-After importing a module, `with` also supports namespace-qualified references:
+Selective imports add the named values directly to the current scope. Namespaced imports keep the imported symbols under the alias.
 
 ```jbs
-use "./test_lib.jbs" as test_lib
+use "./params.jbs" as p
 
-do s
-        with test_lib.cases[x]
-{
-        echo ${x}
+do run with p.cases {
+        echo "${x}"
 }
 ```
 
-You can also use table-style slicing on imported table symbols:
+## Step Imports
+
+Importing a `do` step also imports the `after` dependencies needed by that step.
 
 ```jbs
-use "./test_lib.jbs" as test_lib
+use run from "./steps.jbs"
+```
 
-do s0
-        with test_lib.cases[x, y]
-{
-        echo ${x} ${y}
+If `run` depends on `prepare`, both declarations are available to the current benchmark.
+
+## Data Imports
+
+Imported tables can be used in `with` clauses:
+
+```jbs
+use cases from "./params.jbs"
+
+do run with cases[x,label] {
+        echo "${x} ${label}"
 }
 ```
 
-Resolution rules:
-
-- `use <module>` resolves embedded `shared/<module>.jbs` only
-- bare installed modules are not implemented yet, so bare names currently mean embedded modules only
-- local files must be quoted paths: `use "./file.jbs" as alias` or `use name from "./file.jbs"`
-- `use "<path>.jbs" ...` resolves relative to the importing `.jbs` file directory, or absolute if given
-- nested quoted imports resolve from each importer's own directory, not from the shell working directory
-- quoted paths must end with `.jbs`
-
-Representative nested resolution:
-
-```text
-root/main.jbs          -> use "./lib/a.jbs" as a
-root/lib/a.jbs         -> use value from "./nested/b.jbs"
-root/lib/nested/b.jbs
-```
-
-Migration rule: bare import names are for embedded modules; local files must be quoted paths.
-
-Importable symbols:
-
-- top-level global assignments, including function-valued globals
-- `do` steps
-- `submit` steps
-- module namespaces created by namespace imports
-
-When you import a `do` or `submit` symbol, JBS also imports its required dependencies:
-
-- transitive `after` steps
-- referenced `with` sources
-- referenced submit-header `use` sources
-
-`analyse` is not importable by symbol name.
-
-Name collisions during import are hard errors, including:
-
-- imported symbol vs local symbol
-- imported symbol vs imported symbol
-- transitive imported dependency collisions
-- alias collisions
-
-## Example: submit defaults from a module namespace
+Functions and scalars can be imported for expressions:
 
 ```jbs
-use "./submit_defaults.jbs" as defaults
+use scale from "./math.jbs"
 
-submit run
-        use defaults
-{
-        executable = "/bin/bash"
-        args_exec = "-lc hostname"
-}
+values = table(x = map(scale, range(4)))
 ```
 
-`submit_defaults.jbs` can export scalar defaults such as:
+Function-valued globals are not valid `with` sources because `with` expects row data.
 
-```jbs
-account = "myacct"
-queue = "batch"
-starter = "srun"
-```
+## Paths
 
-Rules:
-
-- submit headers can contain one or more `use` clauses
-- non-submit variables from defaults namespaces are retained as internal helper parameters in the generated submit parameter set
-- submit values that reference those helper variables are rewritten to helper aliases
-- explicit submit fields override imported defaults
-- if multiple sources define the same submit key or helper variable name, JBS applies last-wins precedence and emits warning `W072`
-
-## `jbs embed`
-
-```bash
-jbs embed
-jbs embed jsc
-```
-
-- `jbs embed` prints all embedded shared files
-- `jbs embed <filename>` prints the content of the embedded file
+Import paths are quoted file paths. Relative paths are resolved from the importing file's directory.

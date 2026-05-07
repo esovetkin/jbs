@@ -27,13 +27,13 @@ func TestCollectStepDefinitionsUsesFirstMatchingBlockAndCopiesSlices(t *testing.
 		DoBlocks: []ast.DoBlock{
 			{Name: "build", After: []string{"prep"}, WithItems: []ast.WithItem{{Source: "srcA", Span: span0}}, Span: span0},
 			{Name: "build", After: []string{"shadow"}, WithItems: []ast.WithItem{{Source: "srcB", Span: span1}}, Span: span1},
+			{Name: "run", After: []string{"build"}, Span: span1},
 		},
-		Submits:   []ast.SubmitBlock{{Name: "submit", After: []string{"build"}, Span: span1}},
-		StepOrder: []string{"submit", "build", "missing"},
+		StepOrder: []string{"run", "build", "missing"},
 	}
 
 	defs, order := collectStepDefinitions(res)
-	if !reflect.DeepEqual(order, []string{"submit", "build"}) {
+	if !reflect.DeepEqual(order, []string{"run", "build"}) {
 		t.Fatalf("unexpected step-definition order: %#v", order)
 	}
 	if !reflect.DeepEqual(defs["build"].After, []string{"prep"}) {

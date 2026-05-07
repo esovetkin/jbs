@@ -198,8 +198,7 @@ func TestBuildEndToEnd(t *testing.T) {
 		},
 		GlobalVarOrder: []string{"helper_fn"},
 		StepOrder:      []string{"s0", "s1", "s2"},
-		DoBlocks:       []ast.DoBlock{{Name: "s0", Span: span}, {Name: "s1", After: []string{"s0"}, Span: span}},
-		Submits:        []ast.SubmitBlock{{Name: "s2", After: []string{"s1"}, Span: span}},
+		DoBlocks:       []ast.DoBlock{{Name: "s0", Span: span}, {Name: "s1", After: []string{"s0"}, Span: span}, {Name: "s2", After: []string{"s1"}, Span: span}},
 		BindingsByName: map[string]*sema.GlobalBinding{
 			"p": {
 				Name:  "p",
@@ -273,11 +272,11 @@ func TestBuildEndToEnd(t *testing.T) {
 	if table.Rows[2].StepName != "s1" || table.Rows[2].Values["q.z"] != "9" {
 		t.Fatalf("unexpected third row values: %#v", table.Rows[2])
 	}
-	if table.Rows[4].StepKind != "submit" || table.Rows[4].StepName != "s2" {
-		t.Fatalf("unexpected submit row: %#v", table.Rows[4])
+	if table.Rows[4].StepKind != "do" || table.Rows[4].StepName != "s2" {
+		t.Fatalf("unexpected nil-plan row: %#v", table.Rows[4])
 	}
 	if len(table.Rows[4].Values) != 0 || len(table.Rows[5].Values) != 0 {
-		t.Fatalf("expected empty values for nil-plan submit rows, got %#v %#v", table.Rows[4].Values, table.Rows[5].Values)
+		t.Fatalf("expected empty values for nil-plan rows, got %#v %#v", table.Rows[4].Values, table.Rows[5].Values)
 	}
 }
 

@@ -29,7 +29,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	res := &Result{
 		Program:               prog,
 		BaseDirByFile:         make(map[string]string),
-		Globals:               GlobalState{Values: map[string]eval.Value{}, Modes: map[string]string{}, Spans: map[string]diag.Span{}},
+		Globals:               GlobalState{Values: map[string]eval.Value{}, Spans: map[string]diag.Span{}},
 		GlobalVarByName:       make(map[string]*GlobalVar),
 		GlobalVarOrder:        make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
@@ -39,9 +39,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
 		Namespaces:            make(map[string]*Namespace),
 		DoBlocks:              make([]ast.DoBlock, 0),
-		Submits:               make([]ast.SubmitBlock, 0),
 		StepOrder:             make([]string, 0),
-		SubmitByName:          make(map[string]*SubmitSpec),
 		StepScopeByName:       make(map[string]*StepScopePlan),
 		Analyse:               make([]*AnalyseSpec, 0),
 	}
@@ -56,7 +54,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		}
 		scope.Globals = GlobalState{
 			Values: maps.Clone(exec.ScalarGlobals.Values),
-			Modes:  maps.Clone(exec.ScalarGlobals.Modes),
 			Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
@@ -76,9 +73,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			case ast.DoBlock:
 				scope.DoBlocks = append(scope.DoBlocks, n)
 				scope.StepOrder = append(scope.StepOrder, n.Name)
-			case ast.SubmitBlock:
-				scope.Submits = append(scope.Submits, n)
-				scope.StepOrder = append(scope.StepOrder, n.Name)
 			case ast.AnalyseBlock:
 				scope.AnalyseBlocks = append(scope.AnalyseBlocks, n)
 			}
@@ -97,7 +91,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 
 	res.Globals = GlobalState{
 		Values: maps.Clone(scope.Globals.Values),
-		Modes:  maps.Clone(scope.Globals.Modes),
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	res.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
@@ -111,7 +104,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	res.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(scope.ScopeSnapshotsByIndex)
 	res.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(scope.ScopeSnapshotsByBlock)
 	res.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
-	res.Submits = append([]ast.SubmitBlock(nil), scope.Submits...)
 	res.StepOrder = append([]string(nil), scope.StepOrder...)
 	for name, ns := range scope.Namespaces {
 		res.Namespaces[name] = &Namespace{
@@ -126,14 +118,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
 	buildStepScopePlans(res, diags)
-	for _, submit := range res.Submits {
-		effective := map[string]VisibleBinding{}
-		if plan := res.StepScopeByName[submit.Name]; plan != nil {
-			effective = plan.Effective
-		}
-		snap := snapshotForSubmitBlock(res, submit)
-		res.SubmitByName[submit.Name] = compileSubmitBlock(submit, snapshotBindingsWithResult(res, snap), snapshotGlobals(res, snap), effective, snapshotNamespaces(res, snap), res.BaseDirByFile, diags)
-	}
 	validateStepVarReferences(res, diags)
 	for _, block := range scope.AnalyseBlocks {
 		spec := compileAnalyseBlock(block, res, diags)

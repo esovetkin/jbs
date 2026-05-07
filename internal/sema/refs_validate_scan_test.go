@@ -31,21 +31,6 @@ func TestCollectShellLikeRefsRespectsQuotesCommentsAndSpans(t *testing.T) {
 	}
 }
 
-func TestCollectSubmitStringRefsCapturesQuotedAndCommentText(t *testing.T) {
-	base := diag.NewPos(10, 2, 3)
-	text := "-lc 'echo ${inside_single}' # ${inside_comment} \"$double\" \\$ignored"
-
-	refs := collectSubmitStringRefs(text, base, "submit.jbs")
-	got := refNames(refs)
-	want := []string{"inside_single", "inside_comment", "double"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected submit refs: got=%#v want=%#v", got, want)
-	}
-	if refs[0].Span.Start.Line != 2 || refs[0].Span.File != "submit.jbs" {
-		t.Fatalf("unexpected first submit ref span: %+v", refs[0].Span)
-	}
-}
-
 func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 	sp0 := diag.NewSpan("expr.jbs", diag.NewPos(0, 1, 1), diag.NewPos(11, 1, 12))
 	sp1 := diag.NewSpan("expr.jbs", diag.NewPos(20, 2, 4), diag.NewPos(31, 2, 15))
@@ -64,14 +49,10 @@ func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 	expr := ast.TupleExpr{
 		Items: []ast.Expr{
 			ast.StringExpr{Value: "${left}", Span: sp0},
-			ast.ModeExpr{
-				Mode: "python",
-				Expr: ast.ListExpr{Items: []ast.Expr{
-					ast.StringExpr{Value: "$right", Span: sp1},
-					ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: sp1},
-				}, Span: sp1},
-				Span: sp1,
-			},
+			ast.ListExpr{Items: []ast.Expr{
+				ast.StringExpr{Value: "$right", Span: sp1},
+				ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: sp1},
+			}, Span: sp1},
 			ast.ConditionalExpr{
 				Then: ast.StringExpr{Value: "$then", Span: sp2},
 				Cond: ast.BoolExpr{Value: true, Span: sp2},
@@ -145,7 +126,21 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 				Span: sp,
 			},
 			ast.AliasExpr{Expr: ast.IndexExpr{Base: ast.IdentExpr{Name: "base", Span: sp}, Items: []ast.Expr{ast.IdentExpr{Name: "index", Span: sp}}, Span: sp}, Alias: "alias", Span: sp},
-			ast.UnaryExpr{Op: "-", Expr: ast.CompareExpr{Left: ast.IdentExpr{Name: "compare_left", Span: sp}, Op: "==", Right: ast.ConditionalExpr{Then: ast.IdentExpr{Name: "then", Span: sp}, Cond: ast.BoolExpr{Value: true, Span: sp}, Else: ast.ModeExpr{Mode: "python", Expr: ast.IdentExpr{Name: "mode", Span: sp}, Span: sp}, Span: sp}, Span: sp}, Span: sp},
+			ast.UnaryExpr{
+				Op: "-",
+				Expr: ast.CompareExpr{
+					Left: ast.IdentExpr{Name: "compare_left", Span: sp},
+					Op:   "==",
+					Right: ast.ConditionalExpr{
+						Then: ast.IdentExpr{Name: "then", Span: sp},
+						Cond: ast.BoolExpr{Value: true, Span: sp},
+						Else: ast.IdentExpr{Name: "mode", Span: sp},
+						Span: sp,
+					},
+					Span: sp,
+				},
+				Span: sp,
+			},
 		}, Span: sp},
 		Span: sp,
 	}

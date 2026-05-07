@@ -54,51 +54,6 @@ func TestLoadAndExpandHandlesNilDiagnosticsAndBrokenCwd(t *testing.T) {
 	}
 }
 
-func TestLoadEmbeddedModuleCachesAndReportsMissingModules(t *testing.T) {
-	r := &resolver{
-		cwd:     t.TempDir(),
-		diags:   &diag.Diagnostics{},
-		raw:     map[string]*rawModule{},
-		modules: map[string]*ModuleInfo{},
-		loading: map[string]bool{},
-		sources: map[string]string{},
-	}
-
-	ref0, err := r.loadEmbeddedModule("jsc")
-	if err != nil {
-		t.Fatalf("first embedded load failed: %v", err)
-	}
-	ref1, err := r.loadEmbeddedModule("jsc")
-	if err != nil {
-		t.Fatalf("second embedded load failed: %v", err)
-	}
-	if ref0 != ref1 {
-		t.Fatalf("expected cached embedded module ref match, got %#v vs %#v", ref0, ref1)
-	}
-	if len(r.raw) != 1 {
-		t.Fatalf("expected one cached embedded module, got %d", len(r.raw))
-	}
-	if _, ok := r.sources["shared/jsc.jbs"]; !ok {
-		t.Fatalf("expected embedded source to be cached")
-	}
-
-	if _, err := r.loadEmbeddedModule("definitely_missing_embedded_module_for_loader_test"); err == nil {
-		t.Fatalf("expected missing embedded module load to fail")
-	}
-}
-
-func TestNormalizeEmbeddedName(t *testing.T) {
-	if got := normalizeEmbeddedName("  "); got != "" {
-		t.Fatalf("expected empty normalized embedded name, got %q", got)
-	}
-	if got := normalizeEmbeddedName("jsc"); got != "jsc.jbs" {
-		t.Fatalf("expected jsc.jbs, got %q", got)
-	}
-	if got := normalizeEmbeddedName("foo.jbs"); got != "foo.jbs" {
-		t.Fatalf("expected foo.jbs unchanged, got %q", got)
-	}
-}
-
 func TestResolveBareModuleBranches(t *testing.T) {
 	r := &resolver{
 		cwd:     t.TempDir(),
@@ -113,16 +68,8 @@ func TestResolveBareModuleBranches(t *testing.T) {
 		t.Fatalf("expected empty module name to fail")
 	}
 
-	embedded, err := r.resolveBareModule("jsc", r.cwd)
-	if err != nil {
-		t.Fatalf("resolveBareModule embedded module failed: %v", err)
-	}
-	if embedded.Label != "shared/jsc.jbs" {
-		t.Fatalf("unexpected embedded module label: %q", embedded.Label)
-	}
-
 	writeTestFile(t, r.cwd, "localmod.jbs", "value = 1\n")
-	_, err = r.resolveBareModule("localmod", r.cwd)
+	_, err := r.resolveBareModule("localmod", r.cwd)
 	if err == nil {
 		t.Fatalf("expected bare local module import to fail")
 	}
@@ -225,7 +172,7 @@ func TestResolveUseSourceBranches(t *testing.T) {
 	}
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 2))
 
-	aliasedRef := ModuleRef{ID: "embed:jsc.jbs", Label: "shared/jsc.jbs"}
+	aliasedRef := ModuleRef{ID: "file:/tmp/lib.jbs", Label: "/tmp/lib.jbs"}
 	aliases := map[string]ModuleRef{"lib": aliasedRef}
 	gotAlias, err := r.resolveUseSource(aliases, filepath.Join(tmp, "imports"), ast.UseSource{Kind: ast.UseSourceBare, Value: "lib", Span: span})
 	if err != nil {

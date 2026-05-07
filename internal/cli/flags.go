@@ -11,7 +11,6 @@ var knownHelpTopics = []string{
 	"functions",
 	"globals",
 	"repl",
-	"submit",
 	"use",
 }
 
@@ -25,13 +24,13 @@ var knownHelpTopicSet = func() map[string]struct{} {
 
 type Flags struct {
 	Input      string
+	Run        bool
+	Continue   bool
 	Output     string
 	Repl       bool
 	Check      bool
 	Fmt        bool
 	FmtStrict  bool
-	Embed      bool
-	EmbedName  string
 	PrintParam bool
 	PrintType  string
 	Help       bool
@@ -59,6 +58,22 @@ func ParseFlags(args []string) (Flags, error) {
 		}
 		return Flags{}, UsageError{Message: "usage: jbs repl"}
 	}
+	if args[0] == "run" {
+		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
+			cfg.Run = true
+			cfg.Input = args[1]
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs run <file.jbs>"}
+	}
+	if args[0] == "continue" {
+		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
+			cfg.Continue = true
+			cfg.Input = args[1]
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs continue <file.jbs>"}
+	}
 	if args[0] == "help" {
 		cfg.Help = true
 		switch len(args) {
@@ -71,17 +86,6 @@ func ParseFlags(args []string) (Flags, error) {
 			}
 		}
 		return Flags{}, UsageError{Message: helpUsageMessage()}
-	}
-	if args[0] == "embed" {
-		cfg.Embed = true
-		if len(args) == 1 {
-			return cfg, nil
-		}
-		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
-			cfg.EmbedName = args[1]
-			return cfg, nil
-		}
-		return Flags{}, UsageError{Message: "usage: jbs embed [filename]"}
 	}
 	if args[0] == "fmt" {
 		return parseFmtArgs(args[1:])
@@ -139,16 +143,6 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.Help = true
 		case arg == "-c" || arg == "--check":
 			cfg.Check = true
-		case arg == "-o" || arg == "--output":
-			if i+1 >= len(args) {
-				return Flags{}, UsageError{Message: fmt.Sprintf("missing value for %s", arg)}
-			}
-			i++
-			cfg.Output = args[i]
-		case strings.HasPrefix(arg, "--output="):
-			cfg.Output = strings.TrimPrefix(arg, "--output=")
-		case strings.HasPrefix(arg, "-o="):
-			cfg.Output = strings.TrimPrefix(arg, "-o=")
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: fmt.Sprintf("unknown option: %s", arg)}
 		default:
@@ -159,24 +153,25 @@ func ParseFlags(args []string) (Flags, error) {
 			}
 		}
 	}
+	if cfg.Input != "" && !cfg.Check && !cfg.Help {
+		cfg.Run = true
+	}
 	return cfg, nil
 }
 
 func UsageText() string {
 	return `Usage:
 
-Compile with:
-  jbs input.jbs -o output.yaml
+Run:
+  jbs input.jbs
+  jbs run input.jbs
+  jbs continue input.jbs
 
 Options:
-  -o, --output   Output path (default: - for stdout)
   -c, --check    Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|do|functions|globals|repl|submit|use]
-
-Inspect embedded shared scripts:
-  jbs embed [filename]
+  jbs help [analyse|do|functions|globals|repl|use]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs

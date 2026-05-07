@@ -13,12 +13,10 @@ func TestValidateStepsReportsDuplicatesUnknownDepsAndCycles(t *testing.T) {
 	res := &Result{
 		DoBlocks: []ast.DoBlock{
 			{Name: "build", Span: span},
+			{Name: "build", Span: span},
 			{Name: "a", After: []string{"b"}, Span: span},
 			{Name: "b", After: []string{"a"}, Span: span},
-		},
-		Submits: []ast.SubmitBlock{
-			{Name: "build", Span: span},
-			{Name: "submit", After: []string{"missing"}, Span: span},
+			{Name: "run", After: []string{"missing"}, Span: span},
 		},
 	}
 
@@ -33,26 +31,6 @@ func TestValidateStepsReportsDuplicatesUnknownDepsAndCycles(t *testing.T) {
 	}
 	if countDiagCode(diags, "E213") != 1 {
 		t.Fatalf("expected one dependency-cycle diagnostic, got %d: %s", countDiagCode(diags, "E213"), diags.String())
-	}
-}
-
-func TestValidateStepHeaderOptionsBounds(t *testing.T) {
-	span := diag.NewSpan("steps.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
-	maxAsync := -1
-	procs := -2
-	iterations := 0
-	diags := &diag.Diagnostics{}
-
-	validateStepHeaderOptions("do", "run", &maxAsync, &procs, &iterations, span, diags)
-
-	if countDiagCode(diags, "E216") != 1 {
-		t.Fatalf("expected one invalid max_async diagnostic, got %d: %s", countDiagCode(diags, "E216"), diags.String())
-	}
-	if countDiagCode(diags, "E219") != 1 {
-		t.Fatalf("expected one invalid procs diagnostic, got %d: %s", countDiagCode(diags, "E219"), diags.String())
-	}
-	if countDiagCode(diags, "E217") != 1 {
-		t.Fatalf("expected one invalid iterations diagnostic, got %d: %s", countDiagCode(diags, "E217"), diags.String())
 	}
 }
 
@@ -100,10 +78,8 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 				},
 				Span: span,
 			},
-		},
-		Submits: []ast.SubmitBlock{
 			{
-				Name: "submit",
+				Name: "missing_source_step",
 				WithItems: []ast.WithItem{
 					{Source: "missing_source", Span: span},
 				},
