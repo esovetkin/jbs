@@ -1,6 +1,3 @@
-systemname = "local"
-queue = "debug"
-
 cases = t(id = (1, 2), label = ("alpha", "beta"))
 
 do write_sbatch
@@ -10,7 +7,7 @@ do write_sbatch
 #!/bin/bash
 
 #SBATCH --account=atmlaml
-#SBATCH --partition=${queue}
+#SBATCH --partition=develbooster
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
@@ -22,8 +19,6 @@ echo ${label}
 touch done
 
 EOF
-    # keep the block non-empty after the heredoc
-    :
 }
 
 do runwait_sbatch
@@ -31,5 +26,5 @@ do runwait_sbatch
         # run at most 2 slurm jobs at a time
         nproc 2
 {
-        sbatch -W write_sbatch/run.sbatch
+        echo sbatch -W write_sbatch/run.sbatch
 }

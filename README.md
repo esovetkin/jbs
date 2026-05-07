@@ -1,43 +1,56 @@
 # JBS
 
-JBS is a small benchmark scripting tool. A `.jbs` file defines parameter data, executable `do` steps, optional `analyse` extraction blocks, and imports from other `.jbs` files.
+JBS is a small benchmark scripting tool inspired by [JUBE](https://apps.fz-juelich.de/jsc/jube/docu/index.html). A `.jbs` file defines parameter data, executable `do` steps and `analyse` pattern extraction blocks.
 
 The direct runner creates a benchmark directory, expands workpackages from `with` tables, runs step workpackages with dependency ordering, and writes per-workpackage stdout, stderr, status, and exit code files.
 
 ## Quick Start
 
 ```jbs
-jbs_name = "taster"
+x = (1, 2)
+a = ("a", "b", "c")
 
-cases = table(x = (1, 2), label = ("a", "b"))
-
-do run with cases {
-        echo "x=${x}" > out.txt
-        echo "label=${label}" >> out.txt
+# The `do` sections define shell code to run.
+# The `$x` and `$a` variables receive values from the Cartesian product of the tuples x and a.
+do step with a, x {
+        echo "Number: ${x}"  > ex_ofile
+        echo "Letter: ${a}" >> ex_ofile
 }
 
-analyse run {
-        x = "x=(%d)" in "out.txt"
-        label = "label=(%w)" in "out.txt"
-        (x, label)
+# The `analyse` sections define patterns to search for
+# and how they should be presented in the result table.
+analyse step {
+        # define which pattern is searched for in which file
+        # %d, %f, %w are shortcuts for common capture patterns
+        number = "Number: %d" in "ex_ofile"
+        letter = "Letter: %w" in "ex_ofile"
+
+        # the final expression defines result table columns
+        (a as "name of a column", x, number, letter)
 }
 ```
 
 Run it:
 
 ```bash
-jbs taster.jbs
-# equivalent:
-jbs run taster.jbs
+% jbs taster.jbs
+ 100% |████████████████████████████████| (6/6, 31 it/s) 0R|0E
+
+step/analyse.csv
+run_id,name of a column,x,number,letter
+000000,a,1,1,a
+000001,a,2,2,a
+000002,b,1,1,b
+000003,b,2,2,b
+000004,c,1,1,c
+000005,c,2,2,c
 ```
 
 Run from source:
 
 ```bash
-go run . help
-go run . run taster.jbs
-go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest help
-go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest run taster.jbs
+ml Go
+go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@<tag> taster.jbs
 ```
 
 Resume an interrupted benchmark:
@@ -105,3 +118,14 @@ do compile nproc 4 {
 `jbs_nproc = 0` and `do ... nproc 0` both mean "use the number of available CPUs".
 
 See [docs/language.md](docs/language.md) for details.
+
+## Comparison to JUBE
+
+- no submit templates. it's up to a user to define sbatch (or any other queue system) scripts
+
+- jbs, however, provides
+
+- it's a language, not a configuration file
+
+  benchmark parameter space can be done programmatically
+
