@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
@@ -23,7 +24,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := withSignals(ctx)
+	ctx, stop := withSignals(ctx, nil)
 	defer stop()
 	progress := NewProgress(opts.Stdout)
 	final := NewScheduler(store, progress).Run(ctx)
@@ -56,6 +57,13 @@ func Continue(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
+	unlock, err := acquireExistingRootLock(plan.Manifest.BenchmarkName)
+	if err != nil {
+		return err
+	}
+	unlockOnce := sync.OnceFunc(unlock)
+	defer unlockOnce()
+
 	runDir, err := latestRunDir(plan.Manifest.BenchmarkName)
 	if err != nil {
 		return err
@@ -85,7 +93,7 @@ func Continue(ctx context.Context, opts Options) error {
 	if err := store.MarkRootRunning(); err != nil {
 		return err
 	}
-	ctx, stop := withSignals(ctx)
+	ctx, stop := withSignals(ctx, unlockOnce)
 	defer stop()
 	progress := NewProgress(opts.Stdout)
 	final := NewScheduler(store, progress).Run(ctx)

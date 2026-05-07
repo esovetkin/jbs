@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-func withSignals(parent context.Context) (context.Context, context.CancelFunc) {
+func withSignals(parent context.Context, beforeHardExit func()) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
@@ -19,6 +19,9 @@ func withSignals(parent context.Context) (context.Context, context.CancelFunc) {
 		cancel()
 		_, ok = <-sigs
 		if ok {
+			if beforeHardExit != nil {
+				beforeHardExit()
+			}
 			os.Exit(130)
 		}
 	}()
