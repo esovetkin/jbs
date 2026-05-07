@@ -219,6 +219,30 @@ func TestParseUnaryBangGroupedCompare(t *testing.T) {
 	}
 }
 
+func TestParseGroupedExpressionSpansIncludeParentheses(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{name: "grouped arithmetic", src: "(1 + 2) * 3"},
+		{name: "grouped unary operand", src: "-(a + b)"},
+		{name: "grouped conditional", src: "(a if b else c) + d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(tc.src, diags)
+			expr := tp.parseExpr()
+			if diags.HasErrors() {
+				t.Fatalf("unexpected parse errors: %s", diags.String())
+			}
+			if got := expr.GetSpan().Start.Offset; got != 0 {
+				t.Fatalf("expected expression span to start at opening grouping, got offset %d", got)
+			}
+		})
+	}
+}
+
 func TestParseKeywordLogicalOperatorsRejected(t *testing.T) {
 	tests := []string{
 		"a and b",

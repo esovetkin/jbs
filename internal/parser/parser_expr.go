@@ -57,6 +57,61 @@ func tokenToAssignOp(tt lexer.TokenType) ast.AssignOp {
 	}
 }
 
+func exprWithSpan(expr ast.Expr, span diag.Span) ast.Expr {
+	switch e := expr.(type) {
+	case ast.IdentExpr:
+		e.Span = span
+		return e
+	case ast.QualifiedIdentExpr:
+		e.Span = span
+		return e
+	case ast.MemberExpr:
+		e.Span = span
+		return e
+	case ast.IndexExpr:
+		e.Span = span
+		return e
+	case ast.StringExpr:
+		e.Span = span
+		return e
+	case ast.NumberExpr:
+		e.Span = span
+		return e
+	case ast.BoolExpr:
+		e.Span = span
+		return e
+	case ast.ListExpr:
+		e.Span = span
+		return e
+	case ast.TupleExpr:
+		e.Span = span
+		return e
+	case ast.CallExpr:
+		e.Span = span
+		return e
+	case ast.FunctionExpr:
+		e.Span = span
+		return e
+	case ast.AliasExpr:
+		e.Span = span
+		return e
+	case ast.UnaryExpr:
+		e.Span = span
+		return e
+	case ast.BinaryExpr:
+		e.Span = span
+		return e
+	case ast.CompareExpr:
+		e.Span = span
+		return e
+	case ast.ConditionalExpr:
+		e.Span = span
+		return e
+	default:
+		return expr
+	}
+}
+
 func (p *tokenParser) parseAssignOp() (ast.AssignOp, diag.Span, bool) {
 	tok := p.peek()
 	if !isAssignToken(tok.Type) {
@@ -328,8 +383,8 @@ func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 			}
 		}
 		p.skipNewlines()
-		p.expect(lexer.TokenRParen, diag.CodeE054, "expected ')' to close expression")
-		return first
+		close := p.expect(lexer.TokenRParen, diag.CodeE054, "expected ')' to close expression")
+		return exprWithSpan(first, diag.Merge(open.Span, close.Span))
 	case lexer.TokenLBracket:
 		open := p.next()
 		p.skipNewlines()

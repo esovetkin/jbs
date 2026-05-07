@@ -992,10 +992,59 @@ func needsStructuredExprFormatting(expr ast.Expr) bool {
 	return false
 }
 
+type exprPrec int
+
+const (
+	precLowest exprPrec = iota
+	precConditional
+	precPipe
+	precAmp
+	precCompare
+	precAdd
+	precMul
+	precUnary
+	precPostfix
+	precPrimary
+)
+
+type exprSide int
+
+const (
+	sideNone exprSide = iota
+	sideLeft
+	sideRight
+	sideUnary
+	sideContainer
+	sideConditionalThen
+	sideConditionalCond
+	sideConditionalElse
+)
+
 func formatExprInline(expr ast.Expr, srcRunes []rune) string {
+	return formatExprInlinePrec(expr, srcRunes, precLowest, sideNone)
+}
+
+func formatExprInlinePrec(expr ast.Expr, srcRunes []rune, parent exprPrec, side exprSide) string {
 	if expr == nil {
 		return ""
 	}
+	if !needsStructuredExprFormatting(expr) {
+		if text := sourceExprText(expr, srcRunes); text != "" {
+			return text
+		}
+	}
+	text := formatExprRebuilt(expr, srcRunes)
+	return parenthesizeIfNeeded(text, expr, parent, side)
+}
+
+func sourceExprText(expr ast.Expr, srcRunes []rune) string {
+	if expr == nil {
+		return ""
+	}
+	return strings.TrimSpace(spanText(srcRunes, expr.GetSpan()))
+}
+
+func formatExprRebuilt(expr ast.Expr, srcRunes []rune) string {
 	switch e := expr.(type) {
 	case ast.IdentExpr:
 		return e.Name
@@ -1005,13 +1054,15 @@ func formatExprInline(expr ast.Expr, srcRunes []rune) string {
 		}
 		return e.Namespace + "." + e.Name
 	case ast.MemberExpr:
-		return formatExprInline(e.Base, srcRunes) + "." + e.Name
+		base := formatExprInlinePrec(e.Base, srcRunes, precPostfix, sideLeft)
+		return base + "." + e.Name
 	case ast.IndexExpr:
 		items := make([]string, 0, len(e.Items))
 		for _, item := range e.Items {
-			items = append(items, formatExprInline(item, srcRunes))
+			items = append(items, formatExprInlinePrec(item, srcRunes, precConditional, sideContainer))
 		}
-		return formatExprInline(e.Base, srcRunes) + "[" + strings.Join(items, ", ") + "]"
+		base := formatExprInlinePrec(e.Base, srcRunes, precPostfix, sideLeft)
+		return base + "[" + strings.Join(items, ", ") + "]"
 	case ast.StringExpr:
 		return strconv.Quote(e.Value)
 	case ast.NumberExpr:
@@ -1030,18 +1081,22 @@ func formatExprInline(expr ast.Expr, srcRunes []rune) string {
 	case ast.ListExpr:
 		items := make([]string, 0, len(e.Items))
 		for _, item := range e.Items {
-			items = append(items, formatExprInline(item, srcRunes))
+			items = append(items, formatExprInlinePrec(item, srcRunes, precConditional, sideContainer))
 		}
 		return "[" + strings.Join(items, ", ") + "]"
 	case ast.TupleExpr:
 		items := make([]string, 0, len(e.Items))
 		for _, item := range e.Items {
-			items = append(items, formatExprInline(item, srcRunes))
+			items = append(items, formatExprInlinePrec(item, srcRunes, precConditional, sideContainer))
 		}
-		if len(items) == 0 {
+		switch len(items) {
+		case 0:
 			return "()"
+		case 1:
+			return "(" + items[0] + ",)"
+		default:
+			return "(" + strings.Join(items, ", ") + ")"
 		}
-		return "(" + strings.Join(items, ", ") + ")"
 	case ast.CallExpr:
 		lines := formatCallExprLines(e, srcRunes)
 		return flattenFormattedLines(lines)
@@ -1049,17 +1104,78 @@ func formatExprInline(expr ast.Expr, srcRunes []rune) string {
 		lines := formatFunctionExprLines(e, srcRunes)
 		return flattenFormattedLines(lines)
 	case ast.AliasExpr:
-		return formatExprInline(e.Expr, srcRunes) + " as " + e.Alias
+		return formatExprInlinePrec(e.Expr, srcRunes, precPostfix, sideLeft) + " as " + e.Alias
 	case ast.UnaryExpr:
-		return e.Op + formatExprInline(e.Expr, srcRunes)
+		return e.Op + formatExprInlinePrec(e.Expr, srcRunes, precUnary, sideUnary)
 	case ast.BinaryExpr:
-		return formatExprInline(e.Left, srcRunes) + " " + e.Op + " " + formatExprInline(e.Right, srcRunes)
+		prec := exprPrecedence(e)
+		left := formatExprInlinePrec(e.Left, srcRunes, prec, sideLeft)
+		right := formatExprInlinePrec(e.Right, srcRunes, prec, sideRight)
+		return left + " " + e.Op + " " + right
 	case ast.CompareExpr:
-		return formatExprInline(e.Left, srcRunes) + " " + e.Op + " " + formatExprInline(e.Right, srcRunes)
+		prec := exprPrecedence(e)
+		left := formatExprInlinePrec(e.Left, srcRunes, prec, sideLeft)
+		right := formatExprInlinePrec(e.Right, srcRunes, prec, sideRight)
+		return left + " " + e.Op + " " + right
 	case ast.ConditionalExpr:
-		return formatExprInline(e.Then, srcRunes) + " if " + formatExprInline(e.Cond, srcRunes) + " else " + formatExprInline(e.Else, srcRunes)
+		thenText := formatExprInlinePrec(e.Then, srcRunes, precConditional, sideConditionalThen)
+		condText := formatExprInlinePrec(e.Cond, srcRunes, precConditional, sideConditionalCond)
+		elseText := formatExprInlinePrec(e.Else, srcRunes, precConditional, sideConditionalElse)
+		return thenText + " if " + condText + " else " + elseText
 	default:
-		return strings.TrimSpace(spanText(srcRunes, expr.GetSpan()))
+		return sourceExprText(expr, srcRunes)
+	}
+}
+
+func exprPrecedence(expr ast.Expr) exprPrec {
+	switch e := expr.(type) {
+	case ast.ConditionalExpr:
+		return precConditional
+	case ast.BinaryExpr:
+		switch e.Op {
+		case "|":
+			return precPipe
+		case "&":
+			return precAmp
+		case "+", "-":
+			return precAdd
+		case "*", "/", "%":
+			return precMul
+		default:
+			return precLowest
+		}
+	case ast.CompareExpr:
+		return precCompare
+	case ast.UnaryExpr:
+		return precUnary
+	case ast.CallExpr, ast.IndexExpr, ast.MemberExpr, ast.AliasExpr, ast.QualifiedIdentExpr:
+		return precPostfix
+	default:
+		return precPrimary
+	}
+}
+
+func parenthesizeIfNeeded(text string, expr ast.Expr, parent exprPrec, side exprSide) string {
+	child := exprPrecedence(expr)
+	if child < parent {
+		return "(" + text + ")"
+	}
+	if child == parent && needsSamePrecedenceParens(expr, side) {
+		return "(" + text + ")"
+	}
+	return text
+}
+
+func needsSamePrecedenceParens(expr ast.Expr, side exprSide) bool {
+	switch expr.(type) {
+	case ast.BinaryExpr:
+		return side == sideRight
+	case ast.CompareExpr:
+		return side == sideLeft || side == sideRight
+	case ast.ConditionalExpr:
+		return side == sideContainer || side == sideConditionalThen || side == sideConditionalCond
+	default:
+		return false
 	}
 }
 
@@ -1172,6 +1288,9 @@ func formatCallExprLines(call ast.CallExpr, srcRunes []rune) []string {
 	calleeLines := formatExprLines(call.Callee, srcRunes)
 	if len(calleeLines) == 0 {
 		calleeLines = []string{""}
+	}
+	if len(calleeLines) == 1 {
+		calleeLines[0] = formatExprInlinePrec(call.Callee, srcRunes, precPostfix, sideLeft)
 	}
 	args := make([][]string, 0, len(call.Args))
 	multilineArgs := false
