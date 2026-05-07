@@ -1,19 +1,13 @@
-.PHONY: build test fmt docs docs-check coverage clean staticcheck
+.PHONY: build test fmt coverage clean staticcheck all
 
-build: docs
-	go build -o jbs ./cmd/jbs
+build:
+	go build -o jbs .
 
-test: docs-check
+test:
 	go test ./...
 
 fmt:
 	go fmt ./...
-
-docs:
-	go run ./cmd/gendiagdocs
-
-docs-check:
-	go run ./cmd/gendiagdocs -check
 
 staticcheck:
 	staticcheck ./...
