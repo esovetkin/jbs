@@ -1,6 +1,6 @@
 package repl
 
-import parserpkg "jbs/internal/parser"
+import parserpkg "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 
 type ContinuationState = parserpkg.StructuralScanState
 

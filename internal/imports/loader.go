@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/parser"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 )
 
 type LoadResult struct {

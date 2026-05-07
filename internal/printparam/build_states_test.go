@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/parser"
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 func TestInheritParentStatesConflicts(t *testing.T) {

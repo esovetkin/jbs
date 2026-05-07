@@ -1,6 +1,6 @@
 package sema
 
-import "jbs/internal/eval"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 func BuiltinGlobalValues() map[string]eval.Value {
 	return map[string]eval.Value{

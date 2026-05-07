@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func refNames(refs []varRef) []string {

@@ -1,7 +1,7 @@
 // define abstract syntax tree for JBS
 package ast
 
-import "jbs/internal/diag"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 
 type Node interface {
 	GetSpan() diag.Span

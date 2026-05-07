@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"jbs/internal/diag"
-	"jbs/internal/lexer"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/lexer"
 )
 
 type blockScanMode uint8

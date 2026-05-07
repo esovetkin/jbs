@@ -3,8 +3,8 @@ package sema
 import (
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func TestGlobalBindingSupports(t *testing.T) {

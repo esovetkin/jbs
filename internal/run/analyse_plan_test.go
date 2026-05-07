@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/imports"
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 func TestAnalysePlansByStepBuildsHeaders(t *testing.T) {

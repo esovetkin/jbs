@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	jbsrun "jbs/internal/run"
+	jbsrun "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/run"
 )
 
 func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {

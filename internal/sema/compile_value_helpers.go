@@ -1,6 +1,6 @@
 package sema
 
-import "jbs/internal/eval"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 // seriesAsValue converts a row series into scalar/list value representation.
 func seriesAsValue(v []eval.Value) eval.Value {

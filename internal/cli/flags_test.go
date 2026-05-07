@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	helpdocs "jbs/docs"
+	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 )
 
 func mustParseFlags(t *testing.T, args []string) Flags {

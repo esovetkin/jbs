@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 type RowGroup struct {

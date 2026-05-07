@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func writeTestFile(t *testing.T, dir, name, content string) string {

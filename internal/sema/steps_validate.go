@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func validateSteps(res *Result, diags *diag.Diagnostics) {

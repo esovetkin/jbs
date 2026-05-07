@@ -2,8 +2,8 @@
 package sema
 
 import (
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func mapAssignOpToBinary(op ast.AssignOp) (string, bool) {

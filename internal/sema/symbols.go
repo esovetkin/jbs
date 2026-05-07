@@ -1,9 +1,9 @@
 package sema
 
 import (
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 type BindingShape string

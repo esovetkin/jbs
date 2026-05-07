@@ -4,7 +4,7 @@ import (
 	"io"
 	"time"
 
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 type Options struct {

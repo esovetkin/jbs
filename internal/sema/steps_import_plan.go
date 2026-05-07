@@ -3,9 +3,9 @@ package sema
 import (
 	"fmt"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/planutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/planutil"
 )
 
 type stepDefinition struct {

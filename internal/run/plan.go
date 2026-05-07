@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"slices"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/sema"
-	"jbs/internal/workplan"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
 )
 
 type runtimePlan struct {

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func bindingWithOrigins(name string, order []string, vars map[string][]eval.Value, origins map[string]diag.Span) *GlobalBinding {

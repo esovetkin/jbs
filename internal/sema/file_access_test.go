@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestBaseDirForProgramFile(t *testing.T) {

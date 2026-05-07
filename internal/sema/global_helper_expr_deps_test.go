@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func warnUnusedGlobalLocalsTest(assigns map[string]localAssignMeta, order, seed []string, diags *diag.Diagnostics) {

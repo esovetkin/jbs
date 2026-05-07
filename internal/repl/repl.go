@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	helpdocs "jbs/docs"
+	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 
 	"github.com/chzyer/readline"
 )

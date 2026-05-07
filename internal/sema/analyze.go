@@ -3,10 +3,10 @@ package sema
 import (
 	"maps"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/imports"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {

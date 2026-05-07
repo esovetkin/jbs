@@ -3,7 +3,7 @@ package lexer
 import (
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestLexBasicTokens(t *testing.T) {

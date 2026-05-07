@@ -20,8 +20,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 type EvalContext int

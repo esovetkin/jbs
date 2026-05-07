@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"unicode"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {

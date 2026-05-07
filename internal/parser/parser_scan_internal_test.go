@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/lexer"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/lexer"
 )
 
 func TestReadBalancedBlock(t *testing.T) {

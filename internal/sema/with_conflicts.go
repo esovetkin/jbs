@@ -1,7 +1,7 @@
 // a helper for import-name conflict tracking
 package sema
 
-import "jbs/internal/diag"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 
 type importOrigin struct {
 	Source string

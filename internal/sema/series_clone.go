@@ -1,6 +1,6 @@
 package sema
 
-import "jbs/internal/eval"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
 	if len(src) == 0 {

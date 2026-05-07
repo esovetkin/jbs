@@ -1,4 +1,4 @@
-module jbs
+module gitlab.jsc.fz-juelich.de/sdlaml/jbs
 
 go 1.25.0
 

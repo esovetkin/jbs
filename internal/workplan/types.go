@@ -1,9 +1,9 @@
 package workplan
 
 import (
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 type WorkID struct {

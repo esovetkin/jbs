@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func TestTopicsResolveToNonEmptyPages(t *testing.T) {

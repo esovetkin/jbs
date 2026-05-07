@@ -4,10 +4,10 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/imports"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
 func numberExpr(span diag.Span, value int64) ast.NumberExpr {

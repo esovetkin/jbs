@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func TestFilterDiagnosticsBySeverity(t *testing.T) {

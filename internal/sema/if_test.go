@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/parser"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 )
 
 func analyzeIfSource(t *testing.T, src string) (*Result, *diag.Diagnostics) {

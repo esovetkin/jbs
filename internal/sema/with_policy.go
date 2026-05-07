@@ -4,7 +4,7 @@ package sema
 import (
 	"fmt"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 type withIssueFormat struct {

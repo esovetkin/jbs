@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/planutil"
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/planutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 type state struct {

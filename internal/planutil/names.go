@@ -11,7 +11,7 @@ import (
 	"maps"
 	"slices"
 
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func SourceVarNames(order []string, vars map[string][]eval.Value) []string {

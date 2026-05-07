@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func Run(ctx context.Context, opts Options) error {

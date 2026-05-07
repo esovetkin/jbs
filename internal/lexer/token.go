@@ -1,7 +1,7 @@
 // define JBS keywords, literals, operators, statement separators
 package lexer
 
-import "jbs/internal/diag"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 
 type TokenType string
 

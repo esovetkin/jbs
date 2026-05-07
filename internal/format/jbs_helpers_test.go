@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestClampRangeEdgeCases(t *testing.T) {

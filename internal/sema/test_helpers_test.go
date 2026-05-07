@@ -1,6 +1,6 @@
 package sema
 
-import "jbs/internal/diag"
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 
 func countDiagCode(diags *diag.Diagnostics, code string) int {
 	if diags == nil {

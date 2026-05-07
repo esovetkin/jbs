@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func baseDirForProgramFile(file string) string {

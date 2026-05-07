@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func testBinding(name string, shape BindingShape, order []string, vars map[string][]eval.Value) *GlobalBinding {

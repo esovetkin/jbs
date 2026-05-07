@@ -6,10 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	"jbs/internal/imports"
-	"jbs/internal/parser"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 )
 
 func TestAnalyzeCollectsAnalyseBlocks(t *testing.T) {

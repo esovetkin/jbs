@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestImportConflictTrackerAdd(t *testing.T) {

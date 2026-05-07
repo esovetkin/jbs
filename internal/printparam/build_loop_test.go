@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/diag"
-	"jbs/internal/parser"
-	"jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 func TestBuildUsesLoopComputedGlobals(t *testing.T) {

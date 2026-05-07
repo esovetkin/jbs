@@ -31,6 +31,15 @@ jbs taster.jbs
 jbs run taster.jbs
 ```
 
+Run from source:
+
+```bash
+go run . help
+go run . run taster.jbs
+go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest help
+go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest run taster.jbs
+```
+
 Resume an interrupted benchmark:
 
 ```bash

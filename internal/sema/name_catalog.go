@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func scopeNameCatalog(visible []string, namespaces map[string]*Namespace) *eval.NameCatalog {

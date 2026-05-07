@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"jbs/internal/cli"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/cli"
 )
 
 func main() {

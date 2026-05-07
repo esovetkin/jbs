@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
 func TestSourceVarNamesUsesOrder(t *testing.T) {

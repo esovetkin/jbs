@@ -10,16 +10,16 @@ import (
 	"strconv"
 	"strings"
 
-	helpdocs "jbs/docs"
-	"jbs/internal/ast"
-	"jbs/internal/diag"
-	"jbs/internal/eval"
-	jbsformat "jbs/internal/format"
-	"jbs/internal/imports"
-	"jbs/internal/printparam"
-	jbsrepl "jbs/internal/repl"
-	jbsrun "jbs/internal/run"
-	"jbs/internal/sema"
+	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	jbsformat "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/format"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/printparam"
+	jbsrepl "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/repl"
+	jbsrun "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/run"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 // analysisBundle contains the entire parsed AST, corresponding

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 type FileAccess struct {

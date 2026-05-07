@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
-	"jbs/internal/ast"
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestParseHeaderElementsKindsAndComments(t *testing.T) {

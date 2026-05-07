@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
 func TestParseDoBlockBranches(t *testing.T) {
