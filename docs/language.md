@@ -151,6 +151,6 @@ benchmark/
 
 The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
 
-`jbs continue file.jbs` resumes interrupted work when the script hash matches and the benchmark is not already marked `RUNNING`.
+`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. The hash includes the contents and loader labels of all loaded `.jbs` files. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
 
 Generated workpackage `run.sh` files use `set -euo pipefail` by default. Pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.

@@ -8,6 +8,12 @@ import (
 	"slices"
 )
 
+// SourceBundleHash returns the durable source identity hash for a run.
+//
+// The hash includes each source label and its text. File labels are the
+// cleaned absolute paths used by the loader, not symlink-resolved physical
+// paths. Labels are intentionally part of the identity because relative
+// imports and file reads are evaluated relative to those loaded source paths.
 func SourceBundleHash(sources map[string]string) string {
 	keys := slices.Sorted(maps.Keys(sources))
 	h := sha256.New()

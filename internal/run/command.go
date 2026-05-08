@@ -97,14 +97,14 @@ func Continue(ctx context.Context, opts Options) error {
 		return fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
 	}
 	if rootStatus.SourceHash != plan.Manifest.SourceHash {
-		return fmt.Errorf("cannot continue %s: source hash does not match", runDir)
+		return sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
 	}
 	manifest, err := LoadManifest(filepath.Join(runDir, "manifest.json"))
 	if err != nil {
 		return err
 	}
 	if manifest.SourceHash != plan.Manifest.SourceHash {
-		return fmt.Errorf("cannot continue %s: manifest source hash does not match", runDir)
+		return sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
 	}
 	bodies := plan.Bodies
 	store := NewStore(runDir, manifest, bodies)
@@ -140,6 +140,10 @@ func Continue(ctx context.Context, opts Options) error {
 		return fmt.Errorf("benchmark %s", final)
 	}
 	return nil
+}
+
+func sourceHashMismatchError(runDir string, stored, current string, source string) error {
+	return fmt.Errorf("cannot continue %s: %s source hash does not match (stored %s, current %s); source identity includes loaded source path labels and contents, so continue with the same path used for jbs run", runDir, source, stored, current)
 }
 
 func schedulerResultMessage(result SchedulerResult) string {

@@ -105,11 +105,23 @@ func TestUnknownFunctionHelpReturnsError(t *testing.T) {
 }
 
 func TestHelpTopicsRemainStable(t *testing.T) {
-	want := []string{"analyse", "do", "functions", "globals", "repl", "use"}
+	want := []string{"analyse", "continue", "do", "functions", "globals", "repl", "use"}
 	if got := Topics(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected help topics: got=%#v want=%#v", got, want)
 	}
 	if _, err := Page("functions"); err != nil {
 		t.Fatalf("functions topic did not resolve: %v", err)
+	}
+}
+
+func TestContinueHelpDocumentsSourceIdentity(t *testing.T) {
+	text, err := Page("continue")
+	if err != nil {
+		t.Fatalf("continue topic did not resolve: %v", err)
+	}
+	for _, want := range []string{"source identity", "loader label", "symbolic links"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("continue help missing %q:\n%s", want, text)
+		}
 	}
 }

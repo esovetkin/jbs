@@ -2,7 +2,7 @@ package run
 
 import "testing"
 
-func TestSourceBundleHashStableAndIncludesImports(t *testing.T) {
+func TestSourceBundleHashStableAcrossMapOrderAndContentSensitive(t *testing.T) {
 	a := map[string]string{
 		"entry": "x = 1",
 		"lib":   "y = 2",
@@ -17,5 +17,17 @@ func TestSourceBundleHashStableAndIncludesImports(t *testing.T) {
 	b["lib"] = "y = 3"
 	if SourceBundleHash(a) == SourceBundleHash(b) {
 		t.Fatalf("expected imported source change to affect hash")
+	}
+}
+
+func TestSourceBundleHashIncludesLabels(t *testing.T) {
+	a := map[string]string{
+		"/real/input.jbs": "x = 1\n",
+	}
+	b := map[string]string{
+		"/link/input.jbs": "x = 1\n",
+	}
+	if SourceBundleHash(a) == SourceBundleHash(b) {
+		t.Fatalf("expected source label change to affect hash")
 	}
 }

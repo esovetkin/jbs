@@ -115,6 +115,29 @@ func TestLoadAndExpandNestedQuotedImportsIgnoreProcessCwd(t *testing.T) {
 	}
 }
 
+func TestLoadAndExpandUsesProvidedSymlinkPathAsSourceLabel(t *testing.T) {
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "real")
+	linkDir := filepath.Join(tmp, "link")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir real dir: %v", err)
+	}
+	writeTestFile(t, realDir, "input.jbs", "x = 1\n")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	input := filepath.Join(linkDir, "input.jbs")
+	diags := &diag.Diagnostics{}
+	res, err := LoadAndExpand(input, tmp, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpand failed: %v", err)
+	}
+	if _, ok := res.Sources[filepath.Clean(input)]; !ok {
+		t.Fatalf("expected symlink path label %q, got %#v", filepath.Clean(input), res.Sources)
+	}
+}
+
 func TestResolvePathModuleBranches(t *testing.T) {
 	tmp := t.TempDir()
 	diags := &diag.Diagnostics{}

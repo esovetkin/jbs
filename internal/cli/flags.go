@@ -7,6 +7,7 @@ import (
 
 var knownHelpTopics = []string{
 	"analyse",
+	"continue",
 	"do",
 	"functions",
 	"globals",

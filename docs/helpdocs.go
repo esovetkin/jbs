@@ -17,6 +17,7 @@ var pageFS embed.FS
 
 var topicToFile = map[string]string{
 	"analyse":   "help_analyse.md",
+	"continue":  "help_continue.md",
 	"do":        "help_do.md",
 	"functions": "help_functions.md",
 	"globals":   "help_globals.md",

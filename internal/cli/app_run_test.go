@@ -440,6 +440,57 @@ func TestContinueRejectsRunningRoot(t *testing.T) {
 	}
 }
 
+func TestContinueHashMismatchMentionsSourcePathIdentity(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	realDir := filepath.Join(cwd, "real")
+	linkDir := filepath.Join(cwd, "link")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo ok`,
+		`}`,
+		``,
+	}, "\n")
+	realInput := filepath.Join(realDir, "bench.jbs")
+	if err := os.WriteFile(realInput, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkInput := filepath.Join(linkDir, "bench.jbs")
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", realInput}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", linkInput}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected continue through alternate path to fail")
+	}
+	errText := stderr.String()
+	for _, want := range []string{"source identity includes loaded source path labels", "same path used for jbs run", "stored sha256:", "current sha256:"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("expected continue error to mention %q, got %q", want, errText)
+		}
+	}
+}
+
 func TestContinueRejectsConcurrentProcess(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
