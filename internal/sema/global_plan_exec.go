@@ -1,0 +1,408 @@
+package sema
+
+import (
+	"maps"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+)
+
+func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalExecResult {
+	if plan == nil {
+		plan = &globalPlan{
+			Steps:             make([]globalInputStep, 0),
+			StepByName:        make(map[string]int),
+			LocalVisibleNames: make([]string, 0),
+		}
+	}
+	engine := newGlobalSeqEngine(plan, generalSeed, scalarSeed, diags)
+	engine.execute()
+	return engine.res
+}
+
+type globalSeqEngine struct {
+	plan                *globalPlan
+	diags               *diag.Diagnostics
+	rootFrame           *eval.Frame
+	values              map[string]eval.Value
+	spans               map[string]diag.Span
+	scalarSeed          map[string]eval.Value
+	scalarSpans         map[string]diag.Span
+	globalVars          map[string]*GlobalVar
+	globalOrder         []string
+	globalOrderSeen     map[string]struct{}
+	currentBindings     map[string]*GlobalBinding
+	currentBindingOrder []string
+	currentBindingSeen  map[string]struct{}
+	namespaces          map[string]*Namespace
+	snapshotNames       map[string]struct{}
+	res                 *globalExecResult
+}
+
+func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalSeqEngine {
+	values := maps.Clone(generalSeed)
+	if values == nil {
+		values = map[string]eval.Value{}
+	}
+	scalars := maps.Clone(scalarSeed)
+	if scalars == nil {
+		scalars = map[string]eval.Value{}
+	}
+	res := &globalExecResult{
+		UserGlobals: GlobalState{
+			Values: make(map[string]eval.Value),
+			Spans:  make(map[string]diag.Span),
+		},
+		UserGlobalVarByName:   make(map[string]*GlobalVar),
+		UserGlobalOrder:       make([]string, 0),
+		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Spans: make(map[string]diag.Span)},
+		SnapshotBindings:      make([]*GlobalBinding, 0),
+		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
+		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
+	}
+	return &globalSeqEngine{
+		plan:                plan,
+		diags:               diags,
+		rootFrame:           eval.NewRootFrame(values),
+		values:              values,
+		spans:               make(map[string]diag.Span),
+		scalarSeed:          scalars,
+		scalarSpans:         make(map[string]diag.Span),
+		globalVars:          make(map[string]*GlobalVar),
+		globalOrder:         make([]string, 0),
+		globalOrderSeen:     make(map[string]struct{}),
+		currentBindings:     make(map[string]*GlobalBinding),
+		currentBindingOrder: make([]string, 0),
+		currentBindingSeen:  make(map[string]struct{}),
+		namespaces:          make(map[string]*Namespace),
+		snapshotNames:       make(map[string]struct{}),
+		res:                 res,
+	}
+}
+
+func (e *globalSeqEngine) execute() {
+	if e == nil || e.plan == nil {
+		return
+	}
+	if result := e.executeSteps(e.plan.Steps, nil); result.active() {
+		e.diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
+	}
+	e.res.UserGlobals.Values = maps.Clone(e.values)
+	e.res.UserGlobals.Spans = maps.Clone(e.spans)
+	e.res.UserGlobalVarByName, e.res.UserGlobalOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
+	e.res.ScalarGlobals = GlobalState{
+		Values: maps.Clone(e.scalarSeed),
+		Spans:  maps.Clone(e.scalarSpans),
+	}
+}
+
+type globalLoopSignal int
+
+const (
+	globalLoopNone globalLoopSignal = iota
+	globalLoopBreak
+	globalLoopContinue
+)
+
+type globalStepResult struct {
+	Signal globalLoopSignal
+	Span   diag.Span
+}
+
+func (r globalStepResult) active() bool {
+	return r.Signal != globalLoopNone
+}
+
+func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) globalStepResult {
+	for _, step := range steps {
+		var result globalStepResult
+		switch step.Kind {
+		case globalInputAssign:
+			e.evalAssignStep(step, guardDeps)
+		case globalInputProjectedImport:
+			e.evalProjectedImportStep(step)
+		case globalInputNamespaceImport:
+			e.evalNamespaceImportStep(step)
+		case globalInputExpr:
+			e.evalExprStep(step)
+		case globalInputIf:
+			result = e.evalIfStep(step, guardDeps)
+		case globalInputFor:
+			result = e.evalForStep(step, guardDeps)
+		case globalInputWhile:
+			result = e.evalWhileStep(step, guardDeps)
+		case globalInputBreak:
+			return globalStepResult{Signal: globalLoopBreak, Span: globalStepSpan(step)}
+		case globalInputContinue:
+			return globalStepResult{Signal: globalLoopContinue, Span: globalStepSpan(step)}
+		case globalInputDo, globalInputAnalyse:
+			e.recordDeclarationSnapshot(step)
+		}
+		if result.active() {
+			return result
+		}
+	}
+	return globalStepResult{}
+}
+
+func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []string) {
+	if step.Assign == nil {
+		return
+	}
+	assign := *step.Assign
+	effective := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
+	if assign.Op != "" && assign.Op != ast.AssignEq {
+		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
+			return
+		}
+	}
+
+	before := errorCount(e.diags)
+	value := eval.EvalExprWithOptions(effective, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	if errorCount(e.diags) > before {
+		return
+	}
+	if hasNestedList(value) {
+		e.diags.AddError(
+			diag.CodeE305,
+			"nested tuple/list value is not allowed for global variable '"+assign.Name+"'",
+			assign.Span,
+			"use flat tuple/list values only",
+		)
+		return
+	}
+
+	directDeps := globalExprDependencies(effective, assign.Name)
+	directDeps = append(directDeps, guardDeps...)
+	directDeps = uniqueSortedNamesExcept(directDeps, assign.Name)
+	orderNames, vars := globalVarSeries(assign.Name, value)
+	gv := &GlobalVar{
+		Name:          assign.Name,
+		Value:         value,
+		Span:          assign.Span,
+		Order:         orderNames,
+		Vars:          vars,
+		DependsOn:     e.expandGlobalDeps(directDeps, assign.Name),
+		DependsOnKeys: e.expandGlobalDepKeys(directDeps, assign.Name),
+		VersionID:     bindingVersionID(step),
+	}
+	if !e.acceptGlobalVar(gv) {
+		return
+	}
+	e.publishGlobalVar(gv)
+}
+
+func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) globalStepResult {
+	if step.IfStmt == nil {
+		return globalStepResult{}
+	}
+	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	if !ok {
+		return globalStepResult{}
+	}
+	nextGuardDeps := append([]string(nil), guardDeps...)
+	nextGuardDeps = append(nextGuardDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
+	nextGuardDeps = uniqueSortedNamesExcept(nextGuardDeps, "")
+	if cond {
+		return e.executeSteps(step.Then, nextGuardDeps)
+	}
+	return e.executeSteps(step.Else, nextGuardDeps)
+}
+
+func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) globalStepResult {
+	if step.ForStmt == nil {
+		return globalStepResult{}
+	}
+	iterable := eval.EvalExprWithOptions(step.ForStmt.Iterable, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	items, ok := eval.IterableElements(iterable, exprSpan(step.ForStmt.Iterable), e.diags)
+	if !ok {
+		return globalStepResult{}
+	}
+	loopDeps := append([]string(nil), guardDeps...)
+	loopDeps = append(loopDeps, globalExprDependencies(step.ForStmt.Iterable, "")...)
+	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	for i, item := range items {
+		if i >= eval.MaxLoopIterations {
+			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.ForStmt.Span, "check the iterable size")
+			return globalStepResult{}
+		}
+		if !e.publishLoopVariable(step.ForStmt.Target, item, step.ForStmt.Span, loopDeps, step) {
+			return globalStepResult{}
+		}
+		result := e.executeSteps(step.Body, loopDeps)
+		switch result.Signal {
+		case globalLoopBreak:
+			return globalStepResult{}
+		case globalLoopContinue:
+			continue
+		default:
+			if result.active() {
+				return result
+			}
+		}
+	}
+	return globalStepResult{}
+}
+
+func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string) globalStepResult {
+	if step.WhileStmt == nil {
+		return globalStepResult{}
+	}
+	loopDeps := append([]string(nil), guardDeps...)
+	loopDeps = append(loopDeps, globalExprDependencies(step.WhileStmt.Cond, "")...)
+	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	for i := 0; ; i++ {
+		if i >= eval.MaxLoopIterations {
+			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.WhileStmt.Span, "check the while condition")
+			return globalStepResult{}
+		}
+		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, eval.ExprOptions{
+			GlobalAssignmentTupleArithmetic: true,
+			Context:                         eval.EvalCtxBindingAssign,
+			Names:                           e.currentNameCatalog(),
+			Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+			Frame:                           e.rootFrame,
+		})
+		if !ok || !cond {
+			return globalStepResult{}
+		}
+		result := e.executeSteps(step.Body, loopDeps)
+		switch result.Signal {
+		case globalLoopBreak:
+			return globalStepResult{}
+		case globalLoopContinue:
+			continue
+		default:
+			if result.active() {
+				return result
+			}
+		}
+	}
+}
+
+func (e *globalSeqEngine) publishLoopVariable(name string, value eval.Value, span diag.Span, deps []string, step globalInputStep) bool {
+	if name == "" {
+		return false
+	}
+	if hasNestedList(value) {
+		e.diags.AddError(
+			diag.CodeE305,
+			"nested tuple/list value is not allowed for global variable '"+name+"'",
+			span,
+			"use flat tuple/list values only",
+		)
+		return false
+	}
+	directDeps := uniqueSortedNamesExcept(deps, name)
+	orderNames, vars := globalVarSeries(name, value)
+	gv := &GlobalVar{
+		Name:          name,
+		Value:         value,
+		Span:          span,
+		Order:         orderNames,
+		Vars:          vars,
+		DependsOn:     e.expandGlobalDeps(directDeps, name),
+		DependsOnKeys: e.expandGlobalDepKeys(directDeps, name),
+		VersionID:     bindingVersionID(step),
+	}
+	if !e.acceptGlobalVar(gv) {
+		return false
+	}
+	e.publishGlobalVar(gv)
+	return true
+}
+
+func (e *globalSeqEngine) evalProjectedImportStep(step globalInputStep) {
+	if step.Import == nil || step.Import.SourceGlobal == nil {
+		return
+	}
+	gv := globalVarFromImportedGlobal(step.Name, step.Import.SourceGlobal, step.Import.Span)
+	if gv == nil || !e.acceptGlobalVar(gv) {
+		return
+	}
+	gv.VersionID = bindingVersionID(step)
+	gv.DependsOn = []string{step.Import.SourceName}
+	if key := BindingVersionKeyForGlobalVar(step.Import.SourceGlobal, step.Import.SourceName); key != (BindingVersionKey{}) {
+		gv.DependsOnKeys = []BindingVersionKey{key}
+	}
+	e.publishGlobalVar(gv)
+}
+
+func (e *globalSeqEngine) evalNamespaceImportStep(step globalInputStep) {
+	scope := step.NamespaceScope
+	if scope == nil {
+		return
+	}
+	for name, ns := range scope.Namespaces {
+		if ns == nil {
+			continue
+		}
+		current := e.namespaces[name]
+		if current == nil {
+			e.namespaces[name] = &Namespace{
+				Name:     ns.Name,
+				Members:  append([]string(nil), ns.Members...),
+				Bindings: append([]string(nil), ns.Bindings...),
+				Steps:    append([]string(nil), ns.Steps...),
+			}
+			continue
+		}
+		current.Members = mergeUniqueStrings(current.Members, ns.Members)
+		current.Bindings = mergeUniqueStrings(current.Bindings, ns.Bindings)
+		current.Steps = mergeUniqueStrings(current.Steps, ns.Steps)
+	}
+	for name, gv := range scope.ExportsByName {
+		next := cloneGlobalVar(gv)
+		if next == nil {
+			continue
+		}
+		next.Name = name
+		next.Namespace = namespaceHead(name)
+		e.publishGlobalVar(next)
+	}
+	for _, binding := range scope.Bindings {
+		next := cloneBinding(binding)
+		if next == nil {
+			continue
+		}
+		e.publishBinding(next)
+	}
+}
+
+func (e *globalSeqEngine) evalExprStep(step globalInputStep) {
+	if step.ExprStmt == nil || step.ExprStmt.Expr == nil {
+		return
+	}
+	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	})
+	e.res.TopLevelExprs = append(e.res.TopLevelExprs, TopLevelExprResult{
+		Index: step.Index,
+		Span:  step.ExprStmt.Span,
+		Value: value,
+	})
+}
