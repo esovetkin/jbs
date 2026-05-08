@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 )
 
 type processResult struct {
@@ -60,7 +62,7 @@ func finishProcess(workDir string, cmd *exec.Cmd, err error) processResult {
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
 	}
-	_ = writeFileAtomic(filepath.Join(workDir, "exitcode"), []byte(formatExitCode(code)), 0o644)
+	_ = fsutil.WriteFileAtomic(filepath.Join(workDir, "exitcode"), []byte(formatExitCode(code)), 0o644, durableWrite)
 	if err != nil || code != 0 {
 		return processResult{Status: StatusError, ExitCode: &code, Err: err}
 	}

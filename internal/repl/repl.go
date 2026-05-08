@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 
 	"github.com/chzyer/readline"
 )
@@ -32,6 +33,8 @@ type sessionState struct {
 	accepted string
 	pending  string
 }
+
+var replWrite = fsutil.AtomicWriteOptions{SyncDir: true, TempSuffix: "repl"}
 
 func Run(opts Options) int {
 	stdout := opts.Stdout
@@ -264,7 +267,7 @@ func handleCommand(
 		if info, statErr := os.Stat(target); statErr == nil {
 			perm = info.Mode().Perm()
 		}
-		if err := writeFileAtomic(target, []byte(state.accepted), perm); err != nil {
+		if err := fsutil.WriteFileAtomic(target, []byte(state.accepted), perm, replWrite); err != nil {
 			fmt.Fprintf(stderr, "failed to write %q: %v\n", target, err)
 			return false, 0
 		}
@@ -301,40 +304,4 @@ func printFunctionHelp(stdout io.Writer, stderr io.Writer, name string) {
 	if !strings.HasSuffix(page, "\n") {
 		fmt.Fprintln(stdout)
 	}
-}
-
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	tmp, err := os.CreateTemp(dir, "."+base+".repl-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, perm); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
 }

@@ -109,29 +109,6 @@ func TestCollectPatternMatchesMissingFile(t *testing.T) {
 	}
 }
 
-func TestWriteCSVAtomicReplacesAndEscapes(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "analyse.csv")
-	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rows := [][]string{{"run_id", "value"}, {"000000", "a,b \"c\"\nnext"}}
-	if err := writeCSVAtomic(path, rows); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if strings.Contains(got, "old") {
-		t.Fatalf("old content was not replaced: %q", got)
-	}
-	if !strings.Contains(got, "\"a,b \"\"c\"\"\nnext\"") {
-		t.Fatalf("csv escaping missing from %q", got)
-	}
-}
-
 func testAnalysePlan(columns []AnalyseColumnPlan, patterns map[string]AnalysePatternPlan) AnalysePlan {
 	if patterns == nil {
 		patterns = map[string]AnalysePatternPlan{}

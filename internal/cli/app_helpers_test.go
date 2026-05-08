@@ -10,33 +10,11 @@ import (
 	"testing"
 )
 
-func TestWriteFileAtomicAndRunFmtNoChange(t *testing.T) {
+func TestRunFmtNoChange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")
-	original := []byte("x = 1\n")
-	if err := os.WriteFile(path, original, 0o600); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-	if err := writeFileAtomic(path, []byte("y = 2\n"), 0o640); err != nil {
-		t.Fatalf("writeFileAtomic failed: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read atomic output: %v", err)
-	}
-	if string(data) != "y = 2\n" {
-		t.Fatalf("unexpected atomic write content: %q", string(data))
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat atomic output: %v", err)
-	}
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("expected atomic write permissions 0640, got %o", info.Mode().Perm())
-	}
-
 	if err := os.WriteFile(path, []byte("x = 1\n"), 0o644); err != nil {
-		t.Fatalf("rewrite fmt input: %v", err)
+		t.Fatalf("write fmt input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
 	if code := runFmt(path, false, &stdout, &stderr); code != 0 {

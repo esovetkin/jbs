@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	jbsformat "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/format"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/printparam"
 	jbsrepl "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/repl"
@@ -31,6 +31,8 @@ type analysisBundle struct {
 }
 
 var runReplFn = runRepl
+
+var formatWrite = fsutil.AtomicWriteOptions{SyncDir: true, TempSuffix: "jbsfmt"}
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	flags, err := ParseFlags(args)
@@ -229,7 +231,7 @@ func runFmt(path string, strict bool, stdout, stderr io.Writer) int {
 	if formatted == string(src) {
 		return 0
 	}
-	if err := writeFileAtomic(path, []byte(formatted), info.Mode().Perm()); err != nil {
+	if err := fsutil.WriteFileAtomic(path, []byte(formatted), info.Mode().Perm(), formatWrite); err != nil {
 		fmt.Fprintf(stderr, "failed to write formatted file %q: %v\n", path, err)
 		return 1
 	}
@@ -456,42 +458,6 @@ func analyzeSource(file string, source string, cwd string, diags *diag.Diagnosti
 		Sources: loadRes.Sources,
 		Result:  res,
 	}, nil
-}
-
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	tmp, err := os.CreateTemp(dir, "."+base+".jbsfmt-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, perm); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
 }
 
 func formatDiagnostics(diags diag.Diagnostics, source string) string {

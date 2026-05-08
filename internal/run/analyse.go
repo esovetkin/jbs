@@ -1,12 +1,13 @@
 package run
 
 import (
-	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 )
 
 type AnalyseColumnKind string
@@ -77,7 +78,7 @@ func runStepAnalyse(store *Store, step ManifestStep, plan AnalysePlan) error {
 		rows = append(rows, workRows...)
 	}
 	path := filepath.Join(store.RunDir, step.Dir, step.AnalyseCSV)
-	return writeCSVAtomic(path, rows)
+	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
 }
 
 func analyseWorkPackage(workDir string, work ManifestWork, plan AnalysePlan) ([][]string, error) {
@@ -177,35 +178,4 @@ func submatchGroups(raw [][]string) [][]string {
 		out = append(out, append([]string(nil), m[1:]...))
 	}
 	return out
-}
-
-func writeCSVAtomic(path string, rows [][]string) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	w := csv.NewWriter(tmp)
-	if err := w.WriteAll(rows); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := w.Error(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return err
-	}
-	return syncDir(dir)
 }

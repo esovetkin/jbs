@@ -1,11 +1,12 @@
 package run
 
 import (
-	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 )
 
 type Store struct {
@@ -15,6 +16,8 @@ type Store struct {
 	work     map[string]ManifestWork
 	bodies   map[string]string
 }
+
+var durableWrite = fsutil.AtomicWriteOptions{SyncDir: true}
 
 func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	unlock, err := acquireRootLock(root)
@@ -62,7 +65,7 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	if err := populateRunTree(staging, finalAbs, sourceDirAbs, manifest, plan.Bodies, plan.Analyses); err != nil {
 		return nil, err
 	}
-	if err := writeJSONAtomic(filepath.Join(staging, "manifest.json"), manifest, 0o644); err != nil {
+	if err := fsutil.WriteJSONAtomic(filepath.Join(staging, "manifest.json"), manifest, 0o644, durableWrite); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -74,14 +77,14 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := writeJSONAtomic(filepath.Join(staging, "status"), rootStatus, 0o644); err != nil {
+	if err := fsutil.WriteJSONAtomic(filepath.Join(staging, "status"), rootStatus, 0o644, durableWrite); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(staging, final); err != nil {
 		return nil, err
 	}
 	cleanup = false
-	if err := syncDir(root); err != nil {
+	if err := fsutil.SyncDir(root); err != nil {
 		return nil, err
 	}
 	return NewStore(final, manifest, plan.Bodies), nil
@@ -105,13 +108,13 @@ func NewStore(runDir string, manifest Manifest, bodies map[string]string) *Store
 
 func LoadManifest(path string) (Manifest, error) {
 	var manifest Manifest
-	err := readJSON(path, &manifest)
+	err := fsutil.ReadJSON(path, &manifest)
 	return manifest, err
 }
 
 func LoadRootStatus(path string) (RootStatus, error) {
 	var status RootStatus
-	err := readJSON(path, &status)
+	err := fsutil.ReadJSON(path, &status)
 	return status, err
 }
 
@@ -184,7 +187,7 @@ func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Mani
 			return err
 		}
 		status := WorkStatus{Schema: 1, Status: StatusNotStarted, Step: work.Step, Row: work.Row}
-		if err := writeJSONAtomic(filepath.Join(workDir, "status"), status, 0o644); err != nil {
+		if err := fsutil.WriteJSONAtomic(filepath.Join(workDir, "status"), status, 0o644, durableWrite); err != nil {
 			return err
 		}
 	}
@@ -205,12 +208,12 @@ func (s *Store) WorkStatusPath(work ManifestWork) string {
 
 func (s *Store) LoadWorkStatus(work ManifestWork) (WorkStatus, error) {
 	var status WorkStatus
-	err := readJSON(s.WorkStatusPath(work), &status)
+	err := fsutil.ReadJSON(s.WorkStatusPath(work), &status)
 	return status, err
 }
 
 func (s *Store) WriteWorkStatus(work ManifestWork, status WorkStatus) error {
-	return writeJSONAtomic(s.WorkStatusPath(work), status, 0o644)
+	return fsutil.WriteJSONAtomic(s.WorkStatusPath(work), status, 0o644, durableWrite)
 }
 
 func (s *Store) LoadRootStatus() (RootStatus, error) {
@@ -226,7 +229,7 @@ func (s *Store) MarkRootRunning() error {
 	status.PID = os.Getpid()
 	status.UpdatedAt = time.Now().UTC()
 	status.Error = ""
-	return writeJSONAtomic(filepath.Join(s.RunDir, "status"), status, 0o644)
+	return fsutil.WriteJSONAtomic(filepath.Join(s.RunDir, "status"), status, 0o644, durableWrite)
 }
 
 func (s *Store) MarkRootFinal(final Status, message string) error {
@@ -238,7 +241,7 @@ func (s *Store) MarkRootFinal(final Status, message string) error {
 	status.PID = 0
 	status.UpdatedAt = time.Now().UTC()
 	status.Error = message
-	return writeJSONAtomic(filepath.Join(s.RunDir, "status"), status, 0o644)
+	return fsutil.WriteJSONAtomic(filepath.Join(s.RunDir, "status"), status, 0o644, durableWrite)
 }
 
 func (s *Store) NormalizeStaleRunning() error {
@@ -262,20 +265,12 @@ func (s *Store) NormalizeStaleRunning() error {
 }
 
 func writeAnalyseHeader(path string, header []string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	var rows [][]string
 	if len(header) == 0 {
-		return nil
+		return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
 	}
-	w := csv.NewWriter(f)
-	if err := w.Write(header); err != nil {
-		return err
-	}
-	w.Flush()
-	return w.Error()
+	rows = [][]string{header}
+	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
 }
 
 func acquireRootLock(root string) (func(), error) {
