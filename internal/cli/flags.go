@@ -11,6 +11,7 @@ var knownHelpTopics = []string{
 	"continue",
 	"do",
 	"functions",
+	"fwait",
 	"globals",
 	"repl",
 	"use",
@@ -25,21 +26,24 @@ var knownHelpTopicSet = func() map[string]struct{} {
 }()
 
 type Flags struct {
-	Input      string
-	Run        bool
-	Continue   bool
-	Archive    bool
-	DryRun     bool
-	NoStrict   bool
-	Output     string
-	Repl       bool
-	Check      bool
-	Fmt        bool
-	FmtStrict  bool
-	PrintParam bool
-	PrintType  string
-	Help       bool
-	HelpTopic  string
+	Input             string
+	Run               bool
+	Continue          bool
+	Archive           bool
+	FWait             bool
+	FWaitExitExisting bool
+	FWaitPaths        []string
+	DryRun            bool
+	NoStrict          bool
+	Output            string
+	Repl              bool
+	Check             bool
+	Fmt               bool
+	FmtStrict         bool
+	PrintParam        bool
+	PrintType         string
+	Help              bool
+	HelpTopic         string
 }
 
 type UsageError struct {
@@ -81,6 +85,9 @@ func ParseFlags(args []string) (Flags, error) {
 			return cfg, nil
 		}
 		return Flags{}, UsageError{Message: "usage: jbs archive <file.jbs>"}
+	}
+	if args[0] == "fwait" {
+		return parseFWaitArgs(args[1:])
 	}
 	if args[0] == "help" {
 		cfg.Help = true
@@ -191,13 +198,16 @@ Run:
 Archive:
   jbs archive input.jbs
 
+Wait for files:
+  jbs fwait [-e] <path> [path...]
+
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|archive|do|functions|globals|repl|use]
+  jbs help [analyse|archive|continue|do|functions|fwait|globals|repl|use]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
@@ -209,6 +219,24 @@ Format jbs in place:
 Interactive mode:
   jbs
   jbs repl`
+}
+
+func parseFWaitArgs(args []string) (Flags, error) {
+	cfg := Flags{FWait: true, Output: "-"}
+	for _, arg := range args {
+		switch {
+		case arg == "-e":
+			cfg.FWaitExitExisting = true
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: "usage: jbs fwait [-e] <path> [path...]"}
+		default:
+			cfg.FWaitPaths = append(cfg.FWaitPaths, arg)
+		}
+	}
+	if len(cfg.FWaitPaths) == 0 {
+		return Flags{}, UsageError{Message: "usage: jbs fwait [-e] <path> [path...]"}
+	}
+	return cfg, nil
 }
 
 func parseRunArgs(args []string) (Flags, error) {

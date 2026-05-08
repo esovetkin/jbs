@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/chzyer/readline v1.5.1
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/schollz/progressbar/v3 v3.19.0
 	golang.org/x/term v0.42.0
 	modernc.org/sqlite v1.50.0

@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/filewait"
 	jbsformat "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/format"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
@@ -60,6 +63,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.PrintParam {
 		return runPrintParam(flags, stdout, stderr)
 	}
+	if flags.FWait {
+		return fwaitFiles(flags.FWaitPaths, flags.FWaitExitExisting, stdout, stderr)
+	}
 	if flags.Run {
 		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
 	}
@@ -78,6 +84,18 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
+}
+
+func fwaitFiles(paths []string, exitExisting bool, stdout, stderr io.Writer) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	result, err := filewait.WaitAnyWithOptions(ctx, paths, filewait.Options{ExitIfExists: exitExisting})
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintln(stdout, result.Path)
+	return 0
 }
 
 func checkInput(path string, stdout, stderr io.Writer) int {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"testing"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
@@ -17,15 +18,18 @@ func mustParseFlags(t *testing.T, args []string) Flags {
 
 func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 	cases := []struct {
-		name         string
-		args         []string
-		wantInput    string
-		wantOutput   string
-		wantCheck    bool
-		wantRun      bool
-		wantArchive  bool
-		wantDryRun   bool
-		wantNoStrict bool
+		name                  string
+		args                  []string
+		wantInput             string
+		wantOutput            string
+		wantCheck             bool
+		wantRun               bool
+		wantArchive           bool
+		wantFWait             bool
+		wantFWaitExitExisting bool
+		wantFWaitPaths        []string
+		wantDryRun            bool
+		wantNoStrict          bool
 	}{
 		{
 			name:       "defaults",
@@ -63,6 +67,36 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantInput:   "input.jbs",
 			wantOutput:  "-",
 			wantArchive: true,
+		},
+		{
+			name:           "fwait_command",
+			args:           []string{"fwait", "done.flag"},
+			wantOutput:     "-",
+			wantFWait:      true,
+			wantFWaitPaths: []string{"done.flag"},
+		},
+		{
+			name:           "fwait_multiple_files",
+			args:           []string{"fwait", "a", "b"},
+			wantOutput:     "-",
+			wantFWait:      true,
+			wantFWaitPaths: []string{"a", "b"},
+		},
+		{
+			name:                  "fwait_exit_existing",
+			args:                  []string{"fwait", "-e", "a"},
+			wantOutput:            "-",
+			wantFWait:             true,
+			wantFWaitExitExisting: true,
+			wantFWaitPaths:        []string{"a"},
+		},
+		{
+			name:                  "fwait_exit_existing_after_path",
+			args:                  []string{"fwait", "a", "-e", "b"},
+			wantOutput:            "-",
+			wantFWait:             true,
+			wantFWaitExitExisting: true,
+			wantFWaitPaths:        []string{"a", "b"},
 		},
 		{
 			name:       "run_command_dry_run_long",
@@ -181,6 +215,15 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.Archive != tc.wantArchive {
 				t.Fatalf("unexpected archive flag: got=%v want=%v", f.Archive, tc.wantArchive)
+			}
+			if f.FWait != tc.wantFWait {
+				t.Fatalf("unexpected fwait flag: got=%v want=%v", f.FWait, tc.wantFWait)
+			}
+			if f.FWaitExitExisting != tc.wantFWaitExitExisting {
+				t.Fatalf("unexpected fwait exit-existing flag: got=%v want=%v", f.FWaitExitExisting, tc.wantFWaitExitExisting)
+			}
+			if !slices.Equal(f.FWaitPaths, tc.wantFWaitPaths) {
+				t.Fatalf("unexpected fwait paths: got=%v want=%v", f.FWaitPaths, tc.wantFWaitPaths)
 			}
 			if f.DryRun != tc.wantDryRun {
 				t.Fatalf("unexpected dry-run flag: got=%v want=%v", f.DryRun, tc.wantDryRun)
@@ -458,6 +501,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "archive_missing_input", args: []string{"archive"}},
 		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
 		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},
+		{name: "fwait_missing_input", args: []string{"fwait"}},
+		{name: "fwait_exit_existing_missing_input", args: []string{"fwait", "-e"}},
+		{name: "fwait_rejects_option", args: []string{"fwait", "--timeout", "1", "a"}},
 		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
 		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
