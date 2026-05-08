@@ -38,27 +38,37 @@ type GlobalBinding struct {
 }
 
 func (b *GlobalBinding) Supports(ctx ImportContext) bool {
+	return b.SupportIssue(ctx) == DisallowedBindingNone
+}
+
+func (b *GlobalBinding) SupportIssue(ctx ImportContext) DisallowedBindingReason {
 	if b == nil {
-		return false
+		return DisallowedBindingNotData
 	}
 	switch ctx {
 	case ImportIntoStep:
-		return true
+		return DisallowedBindingNone
 	case ImportIntoAnalyse:
+		if b.Shape == BindingTable {
+			return DisallowedBindingAnalyseTable
+		}
 		if b.Shape != BindingScalar {
-			return false
+			return DisallowedBindingNotData
 		}
 		if len(b.Order) != 1 {
-			return false
+			return DisallowedBindingAnalyseMultiColumn
 		}
 		col := b.Order[0]
 		vals := b.Vars[col]
 		if len(vals) == 0 {
-			return true
+			return DisallowedBindingNone
 		}
-		return vals[0].Kind == eval.KindString
+		if vals[0].Kind != eval.KindString {
+			return DisallowedBindingAnalyseNonString
+		}
+		return DisallowedBindingNone
 	default:
-		return false
+		return DisallowedBindingNotData
 	}
 }
 

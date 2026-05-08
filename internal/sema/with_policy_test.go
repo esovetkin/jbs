@@ -35,15 +35,53 @@ func TestWithPolicyFormatHelpers(t *testing.T) {
 	}
 
 	disallowedFormat := analyseDisallowedBindingFormat()
-	disallowedIssue := ResolveIssue{Source: "table", Span: span}
 	if disallowedFormat.Code != diag.CodeE420 {
 		t.Fatalf("expected E420, got %q", disallowedFormat.Code)
 	}
-	if got := disallowedFormat.Message(disallowedIssue); got != "analyse with-clause can only import scalar string data bindings; 'table' is not a data binding" {
-		t.Fatalf("unexpected disallowed-binding message: %q", got)
+	disallowedTests := []struct {
+		name    string
+		issue   ResolveIssue
+		message string
+		hint    string
+	}{
+		{
+			name:    "table",
+			issue:   ResolveIssue{Source: "cases", Span: span, DisallowedReason: DisallowedBindingAnalyseTable},
+			message: "analyse with-clause requires a scalar string binding; 'cases' is a table",
+			hint:    "select a scalar string binding instead of a table binding",
+		},
+		{
+			name:    "multi-column",
+			issue:   ResolveIssue{Source: "pat", Span: span, DisallowedReason: DisallowedBindingAnalyseMultiColumn, DisallowedColumns: 2},
+			message: "analyse with-clause requires a scalar string binding; 'pat' has 2 columns",
+			hint:    "select a scalar binding with exactly one string column",
+		},
+		{
+			name:    "non-string",
+			issue:   ResolveIssue{Source: "pat", Span: span, DisallowedReason: DisallowedBindingAnalyseNonString},
+			message: "analyse with-clause requires a scalar string binding; 'pat' is not string-valued",
+			hint:    "use a string-valued scalar binding for analyse imports",
+		},
+		{
+			name:    "not-data",
+			issue:   ResolveIssue{Source: "make_pat", Span: span, DisallowedReason: DisallowedBindingNotData},
+			message: "analyse with-clause requires a scalar string binding; 'make_pat' is not a data binding",
+			hint:    "use a scalar string data binding, not an expression-visible global such as a function",
+		},
+		{
+			name:    "zero-column",
+			issue:   ResolveIssue{Source: "empty_shape", Span: span, DisallowedReason: DisallowedBindingAnalyseMultiColumn},
+			message: "analyse with-clause requires a scalar string binding; 'empty_shape' has no columns",
+			hint:    "select a scalar binding with exactly one string column",
+		},
 	}
-	if got := disallowedFormat.Hint(disallowedIssue); got != "use a scalar string data binding, not an expression-visible global such as a function" {
-		t.Fatalf("unexpected disallowed-binding hint: %q", got)
+	for _, tt := range disallowedTests {
+		if got := disallowedFormat.Message(tt.issue); got != tt.message {
+			t.Fatalf("%s: unexpected disallowed-binding message: %q", tt.name, got)
+		}
+		if got := disallowedFormat.Hint(tt.issue); got != tt.hint {
+			t.Fatalf("%s: unexpected disallowed-binding hint: %q", tt.name, got)
+		}
 	}
 
 	stepDisallowed := stepDisallowedBindingFormat()
@@ -122,10 +160,11 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 			Span:     span,
 		},
 		{
-			Kind:   IssueDisallowedBinding,
-			Item:   ast.WithItem{Source: "table", Span: span},
-			Source: "table",
-			Span:   span,
+			Kind:             IssueDisallowedBinding,
+			Item:             ast.WithItem{Source: "table", Span: span},
+			Source:           "table",
+			Span:             span,
+			DisallowedReason: DisallowedBindingAnalyseTable,
 		},
 	}
 
@@ -149,7 +188,7 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 	if diags.Items[2].Code != string(diag.CodeE420) {
 		t.Fatalf("expected third code E420, got %s", diags.Items[2].Code)
 	}
-	if diags.Items[2].Message != "analyse with-clause can only import scalar string data bindings; 'table' is not a data binding" {
+	if diags.Items[2].Message != "analyse with-clause requires a scalar string binding; 'table' is a table" {
 		t.Fatalf("unexpected disallowed-binding message: %q", diags.Items[2].Message)
 	}
 }

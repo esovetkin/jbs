@@ -288,11 +288,7 @@ func resolveAnalyseImportsCanonical(items []ast.WithItem, bindings map[string]*G
 			if !ok {
 				continue
 			}
-			value := eval.Null()
-			if len(values) > 0 {
-				value = values[0]
-			}
-			if value.Kind != eval.KindString {
+			if len(values) > 0 && values[0].Kind != eval.KindString {
 				if opts.EmitDiagnostics && diags != nil {
 					diags.AddError(
 						diag.CodeE422,

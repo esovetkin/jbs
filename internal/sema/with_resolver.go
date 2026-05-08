@@ -31,12 +31,26 @@ const (
 	IssueDisallowedBinding
 )
 
+type DisallowedBindingReason int
+
+const (
+	DisallowedBindingNone DisallowedBindingReason = iota
+	DisallowedBindingNotData
+	DisallowedBindingAnalyseTable
+	DisallowedBindingAnalyseMultiColumn
+	DisallowedBindingAnalyseNonString
+)
+
 type ResolveIssue struct {
-	Kind     ResolveIssueKind
-	Item     ast.WithItem
-	Source   string
-	Variable string
-	Span     diag.Span
+	Kind                ResolveIssueKind
+	Item                ast.WithItem
+	Source              string
+	Variable            string
+	Span                diag.Span
+	DisallowedReason    DisallowedBindingReason
+	DisallowedShape     BindingShape
+	DisallowedColumns   int
+	DisallowedValueKind eval.Kind
 }
 
 type BindingResolver struct {
@@ -92,10 +106,11 @@ func (r BindingResolver) resolveBinding(name string, item ast.WithItem, opts Res
 	if src == nil {
 		if r.isExpressionVisibleOnly(name) {
 			return nil, &ResolveIssue{
-				Kind:   IssueDisallowedBinding,
-				Item:   item,
-				Source: name,
-				Span:   item.Span,
+				Kind:             IssueDisallowedBinding,
+				Item:             item,
+				Source:           name,
+				Span:             item.Span,
+				DisallowedReason: DisallowedBindingNotData,
 			}
 		}
 		return nil, &ResolveIssue{
@@ -105,13 +120,23 @@ func (r BindingResolver) resolveBinding(name string, item ast.WithItem, opts Res
 			Span:   item.Span,
 		}
 	}
-	if !src.Supports(opts.Context) {
-		return nil, &ResolveIssue{
-			Kind:   IssueDisallowedBinding,
-			Item:   item,
-			Source: name,
-			Span:   item.Span,
+	if reason := src.SupportIssue(opts.Context); reason != DisallowedBindingNone {
+		issue := &ResolveIssue{
+			Kind:              IssueDisallowedBinding,
+			Item:              item,
+			Source:            name,
+			Span:              item.Span,
+			DisallowedReason:  reason,
+			DisallowedShape:   src.Shape,
+			DisallowedColumns: len(src.Order),
 		}
+		if len(src.Order) == 1 {
+			vals := src.Vars[src.Order[0]]
+			if len(vals) > 0 {
+				issue.DisallowedValueKind = vals[0].Kind
+			}
+		}
+		return nil, issue
 	}
 	return src, nil
 }

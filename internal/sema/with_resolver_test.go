@@ -102,6 +102,56 @@ func TestBindingResolverExpandWithItemsInAnalyseContext(t *testing.T) {
 	if !reflect.DeepEqual(gotKinds, wantKinds) {
 		t.Fatalf("unexpected analyse-context issues: got=%#v want=%#v", gotKinds, wantKinds)
 	}
+	if issues[0].DisallowedReason != DisallowedBindingAnalyseTable || issues[1].DisallowedReason != DisallowedBindingAnalyseTable {
+		t.Fatalf("expected table disallowed reasons, got %#v", issues)
+	}
+}
+
+func TestBindingResolverReportsAnalyseDisallowedReasons(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	resolver := BindingResolver{
+		Bindings: map[string]*GlobalBinding{
+			"table": testBinding("table", BindingTable, []string{"x"}, map[string][]eval.Value{
+				"x": {eval.String("a")},
+			}),
+			"multi": testBinding("multi", BindingScalar, []string{"x", "y"}, map[string][]eval.Value{
+				"x": {eval.String("a")},
+				"y": {eval.String("b")},
+			}),
+			"num": testBinding("num", BindingScalar, []string{"num"}, map[string][]eval.Value{
+				"num": {eval.Int(1)},
+			}),
+		},
+		Globals: map[string]eval.Value{
+			"fn": eval.Function(&eval.FunctionValue{}),
+		},
+	}
+	tests := []struct {
+		name    string
+		reason  DisallowedBindingReason
+		columns int
+		kind    eval.Kind
+	}{
+		{name: "table", reason: DisallowedBindingAnalyseTable, columns: 1, kind: eval.KindString},
+		{name: "multi", reason: DisallowedBindingAnalyseMultiColumn, columns: 2},
+		{name: "num", reason: DisallowedBindingAnalyseNonString, columns: 1, kind: eval.KindInt},
+		{name: "fn", reason: DisallowedBindingNotData},
+	}
+	for _, tt := range tests {
+		_, issue := resolver.resolveBinding(tt.name, ast.WithItem{Source: tt.name, Span: span}, ResolveOptions{Context: ImportIntoAnalyse})
+		if issue == nil {
+			t.Fatalf("%s: expected disallowed-binding issue", tt.name)
+		}
+		if issue.Kind != IssueDisallowedBinding || issue.DisallowedReason != tt.reason {
+			t.Fatalf("%s: expected reason %v, got %#v", tt.name, tt.reason, issue)
+		}
+		if issue.DisallowedColumns != tt.columns {
+			t.Fatalf("%s: expected %d columns, got %d", tt.name, tt.columns, issue.DisallowedColumns)
+		}
+		if issue.DisallowedValueKind != tt.kind {
+			t.Fatalf("%s: expected value kind %q, got %q", tt.name, tt.kind, issue.DisallowedValueKind)
+		}
+	}
 }
 
 func TestBindingResolverResolveBindingAndExpandFullBinding(t *testing.T) {

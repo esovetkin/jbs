@@ -407,3 +407,32 @@ func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
 		t.Fatalf("expected data-binding error for function-valued with import, got %q", errText)
 	}
 }
+
+func TestRunCheckRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := strings.Join([]string{
+		`cases = table(x=[1])`,
+		`do run with cases {`,
+		`  echo "$x"`,
+		`}`,
+		`analyse run with cases {`,
+		`  (x)`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--check", path}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected failing check for table-valued analyse import, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	errText := stderr.String()
+	want := "analyse with-clause requires a scalar string binding; 'cases' is a table"
+	if !strings.Contains(errText, "ERROR E420") || !strings.Contains(errText, want) {
+		t.Fatalf("expected precise analyse with diagnostic %q, got %q", want, errText)
+	}
+}

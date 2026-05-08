@@ -43,10 +43,31 @@ func analyseDisallowedBindingFormat() withIssueFormat {
 	return withIssueFormat{
 		Code: diag.CodeE420,
 		Message: func(issue ResolveIssue) string {
-			return fmt.Sprintf("analyse with-clause can only import scalar string data bindings; '%s' is not a data binding", issue.Source)
+			switch issue.DisallowedReason {
+			case DisallowedBindingAnalyseTable:
+				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is a table", issue.Source)
+			case DisallowedBindingAnalyseMultiColumn:
+				if issue.DisallowedColumns == 0 {
+					return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' has no columns", issue.Source)
+				}
+				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' has %d columns", issue.Source, issue.DisallowedColumns)
+			case DisallowedBindingAnalyseNonString:
+				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is not string-valued", issue.Source)
+			default:
+				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is not a data binding", issue.Source)
+			}
 		},
-		Hint: func(ResolveIssue) string {
-			return "use a scalar string data binding, not an expression-visible global such as a function"
+		Hint: func(issue ResolveIssue) string {
+			switch issue.DisallowedReason {
+			case DisallowedBindingAnalyseTable:
+				return "select a scalar string binding instead of a table binding"
+			case DisallowedBindingAnalyseMultiColumn:
+				return "select a scalar binding with exactly one string column"
+			case DisallowedBindingAnalyseNonString:
+				return "use a string-valued scalar binding for analyse imports"
+			default:
+				return "use a scalar string data binding, not an expression-visible global such as a function"
+			}
 		},
 	}
 }

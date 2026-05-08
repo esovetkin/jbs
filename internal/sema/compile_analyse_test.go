@@ -3,6 +3,7 @@ package sema
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
@@ -105,20 +106,75 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
 		t.Fatalf("expected first conflicting import to win, got %#v", got["pattern"])
 	}
-	if _, ok := got["empty"]; ok {
-		t.Fatalf("did not expect empty non-string analyse import to be retained, got %#v", got["empty"])
+	if imported, ok := got["empty"]; !ok || imported.Source != "empty" || imported.SourceVar != "empty" {
+		t.Fatalf("expected empty import to be retained, got %#v", got["empty"])
 	}
 	if countDiagCode(diags, "E214") != 1 {
 		t.Fatalf("expected one analyse import conflict diagnostic, got %d: %s", countDiagCode(diags, "E214"), diags.String())
 	}
-	if countDiagCode(diags, "E422") != 1 {
-		t.Fatalf("expected one analyse import string-type diagnostic, got %d: %s", countDiagCode(diags, "E422"), diags.String())
+	if countDiagCode(diags, "E422") != 0 {
+		t.Fatalf("did not expect analyse import string-type diagnostic, got %d: %s", countDiagCode(diags, "E422"), diags.String())
 	}
 	if countDiagCode(diags, "E020") != 1 {
 		t.Fatalf("expected one unknown analyse import source diagnostic, got %d: %s", countDiagCode(diags, "E020"), diags.String())
 	}
 	if countDiagCode(diags, "E420") != 1 {
 		t.Fatalf("expected one disallowed analyse import diagnostic, got %d: %s", countDiagCode(diags, "E420"), diags.String())
+	}
+}
+
+func TestResolveAnalyseImportsCanonicalReportsPreciseSourceRejections(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	bindings := map[string]*GlobalBinding{
+		"cases": {
+			Name:  "cases",
+			Shape: BindingTable,
+			Order: []string{"x"},
+			Vars: map[string][]eval.Value{
+				"x": {eval.String("a")},
+			},
+			Span: span,
+		},
+		"pair": {
+			Name:  "pair",
+			Shape: BindingScalar,
+			Order: []string{"x", "y"},
+			Vars: map[string][]eval.Value{
+				"x": {eval.String("a")},
+				"y": {eval.String("b")},
+			},
+			Span: span,
+		},
+		"num_pat": testScalarBinding("num_pat", "num_pat", eval.Int(1), span),
+	}
+	globals := map[string]eval.Value{
+		"make_pat": eval.Function(&eval.FunctionValue{}),
+	}
+	items := []ast.WithItem{
+		{Source: "cases", Span: span},
+		{Source: "pair", Span: span},
+		{Source: "num_pat", Span: span},
+		{Source: "make_pat", Span: span},
+	}
+
+	diags := &diag.Diagnostics{}
+	got := resolveAnalyseImportsCanonical(items, bindings, globals, nil, diags, analyseImportOptions{EmitDiagnostics: true})
+	if len(got) != 0 {
+		t.Fatalf("expected no imports, got %#v", got)
+	}
+	if countDiagCode(diags, "E420") != 4 {
+		t.Fatalf("expected four source-level diagnostics, got %d: %s", countDiagCode(diags, "E420"), diags.String())
+	}
+	text := diags.String()
+	for _, want := range []string{
+		"'cases' is a table",
+		"'pair' has 2 columns",
+		"'num_pat' is not string-valued",
+		"'make_pat' is not a data binding",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in diagnostics:\n%s", want, text)
+		}
 	}
 }
 

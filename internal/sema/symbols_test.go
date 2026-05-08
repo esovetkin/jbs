@@ -15,6 +15,9 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if nilBinding.Supports(ImportIntoAnalyse) {
 		t.Fatalf("nil binding should not support analyse imports")
 	}
+	if got := nilBinding.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingNotData {
+		t.Fatalf("nil binding should report not-data, got %v", got)
+	}
 
 	scalarString := &GlobalBinding{
 		Shape: BindingScalar,
@@ -68,14 +71,26 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if tableBinding.Supports(ImportIntoAnalyse) {
 		t.Fatalf("table binding should not support analyse imports")
 	}
+	if got := tableBinding.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingAnalyseTable {
+		t.Fatalf("table binding should report table reason, got %v", got)
+	}
 	if scalarMultiColumn.Supports(ImportIntoAnalyse) {
 		t.Fatalf("multi-column scalar should not support analyse imports")
+	}
+	if got := scalarMultiColumn.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingAnalyseMultiColumn {
+		t.Fatalf("multi-column scalar should report multi-column reason, got %v", got)
 	}
 	if scalarNumber.Supports(ImportIntoAnalyse) {
 		t.Fatalf("non-string scalar should not support analyse imports")
 	}
+	if got := scalarNumber.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingAnalyseNonString {
+		t.Fatalf("non-string scalar should report non-string reason, got %v", got)
+	}
 	if scalarString.Supports(ImportContext("unknown")) {
 		t.Fatalf("unknown import context should not be supported")
+	}
+	if got := scalarString.SupportIssue(ImportContext("unknown")); got != DisallowedBindingNotData {
+		t.Fatalf("unknown import context should report not-data, got %v", got)
 	}
 }
 
