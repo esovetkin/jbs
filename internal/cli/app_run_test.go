@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -767,6 +768,439 @@ func TestContinueRegeneratesAnalyse(t *testing.T) {
 	}
 }
 
+func TestRunCommandWritesAnalyseSQLiteDatabase(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`cases = table(x=[1])`,
+		`do run with cases {`,
+		`echo "Number: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(x, number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected sqlite database: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect analyse.csv in sqlite mode, stat error: %v", err)
+	}
+	manifest, err := jbsrun.LoadManifest(filepath.Join(cwd, "bench", "000000", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.RunID != "000000" {
+		t.Fatalf("manifest RunID = %q", manifest.RunID)
+	}
+	if manifest.Steps[0].AnalyseTable != "bench_000000_run" {
+		t.Fatalf("manifest analyse table = %q", manifest.Steps[0].AnalyseTable)
+	}
+	header, rows := readSQLiteTable(t, dbPath, "bench_000000_run")
+	assertStringSlices(t, header, []string{"run_id", "x", "number"})
+	assertStringRows(t, rows, [][]string{{"000000", "1", "7"}})
+	want := "\nresults.sqlite:bench_000000_run\nrun_id,x,number\n000000,1,7\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("sqlite analyse output missing\nwant fragment:\n%s\nstdout:\n%s", want, stdout.String())
+	}
+}
+
+func TestRunCommandAnalyseSQLiteAccumulatesTablesAcrossRuns(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`x = ("a",)`,
+		`do step with x {`,
+		`echo "Value: ${x}" > out.log`,
+		`}`,
+		`analyse step {`,
+		`value = "Value: %w" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("first run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	assertSQLiteTable(t, dbPath, "bench_000000_step",
+		[]string{"run_id", "x", "value"},
+		[][]string{{"000000", "a", "a"}})
+	assertSQLiteTable(t, dbPath, "bench_000001_step",
+		[]string{"run_id", "x", "value"},
+		[][]string{{"000000", "a", "a"}})
+}
+
+func TestRunCommandWritesMultipleAnalyseSQLiteTables(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do prep {`,
+		`echo "Prep: 1" > out.log`,
+		`}`,
+		`do run {`,
+		`echo "Run: 2" > out.log`,
+		`}`,
+		`analyse prep {`,
+		`value = "Prep: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		`analyse run {`,
+		`value = "Run: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	_, prepRows := readSQLiteTable(t, dbPath, "bench_000000_prep")
+	_, runRows := readSQLiteTable(t, dbPath, "bench_000000_run")
+	assertStringRows(t, prepRows, [][]string{{"000000", "1"}})
+	assertStringRows(t, runRows, [][]string{{"000000", "2"}})
+}
+
+func TestContinueRegeneratesAnalyseSQLite(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do run {`,
+		`echo "Number: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	outPath := filepath.Join(cwd, "bench", "000000", "run", "000000", "out.log")
+	if err := os.WriteFile(outPath, []byte("Number: 9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	_, rows := readSQLiteTable(t, filepath.Join(cwd, "results.sqlite"), "bench_000000_run")
+	assertStringRows(t, rows, [][]string{{"000000", "9"}})
+	if sqliteTableExists(t, filepath.Join(cwd, "results.sqlite"), "bench_000001_run") {
+		t.Fatalf("continue created a fresh run table")
+	}
+}
+
+func TestContinueRejectsLegacyAnalyseSQLiteTableName(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do run {`,
+		`echo "Number: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	manifestPath := filepath.Join(cwd, "bench", "000000", "manifest.json")
+	manifest, err := jbsrun.LoadManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Steps[0].AnalyseTable = "run"
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected continue failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "manifest analyse table") {
+		t.Fatalf("expected manifest table validation error, stderr:\n%s", stderr.String())
+	}
+}
+
+func TestContinueUsesManifestAnalyseSQLitePath(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do run {`,
+		`echo "Number: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	outPath := filepath.Join(cwd, "bench", "000000", "run", "000000", "out.log")
+	if err := os.WriteFile(outPath, []byte("Number: 11\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	other := filepath.Join(cwd, "other")
+	if err := os.Mkdir(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(cwd, "bench"), filepath.Join(other, "bench")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Chdir(other); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	_, rows := readSQLiteTable(t, filepath.Join(cwd, "results.sqlite"), "bench_000000_run")
+	assertStringRows(t, rows, [][]string{{"000000", "11"}})
+	if _, err := os.Stat(filepath.Join(other, "results.sqlite")); !os.IsNotExist(err) {
+		t.Fatalf("continue wrote database relative to continue cwd, stat error: %v", err)
+	}
+}
+
+func TestRunCommandAcceptsAbsoluteAnalyseSQLitePath(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	dbPath := filepath.Join(cwd, "absolute.sqlite")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "` + dbPath + `"`,
+		`do run {`,
+		`echo "Number: 5" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	_, rows := readSQLiteTable(t, dbPath, "bench_000000_run")
+	assertStringRows(t, rows, [][]string{{"000000", "5"}})
+}
+
+func TestRunCommandRejectsDuplicateAnalyseSQLiteColumnsBeforeDirectoryCreation(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`cases = table(x=[1])`,
+		`do run with cases {`,
+		`echo ok`,
+		`}`,
+		`analyse run {`,
+		`(x, x as "x")`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected run failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "duplicate result column") {
+		t.Fatalf("expected duplicate column error, stderr:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench")); !os.IsNotExist(err) {
+		t.Fatalf("run directory should not be created, stat error: %v", err)
+	}
+}
+
+func TestRunCommandEmptyAnalyseDatabaseKeepsCSV(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = ""`,
+		`cases = table(x=[1])`,
+		`do run with cases {`,
+		`echo "$x"`,
+		`}`,
+		`analyse run {`,
+		`(x)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")); err != nil {
+		t.Fatalf("expected analyse.csv in csv mode: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "results.sqlite")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect sqlite database in csv mode, stat error: %v", err)
+	}
+}
+
 func readRootStatus(t *testing.T, path string) jbsrun.RootStatus {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -787,6 +1221,125 @@ func readFileString(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func readSQLiteTable(t *testing.T, dbPath, table string) ([]string, [][]string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	headerRows, err := db.Query(`PRAGMA table_info(` + quoteSQLiteIdent(table) + `)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := make([]string, 0)
+	for headerRows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := headerRows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			headerRows.Close()
+			t.Fatal(err)
+		}
+		header = append(header, name)
+	}
+	if err := headerRows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := headerRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(header) == 0 {
+		t.Fatalf("table %q has no columns", table)
+	}
+
+	cols := make([]string, 0, len(header))
+	for _, col := range header {
+		cols = append(cols, quoteSQLiteIdent(col))
+	}
+	dataRows, err := db.Query(`SELECT ` + strings.Join(cols, ", ") + ` FROM ` + quoteSQLiteIdent(table) + ` ORDER BY rowid`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataRows.Close()
+
+	rows := make([][]string, 0)
+	for dataRows.Next() {
+		values := make([]sql.NullString, len(header))
+		dest := make([]any, len(header))
+		for i := range values {
+			dest[i] = &values[i]
+		}
+		if err := dataRows.Scan(dest...); err != nil {
+			t.Fatal(err)
+		}
+		row := make([]string, len(header))
+		for i, value := range values {
+			if value.Valid {
+				row[i] = value.String
+			}
+		}
+		rows = append(rows, row)
+	}
+	if err := dataRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return header, rows
+}
+
+func assertSQLiteTable(t *testing.T, dbPath, table string, wantHeader []string, wantRows [][]string) {
+	t.Helper()
+	header, rows := readSQLiteTable(t, dbPath, table)
+	assertStringSlices(t, header, wantHeader)
+	assertStringRows(t, rows, wantRows)
+}
+
+func sqliteTableExists(t *testing.T, dbPath, table string) bool {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var name string
+	err = db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return true
+}
+
+func quoteSQLiteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func assertStringSlices(t *testing.T, got, want []string) {
+	t.Helper()
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("slice = %#v, want %#v", got, want)
+	}
+}
+
+func assertStringRows(t *testing.T, got, want [][]string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("rows = %#v, want %#v", got, want)
+	}
+	for i := range got {
+		if strings.Join(got[i], "\x00") != strings.Join(want[i], "\x00") {
+			t.Fatalf("row %d = %#v, want %#v (all rows %#v)", i, got[i], want[i], got)
+		}
+	}
 }
 
 func writeRootStatus(t *testing.T, path string, status jbsrun.RootStatus) {

@@ -50,20 +50,28 @@ type WorkStatus struct {
 }
 
 type Manifest struct {
-	Schema        int            `json:"schema"`
-	SourceHash    string         `json:"source_hash"`
-	BenchmarkName string         `json:"benchmark_name"`
-	GlobalNProc   int            `json:"global_nproc"`
-	CreatedAt     time.Time      `json:"created_at"`
-	Steps         []ManifestStep `json:"steps"`
-	Work          []ManifestWork `json:"work"`
+	Schema              int            `json:"schema"`
+	SourceHash          string         `json:"source_hash"`
+	BenchmarkName       string         `json:"benchmark_name"`
+	RunID               string         `json:"run_id"`
+	GlobalNProc         int            `json:"global_nproc"`
+	AnalyseDatabase     string         `json:"analyse_database,omitempty"`
+	AnalyseDatabasePath string         `json:"analyse_database_path,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	Steps               []ManifestStep `json:"steps"`
+	Work                []ManifestWork `json:"work"`
 }
 
 type ManifestStep struct {
-	Name       string `json:"name"`
-	Dir        string `json:"dir"`
-	NProc      int    `json:"nproc"`
-	AnalyseCSV string `json:"analyse_csv,omitempty"`
+	Name         string `json:"name"`
+	Dir          string `json:"dir"`
+	NProc        int    `json:"nproc"`
+	AnalyseCSV   string `json:"analyse_csv,omitempty"`
+	AnalyseTable string `json:"analyse_table,omitempty"`
+}
+
+func (s ManifestStep) HasAnalyse() bool {
+	return s.AnalyseCSV != "" || s.AnalyseTable != ""
 }
 
 type ManifestWork struct {

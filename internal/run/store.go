@@ -30,6 +30,14 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	manifest := plan.Manifest
+	manifest, err = finalizeRunManifest(manifest, runID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRunManifest(manifest); err != nil {
+		return nil, err
+	}
 	final := filepath.Join(root, runID)
 	staging := filepath.Join(root, fmt.Sprintf(".creating-%s-%d", runID, os.Getpid()))
 	finalAbs, err := filepath.Abs(final)
@@ -60,7 +68,6 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 		}
 	}()
 
-	manifest := plan.Manifest
 	manifest.CreatedAt = time.Now().UTC()
 	if err := populateRunTree(staging, finalAbs, sourceDirAbs, manifest, plan.Bodies, plan.Analyses, plan.NoStrict); err != nil {
 		return nil, err
@@ -126,7 +133,7 @@ func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Mani
 		if err := os.MkdirAll(stepDir, 0o755); err != nil {
 			return err
 		}
-		if step.AnalyseCSV != "" {
+		if manifest.AnalyseDatabasePath == "" && step.AnalyseCSV != "" {
 			plan, ok := analyses[step.Name]
 			if !ok {
 				return fmt.Errorf("missing analyse plan for step %q", step.Name)

@@ -29,13 +29,15 @@ Rules:
 - `%d`, `%f`, `%w`, and `%%` expand to integer, floating-point, word, and literal-percent patterns
 - one capture group writes one column
 - multiple capture groups write suffixed columns such as `value.0`, `value.1`
-- multiple matches in one workpackage produce multiple CSV rows
+- multiple matches in one workpackage produce multiple result rows
 - each output table starts with `run_id`, the workpackage directory id
 - analysis files are resolved relative to each workpackage directory
 - missing analysis files make the benchmark status `ERROR`
 - `with` in `analyse` is scalar-only and requires string data bindings
 
 Direct run creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints generated tables after the progress output.
+
+If `jbs_database` is non-empty, all analyse outputs are written to that SQLite database instead, one table per run and step. Table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints only the tables generated for the current run, even when the database also contains older runs.
 
 ## Example
 

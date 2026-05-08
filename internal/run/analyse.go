@@ -43,6 +43,13 @@ type AnalysePatternPlan struct {
 type patternMatches map[string][][]string
 
 func RunAnalyses(store *Store, analyses map[string]AnalysePlan) error {
+	if store.Manifest.AnalyseDatabasePath != "" {
+		return runAnalysesSQLite(store, analyses)
+	}
+	return runAnalysesCSV(store, analyses)
+}
+
+func runAnalysesCSV(store *Store, analyses map[string]AnalysePlan) error {
 	for _, step := range store.Manifest.Steps {
 		if step.AnalyseCSV == "" {
 			continue
@@ -51,34 +58,44 @@ func RunAnalyses(store *Store, analyses map[string]AnalysePlan) error {
 		if !ok {
 			return fmt.Errorf("missing analyse plan for step %q", step.Name)
 		}
-		if err := runStepAnalyse(store, step, plan); err != nil {
+		if err := runStepAnalyseCSV(store, step, plan); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func runStepAnalyse(store *Store, step ManifestStep, plan AnalysePlan) error {
+func runStepAnalyseCSV(store *Store, step ManifestStep, plan AnalysePlan) error {
+	dataRows, err := collectStepAnalyseRows(store, step, plan)
+	if err != nil {
+		return err
+	}
 	rows := [][]string{append([]string(nil), plan.Header...)}
+	rows = append(rows, dataRows...)
+	path := filepath.Join(store.RunDir, step.Dir, step.AnalyseCSV)
+	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
+}
+
+func collectStepAnalyseRows(store *Store, step ManifestStep, plan AnalysePlan) ([][]string, error) {
+	rows := make([][]string, 0)
 	for _, work := range store.Manifest.Work {
 		if work.Step != step.Name {
 			continue
 		}
 		status, err := store.LoadWorkStatus(work)
 		if err != nil {
-			return fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
+			return nil, fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
 		}
 		if status.Status != StatusFinished {
-			return fmt.Errorf("cannot analyse %s/%s: status is %s", work.Step, work.Dir, status.Status)
+			return nil, fmt.Errorf("cannot analyse %s/%s: status is %s", work.Step, work.Dir, status.Status)
 		}
 		workRows, err := analyseWorkPackage(store.WorkDir(work), work, plan)
 		if err != nil {
-			return fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
+			return nil, fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
 		}
 		rows = append(rows, workRows...)
 	}
-	path := filepath.Join(store.RunDir, step.Dir, step.AnalyseCSV)
-	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
+	return rows, nil
 }
 
 func analyseWorkPackage(workDir string, work ManifestWork, plan AnalysePlan) ([][]string, error) {

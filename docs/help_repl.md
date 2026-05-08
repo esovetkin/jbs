@@ -23,7 +23,7 @@ jbs> x + 2
 
 ```text
 jbs> names()
-["jbs_name", "jbs_nproc", "x"]
+["jbs_database", "jbs_name", "jbs_nproc", ...]
 ```
 
 Use `print(...)` when you want explicit output without an additional expression echo:

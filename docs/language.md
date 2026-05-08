@@ -30,9 +30,12 @@ Top-level expression statements are evaluated. In files they are mainly useful f
 
 `jbs_nproc` is the global concurrency limit. It defaults to `0`. A value of `0` means the number of available CPUs.
 
+`jbs_database` is the analyse SQLite database path. It defaults to `""`, which keeps per-step `analyse.csv` files. A non-empty relative path is resolved from the directory where `jbs run` is executed; absolute paths are accepted. SQLite analyse table names use `<benchmark_name>_<run_id>_<step_name>`.
+
 ```jbs
 jbs_name = "sweep"
 jbs_nproc = 8
+jbs_database = "results.sqlite"
 ```
 
 ## Values
@@ -144,7 +147,7 @@ Pattern shortcuts:
 - `%w` captures a word.
 - `%%` matches a literal percent character.
 
-Plain regular expressions are also allowed. If a pattern has multiple capture groups, result columns are suffixed with `.0`, `.1`, and so on. Multiple matches in one file produce multiple rows. Generated CSV files include `run_id`.
+Plain regular expressions are also allowed. If a pattern has multiple capture groups, result columns are suffixed with `.0`, `.1`, and so on. Multiple matches in one file produce multiple rows. Generated CSV files and SQLite tables include `run_id`.
 
 ## Running
 
@@ -163,6 +166,8 @@ benchmark/
         stderr
         exitcode
 ```
+
+If `jbs_database` is non-empty, analyse results are written to that SQLite database instead of per-step `analyse.csv` files. The database contains one table per analysed step and run. Table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints only the current run's tables.
 
 The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
 

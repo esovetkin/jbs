@@ -99,7 +99,7 @@ jbs help use
 
 ## Language
 
-Top-level assignments define scalar values, lists, tuples, tables, and functions. `do` blocks execute shell code once per workpackage. `analyse` blocks extract values from files created by a step and write `analyse.csv` for that step. `use` imports values or step declarations from another `.jbs` file.
+Top-level assignments define scalar values, lists, tuples, tables, and functions. `do` blocks execute shell code once per workpackage. `analyse` blocks extract values from files created by a step and write `analyse.csv` for that step, or SQLite tables when `jbs_database` is set. `use` imports values or step declarations from another `.jbs` file.
 
 `print(...)` writes explicit JBS output to command stdout. In `jbs run`, those lines appear before benchmark work starts; shell output from `run.sh` stays in each workpackage `stdout` file.
 
@@ -111,6 +111,7 @@ Top-level assignments define scalar values, lists, tuples, tables, and functions
 
 ```jbs
 jbs_nproc = 8
+jbs_database = "results.sqlite"
 
 do compile nproc 4 {
         make
@@ -118,6 +119,8 @@ do compile nproc 4 {
 ```
 
 `jbs_nproc = 0` and `do ... nproc 0` both mean "use the number of available CPUs".
+
+`jbs_database = ""` keeps the default per-step `analyse.csv` files. A non-empty value writes all analyse outputs into one SQLite database, with one table per analysed step and run. Table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`, so later runs accumulate new tables instead of overwriting old ones. Relative database paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted.
 
 See [docs/language.md](docs/language.md) for details.
 

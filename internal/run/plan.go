@@ -16,12 +16,14 @@ import (
 )
 
 type runtimePlan struct {
-	WorkPlan  workplan.Plan
-	Manifest  Manifest
-	Bodies    map[string]string
-	Analyses  map[string]AnalysePlan
-	SourceDir string
-	NoStrict  bool
+	WorkPlan            workplan.Plan
+	Manifest            Manifest
+	Bodies              map[string]string
+	Analyses            map[string]AnalysePlan
+	SourceDir           string
+	NoStrict            bool
+	AnalyseDatabase     string
+	AnalyseDatabasePath string
 }
 
 func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error) {
@@ -39,6 +41,10 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 	}
 	defaultNProc := availableNProcForRun()
 	globalNProc, err = resolveNProc(globalNProc, defaultNProc)
+	if err != nil {
+		return runtimePlan{}, err
+	}
+	database, err := globalAnalyseDatabase(res)
 	if err != nil {
 		return runtimePlan{}, err
 	}
@@ -74,18 +80,31 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 	if err != nil {
 		return runtimePlan{}, err
 	}
+	if database.Path != "" {
+		for step, plan := range analyses {
+			if dup := duplicateHeader(plan.Header); dup != "" {
+				return runtimePlan{}, fmt.Errorf("analyse step %q cannot be written to SQLite: duplicate result column %q", step, dup)
+			}
+		}
+	}
 	manifest := Manifest{
-		Schema:        1,
-		SourceHash:    hash,
-		BenchmarkName: name,
-		GlobalNProc:   globalNProc,
-		Steps:         make([]ManifestStep, 0, len(wp.Steps)),
-		Work:          make([]ManifestWork, 0, len(wp.Work)),
+		Schema:              1,
+		SourceHash:          hash,
+		BenchmarkName:       name,
+		GlobalNProc:         globalNProc,
+		AnalyseDatabase:     database.Display,
+		AnalyseDatabasePath: database.Path,
+		Steps:               make([]ManifestStep, 0, len(wp.Steps)),
+		Work:                make([]ManifestWork, 0, len(wp.Work)),
 	}
 	for _, step := range wp.Steps {
 		ms := ManifestStep{Name: step.Name, Dir: step.DirName, NProc: step.NProc}
 		if _, ok := analyses[step.Name]; ok {
-			ms.AnalyseCSV = "analyse.csv"
+			if database.Path == "" {
+				ms.AnalyseCSV = "analyse.csv"
+			} else {
+				ms.AnalyseTable = step.Name
+			}
 		}
 		manifest.Steps = append(manifest.Steps, ms)
 	}
@@ -118,7 +137,16 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 			Values: values,
 		})
 	}
-	return runtimePlan{WorkPlan: wp, Manifest: manifest, Bodies: bodies, Analyses: analyses, SourceDir: sourceDir, NoStrict: opts.NoStrict}, nil
+	return runtimePlan{
+		WorkPlan:            wp,
+		Manifest:            manifest,
+		Bodies:              bodies,
+		Analyses:            analyses,
+		SourceDir:           sourceDir,
+		NoStrict:            opts.NoStrict,
+		AnalyseDatabase:     database.Display,
+		AnalyseDatabasePath: database.Path,
+	}, nil
 }
 
 func sourceDirForRun(opts Options) (string, error) {
@@ -170,6 +198,42 @@ func globalNProc(res *sema.Result) (int, error) {
 		return 0, fmt.Errorf("jbs_nproc must be >= 0")
 	}
 	return int(value.I), nil
+}
+
+type analyseDatabaseConfig struct {
+	Display string
+	Path    string
+}
+
+func globalAnalyseDatabase(res *sema.Result) (analyseDatabaseConfig, error) {
+	value := res.Globals.Values["jbs_database"]
+	if value.Kind == "" {
+		return analyseDatabaseConfig{}, nil
+	}
+	if value.Kind != eval.KindString {
+		return analyseDatabaseConfig{}, fmt.Errorf("jbs_database must be a string")
+	}
+	return resolveAnalyseDatabasePath(value.S)
+}
+
+func resolveAnalyseDatabasePath(raw string) (analyseDatabaseConfig, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return analyseDatabaseConfig{}, nil
+	}
+	display := filepath.Clean(raw)
+	if display == "." || filepath.Base(display) == "." || filepath.Base(display) == ".." {
+		return analyseDatabaseConfig{}, fmt.Errorf("jbs_database must name a database file")
+	}
+	path := display
+	if !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return analyseDatabaseConfig{}, fmt.Errorf("resolve jbs_database %q: %w", raw, err)
+		}
+		path = abs
+	}
+	return analyseDatabaseConfig{Display: display, Path: filepath.Clean(path)}, nil
 }
 
 func analysePlansByStep(res *sema.Result) (map[string]AnalysePlan, error) {
@@ -280,4 +344,15 @@ func appendExpandedHeader(header []string, title string, groupCount int) []strin
 		header = append(header, fmt.Sprintf("%s.%d", title, i))
 	}
 	return header
+}
+
+func duplicateHeader(header []string) string {
+	seen := make(map[string]struct{}, len(header))
+	for _, col := range header {
+		if _, ok := seen[col]; ok {
+			return col
+		}
+		seen[col] = struct{}{}
+	}
+	return ""
 }

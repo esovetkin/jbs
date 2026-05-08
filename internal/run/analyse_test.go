@@ -19,6 +19,7 @@ func TestAnalyseWorkPackageOneMatch(t *testing.T) {
 	}, map[string]AnalysePatternPlan{
 		"number": testPattern("number", "out.log", `Number: ([0-9]+)`),
 	})
+	plan.Header = []string{"run_id", "x", "number"}
 	rows, err := analyseWorkPackage(dir, ManifestWork{Dir: "000000", Values: map[string]string{"x": "a"}}, plan)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +110,107 @@ func TestCollectPatternMatchesMissingFile(t *testing.T) {
 	}
 }
 
+func TestRunAnalysesSQLiteWritesAndReplacesRows(t *testing.T) {
+	runDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "results.sqlite")
+	manifest := Manifest{
+		BenchmarkName:       "bench",
+		RunID:               "000000",
+		AnalyseDatabase:     "results.sqlite",
+		AnalyseDatabasePath: dbPath,
+		Steps: []ManifestStep{{
+			Name:         "run",
+			Dir:          "run",
+			AnalyseTable: "bench_000000_run",
+		}},
+		Work: []ManifestWork{{
+			Step:   "run",
+			Row:    0,
+			Dir:    "000000",
+			Values: map[string]string{"x": "a"},
+		}},
+	}
+	store := NewStore(runDir, manifest, nil)
+	work := manifest.Work[0]
+	workDir := store.WorkDir(work)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "out.log"), []byte("Number: 7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status := WorkStatus{Schema: 1, Status: StatusFinished, Step: work.Step, Row: work.Row}
+	if err := store.WriteWorkStatus(work, status); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := testAnalysePlan([]AnalyseColumnPlan{
+		{Kind: analyseColumnWorkValue, Source: "x", GroupCount: 1},
+		{Kind: analyseColumnPattern, Source: "number", GroupCount: 1},
+	}, map[string]AnalysePatternPlan{
+		"number": testPattern("number", "out.log", `Number: ([0-9]+)`),
+	})
+	plan.Header = []string{"run_id", "x", "number"}
+	if err := RunAnalyses(store, map[string]AnalysePlan{"run": plan}); err != nil {
+		t.Fatal(err)
+	}
+	assertAnalyseTable(t, dbPath, "bench_000000_run", []string{"run_id", "x", "number"}, [][]string{{"000000", "a", "7"}})
+
+	if err := os.WriteFile(filepath.Join(workDir, "out.log"), []byte("Number: 8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAnalyses(store, map[string]AnalysePlan{"run": plan}); err != nil {
+		t.Fatal(err)
+	}
+	assertAnalyseTable(t, dbPath, "bench_000000_run", []string{"run_id", "x", "number"}, [][]string{{"000000", "a", "8"}})
+}
+
+func TestRunAnalysesSQLiteQuotesIdentifiers(t *testing.T) {
+	runDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "quoted.sqlite")
+	manifest := Manifest{
+		BenchmarkName:       "bench",
+		RunID:               "000000",
+		AnalyseDatabase:     "quoted.sqlite",
+		AnalyseDatabasePath: dbPath,
+		Steps: []ManifestStep{{
+			Name:         "select",
+			Dir:          "select",
+			AnalyseTable: "bench_000000_select",
+		}},
+		Work: []ManifestWork{{
+			Step:   "select",
+			Row:    0,
+			Dir:    "000000",
+			Values: map[string]string{"name": "case"},
+		}},
+	}
+	store := NewStore(runDir, manifest, nil)
+	work := manifest.Work[0]
+	workDir := store.WorkDir(work)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := WorkStatus{Schema: 1, Status: StatusFinished, Step: work.Step, Row: work.Row}
+	if err := store.WriteWorkStatus(work, status); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := AnalysePlan{
+		Step:   "select",
+		Header: []string{"run_id", "name of a column", "Pair.0"},
+		Columns: []AnalyseColumnPlan{
+			{Kind: analyseColumnWorkValue, Source: "name", GroupCount: 1},
+			{Kind: analyseColumnWorkValue, Source: "missing", GroupCount: 1},
+		},
+		Patterns: map[string]AnalysePatternPlan{},
+	}
+	if err := RunAnalyses(store, map[string]AnalysePlan{"select": plan}); err != nil {
+		t.Fatal(err)
+	}
+	assertAnalyseTable(t, dbPath, "bench_000000_select", plan.Header, [][]string{{"000000", "case", ""}})
+}
+
 func testAnalysePlan(columns []AnalyseColumnPlan, patterns map[string]AnalysePatternPlan) AnalysePlan {
 	if patterns == nil {
 		patterns = map[string]AnalysePatternPlan{}
@@ -143,4 +245,21 @@ func assertRows(t *testing.T, got, want [][]string) {
 			t.Fatalf("row %d = %#v, want %#v (all rows %#v)", i, got[i], want[i], got)
 		}
 	}
+}
+
+func assertAnalyseTable(t *testing.T, dbPath, table string, wantHeader []string, wantRows [][]string) {
+	t.Helper()
+	db, err := openAnalyseDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	header, rows, err := readAnalyseTable(db, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(header, "\x00") != strings.Join(wantHeader, "\x00") {
+		t.Fatalf("header = %#v, want %#v", header, wantHeader)
+	}
+	assertRows(t, rows, wantRows)
 }

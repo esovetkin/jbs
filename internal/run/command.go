@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
@@ -103,6 +104,9 @@ func Continue(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	if err := validateRunManifest(manifest); err != nil {
+		return fmt.Errorf("cannot continue %s: %w", runDir, err)
+	}
 	if manifest.SourceHash != plan.Manifest.SourceHash {
 		return sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
 	}
@@ -168,6 +172,14 @@ func printAnalyseTables(w io.Writer, store *Store) {
 	if w == nil {
 		return
 	}
+	if store.Manifest.AnalyseDatabasePath != "" {
+		printAnalyseDatabaseTables(w, store)
+		return
+	}
+	printAnalyseCSVTables(w, store)
+}
+
+func printAnalyseCSVTables(w io.Writer, store *Store) {
 	for _, step := range store.Manifest.Steps {
 		if step.AnalyseCSV == "" {
 			continue
@@ -185,4 +197,30 @@ func printAnalyseTables(w io.Writer, store *Store) {
 			}
 		}
 	}
+}
+
+func printAnalyseDatabaseTables(w io.Writer, store *Store) {
+	db, err := openAnalyseDB(store.Manifest.AnalyseDatabasePath)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	for _, step := range store.Manifest.Steps {
+		if step.AnalyseTable == "" {
+			continue
+		}
+		header, rows, err := readAnalyseTable(db, step.AnalyseTable)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(w, "\n%s:%s\n", store.Manifest.AnalyseDatabase, step.AnalyseTable)
+		writeCSVRows(w, append([][]string{header}, rows...))
+	}
+}
+
+func writeCSVRows(w io.Writer, rows [][]string) {
+	cw := csv.NewWriter(w)
+	cw.WriteAll(rows)
+	cw.Flush()
 }

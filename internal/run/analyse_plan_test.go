@@ -1,10 +1,13 @@
 package run
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
@@ -41,6 +44,112 @@ analyse run {
 	}
 	if plan.Manifest.Steps[0].AnalyseCSV != "analyse.csv" {
 		t.Fatalf("manifest analyse csv = %q", plan.Manifest.Steps[0].AnalyseCSV)
+	}
+}
+
+func TestAnalysePlansByStepUsesSQLiteBackend(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	plan := buildPlanFromSource(t, `
+jbs_name = "bench"
+jbs_database = "results.sqlite"
+cases = table(x=[1])
+do run with cases {
+    echo "$x"
+}
+analyse run {
+    (x)
+}
+`)
+	if plan.AnalyseDatabase != "results.sqlite" {
+		t.Fatalf("runtime plan database = %q", plan.AnalyseDatabase)
+	}
+	if plan.AnalyseDatabasePath != filepath.Join(cwd, "results.sqlite") {
+		t.Fatalf("runtime plan database path = %q", plan.AnalyseDatabasePath)
+	}
+	if plan.Manifest.AnalyseDatabase != "results.sqlite" {
+		t.Fatalf("manifest database = %q", plan.Manifest.AnalyseDatabase)
+	}
+	if plan.Manifest.AnalyseDatabasePath != filepath.Join(cwd, "results.sqlite") {
+		t.Fatalf("manifest database path = %q", plan.Manifest.AnalyseDatabasePath)
+	}
+	step := plan.Manifest.Steps[0]
+	if step.AnalyseCSV != "" || step.AnalyseTable != "run" {
+		t.Fatalf("unexpected analyse backend fields: %#v", step)
+	}
+}
+
+func TestGlobalAnalyseDatabasePathResolution(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	tests := []struct {
+		name        string
+		value       eval.Value
+		wantDisplay string
+		wantPath    string
+		wantErr     string
+	}{
+		{name: "missing", value: eval.Value{}},
+		{name: "empty", value: eval.String("")},
+		{name: "relative", value: eval.String("results.sqlite"), wantDisplay: "results.sqlite", wantPath: filepath.Join(cwd, "results.sqlite")},
+		{name: "nested", value: eval.String("out/results.sqlite"), wantDisplay: filepath.Join("out", "results.sqlite"), wantPath: filepath.Join(cwd, "out", "results.sqlite")},
+		{name: "parent", value: eval.String("../results.sqlite"), wantDisplay: filepath.Join("..", "results.sqlite"), wantPath: filepath.Clean(filepath.Join(cwd, "..", "results.sqlite"))},
+		{name: "absolute", value: eval.String(filepath.Join(cwd, "abs.sqlite")), wantDisplay: filepath.Join(cwd, "abs.sqlite"), wantPath: filepath.Join(cwd, "abs.sqlite")},
+		{name: "dot", value: eval.String("."), wantErr: "must name a database file"},
+		{name: "dotdot", value: eval.String(".."), wantErr: "must name a database file"},
+		{name: "non-string", value: eval.Int(1), wantErr: "must be a string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := globalAnalyseDatabase(&sema.Result{
+				Globals: sema.GlobalState{Values: map[string]eval.Value{"jbs_database": tt.value}},
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Display != tt.wantDisplay || cfg.Path != tt.wantPath {
+				t.Fatalf("config = %#v, want display=%q path=%q", cfg, tt.wantDisplay, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestAnalysePlansByStepRejectsDuplicateSQLiteHeaders(t *testing.T) {
+	_, err := buildPlanFromSourceErr(t, `
+jbs_name = "bench"
+jbs_database = "results.sqlite"
+cases = table(x=[1])
+do run with cases {
+    echo ok
+}
+analyse run {
+    (x, x as "x")
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "duplicate result column") {
+		t.Fatalf("expected duplicate SQLite column error, got %v", err)
 	}
 }
 

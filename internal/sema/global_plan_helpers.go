@@ -19,7 +19,7 @@ func namespaceHead(name string) string {
 }
 
 func isBuiltinGlobalName(name string) bool {
-	return name == "jbs_name" || name == "jbs_nproc"
+	return name == "jbs_database" || name == "jbs_name" || name == "jbs_nproc"
 }
 
 func bindingDisplayName(binding *GlobalBinding) string {
