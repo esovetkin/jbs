@@ -90,7 +90,7 @@ func Continue(ctx context.Context, opts Options) error {
 		return fmt.Errorf("cannot continue %s: manifest source hash does not match", runDir)
 	}
 	bodies := plan.Bodies
-	store := OpenStore(runDir, manifest, bodies)
+	store := NewStore(runDir, manifest, bodies)
 	if err := store.NormalizeStaleRunning(); err != nil {
 		return err
 	}

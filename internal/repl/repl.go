@@ -10,6 +10,7 @@ import (
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
+	parserpkg "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 
 	"github.com/chzyer/readline"
 )
@@ -130,7 +131,7 @@ func Run(opts Options) int {
 		} else {
 			state.pending += "\n" + line
 		}
-		if ScanContinuationState(state.pending).NeedsMoreInput() {
+		if parserpkg.ScanStructuralState(state.pending).NeedsMoreInput() {
 			continue
 		}
 

@@ -1,8 +1,8 @@
-package repl
+package parser
 
 import "testing"
 
-func TestScanContinuationState(t *testing.T) {
+func TestScanStructuralState(t *testing.T) {
 	cases := []struct {
 		name           string
 		src            string
@@ -105,7 +105,7 @@ func TestScanContinuationState(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			got := ScanContinuationState(tc.src)
+			got := ScanStructuralState(tc.src)
 			if got.NeedsMoreInput() != tc.wantNeedsMore {
 				t.Fatalf("NeedsMoreInput()=%v want %v; state=%+v", got.NeedsMoreInput(), tc.wantNeedsMore, got)
 			}

@@ -90,10 +90,6 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	return NewStore(final, manifest, plan.Bodies), nil
 }
 
-func OpenStore(runDir string, manifest Manifest, bodies map[string]string) *Store {
-	return NewStore(runDir, manifest, bodies)
-}
-
 func NewStore(runDir string, manifest Manifest, bodies map[string]string) *Store {
 	steps := make(map[string]ManifestStep, len(manifest.Steps))
 	for _, step := range manifest.Steps {
