@@ -224,7 +224,7 @@ func TestExecGlobalPlanCollectsTopLevelExprResults(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -285,7 +285,7 @@ func TestBuildGlobalPlanAssignsNameCatalogs(t *testing.T) {
 	plan := buildGlobalPlan(prog, map[string]eval.Value{
 		"jbs_name": eval.String("bench"),
 		"ns.value": eval.Int(1),
-	}, "", diags)
+	}, "")
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -586,7 +586,7 @@ result
 `)
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -633,7 +633,7 @@ dependent(4)
 `)
 
 	diags := &diag.Diagnostics{}
-	exec := execGlobalPlan(buildGlobalPlan(prog, nil, "", diags), nil, nil, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, nil, ""), nil, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func compileUserGlobals(prog ast.Program, builtins map[string]eval.Value, diags *diag.Diagnostics) (map[string]*GlobalVar, []string) {
-	exec := execGlobalPlan(buildGlobalPlan(prog, builtins, baseDirForProgramFile(prog.File), diags), builtins, builtins, diags)
+	exec := execGlobalPlan(buildGlobalPlan(prog, builtins, baseDirForProgramFile(prog.File)), builtins, builtins, diags)
 	return globalVarsFromExec(exec)
 }
 

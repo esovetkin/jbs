@@ -46,7 +46,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 
 	var scope *moduleScope
 	if loadRes == nil {
-		exec := execGlobalPlan(buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File), diags), globals, globals, diags)
+		exec := execGlobalPlan(buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)), globals, globals, diags)
 		scope = emptyModuleScope()
 		scope.Program = prog
 		if baseDir := baseDirForProgramFile(prog.File); baseDir != "" {

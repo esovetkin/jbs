@@ -67,8 +67,10 @@ type globalInputStep struct {
 }
 
 type globalPlan struct {
-	Steps             []globalInputStep
-	StepByName        map[string]int
+	Steps      []globalInputStep
+	StepByName map[string]int
+	// Precomputed before execution so expression name catalogs can expose
+	// locals that may be defined later in sequential or control-flow execution.
 	LocalVisibleNames []string
 	NextID            int
 }
@@ -100,18 +102,12 @@ type globalExecResult struct {
 	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 }
 
-type programBindingPlan struct {
-	AcceptedByIndex map[int]ast.GlobalAssign
-	VisibleNames    []string
-}
-
-func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir string, diags *diag.Diagnostics) *globalPlan {
-	_ = diags
-	prep := planProgramBindings(prog, diags)
+func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir string) *globalPlan {
+	visibleNames := collectProgramVisibleNames(prog)
 	plan := &globalPlan{
 		Steps:             make([]globalInputStep, 0, len(prog.Stmts)),
 		StepByName:        make(map[string]int),
-		LocalVisibleNames: append([]string(nil), prep.VisibleNames...),
+		LocalVisibleNames: append([]string(nil), visibleNames...),
 	}
 	appendGlobalPlanSteps(plan, prog.Stmts, baseDir, globalPlanContext{})
 	assignGlobalPlanNameCatalogs(plan, baseSeed)
@@ -265,48 +261,39 @@ func nextGlobalStepID(plan *globalPlan) int {
 	return id
 }
 
-func planProgramBindings(prog ast.Program, diags *diag.Diagnostics) programBindingPlan {
-	_ = diags
-	out := programBindingPlan{
-		AcceptedByIndex: make(map[int]ast.GlobalAssign),
-		VisibleNames:    make([]string, 0),
-	}
+func collectProgramVisibleNames(prog ast.Program) []string {
+	names := make([]string, 0)
 	seen := make(map[string]struct{})
-	for index, stmt := range prog.Stmts {
-		collectProgramBindingStmt(stmt, index, &out, seen)
+	for _, stmt := range prog.Stmts {
+		collectProgramVisibleNameStmt(stmt, &names, seen)
 	}
-	return out
+	return names
 }
 
-func collectProgramBindingStmt(stmt ast.Stmt, index int, out *programBindingPlan, seen map[string]struct{}) {
+func collectProgramVisibleNameStmt(stmt ast.Stmt, names *[]string, seen map[string]struct{}) {
 	switch n := stmt.(type) {
 	case ast.GlobalAssign:
-		out.AcceptedByIndex[index] = n
-		if _, exists := seen[n.Name]; exists {
-			return
-		}
-		seen[n.Name] = struct{}{}
-		out.VisibleNames = append(out.VisibleNames, n.Name)
+		appendVisibleName(names, seen, n.Name)
 	case ast.IfStmt:
 		for _, child := range n.Then {
-			collectProgramBindingStmt(child, index, out, seen)
+			collectProgramVisibleNameStmt(child, names, seen)
 		}
 		for _, child := range n.Else {
-			collectProgramBindingStmt(child, index, out, seen)
+			collectProgramVisibleNameStmt(child, names, seen)
 		}
 	case ast.ForStmt:
-		collectProgramBindingName(n.Target, out, seen)
+		appendVisibleName(names, seen, n.Target)
 		for _, child := range n.Body {
-			collectProgramBindingStmt(child, index, out, seen)
+			collectProgramVisibleNameStmt(child, names, seen)
 		}
 	case ast.WhileStmt:
 		for _, child := range n.Body {
-			collectProgramBindingStmt(child, index, out, seen)
+			collectProgramVisibleNameStmt(child, names, seen)
 		}
 	}
 }
 
-func collectProgramBindingName(name string, out *programBindingPlan, seen map[string]struct{}) {
+func appendVisibleName(names *[]string, seen map[string]struct{}, name string) {
 	if name == "" {
 		return
 	}
@@ -314,7 +301,7 @@ func collectProgramBindingName(name string, out *programBindingPlan, seen map[st
 		return
 	}
 	seen[name] = struct{}{}
-	out.VisibleNames = append(out.VisibleNames, name)
+	*names = append(*names, name)
 }
 
 func assignGlobalPlanNameCatalogs(plan *globalPlan, seed map[string]eval.Value) {

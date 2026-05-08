@@ -119,7 +119,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 }
 
 func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*moduleScope, prefixedByIndex map[int]*moduleScope, baseSeed map[string]eval.Value, diags *diag.Diagnostics) *globalPlan {
-	prep := planModuleBindings(info, childByIndex, diags)
+	prep := prepareModuleBindings(info, childByIndex, diags)
 	plan := &globalPlan{
 		Steps:             make([]globalInputStep, 0),
 		StepByName:        make(map[string]int),
@@ -137,7 +137,7 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 	return plan
 }
 
-func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPlan, prefixedByIndex map[int]*moduleScope) []globalInputStep {
+func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPrep, prefixedByIndex map[int]*moduleScope) []globalInputStep {
 	steps := make([]globalInputStep, 0, len(stmts))
 	for index, stmt := range stmts {
 		if use, ok := useByIndex[index]; ok {
@@ -252,15 +252,13 @@ type projectedImportDecisionKey struct {
 	Name  string
 }
 
-type moduleBindingPlan struct {
-	AcceptedLocals    map[int]ast.GlobalAssign
+type moduleBindingPrep struct {
 	AcceptedImports   map[projectedImportDecisionKey]*projectedImport
 	LocalVisibleNames []string
 }
 
-func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleScope, diags *diag.Diagnostics) moduleBindingPlan {
-	out := moduleBindingPlan{
-		AcceptedLocals:    make(map[int]ast.GlobalAssign),
+func prepareModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleScope, diags *diag.Diagnostics) moduleBindingPrep {
+	out := moduleBindingPrep{
 		AcceptedImports:   make(map[projectedImportDecisionKey]*projectedImport),
 		LocalVisibleNames: make([]string, 0),
 	}
@@ -339,37 +337,39 @@ func planModuleBindings(info *imports.ModuleInfo, childByIndex map[int]*moduleSc
 			}
 			continue
 		}
-		collectModuleBindingStmt(stmt, index, &out)
+		collectModuleVisibleNameStmt(stmt, &out)
 	}
 	return out
 }
 
-func collectModuleBindingStmt(stmt ast.Stmt, index int, out *moduleBindingPlan) {
+func collectModuleVisibleNameStmt(stmt ast.Stmt, out *moduleBindingPrep) {
 	switch n := stmt.(type) {
 	case ast.GlobalAssign:
-		out.AcceptedLocals[index] = n
-		if !slices.Contains(out.LocalVisibleNames, n.Name) {
-			out.LocalVisibleNames = append(out.LocalVisibleNames, n.Name)
-		}
+		appendModuleVisibleName(&out.LocalVisibleNames, n.Name)
 	case ast.IfStmt:
 		for _, child := range n.Then {
-			collectModuleBindingStmt(child, index, out)
+			collectModuleVisibleNameStmt(child, out)
 		}
 		for _, child := range n.Else {
-			collectModuleBindingStmt(child, index, out)
+			collectModuleVisibleNameStmt(child, out)
 		}
 	case ast.ForStmt:
-		if n.Target != "" && !slices.Contains(out.LocalVisibleNames, n.Target) {
-			out.LocalVisibleNames = append(out.LocalVisibleNames, n.Target)
-		}
+		appendModuleVisibleName(&out.LocalVisibleNames, n.Target)
 		for _, child := range n.Body {
-			collectModuleBindingStmt(child, index, out)
+			collectModuleVisibleNameStmt(child, out)
 		}
 	case ast.WhileStmt:
 		for _, child := range n.Body {
-			collectModuleBindingStmt(child, index, out)
+			collectModuleVisibleNameStmt(child, out)
 		}
 	}
+}
+
+func appendModuleVisibleName(names *[]string, name string) {
+	if name == "" || slices.Contains(*names, name) {
+		return
+	}
+	*names = append(*names, name)
 }
 
 type localSymbolKind int
