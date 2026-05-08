@@ -61,6 +61,9 @@ func preEvaluateFunctionDefaults(expr ast.FunctionExpr, env map[string]Value, di
 				Value:        evalExprWithCtx(param.Default, env, diags, opts, ctx),
 				PreEvaluated: true,
 			}
+			if ctx.recursionLimitHit() {
+				return defaults
+			}
 		}
 		if param.Name != "" {
 			earlier[param.Name] = struct{}{}
@@ -267,27 +270,58 @@ func callNameCatalog(catalog *NameCatalog, frame *Frame) *NameCatalog {
 
 func (ctx *evalCtx) withFrame(frame *Frame) *evalCtx {
 	if ctx == nil {
-		return &evalCtx{
-			overflowWarned: make(map[string]struct{}),
-			frame:          frame,
-		}
+		return newEvalCtx(frame)
 	}
 	next := *ctx
 	next.frame = frame
+	if next.overflowWarned == nil {
+		next.overflowWarned = make(map[string]struct{})
+	}
+	if next.abort == nil {
+		next.abort = &evalAbortState{}
+	}
 	return &next
 }
 
+func checkFunctionCallDepth(ctx *evalCtx, opts ExprOptions, at diag.Span, diags *diag.Diagnostics) bool {
+	if ctx == nil {
+		ctx = newEvalCtx(nil)
+	}
+	if ctx.recursionLimitHit() {
+		return false
+	}
+	limit := functionCallDepthLimit(opts)
+	if ctx.callDepth < limit {
+		return true
+	}
+	diags.AddError(
+		diag.CodeE106,
+		fmt.Sprintf("maximum function recursion depth of %d reached", limit),
+		at,
+		"check for a missing base case or rewrite the function iteratively",
+	)
+	ctx.markRecursionLimitHit()
+	return false
+}
+
 func executeFunctionCall(fn *FunctionValue, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	args, _ := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+	args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+	if !ok {
+		return Null()
+	}
 	return executeFunctionCallValues(fn, args, env, at, diags, opts, ctx)
 }
 
 func evalCallValueArgs(rawArgs []ast.CallArg, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]CallValueArg, bool) {
 	args := make([]CallValueArg, 0, len(rawArgs))
 	for _, arg := range rawArgs {
+		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return nil, false
+		}
 		args = append(args, CallValueArg{
 			Name:  arg.Name,
-			Value: evalExprWithCtx(arg.Expr, env, diags, opts, ctx),
+			Value: value,
 			Span:  arg.Span,
 		})
 	}
@@ -299,7 +333,14 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 		diags.AddError(diag.CodeE199, "expression is not callable", at, "call a function value or supported builtin")
 		return Null()
 	}
+	if ctx == nil {
+		ctx = newEvalCtx(nil)
+	}
+	if !checkFunctionCallDepth(ctx, opts, at, diags) {
+		return Null()
+	}
 	callFrame := NewChildFrame(fn.Capture)
+	callCtx := ctx.enterFunctionCall(callFrame)
 	callOpts := opts
 	if fn.Files != nil {
 		callOpts.Files = cloneFileAccess(fn.Files)
@@ -324,13 +365,19 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 			value = defaultValue.Value
 		} else {
 			callOpts.Names = callNameCatalog(fn.Names, callFrame)
-			value = evalExprWithCtx(param.Default, env, diags, callOpts, ctx.withFrame(callFrame))
+			value = evalExprWithCtx(param.Default, env, diags, callOpts, callCtx)
+			if callCtx.recursionLimitHit() {
+				return Null()
+			}
 		}
 		callFrame.AssignLocal(param.Name, value, param.Span)
 	}
 	predeclareFunctionLocals(fn.Body, callFrame)
 	callOpts.Names = callNameCatalog(fn.Names, callFrame)
-	result := executeFunctionBody(fn.Body, env, diags, callOpts, ctx.withFrame(callFrame))
+	result := executeFunctionBody(fn.Body, env, diags, callOpts, callCtx)
+	if callCtx.recursionLimitHit() {
+		return Null()
+	}
 	if result.Break || result.Continue {
 		diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
 		return Null()
@@ -402,30 +449,49 @@ func predeclareFunctionLocals(body []ast.FuncBodyStmt, frame *Frame) {
 func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) functionResult {
 	last := Null()
 	for _, stmt := range body {
+		if ctx.recursionLimitHit() {
+			return functionResult{Value: last}
+		}
 		switch node := stmt.(type) {
 		case ast.LocalAssignStmt:
 			executeLocalAssign(node, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return functionResult{Value: last}
+			}
 		case ast.ReturnStmt:
 			if node.Expr == nil {
 				return functionResult{Value: Null(), Returned: true}
 			}
+			value := evalExprWithCtx(node.Expr, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return functionResult{Value: Null(), Returned: true}
+			}
 			return functionResult{
-				Value:    evalExprWithCtx(node.Expr, env, diags, opts, ctx),
+				Value:    value,
 				Returned: true,
 			}
 		case ast.ExprStmt:
 			last = evalExprWithCtx(node.Expr, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return functionResult{Value: last}
+			}
 		case ast.BreakStmt:
 			return functionResult{Value: last, Break: true, Span: node.Span}
 		case ast.ContinueStmt:
 			return functionResult{Value: last, Continue: true, Span: node.Span}
 		case ast.FuncIfStmt:
 			cond, ok := evalBoolConditionWithCtx("if", node.Cond, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return functionResult{Value: last}
+			}
 			if !ok {
 				continue
 			}
 			if cond {
 				result := executeFunctionBody(node.Then, env, diags, opts, ctx)
+				if ctx.recursionLimitHit() {
+					return result
+				}
 				if result.Returned || result.Break || result.Continue {
 					return result
 				}
@@ -436,18 +502,27 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 				continue
 			}
 			result := executeFunctionBody(node.Else, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return result
+			}
 			if result.Returned || result.Break || result.Continue {
 				return result
 			}
 			last = result.Value
 		case ast.FuncForStmt:
 			result := executeFuncForStmt(node, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return result
+			}
 			if result.Returned || result.Break || result.Continue {
 				return result
 			}
 			last = result.Value
 		case ast.FuncWhileStmt:
 			result := executeFuncWhileStmt(node, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return result
+			}
 			if result.Returned || result.Break || result.Continue {
 				return result
 			}
@@ -459,12 +534,18 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 
 func executeFuncForStmt(stmt ast.FuncForStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) functionResult {
 	iterable := evalExprWithCtx(stmt.Iterable, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return functionResult{Value: Null()}
+	}
 	items, ok := IterableElements(iterable, astExprSpan(stmt.Iterable), diags)
 	if !ok {
 		return functionResult{Value: Null()}
 	}
 	last := Null()
 	for i, item := range items {
+		if ctx.recursionLimitHit() {
+			return functionResult{Value: last}
+		}
 		if i >= MaxLoopIterations {
 			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the loop condition or iterable size")
 			return functionResult{Value: last}
@@ -473,6 +554,9 @@ func executeFuncForStmt(stmt ast.FuncForStmt, env map[string]Value, diags *diag.
 			ctx.frame.AssignLocal(stmt.Target, item, stmt.Span)
 		}
 		result := executeFunctionBody(stmt.Body, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return result
+		}
 		if result.Returned {
 			return result
 		}
@@ -490,15 +574,24 @@ func executeFuncForStmt(stmt ast.FuncForStmt, env map[string]Value, diags *diag.
 func executeFuncWhileStmt(stmt ast.FuncWhileStmt, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) functionResult {
 	last := Null()
 	for i := 0; ; i++ {
+		if ctx.recursionLimitHit() {
+			return functionResult{Value: last}
+		}
 		if i >= MaxLoopIterations {
 			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the while condition")
 			return functionResult{Value: last}
 		}
 		cond, ok := evalBoolConditionWithCtx("while", stmt.Cond, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return functionResult{Value: last}
+		}
 		if !ok || !cond {
 			return functionResult{Value: last}
 		}
 		result := executeFunctionBody(stmt.Body, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return result
+		}
 		if result.Returned {
 			return result
 		}
@@ -524,6 +617,9 @@ func executeLocalAssign(stmt ast.LocalAssignStmt, env map[string]Value, diags *d
 		return
 	}
 	value := evalExprWithCtx(stmt.Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return
+	}
 	if stmt.Op == ast.AssignEq {
 		ctx.frame.AssignLocal(stmt.Name, value, stmt.Span)
 		return

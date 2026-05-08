@@ -39,9 +39,11 @@ type ExprOptions struct {
 	Names                           *NameCatalog
 	Files                           *FileAccess
 	Frame                           *Frame
+	MaxFunctionCallDepth            int
 }
 
-const MaxLoopIterations = 100000
+const MaxLoopIterations = 1000000
+const MaxFunctionCallDepth = 10000
 
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
 	return EvalExprWithOptions(expr, env, diags, ExprOptions{})
@@ -52,10 +54,7 @@ func EvalExprWithOptions(expr ast.Expr, env map[string]Value, diags *diag.Diagno
 	if frame == nil {
 		frame = NewRootFrame(env)
 	}
-	return evalExprWithCtx(expr, env, diags, opts, &evalCtx{
-		overflowWarned: make(map[string]struct{}),
-		frame:          frame,
-	})
+	return evalExprWithCtx(expr, env, diags, opts, newEvalCtx(frame))
 }
 
 func EvalBoolCondition(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions) (bool, bool) {
@@ -67,19 +66,60 @@ func EvalBoolConditionFor(kind string, expr ast.Expr, env map[string]Value, diag
 	if frame == nil {
 		frame = NewRootFrame(env)
 	}
-	return evalBoolConditionWithCtx(kind, expr, env, diags, opts, &evalCtx{
-		overflowWarned: make(map[string]struct{}),
-		frame:          frame,
-	})
+	return evalBoolConditionWithCtx(kind, expr, env, diags, opts, newEvalCtx(frame))
+}
+
+type evalAbortState struct {
+	recursionLimitHit bool
 }
 
 type evalCtx struct {
 	overflowWarned map[string]struct{}
 	frame          *Frame
+	callDepth      int
+	abort          *evalAbortState
+}
+
+func newEvalCtx(frame *Frame) *evalCtx {
+	return &evalCtx{
+		overflowWarned: make(map[string]struct{}),
+		frame:          frame,
+		abort:          &evalAbortState{},
+	}
+}
+
+func functionCallDepthLimit(opts ExprOptions) int {
+	if opts.MaxFunctionCallDepth > 0 {
+		return opts.MaxFunctionCallDepth
+	}
+	return MaxFunctionCallDepth
+}
+
+func (ctx *evalCtx) recursionLimitHit() bool {
+	return ctx != nil && ctx.abort != nil && ctx.abort.recursionLimitHit
+}
+
+func (ctx *evalCtx) markRecursionLimitHit() {
+	if ctx == nil {
+		return
+	}
+	if ctx.abort == nil {
+		ctx.abort = &evalAbortState{}
+	}
+	ctx.abort.recursionLimitHit = true
+}
+
+func (ctx *evalCtx) enterFunctionCall(frame *Frame) *evalCtx {
+	next := ctx.withFrame(frame)
+	next.callDepth++
+	return next
 }
 
 func evalBoolConditionWithCtx(kind string, expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (bool, bool) {
 	value := evalExprWithCtx(expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return false, false
+	}
 	if value.Kind != KindBool {
 		span := diag.Span{}
 		if expr != nil {
@@ -92,6 +132,9 @@ func evalBoolConditionWithCtx(kind string, expr ast.Expr, env map[string]Value, 
 }
 
 func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
 	if expr == nil {
 		return Null()
 	}
@@ -133,6 +176,9 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		return Null()
 	case ast.MemberExpr:
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if !IsComb(base) {
 			diags.AddError(diag.CodeE106, fmt.Sprintf("member access '.%s' requires a table base", e.Name), e.Span, "use member access only on table values")
 			return Null()
@@ -159,23 +205,40 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
 			items = append(items, evalExprWithCtx(it, env, diags, opts, ctx))
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
 		}
 		return List(items)
 	case ast.TupleExpr:
 		items := make([]Value, 0, len(e.Items))
 		for _, it := range e.Items {
 			items = append(items, evalExprWithCtx(it, env, diags, opts, ctx))
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
 		}
 		return Tuple(items)
 	case ast.FunctionExpr:
-		return newFunctionValue(e, env, diags, opts, ctx)
+		value := newFunctionValue(e, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		return value
 	case ast.AliasExpr:
 		diags.AddError(diag.CodeE106, "alias expression is only allowed in table-valued assignment operands", e.Span, "replace it with table(name = expr) or a named table operation")
 		return Null()
 	case ast.CallExpr:
-		return evalCall(e.Callee, e.Args, env, e.Span, diags, opts, ctx)
+		value := evalCall(e.Callee, e.Args, env, e.Span, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		return value
 	case ast.IndexExpr:
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if !IsComb(base) {
 			diags.AddError(diag.CodeE106, "index expression requires a table base", e.Span, "use syntax: table_value[col] or table_value[col0,col1]")
 			return Null()
@@ -204,17 +267,36 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		return projected
 	case ast.UnaryExpr:
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		return evalUnary(e.Op, v, e.Span, diags, ctx)
 	case ast.BinaryExpr:
 		if opts.Context == EvalCtxBindingAssign && (e.Op == "+" || e.Op == "*") && binaryNeedsRelaxedCombEval(e) {
-			return evalRelaxedCombBinary(e, env, diags, opts, ctx)
+			value := evalRelaxedCombBinary(e, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
+			return value
 		}
 		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if (e.Op == "+" || e.Op == "*") && (IsComb(l) || IsComb(r)) {
 			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
 			leftRows := combRowsFromBinaryOperand(e.Left, l, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
 			rightRows := combRowsFromBinaryOperand(e.Right, r, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
 			if e.Op == "+" {
 				return combValueFromRows(zipRows(leftRows, rightRows, opNode, diags))
 			}
@@ -223,18 +305,39 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		return evalBinary(e.Op, l, r, e.Span, diags, opts, ctx)
 	case ast.CompareExpr:
 		l := evalExprWithCtx(e.Left, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		r := evalExprWithCtx(e.Right, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		return evalCompare(e.Op, l, r, e.Span, diags)
 	case ast.ConditionalExpr:
 		c := evalExprWithCtx(e.Cond, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if c.Kind != KindBool {
 			diags.AddError(diag.CodeE102, "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
-			return evalExprWithCtx(e.Then, env, diags, opts, ctx)
+			value := evalExprWithCtx(e.Then, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
+			return value
 		}
 		if c.B {
-			return evalExprWithCtx(e.Then, env, diags, opts, ctx)
+			value := evalExprWithCtx(e.Then, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
+			return value
 		}
-		return evalExprWithCtx(e.Else, env, diags, opts, ctx)
+		value := evalExprWithCtx(e.Else, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		return value
 	default:
 		diags.AddError(diag.CodeE199, "unsupported expression node", expr.GetSpan(), "check expression syntax")
 		return Null()
@@ -316,6 +419,9 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 	args := make([]Value, 0, len(rawArgs))
 	for _, arg := range rawArgs {
 		args = append(args, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 	}
 	switch name {
 	case "read_csv":
@@ -402,6 +508,9 @@ func resolveCallable(callee ast.Expr, env map[string]Value, diags *diag.Diagnost
 	}
 	before := len(diags.Items)
 	value := evalExprWithCtx(callee, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return nil, false, false
+	}
 	if len(diags.Items) > before {
 		return nil, false, false
 	}
@@ -565,6 +674,9 @@ func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags
 	}
 	before := len(diags.Items)
 	value := evalExprWithCtx(rawArgs[0], env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
 	if len(diags.Items) > before {
 		return Null()
 	}
@@ -858,7 +970,13 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 
 func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	left, okLeft := evalRelaxedCombOperand(expr.Left, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
 	right, okRight := evalRelaxedCombOperand(expr.Right, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
 	if !okLeft || !okRight {
 		return Null()
 	}
@@ -879,6 +997,9 @@ func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Dia
 			return nil, false
 		}
 		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return nil, false
+		}
 		if IsComb(value) {
 			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", alias.Span, "apply alias only to non-table operands")
 			return nil, false
@@ -886,6 +1007,9 @@ func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Dia
 		return combRowsFromNamedValue(alias.Alias, value, alias.Span), true
 	}
 	value := evalExprWithCtx(expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return nil, false
+	}
 	return combRowsFromBinaryOperand(expr, value, env, diags, opts, ctx), true
 }
 

@@ -45,6 +45,24 @@ func ident(name string) ast.IdentExpr {
 	return ast.IdentExpr{Name: name}
 }
 
+func defineFunctionInFrame(t *testing.T, frame *Frame, name string, fn ast.FunctionExpr) Value {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	value := EvalExprWithOptions(fn, nil, diags, ExprOptions{Frame: frame})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected function definition diagnostics: %s", diags.String())
+	}
+	frame.AssignLocal(name, value, diag.Span{})
+	return value
+}
+
+func recursiveFunctionFrame(t *testing.T, name string, fn ast.FunctionExpr) (*Frame, Value) {
+	t.Helper()
+	frame := NewRootFrame(nil)
+	value := defineFunctionInFrame(t, frame, name, fn)
+	return frame, value
+}
+
 func TestFunctionLiteralAndDirectCall(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	fn := fnExpr(
@@ -526,6 +544,239 @@ func TestFunctionClosuresHigherOrderAndLocals(t *testing.T) {
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestFunctionRecursionDepthLimit(t *testing.T) {
+	fn := fnExpr(
+		[]ast.FuncParam{{Name: "n"}},
+		exprStmt(callExpr(
+			ident("loop"),
+			posArg(ast.BinaryExpr{Left: ident("n"), Op: "+", Right: intExpr(1)}),
+		)),
+	)
+	frame, _ := recursiveFunctionFrame(t, "loop", fn)
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("loop"), posArg(intExpr(0))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 4},
+	)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null after recursion-depth failure, got %#v", got)
+	}
+	if count := diagCount(diags, "E106"); count != 1 {
+		t.Fatalf("expected one E106, got %d: %s", count, diags.String())
+	}
+	if !strings.Contains(diags.String(), "maximum function recursion depth of 4 reached") {
+		t.Fatalf("expected recursion-depth diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestFunctionRecursionDepthLimitStopsSiblingEvaluation(t *testing.T) {
+	fibBody := ast.ConditionalExpr{
+		Then: intExpr(1),
+		Cond: ast.BinaryExpr{
+			Left:  ast.CompareExpr{Left: intExpr(1), Op: "==", Right: ident("n")},
+			Op:    "|",
+			Right: ast.CompareExpr{Left: intExpr(2), Op: "==", Right: ident("n")},
+		},
+		Else: ast.BinaryExpr{
+			Left: callExpr(ident("fib"), posArg(ast.BinaryExpr{
+				Left: ident("n"), Op: "-", Right: intExpr(1),
+			})),
+			Op: "+",
+			Right: callExpr(ident("fib"), posArg(ast.BinaryExpr{
+				Left: ident("n"), Op: "-", Right: intExpr(2),
+			})),
+		},
+	}
+	frame, _ := recursiveFunctionFrame(t, "fib", fnExpr(
+		[]ast.FuncParam{{Name: "n"}},
+		exprStmt(fibBody),
+	))
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("fib"), posArg(intExpr(0))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 6},
+	)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null after recursion-depth failure, got %#v", got)
+	}
+	if count := diagCount(diags, "E106"); count != 1 {
+		t.Fatalf("expected one recursion-depth error, got %d: %s", count, diags.String())
+	}
+}
+
+func TestFunctionRecursionDepthBoundaryAndIndependentEvaluations(t *testing.T) {
+	frame := NewRootFrame(nil)
+	defineFunctionInFrame(t, frame, "inner", fnExpr(nil, exprStmt(intExpr(2))))
+	defineFunctionInFrame(t, frame, "outer", fnExpr(nil, exprStmt(callExpr(ident("inner")))))
+
+	diags := &diag.Diagnostics{}
+	blocked := EvalExprWithOptions(
+		callExpr(ident("outer")),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 1},
+	)
+	if blocked.Kind != KindNull {
+		t.Fatalf("expected null when nested call exceeds depth 1, got %#v", blocked)
+	}
+	if count := diagCount(diags, "E106"); count != 1 {
+		t.Fatalf("expected one E106, got %d: %s", count, diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	allowed := EvalExprWithOptions(
+		callExpr(ident("outer")),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 2},
+	)
+	if !Equal(allowed, Int(2)) {
+		t.Fatalf("expected nested call to succeed at depth 2, got %#v", allowed)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics after independent evaluation: %s", diags.String())
+	}
+}
+
+func TestFunctionValidRecursionUnderLimit(t *testing.T) {
+	body := ast.ConditionalExpr{
+		Then: intExpr(0),
+		Cond: ast.CompareExpr{Left: ident("n"), Op: "==", Right: intExpr(0)},
+		Else: callExpr(ident("countdown"), posArg(ast.BinaryExpr{
+			Left: ident("n"), Op: "-", Right: intExpr(1),
+		})),
+	}
+	frame, _ := recursiveFunctionFrame(t, "countdown", fnExpr(
+		[]ast.FuncParam{{Name: "n"}},
+		exprStmt(body),
+	))
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("countdown"), posArg(intExpr(5))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 16},
+	)
+	if !Equal(got, Int(0)) {
+		t.Fatalf("expected countdown to return 0, got %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFunctionMutualRecursionDepthLimit(t *testing.T) {
+	frame := NewRootFrame(nil)
+	defineFunctionInFrame(t, frame, "even", fnExpr(
+		[]ast.FuncParam{{Name: "n"}},
+		exprStmt(callExpr(ident("odd"), posArg(ast.BinaryExpr{
+			Left: ident("n"), Op: "+", Right: intExpr(1),
+		}))),
+	))
+	defineFunctionInFrame(t, frame, "odd", fnExpr(
+		[]ast.FuncParam{{Name: "n"}},
+		exprStmt(callExpr(ident("even"), posArg(ast.BinaryExpr{
+			Left: ident("n"), Op: "+", Right: intExpr(1),
+		}))),
+	))
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("even"), posArg(intExpr(0))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 5},
+	)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null after mutual recursion-depth failure, got %#v", got)
+	}
+	if count := diagCount(diags, "E106"); count != 1 {
+		t.Fatalf("expected one E106, got %d: %s", count, diags.String())
+	}
+}
+
+func TestFunctionRecursiveDefaultDepthLimit(t *testing.T) {
+	frame, _ := recursiveFunctionFrame(t, "f", fnExpr(
+		[]ast.FuncParam{
+			{Name: "n"},
+			{Name: "x", Default: callExpr(ident("f"), posArg(ident("n")))},
+		},
+		exprStmt(ident("x")),
+	))
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("f"), posArg(intExpr(0))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame, MaxFunctionCallDepth: 4},
+	)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null after recursive default-depth failure, got %#v", got)
+	}
+	if count := diagCount(diags, "E106"); count != 1 {
+		t.Fatalf("expected one E106, got %d: %s", count, diags.String())
+	}
+}
+
+func TestFunctionHigherOrderDepthLimit(t *testing.T) {
+	t.Run("sequential callbacks do not accumulate depth", func(t *testing.T) {
+		frame, _ := recursiveFunctionFrame(t, "inc", fnExpr(
+			[]ast.FuncParam{{Name: "x"}},
+			exprStmt(ast.BinaryExpr{Left: ident("x"), Op: "+", Right: intExpr(1)}),
+		))
+
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(
+			callExpr(ident("map"),
+				posArg(ident("inc")),
+				posArg(ast.ListExpr{Items: []ast.Expr{intExpr(1), intExpr(2), intExpr(3)}}),
+			),
+			nil,
+			diags,
+			ExprOptions{Frame: frame, MaxFunctionCallDepth: 1},
+		)
+		want := List([]Value{Int(2), Int(3), Int(4)})
+		if !Equal(got, want) {
+			t.Fatalf("expected map callback result %#v, got %#v", want, got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("recursive callback is limited", func(t *testing.T) {
+		frame, _ := recursiveFunctionFrame(t, "loop", fnExpr(
+			[]ast.FuncParam{{Name: "x"}},
+			exprStmt(callExpr(ident("loop"), posArg(ident("x")))),
+		))
+
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(
+			callExpr(ident("map"),
+				posArg(ident("loop")),
+				posArg(ast.ListExpr{Items: []ast.Expr{intExpr(1)}}),
+			),
+			nil,
+			diags,
+			ExprOptions{Frame: frame, MaxFunctionCallDepth: 3},
+		)
+		if got.Kind != KindNull {
+			t.Fatalf("expected null after recursive callback-depth failure, got %#v", got)
+		}
+		if count := diagCount(diags, "E106"); count != 1 {
+			t.Fatalf("expected one E106, got %d: %s", count, diags.String())
 		}
 	})
 }

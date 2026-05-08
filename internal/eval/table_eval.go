@@ -28,6 +28,9 @@ func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 			return Null()
 		}
 		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if IsComb(value) {
 			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", arg.Name), arg.Span, "pass a scalar, tuple, or list column value")
 			return Null()
@@ -150,6 +153,9 @@ func evalSelectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 	}
 
 	tableValue := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
 	if !IsComb(tableValue) {
 		diags.AddError(diag.CodeE106, "select() first argument must be a table value", rawArgs[0].Span, "pass a table built by table(), zip(), product(), select(), or read_csv()")
 		return Null()
@@ -185,6 +191,9 @@ func evalPositionalTableArgs(name string, rawArgs []ast.CallArg, env map[string]
 			return nil, false
 		}
 		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return nil, false
+		}
 		if !IsComb(value) {
 			diags.AddError(diag.CodeE106, fmt.Sprintf("%s() argument %d must be a table value", name, i+1), arg.Span, "pass table values only")
 			return nil, false

@@ -22,6 +22,9 @@ func evalStrictPositionalBuiltinArgs(name string, rawArgs []ast.CallArg, env map
 			return builtinArgValues{}
 		}
 		values = append(values, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
+		if ctx.recursionLimitHit() {
+			return builtinArgValues{}
+		}
 	}
 	return builtinArgValues{Values: values, Ok: true}
 }
@@ -54,8 +57,14 @@ func evalMapCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diag
 	}
 	out := make([]Value, 0, len(items))
 	for _, item := range items {
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		beforeErrors := diagErrorCount(diags)
 		got := executeFunctionCallValues(fnValue.Fn, []CallValueArg{{Value: item, Span: at}}, env, at, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if diagErrorCount(diags) > beforeErrors {
 			return Null()
 		}
@@ -90,11 +99,17 @@ func evalReduceCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 	}
 	acc := items[0]
 	for _, item := range items[1:] {
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		beforeErrors := diagErrorCount(diags)
 		acc = executeFunctionCallValues(fnValue.Fn, []CallValueArg{
 			{Value: acc, Span: at},
 			{Value: item, Span: at},
 		}, env, at, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
 		if diagErrorCount(diags) > beforeErrors {
 			return Null()
 		}
