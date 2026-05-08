@@ -1,4 +1,6 @@
-# `filter(...)`
+# `filter(<list/tuple/table>, <mask>)`
+
+Take subsets of a list, tuple, or a table
 
 ## Arguments
 
@@ -14,6 +16,14 @@ The same outer kind for list and tuple input. Table input returns a table with t
 ## Example
 
 ```jbs
-x = range(5)
-filter(x, [true, false]) == [0,2,4]
+x = range(10)
+
+filter(x, 0 == x%2) == [0,2,4,6,8]
+# broadcasting applies
+filter(x, [true, false]) == [0,2,4,6,8]
+# boolean casting applies
+filter(x, ["a", "", 1, 0]) == [0,2,4,6,8]
+
+a = table(x = x, y = ("a","b","c","a","b","c","a","b","c","a"))
+filter(a, a.y == "a") == [0,3,6,9]
 ```

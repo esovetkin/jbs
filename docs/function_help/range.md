@@ -16,5 +16,7 @@ A list of numbers from `start` inclusive to `stop` exclusive.
 
 ```jbs
 range(3) == [0,1,2]
-range(0, 1, 0.25) == [0.0,0.25,0.5,0.75]
+range(1,3) == [1,2]
+range(0,10,2) == [0,2,4,6,8]
+range(0,1,0.02) == [0,0.02,0.04,0.06,0.08]
 ```

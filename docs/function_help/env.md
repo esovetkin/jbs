@@ -21,3 +21,5 @@ threads = int(env("THREADS", "4"))
 all_env = env()
 home = get(all_env, "HOME", "")
 ```
+
+`env(...)` reads the environment of the running `jbs` process.

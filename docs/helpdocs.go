@@ -16,15 +16,14 @@ import (
 var pageFS embed.FS
 
 var topicToFile = map[string]string{
-	"analyse":   "help_analyse.md",
-	"archive":   "help_archive.md",
-	"continue":  "help_continue.md",
-	"do":        "help_do.md",
-	"functions": "help_functions.md",
-	"fwait":     "help_fwait.md",
-	"globals":   "help_globals.md",
-	"repl":      "help_repl.md",
-	"use":       "help_use.md",
+	"analyse":  "help_analyse.md",
+	"archive":  "help_archive.md",
+	"continue": "help_continue.md",
+	"do":       "help_do.md",
+	"fwait":    "help_fwait.md",
+	"globals":  "help_globals.md",
+	"repl":     "help_repl.md",
+	"use":      "help_use.md",
 }
 
 type FunctionHelpEntry struct {

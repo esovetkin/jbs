@@ -1,17 +1,20 @@
+![pipeline](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/main/pipeline.svg) ![coverage](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/badges/main/coverage.svg)
+
 # JBS
 
-JBS is a small benchmark scripting tool inspired by [JUBE](https://apps.fz-juelich.de/jsc/jube/docu/index.html). A `.jbs` file defines parameter data, executable `do` steps and `analyse` pattern extraction blocks.
+JBS is a small benchmark scripting tool inspired by [JUBE](https://apps.fz-juelich.de/jsc/jube/docu/index.html). JBS lets you define parameter sets, run Bash scripts for them, parse their output, and accumulate results in tables.
 
-The direct runner creates a benchmark directory, expands workpackages from `with` tables, runs step workpackages with dependency ordering, and writes per-workpackage stdout, stderr, status, and exit code files.
+JBS defines a domain-specific language inspired by Python, R, and awk syntax.
 
 ## Quick Start
 
-```jbs
+```bash
+% cat taster.jbs
 x = (1, 2)
 a = ("a", "b", "c")
 
-# The `do` sections define shell code to run.
-# The `$x` and `$a` variables receive values from the Cartesian product of the tuples x and a.
+# The `do` sections define shell code to execute.
+# The `$x` and `$a` variables receive values from the Cartesian product of tuples x and a.
 do step with a, x {
         echo "Number: ${x}"  > ex_ofile
         echo "Letter: ${a}" >> ex_ofile
@@ -20,19 +23,15 @@ do step with a, x {
 # The `analyse` sections define patterns to search for
 # and how they should be presented in the result table.
 analyse step {
-        # define which pattern is searched for in which file
+        # Define which pattern is searched for in which file.
         # %d, %f, %w are shortcuts for common capture patterns
         number = "Number: %d" in "ex_ofile"
         letter = "Letter: %w" in "ex_ofile"
 
-        # the final expression defines result table columns
+        # The final expression defines result table columns.
         (a as "name of a column", x, number, letter)
 }
-```
-
-Run it:
-
-```bash
+# Run the benchmark.
 % jbs taster.jbs
  100% |████████████████████████████████| (6/6, 31 it/s) 0R|0E
 
@@ -46,109 +45,167 @@ run_id,name of a column,x,number,letter
 000005,c,2,2,c
 ```
 
-Run from source:
+## Installation
+
+`jbs` can be installed with `go install`:
 
 ```bash
-ml Go
+# module load Go
+go install gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest
+# Add "$(go env GOPATH)/bin" to PATH if needed.
+```
+
+Or `jbs` can be run directly with `go run`:
+
+```bash
+# module load Go
 go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@<tag> taster.jbs
 ```
 
-Resume an interrupted benchmark:
+## Usage
+
+`jbs` is a single executable that checks and compiles a script, then runs or continues its execution steps. JBS also includes a REPL interpreter, which is invoked by calling `jbs` without arguments.
 
 ```bash
-jbs continue taster.jbs
+% jbs -h
+Usage:
+
+Run:
+  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs continue input.jbs [-b|--benchmark <name>]
+
+Archive:
+  jbs archive input.jbs
+
+Wait for files:
+  jbs fwait [-e] <path> [path...]
+
+Options:
+  -n, --dry-run  Create the run directory without starting workpackages
+  -b, --benchmark <name>
+                 Run or continue one configured benchmark component
+  --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse+validate only
+
+Read examples/help:
+  jbs help [analyse|archive|continue|do|fwait|globals|repl|use]
+
+Inspect step parameter expansion:
+  jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+  defaults: -t pretty, -o -
+
+Format jbs in place:
+  jbs fmt [-s|--strict] script.jbs
+
+Interactive mode:
+  jbs
+  jbs repl
 ```
 
-Inspect parameter expansion without running jobs:
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs fwait` waits for files to appear or change via [fsnotify](https://docs.kernel.org/filesystems/inotify.html), which is useful for barrier jobs (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs printparam` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
 
-```bash
-jbs printparam taster.jbs
-jbs printparam -t csv -o params.csv taster.jbs
+## Variable Types, Tables, and Parameter Spaces
+
+The `jbs` language defines several data types and operations on those types.
+
+[Scalar values](docs/language.md#scalars) (`string`, `int`, `float`, `bool`) are the only values that can be exported as variables in execution steps.
+
+[Lists and tuples](docs/language.md#lists--tuples) combine scalar values and support several vector arithmetic operations.
+
+Lists and tuples can be combined in [tables](docs/language.md#tables). Tables support slicing, which lets you take subsets of parameters. Tables can also be imported from CSV/TSV files (see [`?read_csv`](docs/function_help/read_csv.md) in the REPL). JBS also supports [dictionaries](docs/language.md#dictionaries), which can be converted to and from tables.
+
+`jbs` supports [loops, conditional statements](docs/language.md#control-flow), and [functions](docs/language.md#functions).
+
+Defined variables can be imported into `do` sections, and the corresponding scalar values are set as variables in each workpackage job.
+
+## `do` blocks: workpackages
+
+`do` blocks define execution steps.
+
+```jbs
+do <step_name>
+        [after <dependency_step>]
+        [with <table_or_value>[<column>, ...]]
+        [nproc <max_parallel_workpackages>]
+        [fsub "<template_file>" {
+                "<regex>": <replacement_expr>,
+        }]
+{
+        # shell code executed in each workpackage directory
+        echo "${parameter}" > output.txt
+}
 ```
 
-Validate or format a script:
+`with` imports the variables used in the execution block.
 
-```bash
-jbs --check taster.jbs
-jbs fmt taster.jbs
-```
+The `after` keyword declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
 
-## Commands
+`nproc` controls how many workpackages can run simultaneously for one execution step. `jbs_nproc` controls the total number of simultaneous workpackages across all execution steps.
+
+`fsub` copies a template file into each workpackage directory and applies regular-expression substitutions using the step's visible variables before `run.sh` starts.
+
+Executing the script produces the following directory structure:
 
 ```text
-jbs <file.jbs> [--no-strict] [-b name]      run a benchmark
-jbs run <file.jbs> [--no-strict] [-b name]  run a benchmark
-jbs continue <file.jbs> [-b name]           resume an interrupted benchmark
-jbs --check <file.jbs>            parse and validate only
-jbs printparam [opts] <file>      print expanded step parameters
-jbs fmt [-s|--strict] <file>      format a script in place
-jbs help [topic]                  show built-in help
-jbs repl                          start the REPL
+<jbs_name>/
+  000000/
+    manifest.json
+    status
+    <step>/
+      analyse.csv              # only if the step has an analyse block and CSV mode is used
+      000000/
+        run.sh
+        status
+        stdout
+        stderr
+        exitcode               # after execution
+        <dependency symlinks>
+        <fsub output files>
 ```
 
-Help topics:
+Generated workpackage `run.sh` files use `set -euo pipefail` by default. Pass `--no-strict` to `jbs run` or the `jbs input.jbs` shorthand to omit it for newly created run directories.
 
-```bash
-jbs help analyse
-jbs help do
-jbs help functions
-jbs help globals
-jbs help repl
-jbs help use
-```
+See more in [docs/help_do.md](docs/help_do.md) or `jbs help do`.
 
-## Language
+## Analysis
 
-Top-level assignments define scalar values, lists, tuples, tables, and functions. `do` blocks execute shell code once per workpackage. `analyse` blocks extract values from files created by a step and write `analyse.csv` for that step, or SQLite tables when `jbs_database` is set. `use` imports values or step declarations from another `.jbs` file.
-
-`print(...)` writes explicit JBS output to command stdout. In `jbs run`, those lines appear before benchmark work starts; shell output from `run.sh` stays in each workpackage `stdout` file.
-
-`env("NAME", "fallback")` reads the environment of the running `jbs` process during evaluation.
-
-`table(...)` builds row tables from named columns or `table(dict_value)`. Shorter non-empty columns are cyclically broadcast to the longest column, with a warning when lengths do not divide cleanly. `dict(table_value)` converts table columns back to dictionary entries containing lists.
-
-`with` imports row-varying data into a step. Multiple sources are combined using the table algebra provided by functions such as `table`, `product`, `select`, and `zip`.
-
-`after` declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
-
-`fsub` copies a template file into each workpackage directory and applies regular-expression substitutions using the step's visible variables before `run.sh` starts:
+`analyse` blocks define pattern matches in files generated across different workpackages. Analysis runs only after all scheduled workpackages for the component finish successfully. Each `analyse` block targets a specific `do` step and executes in the workpackage's directory.
 
 ```jbs
-do run with cases
-        fsub "input.template" {
-                "###X###": x,
-        }
+analyse <step_name>
+        [with <scalar_value>, ...]
 {
-        ./solver input.template
+        # Match a pattern inside a workpackage output file.
+        <pattern_name> = "<pattern>" in "<file>"
+
+        # The final tuple defines result columns.
+        (<variable_name> as "column 0", <pattern_name> as "column 1")
 }
 ```
 
-`nproc` limits concurrent workpackages:
+Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of pattern assignments and a final tuple that defines the resulting table structure.
 
-```jbs
-jbs_nproc = 8
-jbs_benchmarks = {"small": "analyse_small", "large": ["analyse_large"]}
-jbs_database = "results.sqlite"
+Multiple matches produce multiple rows in the resulting table.
 
-do compile nproc 4 {
-        make
-}
-```
+Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)). Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
 
-`jbs_nproc = 0` and `do ... nproc 0` both mean "use the number of available CPUs".
+In CSV mode, JBS rewrites the step's `analyse.csv` in the corresponding directory. JBS also supports SQLite mode, which writes all analysis tables to a single file (use [`jbs_database`](docs/help_globals.md#jbs_database-write-results-to-a-sqlite-database)).
 
-`jbs_benchmarks = {}` keeps the default single benchmark directory named by `jbs_name`. A non-empty dictionary maps component names to analyse block names. Each component is written below `<jbs_name>/<component>/` and runs only the steps needed by its requested analyse blocks. Use `jbs run -b <component> file.jbs` or `jbs continue -b <component> file.jbs` to operate on one component.
+See more in [docs/help_analyse.md](docs/help_analyse.md) or `jbs help analyse`.
 
-`jbs_database = ""` keeps the default per-step `analyse.csv` files. A non-empty value writes all analyse outputs into one SQLite database, with one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`; component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs accumulate new tables instead of overwriting old ones. Relative database paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted.
-
-See [docs/language.md](docs/language.md) for details.
+For the full JBS language reference, see [docs/language.md](docs/language.md).
 
 ## Comparison to JUBE
 
-- no submit templates. it's up to a user to define sbatch (or any other queue system) scripts
+JBS was inspired by JUBE. For example, it produces a similar directory structure. However, it differs in several ways:
 
-- jbs, however, provides
+- JBS is a language, not a configuration file. This makes the syntax more compact and enables more flexible compile-time and runtime error analysis. JBS also aims to simplify sophisticated parameter-space definitions and their use across dependent execution steps.
 
-- it's a language, not a configuration file
+- JBS currently has no tag support, because parameter spaces are already programmatically configurable.
 
-  benchmark parameter space can be done programmatically
+- Unlike JUBE, JBS analysis captures all groups and all matches in a file and represents them in a table. There is no built-in support for [summary statistics](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#statistic-pattern-values) like in JUBE; users can process analysis tables further as needed.
+
+- JBS does not include submit templates. Users define their own submission scripts, while JBS provides several ways to wait for submitted jobs (XXXlink to examplesXXX).
+
+- JBS greedily executes workpackages across the DAG while respecting global and local concurrency limits and job dependencies. JUBE executes jobs step by step. By default, JBS uses as many CPUs as are available.

@@ -10,7 +10,6 @@ var knownHelpTopics = []string{
 	"archive",
 	"continue",
 	"do",
-	"functions",
 	"fwait",
 	"globals",
 	"repl",
@@ -223,7 +222,7 @@ Options:
   -c, --check   Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|archive|continue|do|functions|fwait|globals|repl|use]
+  jbs help [analyse|archive|continue|do|fwait|globals|repl|use]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs

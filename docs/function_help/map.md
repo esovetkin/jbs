@@ -1,11 +1,12 @@
-# `map(...)`
+# `map(<function>, <list/tuple>)`
+
+`map` one function to each element of a list or tuple.
 
 ## Arguments
 
 - `function`: a function value.
 - `values`: a list or tuple.
-- Arguments must be positional.
-- Builtin names are not first-class callback values; wrap builtin calls in a function literal.
+- empty input returns an empty list or tuple of the same outer kind
 
 ## Returns
 
@@ -14,6 +15,10 @@ A list for list input and a tuple for tuple input. Each element is the callback 
 ## Example
 
 ```jbs
-inc = function(x) { x + 1 }
-map(inc, [1,2]) == [2,3]
+inc = function(x) {
+        x + 1
+}
+
+map(inc, [1,2,3]) == [2,3,4]
+map(inc, (1,2,3)) == (2,3,4)
 ```

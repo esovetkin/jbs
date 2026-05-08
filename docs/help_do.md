@@ -1,6 +1,6 @@
 # jbs help do
 
-The `do` block defines shell commands executed by direct `jbs run` workpackages. JBS imports the required data bindings for each step and reports collisions, missing imports, and unused imports.
+The `do` block defines shell commands and workpackages executed by `jbs run`. JBS imports the required data bindings for each step and reports collisions, missing imports, and unused imports.
 
 ## Syntax
 
@@ -15,20 +15,6 @@ do <name>
         # variables can be used as $<var> or ${<var>}
 }
 ```
-
-`nproc` configures per-step direct-run concurrency:
-
-- `nproc 0` uses the number of CPUs available to the `jbs` process for this step
-- `nproc 4` allows at most four workpackages from this step to run at once
-- missing `nproc` is equivalent to `nproc 0`
-
-The global `jbs_nproc` assignment limits total running workpackages across the benchmark:
-
-```jbs
-jbs_nproc = 16
-```
-
-`jbs_nproc = 0` uses the number of CPUs available to the `jbs` process as the global limit.
 
 ### `after`: step dependency declarations
 
@@ -82,6 +68,22 @@ Rules:
 - replacement expressions can use variables visible in the step through `with` or `after`
 
 Dry-run creates substituted files without executing work. `jbs continue` resumes the already prepared files and rejects the run if configured template hashes no longer match.
+
+### `nproc`: control concurrency levels
+
+`nproc` configures per-step direct-run concurrency:
+
+- `nproc 0` uses the number of CPUs available to the `jbs` process for this step
+- `nproc 4` allows at most four workpackages from this step to run at once
+- missing `nproc` is equivalent to `nproc 0`
+
+The global `jbs_nproc` assignment limits total running workpackages across the benchmark:
+
+```jbs
+jbs_nproc = 16
+```
+
+`jbs_nproc = 0` uses the number of CPUs available to the `jbs` process as the global limit.
 
 ### `JBS_...`: useful direct-run variables inside `do`
 
@@ -144,6 +146,6 @@ In that example:
 42% |████████████████                | (42/100, 18 it/s) 3R|1E
 ```
 
-On terminals, direct run renders completed workpackages over total workpackages. The `nR|nE` suffix reports currently running and errored jobs.
+### `sbatch` example
 
 Direct `do` blocks can still call scheduler tools such as `sbatch` from inside `run.sh`, but direct `jbs run` only supervises the local shell process it starts.

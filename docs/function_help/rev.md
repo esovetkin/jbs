@@ -1,4 +1,6 @@
-# `rev(...)`
+# `rev(<list/tuple>)`
+
+reverse a list or a tuple
 
 ## Arguments
 

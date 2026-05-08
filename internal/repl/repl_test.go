@@ -570,7 +570,7 @@ func TestQuestionHelpIgnoresAcceptedSourceBindings(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "# `len(...)`") {
+	if !strings.Contains(out.String(), "# `len(<string/tuple/list/table/dict>)`") {
 		t.Fatalf("expected internal len help, got %q", out.String())
 	}
 	if err.String() != "" {

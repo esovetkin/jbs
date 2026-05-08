@@ -27,16 +27,6 @@ func TestUnknownTopicReturnsError(t *testing.T) {
 	}
 }
 
-func TestFunctionsHelpMentionsExplicitTableOperations(t *testing.T) {
-	text, err := Page("functions")
-	if err != nil {
-		t.Fatalf("functions topic did not resolve: %v", err)
-	}
-	if !strings.Contains(text, "table(") || !strings.Contains(text, "product(") || !strings.Contains(text, "select(") {
-		t.Fatalf("expected functions help to describe the explicit table API, got:\n%s", text)
-	}
-}
-
 func TestFunctionHelpPagesResolve(t *testing.T) {
 	for _, name := range FunctionNames() {
 		text, err := FunctionPage(name)
@@ -105,12 +95,9 @@ func TestUnknownFunctionHelpReturnsError(t *testing.T) {
 }
 
 func TestHelpTopicsRemainStable(t *testing.T) {
-	want := []string{"analyse", "archive", "continue", "do", "functions", "fwait", "globals", "repl", "use"}
+	want := []string{"analyse", "archive", "continue", "do", "fwait", "globals", "repl", "use"}
 	if got := Topics(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected help topics: got=%#v want=%#v", got, want)
-	}
-	if _, err := Page("functions"); err != nil {
-		t.Fatalf("functions topic did not resolve: %v", err)
 	}
 }
 

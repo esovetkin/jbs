@@ -1,133 +1,435 @@
 # JBS Language
 
-JBS files are evaluated top to bottom. They contain global assignments, imports, `do` blocks, `analyse` blocks, and top-level expression statements.
+JBS is a domain-specific scripting language for benchmark parameter-space construction, DAG-based workpackage execution, and structured analysis of generated outputs. JBS has evaluation and run stages. During evaluation, declared variables are evaluated and the benchmark directory structure is created. At runtime, scripts are executed in parallel and the results are processed.
 
-## Program Shape
-
-```text
-program        := statement*
-statement      := assignment | use_stmt | do_block | analyse_block
-                | if_stmt | for_stmt | while_stmt | break_stmt | continue_stmt
-                | expr_stmt
-assignment     := IDENT assign_op expr
-assign_op      := "=" | "+=" | "-=" | "*=" | "/=" | "%="
-use_stmt       := "use" import_items "from" STRING
-if_stmt        := "if" expr block elif_branch* else_branch?
-elif_branch    := "elif" expr block
-else_branch    := "else" block
-for_stmt       := "for" IDENT "in" expr block
-while_stmt     := "while" expr block
-block          := "{" statement* "}"
-do_block       := "do" IDENT header_item* "{" raw_body "}"
-header_item    := after_clause | with_clause | nproc_clause | fsub_clause
-fsub_clause    := "fsub" STRING "{" (STRING ":" expr ("," STRING ":" expr)* ","?)? "}"
-analyse_block  := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
-expr           := literal | name | call | index | member | unary | binary
-                | conditional | function | list | tuple | dict
-dict           := "{" (expr ":" expr ("," expr ":" expr)* ","?)? "}"
-```
-
-Top-level expression statements are evaluated. In files they are mainly useful for validation and quick inspection; in the REPL their values are printed.
-
-`print(...)` writes explicit output using the same value rendering as the REPL. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.
-
-## Compile-Time And Runtime
-
-Global assignments, imports, top-level expressions, functions called from those expressions, `read_csv(...)`, `print(...)`, `shell(...)`, and `env(...)` are evaluated before benchmark work starts. `shell(...)` runs in the source file's directory, captures stdout as a string, and can export currently assigned scalar JBS variables referenced as shell variables. `env(...)` reads the environment of the running `jbs` process.
-
-`do` block bodies run later as generated `run.sh` scripts inside workpackage directories. Their stdout and stderr are stored in each workpackage's output files.
-
-## Built-In Globals
-
-`jbs_name` names the benchmark directory. It defaults to `jbs_benchmark` and must evaluate to a string.
-
-`jbs_benchmarks` optionally splits one script into named benchmark components. It defaults to `{}`. When non-empty, it must be a dictionary from component names to analyse block names.
-
-`jbs_nproc` is the global concurrency limit. It defaults to `0`. A value of `0` means the number of available CPUs.
-
-`jbs_database` is the analyse SQLite database path. It defaults to `""`, which keeps per-step `analyse.csv` files. A non-empty relative path is resolved from the directory where `jbs run` is executed; absolute paths are accepted. SQLite analyse table names use `<benchmark_name>_<run_id>_<step_name>` for single benchmarks and `<benchmark_name>_<component>_<run_id>_<step_name>` for benchmark components.
+## Program shape
 
 ```jbs
-jbs_name = "sweep"
-jbs_benchmarks = {}
-jbs_nproc = 8
-jbs_database = "results.sqlite"
+# import data and functions from other JBS files
+use ...
+
+# define global configuration and parameter sets
+# parameter sets can be built with function calls, loops, and imports from other JBS modules
+<variable> = ...
+
+# define one or more execution steps
+do <step_name>
+    with <variable>, ...
+    after <other_step_name> ...
+    fsub ...
+{
+# shell commands
+...
+}
+
+# define analysis blocks
+analyse <step_name>
+{
+    <pattern> = "<regex>" in "<filename>"
+
+    (<variable>, <pattern>)
+}
 ```
 
-## Values
+## Types
 
 JBS supports:
 
-- `int`, `float`, `str`, `bool`, and `null`
+- `int`, `float`, `str`, `bool`
 - lists: `[1, 2, 3]`
-- tuples: `(1, 2, 3)`
+- tuples: `(1, 2, 3)`; one-item tuples require a comma: `(1,)`
 - dictionaries: `{"name": "case-a", 1: "one"}` or `dict(name = "case-a")`
 - tables, created with `table(...)` or `t(...)`
 - functions: `function(x) { x + 1 }`
 
-Tuple syntax requires a comma for one item: `(1,)`.
+### Scalars
 
-## Dictionaries
+Scalar values are the atomic values that can be used as workpackage shell variables. JBS supports `int`, `float`, `string`, and `bool` scalar values.
 
-Dictionaries map string, int, or bool keys to arbitrary JBS values.
+- Integers are 64-bit signed values.
 
-```jbs
-d = dict(name = "case-a", threads = 8)
-same = {"name": "case-a", 1: [1, 2, 3], true: "enabled"}
-```
+  **Not supported** syntax: `1_000`, `0xff`, `0b1010`
 
-Literal keys are expressions, so a bare identifier is looked up first:
+- Floats are 64-bit floating-point values.
 
-```jbs
-key = "name"
-{"name": 1} == {key: 1}
-```
+  `1.0`, `.5`, `1e-3`, `2.5E6` are all supported forms
 
-Use index syntax for required keys and `get(...)` for optional keys:
+  **Not supported** syntax: `1.`
 
-```jbs
-d["name"]
-get(d, "missing", "fallback")
-```
+- Strings can use single or double quotes.
 
-`update(d, key = value, ...)` and `left + right` return new dictionaries. Right-hand values replace existing keys and duplicate literal keys keep their first insertion position.
+  Quote/backslash escapes: `"quote: \""`, `'quote: \''`, `"slash: \\"`.
+  Unknown escapes are preserved literally; for example, `"\n"` remains backslash plus `n`.
+  Strings can be appended: `"a" + "b" == "ab"`, and replicated: `"a" * 3 == "aaa"`.
 
-```jbs
-base = dict(a = 1, b = 2)
-next = base + dict(b = 3, c = 4)
-next == dict(a = 1, b = 3, c = 4)
-```
+- Booleans can be written as `true`, `True`, `TRUE`, `false`, ...
 
-`for key in d { ... }` iterates keys only, in insertion order.
+  Booleans work with logical operators and comparisons: `true & (threads > 1) & !enabled`.
 
-`dict(table_value)` converts a table to a dictionary. Each table column becomes
-a string key and each value is a list of that column's row values.
+### Lists / tuples
 
-## Tables
-
-Tables are named columns. Shorter non-empty columns are cyclically broadcast to
-the longest column; non-divisible broadcasts emit `W101`.
+Lists and tuples are ordered sequence values.
 
 ```jbs
-cases = table(x = (1, 2), label = ("a", "b"))
-grid = table(x = range(5), replica = range(10))
-from_dict = table(dict(x = range(5), replica = range(10)))
+xs = [1, 2, 3]      # list
+ys = (1, 2, 3)      # tuple
+one = (1,)          # one-item tuple; comma is required
+empty_tuple = ()
+empty_list = []
+# lists and tuples can contain arbitrary JBS values
+mixed = [1, "x", true, 1e-10]
 ```
 
-`table(dict_value)` converts a dictionary to a table. Dictionary keys must be
-valid string column names such as `x`, `system_name`, or `ns.value`. Empty
-columns can only be used when all table columns are empty.
+Lists and tuples are similar sequence containers, but they differ in vector arithmetic operations.
 
-Useful table operations:
+```jbs
+jbs> [1, 2, 3] + 10
+[11, 12, 13]
+jbs> [1, 2, 3] * 2
+[2, 4, 6]
+jbs> [1, 2, 3] == 2
+[false, true, false]
+jbs> [1, 2, 3] + [10, 20, 30]
+[11, 22, 33]
+jbs> # cyclic broadcast rules apply; the shorter sequence is indexed by modulo length
+jbs> [1, 2, 3] + [10]
+[11, 12, 13]
+jbs> [1, 2] + [10, 20, 30, 40]
+[11, 22, 31, 42]
+jbs> # if either side is empty, the result is an empty list
+jbs> [] + [1, 2, 3]
+[]
+jbs> [1,2,3] == [1,2,4]
+[true, true, false]
+jbs> ![0, 1, ""]
+[true, false, true]
+```
 
-- `product(a, b)` or `a * b` computes a Cartesian product.
-- `zip(a, b)` or `a + b` combines rows by position.
-- `select(table, col1, col2)` projects columns.
-- `names(value)` lists visible names or table columns.
+Tuples behave differently for `+` and `*` operations:
 
-## Control Flow
+```jbs
+jbs> (1, 2) + (3, 4)
+(1, 2, 3, 4)
+jbs> ("a", "b") * 2
+("a", "b", "a", "b")
+```
 
-`if`, `for`, and `while` can compute globals before declarations.
+List vector arithmetic operations: `+`, `-`, `*`, `/`, `%`, `&`, `|`, `!`.
+Comparison operations: `==`, `!=`, `<`, `<=`, `>`, `>=`.
+
+Useful functions:
+
+```jbs
+jbs> len([1, 2, 3])
+3
+jbs> list((1, 2))
+[1, 2]
+jbs> tuple([1, 2])
+(1, 2)
+jbs> rev([1, 2, 3])
+[3, 2, 1]
+jbs> filter([1, 2, 3], [true, false, true])
+[1, 3]
+jbs> range(5)
+[0, 1, 2, 3, 4]
+jbs> range(2, 5)
+[2, 3, 4]
+jbs> range(0, 10, 2)
+[0, 2, 4, 6, 8]
+jbs> range(0, 1, 0.2)
+[0.0, 0.2, 0.4, 0.6, 0.8]
+```
+
+### Dictionaries
+
+Dictionaries in JBS are ordered key-value maps. Dictionaries can store arbitrary JBS values:
+
+```jbs
+{
+        "name": "case-a",
+        "threads": 8,
+        "flags": ["fast", "debug"],
+        "meta": {"host": "node01"},
+}
+```
+
+Dictionary keys must be hashable scalar values: `string`, `int`, or `bool`.
+
+Use `{...}` or the `dict(...)` function syntax:
+
+```jbs
+jbs> name = "key"
+# dict(...) named arguments always create string keys
+jbs> dict(name = 1)
+{"name": 1}
+jbs> {name: 1}
+{"key": 1}
+```
+
+Indexing syntax:
+
+```jbs
+jbs> d = dict(name = "case-a", threads = 8)
+jbs> d["name"]
+"case-a"
+jbs> d["threads"]
+8
+jbs> # if the key is missing, JBS reports an error and returns null
+jbs> get(d, "missing", "fallback")
+"fallback"
+```
+
+Operations on dictionaries:
+
+```jbs
+jbs> base = dict(a = 1, b = 2)
+jbs> # only dict + dict is valid
+jbs> base + dict(b = 3, c = 4)
+{"a": 1, "b": 3, "c": 4}
+jbs> # the original dictionary is not modified
+jbs> update(base, b = 3, c = 4)
+{"a": 1, "b": 3, "c": 4}
+```
+
+Looping:
+```jbs
+d = dict(a = 1, b = 2)
+
+# for loops over a dictionary iterate its keys in insertion order
+keys = []
+for k in d {
+        keys += [k]
+}
+# keys == ["a", "b"]
+```
+
+Conversion from `table` to `dict`:
+
+```jbs
+jbs> cases = table(x = [1, 2], y = ["a", "b"])
+jbs> d = dict(cases)
+# each table column becomes a string key, and each dictionary value is a list of column values
+{"x": [1, 2], "y": ["a", "b"]}
+```
+
+A dictionary can be converted to a table:
+
+```jbs
+d = dict(x = [1, 2], y = ["a", "b"])
+cases = table(d)
+```
+
+- keys must be strings
+- key strings must be valid table column names
+- values may be scalars, lists, or tuples
+- shorter non-empty columns are cyclically broadcast
+- empty columns are allowed only if all columns are empty
+
+```jbs
+table(dict(x = range(2), y = "same"))
+# x=0, y="same"
+# x=1, y="same"
+```
+
+### Tables
+
+Tables are JBS's main parameter-space data type. A table is an ordered set of named columns, where each row represents one parameter combination. Because column names are used as identifiers in shell scripts, table column names are restricted.
+
+The main constructor is `table(...)`, also available as `t(...)`.
+
+```jbs
+# column values can be: scalars, lists, tuples
+cases = table(x = [1, 2], y = ["a", "b"])
+
+# when columns have different non-empty lengths, JBS broadcasts shorter columns cyclically to the longest column
+table(x = [1, 2], y = "a")
+#  x  y
+#  1  a
+#  2  a
+
+# if the longer length is not divisible by the shorter length, JBS emits a warning because the cycling is uneven
+table(x = [1, 2, 3], y = range(10))
+# warning: cyclic broadcast 3 -> 10
+```
+
+Reading tables from CSV/TSV:
+
+```jbs
+# The first row is the header.
+# Column names must be valid table column names.
+# JBS infers column types as bool, int, float, or string.
+cases = read_csv("cases.csv")
+```
+
+`+` and `*` operations, column access, and parameter-space slices:
+
+```jbs
+jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # zip-like merge
+  x  y
+  1  a
+  2  b
+jbs> cases = t(x = [1, 2]) * t(y = [3, 4]) # Cartesian product
+jbs> cases.x
+[1,1,2,2]
+jbs> cases[x].x
+[1, 2]
+```
+
+`filter(table_value, mask)` keeps rows where the mask is true.
+
+```jbs
+cases = table(x = [1, 2, 3])
+# the mask is broadcast cyclically to the table row count
+filtered = filter(cases, [true, false, true])
+#  x
+#  1
+#  3
+```
+
+Useful functions:
+
+- `table(...)`          # construct a table
+- `t(...)`              # alias for table(...)
+- `read_csv(...)`       # import CSV/TSV as a table
+- `select(table, cols)` # project columns
+- `table[cols]`         # projection syntax
+- `zip(a, b, ...)`      # row-wise merge
+- `a + b`               # row-wise merge in table context
+- `product(a, b, ...)`  # Cartesian product
+- `a * b`               # Cartesian product in table context
+- `filter(table, mask)` # keep selected rows
+- `len(table)`          # row count
+- `names(table)`        # column names
+- `dict(table)`         # table -> dictionary
+- `table(dict)`         # dictionary -> table
+
+### Functions
+
+JBS has two kinds of functions: user functions, defined with `function(...) { ... }`, and built-in functions, such as `map(...)` and `reduce(...)`.
+
+#### User functions
+
+Function values are first-class: they can be assigned, returned, passed to calls, stored in lists/tuples/dictionaries, and imported from modules.
+
+```jbs
+# parameters are comma-separated and may have defaults
+jbs> add = function(a, b = 1) {
+        # the last expression defines the result
+        # the result can also be returned with `return a + b`
+        a + b
+}
+
+jbs> add(2)
+3
+jbs> # positional and named arguments are allowed; positional arguments must come first
+jbs> add(2, b = 3)
+5
+jbs> # top-level globals are captured live, so a function sees later reassignment of a global it reads
+jbs> x = 1
+jbs> f = function() {
+        # local names shadow captured/global names
+        x
+}
+jbs> f()
+1
+jbs> x=2
+jbs> f()
+2
+jbs> x=1
+jbs> # a default captures that selected value at function definition time
+jbs> f = function(x=x) {x}
+jbs> f()
+1
+jbs> x=2
+jbs> f()
+1
+```
+
+Defaults that refer to earlier parameters, such as `function(a, b = a + 1)`, are evaluated at call time.
+
+Recursion is allowed. JBS has a maximum function-call depth guard to prevent runaway recursion.
+
+```jbsrepl
+jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
+jbs> factorial(5)
+120
+```
+
+#### Built-In Functions
+
+There are several built-in functions. Use `?` for a full list.
+
+Use `?<function_name>` in the REPL for focused help on a specific built-in function.
+
+## Built-In Globals
+
+- `jbs_name="jbs_benchmark"` defines the name of the benchmark directory.
+- `jbs_benchmarks={}` splits one script into named benchmarks. Use `jbs --benchmark ...` to run individual benchmarks.
+- `jbs_nproc=0` sets the global concurrency limit. The default `0` uses all available CPUs.
+- `jbs_database=""` uses CSV analysis output. A non-empty value enables SQLite database output.
+
+Read more in [help_globals.md](help_globals.md).
+
+## `for`, `while` loops
+
+JBS has `for` and `while` loops. They are evaluation-time control flow, not runtime shell loops: they run while the `.jbs` file is being evaluated, before `do` workpackages are executed.
+
+`for` syntax:
+
+```jbs
+for name in iterable {
+        ...
+}
+```
+
+The iterable must be a list, tuple, or dictionary. Dictionaries iterate over their keys in insertion order. Scalars, strings, and tables are not directly iterable in `for`.
+
+```jbs
+sum = 0
+for x in range(5) {
+        sum += x
+}
+# sum == 10
+# x == 4
+```
+
+`while` syntax:
+
+```jbs
+while condition {
+        ...
+}
+```
+
+The condition must evaluate to a boolean. JBS does not use truthiness here, so `while 1 { ... }` is an error.
+
+```jbs
+i = 0
+while i < 3 {
+        print(i)
+        i += 1
+}
+```
+
+`break` exits the nearest enclosing loop. `continue` skips to the next iteration.
+
+Loops do not introduce a new scope. At top level, variables assigned in the body are globals. In functions, variables assigned in the body are function locals. The loop target remains visible after the loop if the loop ran at least once. Inside loop bodies, `do`, `analyse`, and `use` declarations are not allowed. Loops are for computing values, not dynamically declaring benchmark steps.
+
+## `if`/`else`
+
+JBS has two conditional forms: statement conditionals and inline conditional expressions.
+
+```jbs
+if condition {
+        ...
+} elif other_condition {
+        ...
+} else {
+        ...
+}
+```
+
+Conditions must evaluate to `bool`. JBS does not treat integers, strings, lists, or tables as truthy or falsey in `if` conditions.
 
 ```jbs
 mode = "small"
@@ -138,129 +440,195 @@ if mode == "small" {
 } else {
         cases = table(x = range(1))
 }
-
-values = ()
-for x in range(3) {
-        values += (x,)
-}
 ```
 
-`do`, `analyse`, and `use` declarations are top-level only. They are not allowed inside control-flow bodies.
+Branches are checked in order. The first true branch runs, the remaining branches are skipped. `else` is optional and runs only if no previous condition matched.
 
-## Imports
-
-Imports load another `.jbs` file and merge selected declarations into the current program.
+Inline conditionals are expressions:
 
 ```jbs
-use cases from "./params.jbs"
-use "./steps.jbs" as steps
+value_if_true if condition else value_if_false
 ```
 
-Namespaced imports are referenced with dot syntax:
+Only the selected expression is evaluated after the condition is checked. This makes inline conditionals useful for choosing values directly in assignments or function returns.
+
+There is no inline `elif`. Use nesting for multiple cases:
 
 ```jbs
-do run with steps.cases {
+label = "small" if n < 10 else "medium" if n < 100 else "large"
+```
+
+## `use`: import other JBS files
+
+`use` imports symbols from another `.jbs` module during JBS evaluation. It is a compile-time/module-system feature, not a shell command.
+
+The main supported forms are:
+
+```jbs
+use value from "./params.jbs"
+use value, cases from "./params.jbs"
+use "./params.jbs" as params
+```
+
+Selective import brings named globals directly into the current scope:
+
+```jbs
+# params.jbs
+# cases = table(x = range(4))
+# scale = function(x) { x * 2 }
+
+use cases, scale from "./params.jbs"
+
+do run with cases {
         echo "${x}"
 }
+
+values = map(scale, range(3))
 ```
 
-Importing a `do` step also imports the dependencies required by its `after` chain.
-
-## `do`
-
-`do` blocks define shell code to execute. Each block runs once for every row visible through its `with` data.
+Namespace import keeps the imported module under an alias:
 
 ```jbs
-do run
-        with cases
-        nproc 4
-{
-        echo "x=${x}" > out.txt
+use "./params.jbs" as p
+
+do run with p.cases {
+        echo "${x}"
 }
+
+values = map(p.scale, range(3))
 ```
 
-Header clauses:
+Selective imports import globals only: scalars, lists, tuples, dictionaries, tables, and functions defined as global variables. They do not selectively import `do` or `analyse` blocks.
 
-- `with source` imports all columns from a data source.
-- `with source[a,b]` imports selected columns.
-- `after step` waits for another step and inherits that step's visible variables.
-- `fsub "path" { "regex": expr }` copies a template into each workpackage directory and applies substitutions before `run.sh` starts.
-- `nproc N` limits concurrent workpackages for this step.
+Namespace imports bring the module's visible globals and step declarations under the alias. Imported `do` steps are prefixed with the alias, and their internal `after` and `with` references are prefixed consistently.
 
-`nproc 0` means the number of available CPUs. The effective step concurrency is limited by both `jbs_nproc` and the step's own `nproc`.
+## JBS's EBNF
 
-`fsub` template paths are resolved relative to the `.jbs` file that defines the `do` block. The destination filename is the template basename. Substitution rules are regular expressions applied in declaration order. A rule with no capture groups replaces the full match with a scalar replacement value. A rule with capture groups replaces each captured group and requires a tuple/list with the same number of scalar values. Rules must match at least once for every workpackage; multiple matches are all replaced and reported as warnings. Dry-run materializes substituted files, and `jbs continue` resumes those prepared files after checking the stored template hashes.
+```ebnf
+program         = { sep | top_stmt } EOF ;
 
-## `analyse`
+sep             = NEWLINE | ";" | COMMENT ;
 
-An `analyse` block belongs to one step. Pattern assignments search files inside each workpackage directory.
+top_stmt        = assignment
+                | use_stmt
+                | do_block
+                | analyse_block
+                | if_stmt
+                | for_stmt
+                | while_stmt
+                | break_stmt
+                | continue_stmt
+                | expr_stmt ;
 
-```jbs
-analyse run {
-        x = "x=(%d)" in "out.txt"
-        label = "label=(%w)" in "out.txt"
-        (x as "value", label)
-}
+control_stmt    = assignment
+                | if_stmt
+                | for_stmt
+                | while_stmt
+                | break_stmt
+                | continue_stmt
+                | expr_stmt ;
+
+block           = "{" { sep | control_stmt } "}" ;
+
+assignment      = IDENT assign_op expr ;
+assign_op       = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
+
+expr_stmt       = expr ;
+break_stmt      = "break" ;
+continue_stmt   = "continue" ;
+
+use_stmt        = "use" ( path_import | namespace_import | selective_import ) ;
+path_import     = STRING "as" IDENT ;
+namespace_import = IDENT ;
+selective_import = ident_list "from" use_source ;
+use_source      = IDENT | STRING ;
+ident_list      = IDENT { "," IDENT } ;
+
+if_stmt         = "if" expr block { "elif" expr block } [ "else" block ] ;
+for_stmt        = "for" IDENT "in" expr block ;
+while_stmt      = "while" expr block ;
+
+do_block        = "do" IDENT { do_header_clause } "{" raw_shell_body "}" ;
+do_header_clause = after_clause | with_clause | nproc_clause | fsub_clause ;
+after_clause    = "after" ident_list ;
+with_clause     = "with" with_item { "," with_item } ;
+with_item       = qualified_name [ "[" qualified_name { "," qualified_name } [ "," ] "]" ] ;
+nproc_clause    = "nproc" signed_integer ;
+fsub_clause     = "fsub" STRING "{" [ fsub_rule { "," fsub_rule } [ "," ] ] "}" ;
+fsub_rule       = STRING ":" expr ;
+
+analyse_block   = "analyse" IDENT { with_clause } "{" analyse_body "}" ;
+analyse_body    = { sep | analyse_assign } analyse_result_tuple { sep } ;
+analyse_assign  = IDENT assign_op expr [ "in" STRING ] ;
+analyse_result_tuple = "(" [ analyse_column { "," analyse_column } [ "," ] ] ")" ;
+analyse_column  = IDENT [ "." IDENT ] [ "as" STRING ] ;
+
+expr            = conditional ;
+
+conditional     = disjunction [ "if" disjunction "else" conditional ] ;
+disjunction     = conjunction { "|" conjunction } ;
+conjunction     = comparison { "&" comparison } ;
+comparison      = sum [ comp_op sum ] ;
+comp_op         = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+sum             = product { ( "+" | "-" ) product } ;
+product         = unary { ( "*" | "/" | "%" ) unary } ;
+unary           = ( "+" | "-" | "!" ) unary | postfix ;
+
+postfix         = primary { "." IDENT | call | index | alias } ;
+call            = "(" [ call_args [ "," ] ] ")" ;
+call_args       = positional_args [ "," named_args ] | named_args ;
+positional_args = expr { "," expr } ;
+named_args      = named_arg { "," named_arg } ;
+named_arg       = IDENT "=" expr ;
+index           = "[" [ expr { "," expr } [ "," ] ] "]" ;
+alias           = "as" IDENT ;
+
+primary         = literal
+                | IDENT
+                | function_expr
+                | group
+                | tuple
+                | list
+                | dict ;
+
+literal         = NUMBER | STRING | bool_literal ;
+bool_literal    = "true" | "True" | "TRUE"
+                | "false" | "False" | "FALSE" ;
+
+group           = "(" expr ")" ;
+tuple           = "(" ")"
+                | "(" expr "," [ expr { "," expr } [ "," ] ] ")" ;
+list            = "[" [ expr { "," expr } [ "," ] ] "]" ;
+dict            = "{" [ dict_entry { "," dict_entry } [ "," ] ] "}" ;
+dict_entry      = expr ":" expr ;
+
+function_expr   = "function" "(" [ function_params [ "," ] ] ")" function_block ;
+function_params = function_param { "," function_param } ;
+function_param  = IDENT [ "=" expr ] ;
+
+function_block  = "{" { sep | function_stmt } "}" ;
+function_stmt   = local_assignment
+                | return_stmt
+                | func_if_stmt
+                | func_for_stmt
+                | func_while_stmt
+                | break_stmt
+                | continue_stmt
+                | expr_stmt ;
+
+local_assignment = IDENT assign_op expr ;
+return_stmt      = "return" expr ;
+func_if_stmt     = "if" expr function_block { "elif" expr function_block } [ "else" function_block ] ;
+func_for_stmt    = "for" IDENT "in" expr function_block ;
+func_while_stmt  = "while" expr function_block ;
+
+qualified_name  = IDENT { "." IDENT } ;
+signed_integer  = [ "+" | "-" ] DIGIT { DIGIT } ;
+
+IDENT           = ( LETTER | "_" ) { LETTER | DIGIT | "_" } ;
+NUMBER          = DIGIT { DIGIT } [ "." DIGIT { DIGIT } ] [ exponent ]
+                | "." DIGIT { DIGIT } [ exponent ] ;
+exponent        = ( "e" | "E" ) [ "+" | "-" ] DIGIT { DIGIT } ;
+STRING          = single_quoted_string | double_quoted_string ;
+COMMENT         = "#" { any_character_except_newline } ;
 ```
-
-Pattern shortcuts:
-
-- `%d` captures an integer.
-- `%f` captures a floating-point value.
-- `%w` captures a word.
-- `%%` matches a literal percent character.
-
-Plain regular expressions are also allowed. If a pattern has multiple capture groups, result columns are suffixed with `.0`, `.1`, and so on. Multiple matches in one file produce multiple rows. Generated CSV files and SQLite tables include `run_id`.
-
-## Running
-
-`jbs run file.jbs` and `jbs file.jbs` create a benchmark directory named from `jbs_name`. Each run uses the next numeric run id:
-
-```text
-benchmark/
-  000000/
-    status
-    step/
-      analyse.csv
-      000000/
-        run.sh
-        status
-        stdout
-        stderr
-        exitcode
-```
-
-`jbs_benchmarks` defaults to `{}`. When empty, the single-directory layout above is used. When non-empty, it must be a dictionary mapping component names to analyse block names:
-
-```jbs
-jbs_benchmarks = {
-        "small": ["run_small", "summary"],
-        "large": "run_large",
-}
-```
-
-Each component is written below `<jbs_name>/<component>/` and runs only the steps needed by its requested analyse blocks:
-
-```text
-benchmark/
-  small/
-    000000/
-      status
-      step/
-        ...
-  large/
-    000000/
-      status
-      step/
-        ...
-```
-
-Without `--benchmark`, `jbs run` runs every configured component. `jbs run -b small file.jbs` and `jbs continue -b small file.jbs` operate on one configured component. Selecting a benchmark is an error when `jbs_benchmarks` is empty or the selected name is not configured.
-
-If `jbs_database` is non-empty, analyse results are written to that SQLite database instead of per-step `analyse.csv` files. The database contains one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints only the current run's tables.
-
-The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
-
-`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. With multiple configured components, it resumes all components; use `-b` to resume only one. The hash includes the contents and loader labels of all loaded `.jbs` files plus the contents of any `fsub` templates used by the selected benchmark. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
-
-Generated workpackage `run.sh` files use `set -euo pipefail` by default. Pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.

@@ -19,31 +19,32 @@ analyse <step_name>
 
 Rules:
 
-- `<step_name>` must be a declared `do` block for direct run
-- helper assignments omit `in "<file>"`
-- extraction expressions must evaluate to strings
-- extraction variables become available in the final tuple
-- the final tuple is required and defines result-table columns
-- `as "..."` sets a custom column heading
-- extraction strings use Go regular expression syntax
-- `%d`, `%f`, `%w`, and `%%` expand to integer, floating-point, word, and literal-percent patterns
-- one capture group writes one column
-- multiple capture groups write suffixed columns such as `value.0`, `value.1`
-- multiple matches in one workpackage produce multiple result rows
-- each output table starts with `run_id`, the workpackage directory id
-- analysis files are resolved relative to each workpackage directory
-- missing analysis files make the benchmark status `ERROR`
-- `with` in `analyse` is scalar-only and requires string data bindings
+- `<step_name>` must be a declared `do` block.
+- The final tuple is required and defines the result-table columns.
+- `as "..."` sets a custom column heading.
+- Extraction strings use Go regular expression syntax.
+- One capture group writes one column.
+- Multiple capture groups write suffixed columns such as `value.0`, `value.1`.
+- Multiple matches in one workpackage produce multiple result rows.
+- Each output table starts with `run_id`, the workpackage directory ID.
+- Analysis files are resolved relative to each workpackage directory.
+- Missing analysis files make the benchmark status `ERROR`.
+- `with` in `analyse` is scalar-only and requires string data bindings.
+- Pattern shortcuts:
+  - `%d` captures an integer.
+  - `%f` captures a floating-point value.
+  - `%w` captures a word.
+  - `%%` matches a literal percent character.
 
-Direct run creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints generated tables after the progress output. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`, and only analyse blocks requested by that component are generated.
+`jbs run` creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints generated tables after the progress output. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`, and only the analyse blocks requested by that component are generated.
 
-If `jbs_database` is non-empty, all analyse outputs are written to that SQLite database instead, one table per run and step. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints only the tables generated for the current run, even when the database also contains older runs.
+If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints only the tables generated for the current run, even when the database also contains older runs.
 
 ## Example
 
 ```jbs
 a = ("a",) * 3
-i = [1,2,3]
+i = [1, 2, 3]
 x = i / 2
 cases = table(a = a, i = i, x = x)
 pat_number = "Number: %d"
@@ -51,9 +52,9 @@ pat_number = "Number: %d"
 do s
         with cases
 {
-    echo "Word: ${a}" > en
-    echo "Number: ${i}" >> en
-    echo "Zahl: ${x}" > de
+        echo "Word: ${a}" > en
+        echo "Number: ${i}" >> en
+        echo "Zahl: ${x}" > de
 }
 
 analyse s
@@ -66,6 +67,6 @@ analyse s
 
 In that example:
 
-- `a`, `x`, and `i` come from the target step visibility
-- `pat_number` is imported explicitly through `analyse with ...`
-- `n` is an extracted result value from file `en`
+- `a`, `x`, and `i` come from the target step's visible variables.
+- `pat_number` is imported explicitly through `analyse with ...`.
+- `n` is a result value extracted from file `en`.

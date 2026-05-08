@@ -1,4 +1,8 @@
-# `names(...)`
+# `names()`, `names(<module>)`, `names(<table>)`
+
+- `names()` returns visible variable names in the current scope
+- `names(module)` returns direct variable names in that module namespace
+- `names(table)` returns table column names
 
 ## Arguments
 

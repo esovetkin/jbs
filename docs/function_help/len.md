@@ -1,4 +1,6 @@
-# `len(...)`
+# `len(<string/tuple/list/table/dict>)`
+
+`len` returns the length of a string/tuple/list/dict and the number of rows in a table
 
 ## Arguments
 
@@ -13,6 +15,12 @@ One int value.
 ## Example
 
 ```jbs
-len("ab") == 2
-len(t(x = (1,2,3))) == 3
+3 == len((1,2,3))
+10 == len(range(10))
+# one unicode character is one character
+1 == len("😛")
+2 == len({1:1, 2:2})
+
+grid = product(table(x = (1,2,3)), table(y = ("a","b","c","d")))
+12 == len(grid)
 ```

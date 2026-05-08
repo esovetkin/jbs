@@ -14,5 +14,6 @@ A tuple value.
 
 ```jbs
 tuple([1,2]) == (1,2)
-tuple("x") == ("x")
+tuple("x") == ("x",)
+tuple([0,1,2]) * 2 == (0,1,2,0,1,2)
 ```
