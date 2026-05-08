@@ -16,6 +16,8 @@ type processResult struct {
 	Err      error
 }
 
+var processTerminationGrace = 5 * time.Second
+
 func runProcess(ctx context.Context, workDir string) processResult {
 	stdout, err := os.Create(filepath.Join(workDir, "stdout"))
 	if err != nil {
@@ -45,8 +47,7 @@ func runProcess(ctx context.Context, workDir string) processResult {
 	case err := <-done:
 		return finishProcess(workDir, cmd, err)
 	case <-ctx.Done():
-		terminateProcessGroup(cmd.Process.Pid)
-		err := <-done
+		err := waitAfterCancellation(cmd, done)
 		result := finishProcess(workDir, cmd, err)
 		result.Status = StatusInterrupted
 		result.Err = ctx.Err()
@@ -70,10 +71,20 @@ func formatExitCode(code int) string {
 	return strconv.Itoa(code) + "\n"
 }
 
-func terminateProcessGroup(pid int) {
-	pgid := -pid
-	_ = syscall.Kill(pgid, syscall.SIGTERM)
-	timer := time.NewTimer(5 * time.Second)
-	<-timer.C
-	_ = syscall.Kill(pgid, syscall.SIGKILL)
+func signalProcessGroup(pid int, sig syscall.Signal) {
+	_ = syscall.Kill(-pid, sig)
+}
+
+func waitAfterCancellation(cmd *exec.Cmd, done <-chan error) error {
+	signalProcessGroup(cmd.Process.Pid, syscall.SIGTERM)
+	timer := time.NewTimer(processTerminationGrace)
+	defer timer.Stop()
+
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		signalProcessGroup(cmd.Process.Pid, syscall.SIGKILL)
+		return <-done
+	}
 }
