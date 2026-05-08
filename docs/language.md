@@ -16,6 +16,8 @@ analyse_block := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
 
 Top-level expression statements are evaluated. In files they are mainly useful for validation and quick inspection; in the REPL their values are printed.
 
+`print(...)` writes explicit output using the same value rendering as the REPL. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.
+
 ## Built-In Globals
 
 `jbs_name` names the benchmark directory. It defaults to `jbs_benchmark` and must evaluate to a string.

@@ -8,7 +8,15 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
+type globalExecOptions struct {
+	CollectPrints bool
+}
+
 func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalExecResult {
+	return execGlobalPlanWithOptions(plan, generalSeed, scalarSeed, globalExecOptions{}, diags)
+}
+
+func execGlobalPlanWithOptions(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, opts globalExecOptions, diags *diag.Diagnostics) *globalExecResult {
 	if plan == nil {
 		plan = &globalPlan{
 			Steps:             make([]globalInputStep, 0),
@@ -16,7 +24,7 @@ func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarS
 			LocalVisibleNames: make([]string, 0),
 		}
 	}
-	engine := newGlobalSeqEngine(plan, generalSeed, scalarSeed, diags)
+	engine := newGlobalSeqEngine(plan, generalSeed, scalarSeed, opts, diags)
 	engine.execute()
 	return engine.res
 }
@@ -37,10 +45,12 @@ type globalSeqEngine struct {
 	currentBindingSeen  map[string]struct{}
 	namespaces          map[string]*Namespace
 	snapshotNames       map[string]struct{}
+	collectPrints       bool
+	outputSeq           int
 	res                 *globalExecResult
 }
 
-func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalSeqEngine {
+func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, opts globalExecOptions, diags *diag.Diagnostics) *globalSeqEngine {
 	values := maps.Clone(generalSeed)
 	if values == nil {
 		values = map[string]eval.Value{}
@@ -57,6 +67,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		UserGlobalVarByName:   make(map[string]*GlobalVar),
 		UserGlobalOrder:       make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		PrintEvents:           make([]PrintEvent, 0),
 		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Spans: make(map[string]diag.Span)},
 		SnapshotBindings:      make([]*GlobalBinding, 0),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
@@ -78,6 +89,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		currentBindingSeen:  make(map[string]struct{}),
 		namespaces:          make(map[string]*Namespace),
 		snapshotNames:       make(map[string]struct{}),
+		collectPrints:       opts.CollectPrints,
 		res:                 res,
 	}
 }
@@ -113,6 +125,36 @@ type globalStepResult struct {
 
 func (r globalStepResult) active() bool {
 	return r.Signal != globalLoopNone
+}
+
+func (e *globalSeqEngine) evalOptions(step globalInputStep) eval.ExprOptions {
+	opts := eval.ExprOptions{
+		GlobalAssignmentTupleArithmetic: true,
+		Context:                         eval.EvalCtxBindingAssign,
+		Names:                           e.currentNameCatalog(),
+		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
+		Frame:                           e.rootFrame,
+	}
+	if e.collectPrints {
+		opts.Print = e.recordPrintEvent
+		opts.PrintIndex = step.Index
+		opts.NextPrintSeq = e.nextOutputSeq
+	}
+	return opts
+}
+
+func (e *globalSeqEngine) nextOutputSeq() int {
+	e.outputSeq++
+	return e.outputSeq
+}
+
+func (e *globalSeqEngine) recordPrintEvent(event eval.PrintEvent) {
+	e.res.PrintEvents = append(e.res.PrintEvents, PrintEvent{
+		Index:  event.Index,
+		Seq:    event.Seq,
+		Span:   event.Span,
+		Values: eval.CloneValues(event.Values),
+	})
 }
 
 func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) globalStepResult {
@@ -160,13 +202,7 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	}
 
 	before := errorCount(e.diags)
-	value := eval.EvalExprWithOptions(effective, nil, e.diags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-		Names:                           e.currentNameCatalog(),
-		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-		Frame:                           e.rootFrame,
-	})
+	value := eval.EvalExprWithOptions(effective, nil, e.diags, e.evalOptions(step))
 	if errorCount(e.diags) > before {
 		return
 	}
@@ -204,13 +240,7 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) g
 	if step.IfStmt == nil {
 		return globalStepResult{}
 	}
-	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-		Names:                           e.currentNameCatalog(),
-		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-		Frame:                           e.rootFrame,
-	})
+	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, e.evalOptions(step))
 	if !ok {
 		return globalStepResult{}
 	}
@@ -227,13 +257,7 @@ func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) 
 	if step.ForStmt == nil {
 		return globalStepResult{}
 	}
-	iterable := eval.EvalExprWithOptions(step.ForStmt.Iterable, nil, e.diags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-		Names:                           e.currentNameCatalog(),
-		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-		Frame:                           e.rootFrame,
-	})
+	iterable := eval.EvalExprWithOptions(step.ForStmt.Iterable, nil, e.diags, e.evalOptions(step))
 	items, ok := eval.IterableElements(iterable, exprSpan(step.ForStmt.Iterable), e.diags)
 	if !ok {
 		return globalStepResult{}
@@ -276,13 +300,7 @@ func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string
 			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.WhileStmt.Span, "check the while condition")
 			return globalStepResult{}
 		}
-		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, eval.ExprOptions{
-			GlobalAssignmentTupleArithmetic: true,
-			Context:                         eval.EvalCtxBindingAssign,
-			Names:                           e.currentNameCatalog(),
-			Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-			Frame:                           e.rootFrame,
-		})
+		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, e.evalOptions(step))
 		if !ok || !cond {
 			return globalStepResult{}
 		}
@@ -393,16 +411,17 @@ func (e *globalSeqEngine) evalExprStep(step globalInputStep) {
 	if step.ExprStmt == nil || step.ExprStmt.Expr == nil {
 		return
 	}
-	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, eval.ExprOptions{
-		GlobalAssignmentTupleArithmetic: true,
-		Context:                         eval.EvalCtxBindingAssign,
-		Names:                           e.currentNameCatalog(),
-		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
-		Frame:                           e.rootFrame,
-	})
+	beforeSeq := e.outputSeq
+	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, e.evalOptions(step))
+	echo := true
+	if value.Kind == eval.KindNull && e.outputSeq > beforeSeq {
+		echo = false
+	}
 	e.res.TopLevelExprs = append(e.res.TopLevelExprs, TopLevelExprResult{
 		Index: step.Index,
+		Seq:   e.nextOutputSeq(),
 		Span:  step.ExprStmt.Span,
 		Value: value,
+		Echo:  echo,
 	})
 }

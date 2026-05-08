@@ -41,6 +41,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "map", File: "function_help/map.md"},
 	{Name: "names", File: "function_help/names.md"},
 	{Name: "product", File: "function_help/product.md"},
+	{Name: "print", File: "function_help/print.md"},
 	{Name: "range", File: "function_help/range.md"},
 	{Name: "read_csv", File: "function_help/read_csv.md"},
 	{Name: "reduce", File: "function_help/reduce.md"},

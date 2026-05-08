@@ -101,6 +101,8 @@ jbs help use
 
 Top-level assignments define scalar values, lists, tuples, tables, and functions. `do` blocks execute shell code once per workpackage. `analyse` blocks extract values from files created by a step and write `analyse.csv` for that step. `use` imports values or step declarations from another `.jbs` file.
 
+`print(...)` writes explicit JBS output to command stdout. In `jbs run`, those lines appear before benchmark work starts; shell output from `run.sh` stays in each workpackage `stdout` file.
+
 `with` imports row-varying data into a step. Multiple sources are combined using the table algebra provided by functions such as `table`, `product`, `select`, and `zip`.
 
 `after` declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.

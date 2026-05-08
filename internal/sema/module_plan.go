@@ -29,6 +29,10 @@ func buildModuleGlobalPlan(info *imports.ModuleInfo, childByIndex map[int]*modul
 func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext, useByIndex map[int]imports.ResolvedUse, prep moduleBindingPrep, prefixedByIndex map[int]*moduleScope) []globalInputStep {
 	steps := make([]globalInputStep, 0, len(stmts))
 	for index, stmt := range stmts {
+		sourceIndex := index
+		if ctx.InControlBody {
+			sourceIndex = ctx.OriginIndex
+		}
 		if use, ok := useByIndex[index]; ok {
 			if ctx.InControlBody {
 				continue
@@ -38,7 +42,7 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 					ID:             nextGlobalStepID(plan),
 					Kind:           globalInputNamespaceImport,
 					NamespaceScope: prefixedByIndex[index],
-					Index:          index,
+					Index:          sourceIndex,
 					BaseDir:        baseDir,
 				}
 				plan.Steps = append(plan.Steps, step)
@@ -55,7 +59,7 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 					Kind:    globalInputProjectedImport,
 					Name:    name,
 					Import:  imp,
-					Index:   index,
+					Index:   sourceIndex,
 					BaseDir: baseDir,
 				})
 				plan.StepByName[name] = id
@@ -68,9 +72,9 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 				ID:      nextGlobalStepID(plan),
 				Kind:    globalInputIf,
 				IfStmt:  &stmtCopy,
-				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(), nil, prep, prefixedByIndex),
-				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(), nil, prep, prefixedByIndex),
-				Index:   index,
+				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(sourceIndex), nil, prep, prefixedByIndex),
+				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(sourceIndex), nil, prep, prefixedByIndex),
+				Index:   sourceIndex,
 				BaseDir: baseDir,
 			}
 			if ctx.InControlBody {
@@ -88,10 +92,10 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 				Kind:          globalInputFor,
 				Name:          stmtCopy.Target,
 				ForStmt:       &stmtCopy,
-				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(), nil, prep, prefixedByIndex),
+				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(sourceIndex), nil, prep, prefixedByIndex),
 				EffectiveExpr: stmtCopy.Iterable,
 				Reads:         globalExprReadRefs(stmtCopy.Iterable),
-				Index:         index,
+				Index:         sourceIndex,
 				BaseDir:       baseDir,
 			}
 			if stmtCopy.Target != "" {
@@ -110,10 +114,10 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 				ID:            nextGlobalStepID(plan),
 				Kind:          globalInputWhile,
 				WhileStmt:     &stmtCopy,
-				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(), nil, prep, prefixedByIndex),
+				Body:          appendModuleGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(sourceIndex), nil, prep, prefixedByIndex),
 				EffectiveExpr: stmtCopy.Cond,
 				Reads:         globalExprReadRefs(stmtCopy.Cond),
-				Index:         index,
+				Index:         sourceIndex,
 				BaseDir:       baseDir,
 			}
 			if ctx.InControlBody {
@@ -123,7 +127,7 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 			}
 			continue
 		}
-		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, ctx)
+		step, ok := buildGlobalInputStep(plan, stmt, sourceIndex, baseDir, ctx)
 		if !ok {
 			continue
 		}

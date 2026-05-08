@@ -28,11 +28,12 @@ type moduleScope struct {
 	StepOrder             []string
 	Namespaces            map[string]*Namespace
 	Env                   map[string]eval.Value
+	PrintEvents           []PrintEvent
 }
 
-func buildEntryModuleScope(loadRes *imports.LoadResult, globals map[string]eval.Value, diags *diag.Diagnostics) *moduleScope {
+func buildEntryModuleScope(loadRes *imports.LoadResult, globals map[string]eval.Value, opts AnalyzeOptions, diags *diag.Diagnostics) *moduleScope {
 	if loadRes == nil {
 		return emptyModuleScope()
 	}
-	return compileModule(loadRes.Entry, loadRes, globals, diags, map[string]*moduleScope{}, map[string]bool{})
+	return compileModule(loadRes.Entry, loadRes, globals, opts, diags, map[string]*moduleScope{}, map[string]bool{})
 }

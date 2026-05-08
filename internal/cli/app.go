@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
-	"strconv"
+	"sort"
 	"strings"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	jbsformat "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/format"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
@@ -20,6 +18,7 @@ import (
 	jbsrepl "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/repl"
 	jbsrun "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/run"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/valuefmt"
 )
 
 // analysisBundle contains the entire parsed AST, corresponding
@@ -97,7 +96,7 @@ func checkInput(path string, stdout, stderr io.Writer) int {
 
 func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
-	bundle, err := analyzeInput(path, diags)
+	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
 		return 1
@@ -114,6 +113,7 @@ func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
 		NoStrict:    noStrict,
+		PrintEvents: bundle.Result.PrintEvents,
 		Stdout:      stdout,
 		Stderr:      stderr,
 	}); err != nil {
@@ -277,7 +277,7 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 	}
 	candidate := appendReplChunk(source, chunk)
 	diags := &diag.Diagnostics{}
-	bundle, err := analyzeSource("<repl>", candidate, cwd, diags)
+	bundle, err := analyzeSourceWithOptions("<repl>", candidate, cwd, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
 		return result, err
 	}
@@ -287,7 +287,7 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 		result.HasErrors = true
 		return result, nil
 	}
-	prevExprCount := 0
+	prevStmtCount := 0
 	if strings.TrimSpace(source) != "" {
 		prevDiags := &diag.Diagnostics{}
 		prevBundle, err := analyzeSource("<repl>", source, cwd, prevDiags)
@@ -300,13 +300,40 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 			result.HasErrors = true
 			return result, nil
 		}
-		prevExprCount = len(prevBundle.Result.TopLevelExprs)
+		prevStmtCount = len(prevBundle.Program.Stmts)
 	}
-	for i := prevExprCount; i < len(bundle.Result.TopLevelExprs); i++ {
-		result.ExprOutput = append(result.ExprOutput, formatReplValue(bundle.Result.TopLevelExprs[i].Value))
+	events := make([]replOutputEvent, 0, len(bundle.Result.PrintEvents)+len(bundle.Result.TopLevelExprs))
+	for _, event := range bundle.Result.PrintEvents {
+		if event.Index < prevStmtCount {
+			continue
+		}
+		events = append(events, replOutputEvent{
+			Seq:  event.Seq,
+			Text: valuefmt.PrintLine(event.Values),
+		})
+	}
+	for _, expr := range bundle.Result.TopLevelExprs {
+		if expr.Index < prevStmtCount || !expr.Echo {
+			continue
+		}
+		events = append(events, replOutputEvent{
+			Seq:  expr.Seq,
+			Text: valuefmt.ReplValue(expr.Value),
+		})
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Seq < events[j].Seq
+	})
+	for _, event := range events {
+		result.ExprOutput = append(result.ExprOutput, event.Text)
 	}
 	result.Source = candidate
 	return result, nil
+}
+
+type replOutputEvent struct {
+	Seq  int
+	Text string
 }
 
 func appendReplChunk(accepted string, chunk string) string {
@@ -322,8 +349,6 @@ func appendReplChunk(accepted string, chunk string) string {
 	return accepted + "\n" + chunk
 }
 
-const replMaxPreviewItems = 3
-
 func filterDiagnosticsBySeverity(diags *diag.Diagnostics, severity diag.Severity) diag.Diagnostics {
 	out := diag.Diagnostics{
 		Items: make([]diag.Diagnostic, 0, len(diags.Items)),
@@ -336,94 +361,11 @@ func filterDiagnosticsBySeverity(diags *diag.Diagnostics, severity diag.Severity
 	return out
 }
 
-func formatReplValue(v eval.Value) string {
-	switch v.Kind {
-	case eval.KindList:
-		return formatReplSequence("[", "]", v.L)
-	case eval.KindTuple:
-		return formatReplSequence("(", ")", v.L)
-	case eval.KindComb:
-		return formatReplTable(v.C)
-	default:
-		return v.String()
-	}
-}
-
-func formatReplSequence(open, close string, items []eval.Value) string {
-	limit := len(items)
-	if limit > replMaxPreviewItems {
-		limit = replMaxPreviewItems
-	}
-	parts := make([]string, 0, limit+1)
-	for i := 0; i < limit; i++ {
-		parts = append(parts, formatReplInlineValue(items[i]))
-	}
-	if len(items) > limit {
-		parts = append(parts, "...")
-	}
-	return open + strings.Join(parts, ", ") + close
-}
-
-func formatReplInlineValue(v eval.Value) string {
-	switch v.Kind {
-	case eval.KindList:
-		return formatReplSequence("[", "]", v.L)
-	case eval.KindTuple:
-		return formatReplSequence("(", ")", v.L)
-	case eval.KindComb:
-		return formatReplTable(v.C)
-	case eval.KindString:
-		return strconv.Quote(v.S)
-	default:
-		return v.String()
-	}
-}
-
-func formatReplTable(c *eval.Comb) string {
-	if c == nil {
-		return "table(rows=0, cols=[], head=[])"
-	}
-	cols := slices.Clone(c.Order)
-	if len(cols) == 0 {
-		colSet := make(map[string]struct{})
-		for _, row := range c.Rows {
-			for name := range row.Values {
-				colSet[name] = struct{}{}
-			}
-		}
-		cols = make([]string, 0, len(colSet))
-		for name := range colSet {
-			cols = append(cols, name)
-		}
-		slices.Sort(cols)
-	}
-
-	headLimit := len(c.Rows)
-	if headLimit > replMaxPreviewItems {
-		headLimit = replMaxPreviewItems
-	}
-	headRows := make([]string, 0, headLimit+1)
-	for i := 0; i < headLimit; i++ {
-		row := c.Rows[i]
-		cells := make([]string, 0, len(cols))
-		for _, col := range cols {
-			cell, ok := row.Values[col]
-			if !ok {
-				continue
-			}
-			cells = append(cells, col+":"+formatReplInlineValue(cell.Value))
-		}
-		headRows = append(headRows, "{"+strings.Join(cells, ", ")+"}")
-	}
-	if len(c.Rows) > headLimit {
-		headRows = append(headRows, "...")
-	}
-	return "table(rows=" + strconv.Itoa(len(c.Rows)) +
-		", cols=[" + strings.Join(cols, ", ") +
-		"], head=[" + strings.Join(headRows, ", ") + "])"
-}
-
 func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error) {
+	return analyzeInputWithOptions(path, sema.AnalyzeOptions{}, diags)
+}
+
+func analyzeInputWithOptions(path string, opts sema.AnalyzeOptions, diags *diag.Diagnostics) (*analysisBundle, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("determine working directory: %w", err)
@@ -432,7 +374,7 @@ func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error)
 	if err != nil {
 		return nil, err
 	}
-	res := sema.AnalyzeWithImports(loadRes, sema.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImportsOptions(loadRes, sema.BuiltinGlobalValues(), opts, diags)
 	prog := ast.Program{}
 	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
 		prog = info.Program
@@ -445,11 +387,15 @@ func analyzeInput(path string, diags *diag.Diagnostics) (*analysisBundle, error)
 }
 
 func analyzeSource(file string, source string, cwd string, diags *diag.Diagnostics) (*analysisBundle, error) {
+	return analyzeSourceWithOptions(file, source, cwd, sema.AnalyzeOptions{}, diags)
+}
+
+func analyzeSourceWithOptions(file string, source string, cwd string, opts sema.AnalyzeOptions, diags *diag.Diagnostics) (*analysisBundle, error) {
 	loadRes, err := imports.LoadAndExpandSource(file, source, cwd, cwd, diags)
 	if err != nil {
 		return nil, err
 	}
-	res := sema.AnalyzeWithImports(loadRes, sema.BuiltinGlobalValues(), diags)
+	res := sema.AnalyzeWithImportsOptions(loadRes, sema.BuiltinGlobalValues(), opts, diags)
 	prog := ast.Program{}
 	if info := loadRes.Modules[loadRes.Entry.ID]; info != nil {
 		prog = info.Program

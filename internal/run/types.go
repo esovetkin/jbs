@@ -13,6 +13,7 @@ type Options struct {
 	Sources     map[string]string
 	ProgramFile string
 	NoStrict    bool
+	PrintEvents []sema.PrintEvent
 	Stdout      io.Writer
 	Stderr      io.Writer
 }

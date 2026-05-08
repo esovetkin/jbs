@@ -64,13 +64,13 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 		},
 	}
 
-	nilScope := buildEntryModuleScope(nil, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{})
+	nilScope := buildEntryModuleScope(nil, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, &diag.Diagnostics{})
 	if len(nilScope.Bindings) != 0 || len(nilScope.Env) != 0 {
 		t.Fatalf("expected nil load result to produce empty module scope, got %#v", nilScope)
 	}
 
 	diags := &diag.Diagnostics{}
-	scope := buildEntryModuleScope(loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, diags)
+	scope := buildEntryModuleScope(loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -105,11 +105,11 @@ func TestBuildEntryModuleScopeAndCompileModule(t *testing.T) {
 	}
 
 	cache := map[string]*moduleScope{}
-	root0 := compileModule(aRef, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{}, cache, map[string]bool{})
+	root0 := compileModule(aRef, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, &diag.Diagnostics{}, cache, map[string]bool{})
 	root0.Bindings[0].Name = "mutated"
 	root0.StepOrder[0] = "mutated"
 	root0.Env["a_value"] = eval.Int(99)
-	root1 := compileModule(aRef, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{}, cache, map[string]bool{})
+	root1 := compileModule(aRef, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, &diag.Diagnostics{}, cache, map[string]bool{})
 	if _, ok := root1.BindingsByName["a_value"]; !ok {
 		t.Fatalf("expected cached module clone to preserve binding names, got %#v", root1.BindingsByName)
 	}
@@ -186,7 +186,7 @@ func TestCompileModuleUsesSharedGlobalPlan(t *testing.T) {
 			},
 		},
 	}
-	unit := compileModule(ref, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, &diag.Diagnostics{}, map[string]*moduleScope{}, map[string]bool{})
+	unit := compileModule(ref, loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, &diag.Diagnostics{}, map[string]*moduleScope{}, map[string]bool{})
 	if !eval.Equal(unit.Env["x"], eval.Int(2)) || !eval.Equal(unit.Env["y"], eval.Int(1)) {
 		t.Fatalf("unexpected planned module env: %#v", unit.Env)
 	}
@@ -231,7 +231,7 @@ func TestCompileModuleRejectsSelectiveImportLocalCollision(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	unit := compileModule(ref, loadRes, nil, diags, map[string]*moduleScope{}, map[string]bool{})
+	unit := compileModule(ref, loadRes, nil, AnalyzeOptions{}, diags, map[string]*moduleScope{}, map[string]bool{})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -274,7 +274,7 @@ func TestBuildEntryModuleScopeKeepsOnlyEntryTopLevelExprResults(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	scope := buildEntryModuleScope(loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, diags)
+	scope := buildEntryModuleScope(loadRes, map[string]eval.Value{"builtin": eval.Int(9)}, AnalyzeOptions{}, diags)
 	if len(diags.Items) != 0 {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -359,7 +359,7 @@ func TestCompileModuleHandlesFunctionValuedGlobals(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	scope := compileModule(ref, loadRes, nil, diags, map[string]*moduleScope{}, map[string]bool{})
+	scope := compileModule(ref, loadRes, nil, AnalyzeOptions{}, diags, map[string]*moduleScope{}, map[string]bool{})
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -443,7 +443,7 @@ func TestBuildEntryModuleScopeImportsFunctionExports(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	scope := buildEntryModuleScope(loadRes, nil, diags)
+	scope := buildEntryModuleScope(loadRes, nil, AnalyzeOptions{}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}

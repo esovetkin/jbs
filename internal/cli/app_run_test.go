@@ -69,6 +69,147 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`print("starting", [1, 2, 3, 4])`,
+		`do run {`,
+		`echo shell`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "starting [1, 2, 3, ...]\n") {
+		t.Fatalf("expected print output before progress, got %q", out)
+	}
+	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "000000", "stdout"))
+	if workOut != "shell\n" {
+		t.Fatalf("expected shell stdout to stay in workpackage file, got %q", workOut)
+	}
+}
+
+func TestDefaultRunPrintsJBSPrintOutput(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`print("default")`,
+		`do run {`,
+		`true`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("default run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.HasPrefix(stdout.String(), "default\n") {
+		t.Fatalf("expected default run print output, got %q", stdout.String())
+	}
+}
+
+func TestRunCheckAndContinueDoNotReplayPrintOutput(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`print("once")`,
+		`do run {`,
+		`true`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("check failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected check to be quiet, got %q", stdout.String())
+	}
+
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "once") {
+		t.Fatalf("continue replayed print output: %q", stdout.String())
+	}
+}
+
+func TestRunCommandDoesNotPrintWhenRuntimePlanFails(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte("print(\"no work\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected run to fail without do blocks")
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected no print output when runtime plan fails, got %q", stdout.String())
+	}
+}
+
 func TestRunCommandRunScriptExportsFinalDirectories(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

@@ -58,6 +58,107 @@ func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 	}
 }
 
+func TestAnalyzePrintEventsRequireOption(t *testing.T) {
+	src := "print(\"quiet\")\n"
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.PrintEvents) != 0 {
+		t.Fatalf("expected default analysis to collect no print events, got %#v", res.PrintEvents)
+	}
+
+	diags = &diag.Diagnostics{}
+	res = AnalyzeWithOptions(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, AnalyzeOptions{CollectPrints: true}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "quiet" {
+		t.Fatalf("unexpected collected print events: %#v", res.PrintEvents)
+	}
+	if len(res.TopLevelExprs) != 1 || res.TopLevelExprs[0].Echo {
+		t.Fatalf("expected top-level print expression echo to be suppressed, got %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeCollectsPrintEventsInOrder(t *testing.T) {
+	src := `
+print("start")
+1
+f = function(x) {
+        print(x)
+        x + 1
+}
+f(2)
+for x in (3, 4) {
+        print(x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := AnalyzeWithOptions(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, AnalyzeOptions{CollectPrints: true}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.PrintEvents) != 4 {
+		t.Fatalf("expected four print events, got %#v", res.PrintEvents)
+	}
+	want := []eval.Value{eval.String("start"), eval.Int(2), eval.Int(3), eval.Int(4)}
+	wantSeq := []int{1, 4, 6, 8}
+	for i, wantValue := range want {
+		event := res.PrintEvents[i]
+		if len(event.Values) != 1 || !eval.Equal(event.Values[0], wantValue) {
+			t.Fatalf("event %d: got %#v want %#v", i, event.Values, wantValue)
+		}
+		if event.Seq != wantSeq[i] {
+			t.Fatalf("event %d: got sequence %d want %d", i, event.Seq, wantSeq[i])
+		}
+	}
+	if len(res.TopLevelExprs) != 5 {
+		t.Fatalf("expected five expression results, got %#v", res.TopLevelExprs)
+	}
+	if res.TopLevelExprs[0].Echo || !res.TopLevelExprs[1].Echo || !res.TopLevelExprs[2].Echo || res.TopLevelExprs[3].Echo || res.TopLevelExprs[4].Echo {
+		t.Fatalf("unexpected expression echo flags: %#v", res.TopLevelExprs)
+	}
+	if !eval.Equal(res.TopLevelExprs[1].Value, eval.Int(1)) || !eval.Equal(res.TopLevelExprs[2].Value, eval.Int(3)) {
+		t.Fatalf("unexpected echoed expression values: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeWithImportsCollectsEntryPrintsOnly(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	libSrc := "print(\"imported\")\nf = function() { print(\"called\"); 1 }\n"
+	if err := os.WriteFile(libPath, []byte(libSrc), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", "use \"./lib.jbs\" as lib\nlib.f()\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImportsOptions(loadRes, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, AnalyzeOptions{CollectPrints: true}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "called" {
+		t.Fatalf("expected only called imported function print, got %#v", res.PrintEvents)
+	}
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(1)) {
+		t.Fatalf("unexpected expression result: %#v", res.TopLevelExprs)
+	}
+}
+
 func TestAnalyzeReturnsNamesResults(t *testing.T) {
 	src := "x = 1\nadd = function(a, b) { a + b }\nnames()\n"
 	diags := &diag.Diagnostics{}

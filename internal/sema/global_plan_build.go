@@ -20,7 +20,11 @@ func buildGlobalPlan(prog ast.Program, baseSeed map[string]eval.Value, baseDir s
 func appendGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir string, ctx globalPlanContext) []globalInputStep {
 	steps := make([]globalInputStep, 0, len(stmts))
 	for index, stmt := range stmts {
-		step, ok := buildGlobalInputStep(plan, stmt, index, baseDir, ctx)
+		sourceIndex := index
+		if ctx.InControlBody {
+			sourceIndex = ctx.OriginIndex
+		}
+		step, ok := buildGlobalInputStep(plan, stmt, sourceIndex, baseDir, ctx)
 		if !ok {
 			continue
 		}
@@ -42,8 +46,8 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			ID:      id,
 			Kind:    globalInputIf,
 			IfStmt:  &stmtCopy,
-			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl()),
-			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl()),
+			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(index)),
+			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(index)),
 			Index:   index,
 			BaseDir: baseDir,
 		}, true
@@ -55,7 +59,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			Kind:          globalInputFor,
 			Name:          stmtCopy.Target,
 			ForStmt:       &stmtCopy,
-			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop()),
+			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(index)),
 			EffectiveExpr: stmtCopy.Iterable,
 			Reads:         globalExprReadRefs(stmtCopy.Iterable),
 			Index:         index,
@@ -71,7 +75,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			ID:            nextGlobalStepID(plan),
 			Kind:          globalInputWhile,
 			WhileStmt:     &stmtCopy,
-			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop()),
+			Body:          appendGlobalPlanSteps(plan, stmtCopy.Body, baseDir, ctx.nestedLoop(index)),
 			EffectiveExpr: stmtCopy.Cond,
 			Reads:         globalExprReadRefs(stmtCopy.Cond),
 			Index:         index,

@@ -322,7 +322,7 @@ func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
 
 func TestBuiltinCallNames(t *testing.T) {
 	names := BuiltinCallNames()
-	for _, name := range []string{"range", "rev", "table", "t", "map", "reduce", "read_csv"} {
+	for _, name := range []string{"range", "rev", "table", "t", "map", "reduce", "print", "read_csv"} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("BuiltinCallNames missing %q: %#v", name, names)
 		}
@@ -346,6 +346,158 @@ func TestBuiltinCallNames(t *testing.T) {
 		if IsBuiltinCallName(name) {
 			t.Fatalf("did not expect %q to be a builtin call name", name)
 		}
+	}
+}
+
+func TestEvalPrintCallCollectsEvents(t *testing.T) {
+	span := spanAt(330, 1)
+	tests := []struct {
+		name string
+		args []ast.CallArg
+		want []Value
+	}{
+		{
+			name: "zero args",
+		},
+		{
+			name: "one arg",
+			args: ast.PosCallArgs(ast.StringExpr{Value: "hello", Span: span}),
+			want: []Value{String("hello")},
+		},
+		{
+			name: "multiple args",
+			args: ast.PosCallArgs(
+				ast.StringExpr{Value: "x", Span: span},
+				ast.NumberExpr{Int: true, IntValue: 7, Raw: "7", Span: span},
+				ast.ListExpr{Items: []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span}}, Span: span},
+			),
+			want: []Value{String("x"), Int(7), List([]Value{Int(1)})},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			events := []PrintEvent{}
+			seq := 40
+			got := EvalExprWithOptions(ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "print", Span: span},
+				Args:   tc.args,
+				Span:   span,
+			}, nil, diags, ExprOptions{
+				Context:    EvalCtxBindingAssign,
+				PrintIndex: 3,
+				Print: func(event PrintEvent) {
+					events = append(events, event)
+				},
+				NextPrintSeq: func() int {
+					seq++
+					return seq
+				},
+			})
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if got.Kind != KindNull {
+				t.Fatalf("expected print to return null, got %#v", got)
+			}
+			if len(events) != 1 {
+				t.Fatalf("expected one print event, got %#v", events)
+			}
+			if events[0].Index != 3 || events[0].Seq != 41 || events[0].Span != span {
+				t.Fatalf("unexpected print event metadata: %#v", events[0])
+			}
+			if len(events[0].Values) != len(tc.want) {
+				t.Fatalf("unexpected print values: got=%#v want=%#v", events[0].Values, tc.want)
+			}
+			for i := range tc.want {
+				if !Equal(events[0].Values[i], tc.want[i]) {
+					t.Fatalf("value %d: got=%#v want=%#v", i, events[0].Values[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestEvalPrintCallNoSinkAndClone(t *testing.T) {
+	span := spanAt(331, 1)
+	env := map[string]Value{"x": List([]Value{Int(1)})}
+	diags := &diag.Diagnostics{}
+	events := []PrintEvent{}
+	got := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "print", Span: span},
+		Args:   ast.PosCallArgs(ast.IdentExpr{Name: "x", Span: span}),
+		Span:   span,
+	}, env, diags, ExprOptions{
+		Context: EvalCtxBindingAssign,
+		Print: func(event PrintEvent) {
+			events = append(events, event)
+		},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got.Kind != KindNull {
+		t.Fatalf("expected print to return null, got %#v", got)
+	}
+	mutated := env["x"]
+	mutated.L[0] = Int(99)
+	env["x"] = mutated
+	if len(events) != 1 || len(events[0].Values) != 1 || events[0].Values[0].L[0].I != 1 {
+		t.Fatalf("expected cloned print values, got %#v", events)
+	}
+
+	diags = &diag.Diagnostics{}
+	got = EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "print", Span: span},
+		Args:   ast.PosCallArgs(ast.StringExpr{Value: "quiet", Span: span}),
+		Span:   span,
+	}, nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() || got.Kind != KindNull {
+		t.Fatalf("expected no-sink print to be quiet null, got=%#v diags=%s", got, diags.String())
+	}
+}
+
+func TestEvalPrintBuiltinShadowing(t *testing.T) {
+	span := spanAt(332, 1)
+	call := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "print", Span: span},
+		Span:   span,
+	}
+
+	diags := &diag.Diagnostics{}
+	events := []PrintEvent{}
+	got := EvalExprWithOptions(call, map[string]Value{"print": Int(1)}, diags, ExprOptions{
+		Context: EvalCtxBindingAssign,
+		Print: func(event PrintEvent) {
+			events = append(events, event)
+		},
+	})
+	if got.Kind != KindNull {
+		t.Fatalf("expected null for non-callable shadow, got %#v", got)
+	}
+	if diagCount(diags, "E199") != 1 {
+		t.Fatalf("expected E199 for non-callable shadow, got: %s", diags.String())
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no builtin print event when shadowed, got %#v", events)
+	}
+
+	diags = &diag.Diagnostics{}
+	fn := Function(&FunctionValue{
+		Body: []ast.FuncBodyStmt{
+			ast.ReturnStmt{
+				Expr: ast.NumberExpr{Int: true, IntValue: 7, Raw: "7", Span: span},
+				Span: span,
+			},
+		},
+		Span: span,
+	})
+	got = EvalExprWithOptions(call, map[string]Value{"print": fn}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics for callable shadow: %s", diags.String())
+	}
+	if got.Kind != KindInt || got.I != 7 {
+		t.Fatalf("expected callable shadow result 7, got %#v", got)
 	}
 }
 

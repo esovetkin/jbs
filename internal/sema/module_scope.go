@@ -82,6 +82,7 @@ func emptyModuleScope() *moduleScope {
 		GlobalVarByName:       make(map[string]*GlobalVar),
 		GlobalVarOrder:        make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		PrintEvents:           make([]PrintEvent, 0),
 		LocalExportsByName:    make(map[string]*GlobalVar),
 		ExportsByName:         make(map[string]*GlobalVar),
 		LocalBindings:         make([]*GlobalBinding, 0),
@@ -113,6 +114,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	}
 	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
 	out.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
+	out.PrintEvents = clonePrintEvents(scope.PrintEvents)
 	out.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
 	out.AnalyseBlocks = append([]ast.AnalyseBlock(nil), scope.AnalyseBlocks...)
 	out.StepOrder = append([]string(nil), scope.StepOrder...)
@@ -257,7 +259,22 @@ func cloneTopLevelExprResults(in []TopLevelExprResult) []TopLevelExprResult {
 		return []TopLevelExprResult{}
 	}
 	out := make([]TopLevelExprResult, len(in))
-	copy(out, in)
+	for i, item := range in {
+		out[i] = item
+		out[i].Value = eval.CloneValue(item.Value)
+	}
+	return out
+}
+
+func clonePrintEvents(in []PrintEvent) []PrintEvent {
+	if len(in) == 0 {
+		return []PrintEvent{}
+	}
+	out := make([]PrintEvent, len(in))
+	for i, event := range in {
+		out[i] = event
+		out[i].Values = eval.CloneValues(event.Values)
+	}
 	return out
 }
 

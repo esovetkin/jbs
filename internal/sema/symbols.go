@@ -88,8 +88,17 @@ type Namespace struct {
 
 type TopLevelExprResult struct {
 	Index int
+	Seq   int
 	Span  diag.Span
 	Value eval.Value
+	Echo  bool
+}
+
+type PrintEvent struct {
+	Index  int
+	Seq    int
+	Span   diag.Span
+	Values []eval.Value
 }
 
 type ScopeSnapshot struct {
@@ -109,6 +118,7 @@ type Result struct {
 	GlobalVarByName       map[string]*GlobalVar
 	GlobalVarOrder        []string
 	TopLevelExprs         []TopLevelExprResult
+	PrintEvents           []PrintEvent
 	Bindings              []*GlobalBinding
 	BindingsByName        map[string]*GlobalBinding
 	ScopeSnapshotsByIndex map[int]*ScopeSnapshot

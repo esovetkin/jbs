@@ -140,6 +140,16 @@ When printed in REPL or via `str(...)`, a function value renders as `<function>`
 
 In REPL, use `:help range` or `?range` for a focused page about one internal function.
 
+## `print(...)`
+
+Prints its arguments to command stdout using REPL value rendering:
+
+```jbs
+print("case", [1, 2, 3, 4])
+```
+
+In REPL this prints immediately as an output line. In `jbs run file.jbs`, output from `print(...)` is written before benchmark work starts. Generated `run.sh` stdout remains in workpackage `stdout` files.
+
 ## `tuple()`, `list()`
 
 treat a list as a tuple, and vice versa

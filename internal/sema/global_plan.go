@@ -72,16 +72,19 @@ type globalPlan struct {
 type globalPlanContext struct {
 	InControlBody bool
 	LoopDepth     int
+	OriginIndex   int
 }
 
-func (ctx globalPlanContext) nestedControl() globalPlanContext {
+func (ctx globalPlanContext) nestedControl(originIndex int) globalPlanContext {
 	ctx.InControlBody = true
+	ctx.OriginIndex = originIndex
 	return ctx
 }
 
-func (ctx globalPlanContext) nestedLoop() globalPlanContext {
+func (ctx globalPlanContext) nestedLoop(originIndex int) globalPlanContext {
 	ctx.InControlBody = true
 	ctx.LoopDepth++
+	ctx.OriginIndex = originIndex
 	return ctx
 }
 
@@ -90,6 +93,7 @@ type globalExecResult struct {
 	UserGlobalVarByName   map[string]*GlobalVar
 	UserGlobalOrder       []string
 	TopLevelExprs         []TopLevelExprResult
+	PrintEvents           []PrintEvent
 	ScalarGlobals         GlobalState
 	SnapshotBindings      []*GlobalBinding
 	ScopeSnapshotsByIndex map[int]*ScopeSnapshot

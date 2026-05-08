@@ -9,23 +9,35 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
+type AnalyzeOptions struct {
+	CollectPrints bool
+}
+
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
-	return analyzeProgram(prog, globals, nil, diags)
+	return AnalyzeWithOptions(prog, globals, AnalyzeOptions{}, diags)
+}
+
+func AnalyzeWithOptions(prog ast.Program, globals map[string]eval.Value, opts AnalyzeOptions, diags *diag.Diagnostics) *Result {
+	return analyzeProgram(prog, globals, nil, opts, diags)
 }
 
 func AnalyzeWithImports(loadRes *imports.LoadResult, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
+	return AnalyzeWithImportsOptions(loadRes, globals, AnalyzeOptions{}, diags)
+}
+
+func AnalyzeWithImportsOptions(loadRes *imports.LoadResult, globals map[string]eval.Value, opts AnalyzeOptions, diags *diag.Diagnostics) *Result {
 	if loadRes == nil {
-		return Analyze(ast.Program{}, globals, diags)
+		return AnalyzeWithOptions(ast.Program{}, globals, opts, diags)
 	}
 	entryInfo := loadRes.Modules[loadRes.Entry.ID]
 	prog := ast.Program{}
 	if entryInfo != nil {
 		prog = entryInfo.Program
 	}
-	return analyzeProgram(prog, globals, loadRes, diags)
+	return analyzeProgram(prog, globals, loadRes, opts, diags)
 }
 
-func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *imports.LoadResult, diags *diag.Diagnostics) *Result {
+func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *imports.LoadResult, opts AnalyzeOptions, diags *diag.Diagnostics) *Result {
 	res := &Result{
 		Program:               prog,
 		BaseDirByFile:         make(map[string]string),
@@ -33,6 +45,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		GlobalVarByName:       make(map[string]*GlobalVar),
 		GlobalVarOrder:        make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
+		PrintEvents:           make([]PrintEvent, 0),
 		Bindings:              make([]*GlobalBinding, 0),
 		BindingsByName:        make(map[string]*GlobalBinding),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
@@ -46,7 +59,13 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 
 	var scope *moduleScope
 	if loadRes == nil {
-		exec := execGlobalPlan(buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)), globals, globals, diags)
+		exec := execGlobalPlanWithOptions(
+			buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)),
+			globals,
+			globals,
+			globalExecOptions{CollectPrints: opts.CollectPrints},
+			diags,
+		)
 		scope = emptyModuleScope()
 		scope.Program = prog
 		if baseDir := baseDirForProgramFile(prog.File); baseDir != "" {
@@ -58,6 +77,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
 		scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
+		scope.PrintEvents = clonePrintEvents(exec.PrintEvents)
 		for _, name := range scope.GlobalVarOrder {
 			gv := scope.GlobalVarByName[name]
 			registerModuleExport(scope, name, gv, !isBuiltinGlobalName(name))
@@ -80,7 +100,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		materializeModuleFunctionExports(scope)
 		mergeGlobalVarsIntoState(&scope.Globals, scope.ExportsByName)
 	} else {
-		scope = buildEntryModuleScope(loadRes, globals, diags)
+		scope = buildEntryModuleScope(loadRes, globals, opts, diags)
 		if scope != nil {
 			res.Program = scope.Program
 		}
@@ -96,6 +116,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	res.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	res.GlobalVarByName, res.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
 	res.TopLevelExprs = cloneTopLevelExprResults(scope.TopLevelExprs)
+	res.PrintEvents = clonePrintEvents(scope.PrintEvents)
 	for _, binding := range scope.Bindings {
 		next := cloneBinding(binding)
 		res.Bindings = append(res.Bindings, next)

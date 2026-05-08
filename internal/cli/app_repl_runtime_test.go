@@ -8,6 +8,7 @@ import (
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/valuefmt"
 )
 
 func TestFilterDiagnosticsBySeverity(t *testing.T) {
@@ -26,12 +27,12 @@ func TestFilterDiagnosticsBySeverity(t *testing.T) {
 
 func TestFormatReplValueListTupleTruncation(t *testing.T) {
 	list := eval.List([]eval.Value{eval.Int(0), eval.Int(1), eval.Int(2), eval.Int(3)})
-	if got := formatReplValue(list); got != "[0, 1, 2, ...]" {
+	if got := valuefmt.ReplValue(list); got != "[0, 1, 2, ...]" {
 		t.Fatalf("unexpected list preview: %q", got)
 	}
 
 	tuple := eval.Tuple([]eval.Value{eval.String("a"), eval.String("b")})
-	if got := formatReplValue(tuple); got != "(\"a\", \"b\")" {
+	if got := valuefmt.ReplValue(tuple); got != "(\"a\", \"b\")" {
 		t.Fatalf("unexpected tuple preview: %q", got)
 	}
 }
@@ -46,7 +47,7 @@ func TestFormatReplValueTableSummary(t *testing.T) {
 			{Values: map[string]eval.Cell{"a": {Value: eval.Int(4)}, "b": {Value: eval.String("w")}}},
 		},
 	})
-	got := formatReplValue(comb)
+	got := valuefmt.ReplValue(comb)
 	if !strings.Contains(got, "table(rows=4") {
 		t.Fatalf("expected rows summary, got: %q", got)
 	}
@@ -67,14 +68,14 @@ func TestFormatReplValueTableFallbackColumnOrder(t *testing.T) {
 			},
 		}},
 	})
-	got := formatReplValue(comb)
+	got := valuefmt.ReplValue(comb)
 	if !strings.Contains(got, "cols=[a, z]") {
 		t.Fatalf("expected sorted fallback columns, got: %q", got)
 	}
 }
 
 func TestFormatReplValueFunctionPlaceholder(t *testing.T) {
-	got := formatReplValue(eval.Function(&eval.FunctionValue{}))
+	got := valuefmt.ReplValue(eval.Function(&eval.FunctionValue{}))
 	if got != "<function>" {
 		t.Fatalf("unexpected function preview: %q", got)
 	}
@@ -115,6 +116,89 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 	if second.Source != "a = range(5)\nlen(a)" {
 		t.Fatalf("unexpected committed source: %q", second.Source)
+	}
+}
+
+func TestCommitReplChunkEmitsPrintOutput(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "print(\"x\")")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no print errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "x" {
+		t.Fatalf("unexpected print output: %#v", commit.ExprOutput)
+	}
+
+	blank, err := commitReplChunk(cwd, commit.Source, "print()")
+	if err != nil {
+		t.Fatalf("unexpected blank print error: %v", err)
+	}
+	if blank.HasErrors {
+		t.Fatalf("expected blank print to succeed, diag=%q", blank.DiagText)
+	}
+	if len(blank.ExprOutput) != 1 || blank.ExprOutput[0] != "" {
+		t.Fatalf("expected one blank print line, got %#v", blank.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkMergesPrintAndExpressionOutput(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"print(\"a\")",
+		"1",
+		"print(\"b\")",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
+	}
+	want := []string{"a", "1", "b"}
+	if strings.Join(commit.ExprOutput, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected merged output: got=%#v want=%#v", commit.ExprOutput, want)
+	}
+}
+
+func TestCommitReplChunkPrintInsideFunctionUsesCallChunk(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "f = function() { print(\"x\"); 7 }")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors || len(first.ExprOutput) != 0 {
+		t.Fatalf("expected function definition to be quiet, errors=%v output=%#v diag=%q", first.HasErrors, first.ExprOutput, first.DiagText)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "f()")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected function call to succeed, diag=%q", second.DiagText)
+	}
+	want := []string{"x", "7"}
+	if strings.Join(second.ExprOutput, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected function print output: got=%#v want=%#v", second.ExprOutput, want)
+	}
+}
+
+func TestCommitReplChunkDoesNotEmitPrintOutputOnErrors(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "print(\"x\")\nmissing")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if !commit.HasErrors {
+		t.Fatalf("expected failing chunk")
+	}
+	if len(commit.ExprOutput) != 0 {
+		t.Fatalf("expected no output from failing chunk, got %#v", commit.ExprOutput)
+	}
+	if commit.Source != "" {
+		t.Fatalf("expected source to remain uncommitted, got %q", commit.Source)
 	}
 }
 

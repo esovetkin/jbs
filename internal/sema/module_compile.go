@@ -10,7 +10,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
-func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals map[string]eval.Value, diags *diag.Diagnostics, cache map[string]*moduleScope, visiting map[string]bool) *moduleScope {
+func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals map[string]eval.Value, opts AnalyzeOptions, diags *diag.Diagnostics, cache map[string]*moduleScope, visiting map[string]bool) *moduleScope {
 	if loadRes == nil || ref.ID == "" {
 		return emptyModuleScope()
 	}
@@ -31,14 +31,20 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	childByIndex := make(map[int]*moduleScope, len(info.Uses))
 	prefixedByIndex := make(map[int]*moduleScope, len(info.Uses))
 	for _, use := range info.Uses {
-		child := compileModule(use.Source, loadRes, globals, diags, cache, visiting)
+		child := compileModule(use.Source, loadRes, globals, AnalyzeOptions{}, diags, cache, visiting)
 		childByIndex[use.Index] = child
 		if use.Kind == imports.UseNamespace {
 			prefixedByIndex[use.Index] = prefixModuleScope(child, use.Alias)
 		}
 	}
 
-	exec := execGlobalPlan(buildModuleGlobalPlan(info, childByIndex, prefixedByIndex, globals, diags), globals, globals, diags)
+	exec := execGlobalPlanWithOptions(
+		buildModuleGlobalPlan(info, childByIndex, prefixedByIndex, globals, diags),
+		globals,
+		globals,
+		globalExecOptions{CollectPrints: opts.CollectPrints},
+		diags,
+	)
 	scope := emptyModuleScope()
 	scope.Ref = ref
 	scope.Program = info.Program
@@ -61,6 +67,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	}
 	registerSnapshotBindings(scope, exec.SnapshotBindings)
 	scope.TopLevelExprs = cloneTopLevelExprResults(exec.TopLevelExprs)
+	scope.PrintEvents = clonePrintEvents(exec.PrintEvents)
 	scope.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(exec.ScopeSnapshotsByIndex)
 	scope.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(exec.ScopeSnapshotsByBlock)
 

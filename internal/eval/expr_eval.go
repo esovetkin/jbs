@@ -34,6 +34,9 @@ type ExprOptions struct {
 	Files                           *FileAccess
 	Frame                           *Frame
 	MaxFunctionCallDepth            int
+	Print                           PrintSink
+	PrintIndex                      int
+	NextPrintSeq                    func() int
 }
 
 const MaxLoopIterations = 1000000

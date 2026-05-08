@@ -26,6 +26,13 @@ jbs> names()
 ["jbs_name", "jbs_nproc", "x"]
 ```
 
+Use `print(...)` when you want explicit output without an additional expression echo:
+
+```text
+jbs> print("x", [1, 2, 3, 4])
+x [1, 2, 3, ...]
+```
+
 ## Multi-Line Input
 
 The REPL continues reading while braces, brackets, parentheses, strings, or trailing line continuations remain open.

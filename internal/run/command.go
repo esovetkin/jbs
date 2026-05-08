@@ -6,9 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/valuefmt"
 )
 
 func Run(ctx context.Context, opts Options) error {
@@ -24,6 +27,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	printEvents(opts.Stdout, opts.PrintEvents)
 	ctx, stop := withSignals(ctx, nil)
 	defer stop()
 	progress := NewProgress(opts.Stdout)
@@ -50,6 +54,19 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("benchmark %s", final)
 	}
 	return nil
+}
+
+func printEvents(w io.Writer, events []sema.PrintEvent) {
+	if w == nil || len(events) == 0 {
+		return
+	}
+	ordered := append([]sema.PrintEvent(nil), events...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Seq < ordered[j].Seq
+	})
+	for _, event := range ordered {
+		fmt.Fprintln(w, valuefmt.PrintLine(event.Values))
+	}
 }
 
 func Continue(ctx context.Context, opts Options) error {

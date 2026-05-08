@@ -53,6 +53,36 @@ func CombValue(v *Comb) Value {
 }
 func Function(v *FunctionValue) Value { return Value{Kind: KindFunction, Fn: v} }
 
+func CloneValue(v Value) Value {
+	switch v.Kind {
+	case KindList:
+		return List(CloneValues(v.L))
+	case KindTuple:
+		return Tuple(CloneValues(v.L))
+	case KindComb:
+		if v.C == nil {
+			return CombValue(nil)
+		}
+		return CombValue(&Comb{
+			Order: append([]string(nil), v.C.Order...),
+			Rows:  cloneRows(v.C.Rows),
+		})
+	default:
+		return v
+	}
+}
+
+func CloneValues(values []Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]Value, len(values))
+	for i, value := range values {
+		out[i] = CloneValue(value)
+	}
+	return out
+}
+
 func IsTuple(v Value) bool {
 	return v.Kind == KindTuple
 }

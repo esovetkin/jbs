@@ -18,6 +18,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"map":      {},
 	"names":    {},
 	"product":  {},
+	"print":    {},
 	"read_csv": {},
 	"reduce":   {},
 	"select":   {},
@@ -74,6 +75,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalAllAnyCall("all", args, at, diags)
 	case "any":
 		return evalAllAnyCall("any", args, at, diags)
+	case "print":
+		return evalPrintCall(args, at, opts)
 	}
 	return evalKernelCall(name, args, at, diags, opts)
 }
