@@ -991,6 +991,47 @@ func TestEvalTupleRepeatZeroCountParamAssignmentMode(t *testing.T) {
 	}
 }
 
+func TestEvalTupleRepeatRejectsHugeOutputWithoutPanic(t *testing.T) {
+	tests := []struct {
+		name  string
+		count int64
+	}{
+		{
+			name:  "overflow",
+			count: math.MaxInt64,
+		},
+		{
+			name:  "over allocation budget",
+			count: int64(maxRepeatOutputUnits/2 + 1),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("repeat panicked: %v", r)
+				}
+			}()
+
+			diags := &diag.Diagnostics{}
+			got := evalParamTupleBinary(
+				"*",
+				Tuple([]Value{Int(1), Int(2)}),
+				Int(tc.count),
+				spanAt(91, 1),
+				diags,
+			)
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if count := diagCount(diags, "E106"); count != 1 {
+				t.Fatalf("expected one E106, got %d: %s", count, diags.String())
+			}
+		})
+	}
+}
+
 func TestEvalTupleArithmeticErrorsInParamMode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2352,6 +2393,76 @@ func TestEvalBinaryStringOperations(t *testing.T) {
 			}
 			if count := diagCount(diags, tc.wantError); count != 1 {
 				t.Fatalf("expected one %s, got %d: %s", tc.wantError, count, diags.String())
+			}
+		})
+	}
+}
+
+func TestEvalStringRepeatRejectsHugeOutputWithoutPanic(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  Value
+		right Value
+	}{
+		{
+			name:  "left string overflow",
+			left:  String("ab"),
+			right: Int(math.MaxInt64),
+		},
+		{
+			name:  "right string overflow",
+			left:  Int(math.MaxInt64),
+			right: String("ab"),
+		},
+		{
+			name:  "over allocation budget",
+			left:  String("ab"),
+			right: Int(int64(maxRepeatOutputUnits/2 + 1)),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("repeat panicked: %v", r)
+				}
+			}()
+
+			diags := &diag.Diagnostics{}
+			got := evalBinary("*", tc.left, tc.right, spanAt(90, 1), diags, ExprOptions{}, &evalCtx{overflowWarned: map[string]struct{}{}})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if count := diagCount(diags, "E105"); count != 1 {
+				t.Fatalf("expected one E105, got %d: %s", count, diags.String())
+			}
+		})
+	}
+}
+
+func TestCheckedRepeatSize(t *testing.T) {
+	tests := []struct {
+		name        string
+		elementSize int
+		count       int64
+		wantTotal   int
+		wantOK      bool
+	}{
+		{name: "zero count", elementSize: 8, count: 0, wantTotal: 0, wantOK: true},
+		{name: "zero element", elementSize: 0, count: 100, wantTotal: 0, wantOK: true},
+		{name: "normal", elementSize: 2, count: 3, wantTotal: 6, wantOK: true},
+		{name: "negative", elementSize: 2, count: -1, wantOK: false},
+		{name: "overflow", elementSize: 2, count: math.MaxInt64, wantOK: false},
+		{name: "budget", elementSize: 2, count: int64(maxRepeatOutputUnits/2 + 1), wantOK: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			total, _, ok := checkedRepeatSize(tc.elementSize, tc.count, diag.CodeE106, "test repetition", spanAt(92, 1), diags)
+			if ok != tc.wantOK || total != tc.wantTotal {
+				t.Fatalf("checkedRepeatSize() total=%d ok=%v, want total=%d ok=%v", total, ok, tc.wantTotal, tc.wantOK)
 			}
 		})
 	}

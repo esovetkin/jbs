@@ -1298,6 +1298,43 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 	}
 }
 
+const maxRepeatOutputUnits = 1 << 20
+
+func maxHostInt64() int64 {
+	return int64(^uint(0) >> 1)
+}
+
+func checkedRepeatSize(elementSize int, count int64, code diag.Code, subject string, at diag.Span, diags *diag.Diagnostics) (int, int, bool) {
+	if count < 0 {
+		diags.AddError(code, subject+" count must be non-negative", at, "use an integer value >= 0")
+		return 0, 0, false
+	}
+
+	maxInt := maxHostInt64()
+	if count > maxInt {
+		diags.AddError(code, subject+" count is too large", at, "use a smaller repeat count")
+		return 0, 0, false
+	}
+
+	repeatCount := int(count)
+	if elementSize == 0 || repeatCount == 0 {
+		return 0, repeatCount, true
+	}
+
+	if int64(elementSize) > maxInt/count {
+		diags.AddError(code, subject+" result is too large", at, "use a smaller repeat count")
+		return 0, 0, false
+	}
+
+	total := elementSize * repeatCount
+	if total > maxRepeatOutputUnits {
+		diags.AddError(code, subject+" result is too large", at, "use a smaller repeat count")
+		return 0, 0, false
+	}
+
+	return total, repeatCount, true
+}
+
 func evalStringRepeat(str Value, count Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if count.Kind != KindInt {
 		diags.AddError(diag.CodeE105, "string '*' requires integer repeat count", at, "use string * int or int * string")
@@ -1307,12 +1344,16 @@ func evalStringRepeat(str Value, count Value, at diag.Span, diags *diag.Diagnost
 		diags.AddError(diag.CodeE105, "string repetition count must be non-negative", at, "use an integer value >= 0")
 		return Null()
 	}
-	maxInt := int64(^uint(0) >> 1)
-	if count.I > maxInt {
-		diags.AddError(diag.CodeE105, "string repetition count is too large", at, "use a smaller repeat count")
+
+	total, repeatCount, ok := checkedRepeatSize(len(str.S), count.I, diag.CodeE105, "string repetition", at, diags)
+	if !ok {
 		return Null()
 	}
-	return String(strings.Repeat(str.S, int(count.I)))
+	if total == 0 {
+		return String("")
+	}
+
+	return String(strings.Repeat(str.S, repeatCount))
 }
 
 func evalParamTupleBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics) Value {
@@ -1335,11 +1376,17 @@ func evalParamTupleBinary(op string, l, r Value, at diag.Span, diags *diag.Diagn
 			diags.AddError(diag.CodeE106, "tuple repetition count must be non-negative", at, "use an integer value >= 0")
 			return Null()
 		}
-		if len(l.L) == 0 || r.I == 0 {
+
+		total, repeatCount, ok := checkedRepeatSize(len(l.L), r.I, diag.CodeE106, "tuple repetition", at, diags)
+		if !ok {
+			return Null()
+		}
+		if total == 0 {
 			return Tuple(nil)
 		}
-		items := make([]Value, 0, len(l.L)*int(r.I))
-		for i := int64(0); i < r.I; i++ {
+
+		items := make([]Value, 0, total)
+		for i := 0; i < repeatCount; i++ {
 			items = append(items, l.L...)
 		}
 		return Tuple(items)
