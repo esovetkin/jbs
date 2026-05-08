@@ -21,6 +21,7 @@ type runtimePlan struct {
 	Bodies    map[string]string
 	Analyses  map[string]AnalysePlan
 	SourceDir string
+	NoStrict  bool
 }
 
 func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error) {
@@ -117,7 +118,7 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 			Values: values,
 		})
 	}
-	return runtimePlan{WorkPlan: wp, Manifest: manifest, Bodies: bodies, Analyses: analyses, SourceDir: sourceDir}, nil
+	return runtimePlan{WorkPlan: wp, Manifest: manifest, Bodies: bodies, Analyses: analyses, SourceDir: sourceDir, NoStrict: opts.NoStrict}, nil
 }
 
 func sourceDirForRun(opts Options) (string, error) {

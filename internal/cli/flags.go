@@ -26,6 +26,7 @@ type Flags struct {
 	Input      string
 	Run        bool
 	Continue   bool
+	NoStrict   bool
 	Output     string
 	Repl       bool
 	Check      bool
@@ -59,12 +60,7 @@ func ParseFlags(args []string) (Flags, error) {
 		return Flags{}, UsageError{Message: "usage: jbs repl"}
 	}
 	if args[0] == "run" {
-		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
-			cfg.Run = true
-			cfg.Input = args[1]
-			return cfg, nil
-		}
-		return Flags{}, UsageError{Message: "usage: jbs run <file.jbs>"}
+		return parseRunArgs(args[1:])
 	}
 	if args[0] == "continue" {
 		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
@@ -143,6 +139,11 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.Help = true
 		case arg == "-c" || arg == "--check":
 			cfg.Check = true
+		case arg == "--no-strict":
+			if cfg.NoStrict {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			cfg.NoStrict = true
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: fmt.Sprintf("unknown option: %s", arg)}
 		default:
@@ -152,6 +153,9 @@ func ParseFlags(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: fmt.Sprintf("unexpected extra arguments: [%s]", arg)}
 			}
 		}
+	}
+	if cfg.NoStrict && (cfg.Check || cfg.Help || cfg.Input == "") {
+		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
 	if cfg.Input != "" && !cfg.Check && !cfg.Help {
 		cfg.Run = true
@@ -163,12 +167,13 @@ func UsageText() string {
 	return `Usage:
 
 Run:
-  jbs input.jbs
-  jbs run input.jbs
+  jbs input.jbs [--no-strict]
+  jbs run input.jbs [--no-strict]
   jbs continue input.jbs
 
 Options:
-  -c, --check    Parse+validate only
+  --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse+validate only
 
 Read examples/help:
   jbs help [analyse|do|functions|globals|repl|use]
@@ -183,6 +188,38 @@ Format jbs in place:
 Interactive mode:
   jbs
   jbs repl`
+}
+
+func parseRunArgs(args []string) (Flags, error) {
+	cfg := Flags{Run: true, Output: "-"}
+	for _, arg := range args {
+		switch {
+		case arg == "--no-strict":
+			if cfg.NoStrict {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.NoStrict = true
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: runUsageMessage()}
+		default:
+			if cfg.Input != "" {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.Input = arg
+		}
+	}
+	if cfg.Input == "" {
+		return Flags{}, UsageError{Message: runUsageMessage()}
+	}
+	return cfg, nil
+}
+
+func runUsageMessage() string {
+	return "usage: jbs run [--no-strict] <file.jbs>"
+}
+
+func defaultRunUsageMessage() string {
+	return "usage: jbs [--no-strict] <file.jbs>"
 }
 
 func isKnownHelpTopic(topic string) bool {

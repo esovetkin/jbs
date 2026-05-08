@@ -24,6 +24,9 @@ func TestRenderRunScriptUsesFinalAbsolutePathsAndSourceDir(t *testing.T) {
 	if strings.Contains(script, ".creating-") {
 		t.Fatalf("script leaked staging path:\n%s", script)
 	}
+	if !strings.Contains(script, "\nset -euo pipefail\n\n") {
+		t.Fatalf("script missing strict mode:\n%s", script)
+	}
 	for _, want := range []string{
 		"export JBS_RUN_DIR='/tmp/project/bench/000000'",
 		"export JBS_WORK_DIR='/tmp/project/bench/000000/s/000001'",
@@ -48,5 +51,23 @@ func TestRenderRunScriptRejectsRelativePathVariables(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected relative JBS_RUN_DIR to be rejected")
+	}
+}
+
+func TestRenderRunScriptNoStrictOmitsStrictMode(t *testing.T) {
+	script, err := renderRunScript(runScriptSpec{
+		RunDir:    "/tmp/project/bench/000000",
+		WorkDir:   "/tmp/project/bench/000000/s/000000",
+		SourceDir: "/tmp/project",
+		StepName:  "s",
+		Work:      ManifestWork{Step: "s", Row: 0, Values: map[string]string{}},
+		Body:      "true\n",
+		NoStrict:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(script, "set -euo pipefail") {
+		t.Fatalf("script should not contain strict mode:\n%s", script)
 	}
 }

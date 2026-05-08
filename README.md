@@ -76,14 +76,14 @@ jbs fmt taster.jbs
 ## Commands
 
 ```text
-jbs <file.jbs>                 run a benchmark
-jbs run <file.jbs>             run a benchmark
-jbs continue <file.jbs>        resume an interrupted benchmark
-jbs --check <file.jbs>         parse and validate only
-jbs printparam [opts] <file>   print expanded step parameters
-jbs fmt [-s|--strict] <file>   format a script in place
-jbs help [topic]               show built-in help
-jbs repl                       start the REPL
+jbs <file.jbs> [--no-strict]      run a benchmark
+jbs run <file.jbs> [--no-strict]  run a benchmark
+jbs continue <file.jbs>           resume an interrupted benchmark
+jbs --check <file.jbs>            parse and validate only
+jbs printparam [opts] <file>      print expanded step parameters
+jbs fmt [-s|--strict] <file>      format a script in place
+jbs help [topic]                  show built-in help
+jbs repl                          start the REPL
 ```
 
 Help topics:
@@ -128,4 +128,3 @@ See [docs/language.md](docs/language.md) for details.
 - it's a language, not a configuration file
 
   benchmark parameter space can be done programmatically
-

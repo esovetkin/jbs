@@ -62,7 +62,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runPrintParam(flags, stdout, stderr)
 	}
 	if flags.Run {
-		return runBenchmark(flags.Input, stdout, stderr)
+		return runBenchmark(flags.Input, flags.NoStrict, stdout, stderr)
 	}
 	if flags.Continue {
 		return continueBenchmark(flags.Input, stdout, stderr)
@@ -75,7 +75,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
-	return runBenchmark(flags.Input, stdout, stderr)
+	return runBenchmark(flags.Input, flags.NoStrict, stdout, stderr)
 }
 
 func checkInput(path string, stdout, stderr io.Writer) int {
@@ -95,7 +95,7 @@ func checkInput(path string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runBenchmark(path string, stdout, stderr io.Writer) int {
+func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(path, diags)
 	if err != nil {
@@ -113,6 +113,7 @@ func runBenchmark(path string, stdout, stderr io.Writer) int {
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
+		NoStrict:    noStrict,
 		Stdout:      stdout,
 		Stderr:      stderr,
 	}); err != nil {

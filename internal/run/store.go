@@ -62,7 +62,7 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 
 	manifest := plan.Manifest
 	manifest.CreatedAt = time.Now().UTC()
-	if err := populateRunTree(staging, finalAbs, sourceDirAbs, manifest, plan.Bodies, plan.Analyses); err != nil {
+	if err := populateRunTree(staging, finalAbs, sourceDirAbs, manifest, plan.Bodies, plan.Analyses, plan.NoStrict); err != nil {
 		return nil, err
 	}
 	if err := fsutil.WriteJSONAtomic(filepath.Join(staging, "manifest.json"), manifest, 0o644, durableWrite); err != nil {
@@ -122,7 +122,7 @@ func LoadRootStatus(path string) (RootStatus, error) {
 	return status, err
 }
 
-func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Manifest, bodies map[string]string, analyses map[string]AnalysePlan) error {
+func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Manifest, bodies map[string]string, analyses map[string]AnalysePlan, noStrict bool) error {
 	steps := make(map[string]ManifestStep, len(manifest.Steps))
 	for _, step := range manifest.Steps {
 		steps[step.Name] = step
@@ -177,6 +177,7 @@ func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Mani
 			StepName:  work.Step,
 			Work:      work,
 			Body:      bodies[work.Step],
+			NoStrict:  noStrict,
 		})
 		if err != nil {
 			return err

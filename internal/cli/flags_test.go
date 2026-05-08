@@ -17,12 +17,13 @@ func mustParseFlags(t *testing.T, args []string) Flags {
 
 func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 	cases := []struct {
-		name       string
-		args       []string
-		wantInput  string
-		wantOutput string
-		wantCheck  bool
-		wantRun    bool
+		name         string
+		args         []string
+		wantInput    string
+		wantOutput   string
+		wantCheck    bool
+		wantRun      bool
+		wantNoStrict bool
 	}{
 		{
 			name:       "defaults",
@@ -54,6 +55,38 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantCheck:  false,
 			wantRun:    true,
 		},
+		{
+			name:         "run_command_no_strict_after_input",
+			args:         []string{"run", "input.jbs", "--no-strict"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantRun:      true,
+			wantNoStrict: true,
+		},
+		{
+			name:         "run_command_no_strict_before_input",
+			args:         []string{"run", "--no-strict", "input.jbs"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantRun:      true,
+			wantNoStrict: true,
+		},
+		{
+			name:         "default_run_no_strict_after_input",
+			args:         []string{"input.jbs", "--no-strict"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantRun:      true,
+			wantNoStrict: true,
+		},
+		{
+			name:         "default_run_no_strict_before_input",
+			args:         []string{"--no-strict", "input.jbs"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantRun:      true,
+			wantNoStrict: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -71,6 +104,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
+			}
+			if f.NoStrict != tc.wantNoStrict {
+				t.Fatalf("unexpected no-strict flag: got=%v want=%v", f.NoStrict, tc.wantNoStrict)
 			}
 		})
 	}
@@ -331,8 +367,15 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
 		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
+		{name: "run_duplicate_no_strict", args: []string{"run", "--no-strict", "--no-strict", "input.jbs"}},
+		{name: "run_no_strict_missing_input", args: []string{"run", "--no-strict"}},
 		{name: "run_rejects_option", args: []string{"run", "-o", "out.yaml", "input.jbs"}},
+		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
+		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
+		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
+		{name: "default_duplicate_no_strict", args: []string{"--no-strict", "--no-strict", "input.jbs"}},
+		{name: "default_no_strict_missing_input", args: []string{"--no-strict"}},
 		{name: "repl_extra_argument", args: []string{"repl", "extra"}},
 		{name: "too_many_args", args: []string{"a.jbs", "b.jbs"}},
 	}

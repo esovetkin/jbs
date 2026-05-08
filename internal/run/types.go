@@ -12,6 +12,7 @@ type Options struct {
 	Result      *sema.Result
 	Sources     map[string]string
 	ProgramFile string
+	NoStrict    bool
 	Stdout      io.Writer
 	Stderr      io.Writer
 }

@@ -130,6 +130,96 @@ func TestRunCommandRunScriptExportsFinalDirectories(t *testing.T) {
 	}
 }
 
+func TestRunCommandUsesStrictShellByDefault(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`echo before`,
+		`false`,
+		`echo after`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected strict run to fail\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	workDir := filepath.Join(runDir, "s", "000000")
+	script := readFileString(t, filepath.Join(workDir, "run.sh"))
+	if !strings.Contains(script, "\nset -euo pipefail\n\n") {
+		t.Fatalf("run.sh missing strict mode:\n%s", script)
+	}
+	out := readFileString(t, filepath.Join(workDir, "stdout"))
+	if !strings.Contains(out, "before\n") || strings.Contains(out, "after\n") {
+		t.Fatalf("unexpected strict stdout: %q", out)
+	}
+	status := readRootStatus(t, filepath.Join(runDir, "status"))
+	if status.Status != jbsrun.StatusError {
+		t.Fatalf("unexpected strict root status: %#v", status)
+	}
+}
+
+func TestDefaultRunNoStrictOmitsStrictShell(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`echo before`,
+		`false`,
+		`echo after`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{input, "--no-strict"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("no-strict run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	workDir := filepath.Join(runDir, "s", "000000")
+	script := readFileString(t, filepath.Join(workDir, "run.sh"))
+	if strings.Contains(script, "set -euo pipefail") {
+		t.Fatalf("run.sh should not contain strict mode:\n%s", script)
+	}
+	out := readFileString(t, filepath.Join(workDir, "stdout"))
+	if !strings.Contains(out, "before\n") || !strings.Contains(out, "after\n") {
+		t.Fatalf("unexpected no-strict stdout: %q", out)
+	}
+	status := readRootStatus(t, filepath.Join(runDir, "status"))
+	if status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected no-strict root status: %#v", status)
+	}
+}
+
 func TestContinueRejectsRunningRoot(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
