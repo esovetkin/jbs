@@ -10,6 +10,7 @@ import (
 
 type globalExecOptions struct {
 	CollectPrints bool
+	ShellRunner   eval.ShellRunner
 }
 
 func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalExecResult {
@@ -46,6 +47,8 @@ type globalSeqEngine struct {
 	namespaces          map[string]*Namespace
 	snapshotNames       map[string]struct{}
 	collectPrints       bool
+	shellRunner         eval.ShellRunner
+	shellUses           []string
 	outputSeq           int
 	res                 *globalExecResult
 }
@@ -90,6 +93,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		namespaces:          make(map[string]*Namespace),
 		snapshotNames:       make(map[string]struct{}),
 		collectPrints:       opts.CollectPrints,
+		shellRunner:         opts.ShellRunner,
 		res:                 res,
 	}
 }
@@ -134,6 +138,8 @@ func (e *globalSeqEngine) evalOptions(step globalInputStep) eval.ExprOptions {
 		Names:                           e.currentNameCatalog(),
 		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
 		Frame:                           e.rootFrame,
+		ShellRunner:                     e.shellRunner,
+		ShellUse:                        e.recordShellUse,
 	}
 	if e.collectPrints {
 		opts.Print = e.recordPrintEvent
@@ -155,6 +161,19 @@ func (e *globalSeqEngine) recordPrintEvent(event eval.PrintEvent) {
 		Span:   event.Span,
 		Values: eval.CloneValues(event.Values),
 	})
+}
+
+func (e *globalSeqEngine) recordShellUse(event eval.ShellUseEvent) {
+	if event.Name == "" {
+		return
+	}
+	e.shellUses = append(e.shellUses, event.Name)
+}
+
+func (e *globalSeqEngine) takeShellUses() []string {
+	uses := uniqueSortedNamesExcept(e.shellUses, "")
+	e.shellUses = nil
+	return uses
 }
 
 func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) globalStepResult {
@@ -203,6 +222,7 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 
 	before := errorCount(e.diags)
 	value := eval.EvalExprWithOptions(effective, nil, e.diags, e.evalOptions(step))
+	shellDeps := e.takeShellUses()
 	if errorCount(e.diags) > before {
 		return
 	}
@@ -217,6 +237,7 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	}
 
 	directDeps := globalExprDependencies(effective, assign.Name)
+	directDeps = append(directDeps, shellDeps...)
 	directDeps = append(directDeps, guardDeps...)
 	directDeps = uniqueSortedNamesExcept(directDeps, assign.Name)
 	orderNames, vars := globalVarSeries(assign.Name, value)
@@ -241,21 +262,25 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) g
 		return globalStepResult{}
 	}
 	cond, ok := eval.EvalBoolCondition(step.IfStmt.Cond, nil, e.diags, e.evalOptions(step))
+	shellDeps := e.takeShellUses()
 	if !ok {
 		return globalStepResult{}
 	}
 	checkedDeps := append([]string(nil), guardDeps...)
 	checkedDeps = append(checkedDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
+	checkedDeps = append(checkedDeps, shellDeps...)
 	checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
 	if cond {
 		return e.executeSteps(step.Then, checkedDeps)
 	}
 	for _, branch := range step.Elifs {
 		branchCond, ok := eval.EvalBoolConditionFor("elif", branch.Cond, nil, e.diags, e.evalOptions(step))
+		branchShellDeps := e.takeShellUses()
 		if !ok {
 			return globalStepResult{}
 		}
 		checkedDeps = append(checkedDeps, globalExprDependencies(branch.Cond, "")...)
+		checkedDeps = append(checkedDeps, branchShellDeps...)
 		checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
 		if branchCond {
 			return e.executeSteps(branch.Body, checkedDeps)
@@ -269,12 +294,14 @@ func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) 
 		return globalStepResult{}
 	}
 	iterable := eval.EvalExprWithOptions(step.ForStmt.Iterable, nil, e.diags, e.evalOptions(step))
+	shellDeps := e.takeShellUses()
 	items, ok := eval.IterableElements(iterable, exprSpan(step.ForStmt.Iterable), e.diags)
 	if !ok {
 		return globalStepResult{}
 	}
 	loopDeps := append([]string(nil), guardDeps...)
 	loopDeps = append(loopDeps, globalExprDependencies(step.ForStmt.Iterable, "")...)
+	loopDeps = append(loopDeps, shellDeps...)
 	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
 	for i, item := range items {
 		if i >= eval.MaxLoopIterations {
@@ -312,10 +339,14 @@ func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string
 			return globalStepResult{}
 		}
 		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, e.evalOptions(step))
+		shellDeps := e.takeShellUses()
 		if !ok || !cond {
 			return globalStepResult{}
 		}
-		result := e.executeSteps(step.Body, loopDeps)
+		iterDeps := append([]string(nil), loopDeps...)
+		iterDeps = append(iterDeps, shellDeps...)
+		iterDeps = uniqueSortedNamesExcept(iterDeps, "")
+		result := e.executeSteps(step.Body, iterDeps)
 		switch result.Signal {
 		case globalLoopBreak:
 			return globalStepResult{}
@@ -424,6 +455,7 @@ func (e *globalSeqEngine) evalExprStep(step globalInputStep) {
 	}
 	beforeSeq := e.outputSeq
 	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, e.evalOptions(step))
+	e.takeShellUses()
 	echo := true
 	if value.Kind == eval.KindNull && e.outputSeq > beforeSeq {
 		echo = false

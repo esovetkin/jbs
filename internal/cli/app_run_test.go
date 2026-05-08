@@ -107,6 +107,108 @@ func TestRunCommandSupportsBoolConversionInWorkpackages(t *testing.T) {
 	}
 }
 
+func TestRunCommandSupportsShellCompileTimeFunction(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`value = shell("printf hi")`,
+		`do s with value {`,
+		`printf "%s\n" "$value"`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "stdout"))
+	if workOut != "hi\n" {
+		t.Fatalf("expected shell result in workpackage stdout, got %q", workOut)
+	}
+	script := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "run.sh"))
+	if strings.Contains(script, `shell("printf hi")`) {
+		t.Fatalf("compile-time shell call leaked into run.sh:\n%s", script)
+	}
+}
+
+func TestCheckReportsShellCommandFailure(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(`value = shell("printf shellerr >&2; exit 7")`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected check failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "shell() command failed with exit code 7") || !strings.Contains(errText, "shellerr") {
+		t.Fatalf("expected shell failure diagnostic with stderr, got:\n%s", errText)
+	}
+}
+
+func TestRunShellNonScalarWarningDoesNotAbort(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`xs = [1]`,
+		`value = shell("printf ok $xs")`,
+		`do s {`,
+		`true`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run with shell warning failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "shell() referenced non-scalar JBS variable 'xs'") {
+		t.Fatalf("expected non-scalar shell warning, got:\n%s", stderr.String())
+	}
+	status := readRootStatus(t, filepath.Join(cwd, "bench", "000000", "status"))
+	if status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected root status after warning: %#v", status)
+	}
+}
+
 func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

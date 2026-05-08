@@ -1,4 +1,4 @@
-package sema
+package shellref
 
 import (
 	"unicode"
@@ -6,27 +6,28 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-type shellScanState uint8
+type Ref struct {
+	Name string
+	Span diag.Span
+}
+
+type scanState uint8
 
 const (
-	shellScanCode shellScanState = iota
-	shellScanSingleQuote
-	shellScanDoubleQuote
-	shellScanComment
+	scanCode scanState = iota
+	scanSingleQuote
+	scanDoubleQuote
+	scanComment
 )
 
-// collectShellLikeRefs scans shell-like text to detect unqualified variable
-// references for W310/W311 usage accounting. This scanner is intentionally
-// lightweight and context-aware (comments/quotes), not a full shell parser.
-
-func collectShellLikeRefs(text string, base diag.Position, file string) []varRef {
+func Collect(text string, base diag.Position, file string) []Ref {
 	runes := []rune(text)
-	refs := make([]varRef, 0)
+	refs := make([]Ref, 0)
 	line := base.Line
 	col := base.Column
 	off := base.Offset
 	i := 0
-	state := shellScanCode
+	state := scanCode
 
 	advance := func() {
 		if i >= len(runes) {
@@ -49,7 +50,7 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 	}
 	appendRef := func(name string, start diag.Position) {
 		end := diag.NewPos(off, line, col)
-		refs = append(refs, varRef{
+		refs = append(refs, Ref{
 			Name: name,
 			Span: diag.NewSpan(file, start, end),
 		})
@@ -76,21 +77,21 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 
 	for i < len(runes) {
 		switch state {
-		case shellScanCode:
+		case scanCode:
 			curr := runes[i]
 			if curr == '\'' {
 				advance()
-				state = shellScanSingleQuote
+				state = scanSingleQuote
 				continue
 			}
 			if curr == '"' {
 				advance()
-				state = shellScanDoubleQuote
+				state = scanDoubleQuote
 				continue
 			}
 			if curr == '#' && isCommentStart(runes, i) {
 				advance()
-				state = shellScanComment
+				state = scanComment
 				continue
 			}
 			if curr == '$' && !isEscapedDollar(runes, i) {
@@ -99,14 +100,14 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 				continue
 			}
 			advance()
-		case shellScanSingleQuote:
+		case scanSingleQuote:
 			if runes[i] == '\'' {
 				advance()
-				state = shellScanCode
+				state = scanCode
 				continue
 			}
 			advance()
-		case shellScanDoubleQuote:
+		case scanDoubleQuote:
 			curr := runes[i]
 			if curr == '\\' {
 				advance()
@@ -117,7 +118,7 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 			}
 			if curr == '"' {
 				advance()
-				state = shellScanCode
+				state = scanCode
 				continue
 			}
 			if curr == '$' && !isEscapedDollar(runes, i) {
@@ -126,10 +127,10 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 				continue
 			}
 			advance()
-		case shellScanComment:
+		case scanComment:
 			if runes[i] == '\n' {
 				advance()
-				state = shellScanCode
+				state = scanCode
 				continue
 			}
 			advance()
@@ -139,6 +140,23 @@ func collectShellLikeRefs(text string, base diag.Position, file string) []varRef
 		}
 	}
 	return refs
+}
+
+func Names(text string) []string {
+	refs := Collect(text, diag.Position{}, "")
+	out := make([]string, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref.Name == "" {
+			continue
+		}
+		if _, ok := seen[ref.Name]; ok {
+			continue
+		}
+		seen[ref.Name] = struct{}{}
+		out = append(out, ref.Name)
+	}
+	return out
 }
 
 func isEscapedDollar(runes []rune, idx int) bool {

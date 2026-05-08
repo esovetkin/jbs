@@ -11,6 +11,7 @@ import (
 
 type AnalyzeOptions struct {
 	CollectPrints bool
+	ShellRunner   eval.ShellRunner
 }
 
 func Analyze(prog ast.Program, globals map[string]eval.Value, diags *diag.Diagnostics) *Result {
@@ -63,7 +64,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)),
 			globals,
 			globals,
-			globalExecOptions{CollectPrints: opts.CollectPrints},
+			globalExecOptions{CollectPrints: opts.CollectPrints, ShellRunner: opts.ShellRunner},
 			diags,
 		)
 		scope = emptyModuleScope()

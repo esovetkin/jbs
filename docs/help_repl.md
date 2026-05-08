@@ -33,6 +33,13 @@ jbs> print("x", [1, 2, 3, 4])
 x [1, 2, 3, ...]
 ```
 
+`shell(...)` also works in the REPL and runs during chunk evaluation:
+
+```text
+jbs> shell("printf hi")
+hi
+```
+
 ## Multi-Line Input
 
 The REPL continues reading while braces, brackets, parentheses, strings, or trailing line continuations remain open.

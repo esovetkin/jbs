@@ -7,14 +7,23 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellref"
 )
+
+func refNames(refs []varRef) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, ref.Name)
+	}
+	return out
+}
 
 func TestCollectShellLikeRefsRespectsQuotesCommentsAndSpans(t *testing.T) {
 	base := diag.NewPos(40, 3, 7)
 	text := "echo '$skip' \"$keep ${braced} \\$escaped\" # $comment\n" +
 		"next ${after} \\$ignored"
 
-	refs := collectShellLikeRefs(text, base, "scan.jbs")
+	refs := shellRefsToVarRefs(shellref.Collect(text, base, "scan.jbs"))
 	got := refNames(refs)
 	want := []string{"keep", "braced", "after"}
 	if !reflect.DeepEqual(got, want) {
@@ -39,7 +48,7 @@ func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 	if got := collectExprStringRefs(nil); got != nil {
 		t.Fatalf("expected nil for nil expr, got %#v", got)
 	}
-	if got := collectExprStringRefsWith(nil, collectShellLikeRefs); got != nil {
+	if got := collectExprStringRefsWith(nil, collectShellStringRefs); got != nil {
 		t.Fatalf("expected nil for nil expr in walker, got %#v", got)
 	}
 	if got := collectExprStringRefsWith(ast.StringExpr{Value: "$x", Span: sp0}, nil); got != nil {
@@ -192,81 +201,7 @@ func TestCollectEvalStringRefsWithTraversesListsAndDefaultBase(t *testing.T) {
 	}
 }
 
-func TestParseHelpersAndSanitizeStepName(t *testing.T) {
-	if end, ok := parseBareVarName([]rune("abc123 rest"), 0); !ok || end != 6 {
-		t.Fatalf("parseBareVarName valid case = (%d,%v), want (6,true)", end, ok)
-	}
-	if _, ok := parseBareVarName([]rune("1abc"), 0); ok {
-		t.Fatalf("parseBareVarName should reject digit start")
-	}
-
-	tests := []struct {
-		expr     string
-		start    int
-		wantName string
-		wantEnd  int
-		wantOK   bool
-	}{
-		{expr: "${x}", start: 2, wantName: "x", wantEnd: 3, wantOK: true},
-		{expr: "${#x}", start: 2, wantName: "x", wantEnd: 4, wantOK: true},
-		{expr: "${!x}", start: 2, wantName: "x", wantEnd: 4, wantOK: true},
-		{expr: "${x:-${y}}", start: 2, wantName: "x", wantEnd: 9, wantOK: true},
-		{expr: "${x\\}}", start: 2, wantName: "x", wantEnd: 5, wantOK: true},
-		{expr: "${}", start: 2, wantOK: false},
-		{expr: "${#1}", start: 2, wantOK: false},
-		{expr: "${x", start: 2, wantOK: false},
-	}
-	for _, tc := range tests {
-		gotName, gotEnd, gotOK := parseBracedVarRef([]rune(tc.expr), tc.start)
-		if gotName != tc.wantName || gotEnd != tc.wantEnd || gotOK != tc.wantOK {
-			t.Fatalf("parseBracedVarRef(%q,%d) = (%q,%d,%v), want (%q,%d,%v)", tc.expr, tc.start, gotName, gotEnd, gotOK, tc.wantName, tc.wantEnd, tc.wantOK)
-		}
-	}
-
-	commentTests := []struct {
-		text string
-		idx  int
-		want bool
-	}{
-		{text: "#x", idx: 0, want: true},
-		{text: "a#x", idx: 1, want: false},
-		{text: " #x", idx: 1, want: true},
-		{text: ";#x", idx: 1, want: true},
-		{text: "x", idx: 0, want: false},
-		{text: "#", idx: -1, want: false},
-		{text: "#", idx: 2, want: false},
-	}
-	for _, tc := range commentTests {
-		if got := isCommentStart([]rune(tc.text), tc.idx); got != tc.want {
-			t.Fatalf("isCommentStart(%q,%d) = %v, want %v", tc.text, tc.idx, got, tc.want)
-		}
-	}
-
-	boundaryTests := []struct {
-		r    rune
-		want bool
-	}{
-		{r: ' ', want: true},
-		{r: '\t', want: true},
-		{r: '\n', want: true},
-		{r: '\r', want: true},
-		{r: ';', want: true},
-		{r: '|', want: true},
-		{r: '&', want: true},
-		{r: '(', want: true},
-		{r: ')', want: true},
-		{r: '{', want: true},
-		{r: '}', want: true},
-		{r: 'a', want: false},
-		{r: '_', want: false},
-		{r: '.', want: false},
-	}
-	for _, tc := range boundaryTests {
-		if got := isShellCommentBoundary(tc.r); got != tc.want {
-			t.Fatalf("isShellCommentBoundary(%q) = %v, want %v", tc.r, got, tc.want)
-		}
-	}
-
+func TestSanitizeStepName(t *testing.T) {
 	sanitizeTests := []struct {
 		in   string
 		want string

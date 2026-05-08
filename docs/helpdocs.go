@@ -49,6 +49,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "reduce", File: "function_help/reduce.md"},
 	{Name: "rev", File: "function_help/rev.md"},
 	{Name: "select", File: "function_help/select.md"},
+	{Name: "shell", File: "function_help/shell.md"},
 	{Name: "str", File: "function_help/str.md"},
 	{Name: "table", File: "function_help/table.md"},
 	{Name: "t", File: "function_help/table.md", AliasOf: "table"},

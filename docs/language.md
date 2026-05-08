@@ -24,6 +24,12 @@ Top-level expression statements are evaluated. In files they are mainly useful f
 
 `print(...)` writes explicit output using the same value rendering as the REPL. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.
 
+## Compile-Time And Runtime
+
+Global assignments, imports, top-level expressions, functions called from those expressions, `read_csv(...)`, `print(...)`, and `shell(...)` are evaluated before benchmark work starts. `shell(...)` runs in the source file's directory, captures stdout as a string, and can export currently assigned scalar JBS variables referenced as shell variables.
+
+`do` block bodies run later as generated `run.sh` scripts inside workpackage directories. Their stdout and stderr are stored in each workpackage's output files.
+
 ## Built-In Globals
 
 `jbs_name` names the benchmark directory. It defaults to `jbs_benchmark` and must evaluate to a string.

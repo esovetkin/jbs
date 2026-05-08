@@ -4,10 +4,15 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellref"
 )
 
 func collectExprStringRefs(expr ast.Expr) []varRef {
-	return collectExprStringRefsWith(expr, collectShellLikeRefs)
+	return collectExprStringRefsWith(expr, collectShellStringRefs)
+}
+
+func collectShellStringRefs(text string, base diag.Position, file string) []varRef {
+	return shellRefsToVarRefs(shellref.Collect(text, base, file))
 }
 
 func collectExprIdentRefs(expr ast.Expr) []varRef {

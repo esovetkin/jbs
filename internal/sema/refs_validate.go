@@ -16,6 +16,7 @@ import (
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellref"
 )
 
 type varRef struct {
@@ -167,7 +168,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		if base.Line == 0 {
 			base = block.Span.Start
 		}
-		refs := collectShellLikeRefs(block.Body, base, block.Span.File)
+		refs := shellRefsToVarRefs(shellref.Collect(block.Body, base, block.Span.File))
 		effectiveImports := resolveEffectiveImports(block.Name, bindings)
 		candidatesByVar := stepWarningCandidates(res, catalog, block.Name, snap)
 		processStepWithImports(block.Name, effectiveImports, refs, candidatesByVar)
@@ -241,4 +242,12 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			related...,
 		)
 	}
+}
+
+func shellRefsToVarRefs(refs []shellref.Ref) []varRef {
+	out := make([]varRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, varRef{Name: ref.Name, Span: ref.Span})
+	}
+	return out
 }

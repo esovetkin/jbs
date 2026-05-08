@@ -37,6 +37,8 @@ type ExprOptions struct {
 	Print                           PrintSink
 	PrintIndex                      int
 	NextPrintSeq                    func() int
+	ShellRunner                     ShellRunner
+	ShellUse                        func(ShellUseEvent)
 }
 
 const MaxLoopIterations = 1000000

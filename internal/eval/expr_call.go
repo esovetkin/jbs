@@ -23,6 +23,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"read_csv": {},
 	"reduce":   {},
 	"select":   {},
+	"shell":    {},
 	"str":      {},
 	"table":    {},
 	"t":        {},
@@ -55,6 +56,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalMapCall(rawArgs, env, at, diags, opts, ctx)
 	case "reduce":
 		return evalReduceCall(rawArgs, env, at, diags, opts, ctx)
+	case "shell":
+		return evalShellCall(rawArgs, env, at, diags, opts, ctx)
 	}
 	args := make([]Value, 0, len(rawArgs))
 	for _, arg := range rawArgs {

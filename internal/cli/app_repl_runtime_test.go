@@ -145,6 +145,20 @@ func TestCommitReplChunkEmitsPrintOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkShellExpressionOutput(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", `shell("printf hi")`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected shell expression to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "hi" {
+		t.Fatalf("unexpected shell expression output: %#v", commit.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkMergesPrintAndExpressionOutput(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", strings.Join([]string{

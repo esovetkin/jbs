@@ -150,6 +150,23 @@ print("case", [1, 2, 3, 4])
 
 In REPL this prints immediately as an output line. In `jbs run file.jbs`, output from `print(...)` is written before benchmark work starts. Generated `run.sh` stdout remains in workpackage `stdout` files.
 
+## `shell(...)`
+
+Runs a shell command while JBS is being evaluated and returns stdout as a string:
+
+```jbs
+hostname = shell("hostname")
+x = 1
+x_text = shell("echo $x")
+raw = shell("printf 'a\n'", strip=false)
+```
+
+By default, one trailing newline is removed. Use `strip=false` to keep stdout unchanged.
+
+Scalar JBS variables referenced as `$name` or `${name}` are exported to the shell command. Unknown or currently unassigned names remain ordinary shell variables. Referencing a non-scalar JBS value this way emits a warning and exports that name as an empty string.
+
+If the shell command cannot start or exits non-zero, evaluation fails. Non-zero exit diagnostics include the exit code and stderr.
+
 ## `tuple()`, `list()`
 
 treat a list as a tuple, and vice versa
