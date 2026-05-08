@@ -29,6 +29,24 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	}
 	final := filepath.Join(root, runID)
 	staging := filepath.Join(root, fmt.Sprintf(".creating-%s-%d", runID, os.Getpid()))
+	finalAbs, err := filepath.Abs(final)
+	if err != nil {
+		return nil, fmt.Errorf("resolve run directory %q: %w", final, err)
+	}
+	sourceDirAbs := plan.SourceDir
+	if sourceDirAbs == "" {
+		sourceDirAbs, err = os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("determine source directory: %w", err)
+		}
+	}
+	if !filepath.IsAbs(sourceDirAbs) {
+		sourceDirAbs, err = filepath.Abs(sourceDirAbs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve source directory %q: %w", plan.SourceDir, err)
+		}
+	}
+	sourceDirAbs = filepath.Clean(sourceDirAbs)
 	if err := os.Mkdir(staging, 0o755); err != nil {
 		return nil, err
 	}
@@ -41,7 +59,7 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 
 	manifest := plan.Manifest
 	manifest.CreatedAt = time.Now().UTC()
-	if err := populateRunTree(staging, manifest, plan.Bodies, plan.Analyses); err != nil {
+	if err := populateRunTree(staging, finalAbs, sourceDirAbs, manifest, plan.Bodies, plan.Analyses); err != nil {
 		return nil, err
 	}
 	if err := writeJSONAtomic(filepath.Join(staging, "manifest.json"), manifest, 0o644); err != nil {
@@ -97,11 +115,11 @@ func LoadRootStatus(path string) (RootStatus, error) {
 	return status, err
 }
 
-func populateRunTree(runDir string, manifest Manifest, bodies map[string]string, analyses map[string]AnalysePlan) error {
+func populateRunTree(stagingRunDir, finalRunDir, sourceDir string, manifest Manifest, bodies map[string]string, analyses map[string]AnalysePlan) error {
 	steps := make(map[string]ManifestStep, len(manifest.Steps))
 	for _, step := range manifest.Steps {
 		steps[step.Name] = step
-		stepDir := filepath.Join(runDir, step.Dir)
+		stepDir := filepath.Join(stagingRunDir, step.Dir)
 		if err := os.MkdirAll(stepDir, 0o755); err != nil {
 			return err
 		}
@@ -124,7 +142,7 @@ func populateRunTree(runDir string, manifest Manifest, bodies map[string]string,
 		if !ok {
 			return fmt.Errorf("unknown step %q in manifest work", work.Step)
 		}
-		workDir := filepathForWork(runDir, step, work)
+		workDir := filepathForWork(stagingRunDir, step, work)
 		if err := os.MkdirAll(workDir, 0o755); err != nil {
 			return err
 		}
@@ -137,7 +155,7 @@ func populateRunTree(runDir string, manifest Manifest, bodies map[string]string,
 			if !ok {
 				return fmt.Errorf("unknown dependency workpackage %s", workKey(dep.Step, dep.Row))
 			}
-			target, err := filepath.Rel(workDir, filepathForWork(runDir, depStep, depWork))
+			target, err := filepath.Rel(workDir, filepathForWork(stagingRunDir, depStep, depWork))
 			if err != nil {
 				return err
 			}
@@ -145,7 +163,18 @@ func populateRunTree(runDir string, manifest Manifest, bodies map[string]string,
 				return err
 			}
 		}
-		if err := os.WriteFile(filepath.Join(workDir, "run.sh"), []byte(renderRunScript(runDir, work.Step, work, step, bodies[work.Step])), 0o755); err != nil {
+		script, err := renderRunScript(runScriptSpec{
+			RunDir:    finalRunDir,
+			WorkDir:   filepathForWork(finalRunDir, step, work),
+			SourceDir: sourceDir,
+			StepName:  work.Step,
+			Work:      work,
+			Body:      bodies[work.Step],
+		})
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(workDir, "run.sh"), []byte(script), 0o755); err != nil {
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(workDir, "stdout"), nil, 0o644); err != nil {

@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"maps"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -10,13 +11,32 @@ import (
 
 var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func renderRunScript(runDir, stepName string, work ManifestWork, step ManifestStep, body string) string {
-	workDir := filepathForWork(runDir, step, work)
+type runScriptSpec struct {
+	RunDir    string
+	WorkDir   string
+	SourceDir string
+	StepName  string
+	Work      ManifestWork
+	Body      string
+}
+
+func renderRunScript(spec runScriptSpec) (string, error) {
+	paths := map[string]string{
+		"JBS_RUN_DIR":  filepath.Clean(spec.RunDir),
+		"JBS_SRC_DIR":  filepath.Clean(spec.SourceDir),
+		"JBS_WORK_DIR": filepath.Clean(spec.WorkDir),
+	}
+	for name, path := range paths {
+		if !filepath.IsAbs(path) {
+			return "", fmt.Errorf("%s must be absolute, got %q", name, path)
+		}
+	}
 	values := map[string]string{
-		"JBS_RUN_DIR":  runDir,
-		"JBS_STEP":     stepName,
-		"JBS_ROW":      rowDir(work.Row),
-		"JBS_WORK_DIR": workDir,
+		"JBS_RUN_DIR":  paths["JBS_RUN_DIR"],
+		"JBS_SRC_DIR":  paths["JBS_SRC_DIR"],
+		"JBS_STEP":     spec.StepName,
+		"JBS_ROW":      rowDir(spec.Work.Row),
+		"JBS_WORK_DIR": paths["JBS_WORK_DIR"],
 	}
 
 	var b strings.Builder
@@ -26,13 +46,13 @@ func renderRunScript(runDir, stepName string, work ManifestWork, step ManifestSt
 		fmt.Fprintf(&b, "export %s=%s\n", name, bashQuote(values[name]))
 	}
 	b.WriteString("\n")
-	for _, name := range slices.Sorted(maps.Keys(work.Values)) {
-		fmt.Fprintf(&b, "%s=%s\n", name, bashQuote(work.Values[name]))
+	for _, name := range slices.Sorted(maps.Keys(spec.Work.Values)) {
+		fmt.Fprintf(&b, "%s=%s\n", name, bashQuote(spec.Work.Values[name]))
 	}
 	b.WriteString("\n")
-	b.WriteString(strings.TrimRight(body, "\n"))
+	b.WriteString(strings.TrimRight(spec.Body, "\n"))
 	b.WriteString("\n")
-	return b.String()
+	return b.String(), nil
 }
 
 func bashQuote(s string) string {

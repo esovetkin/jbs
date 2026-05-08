@@ -3,8 +3,11 @@ package run
 import (
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
@@ -13,10 +16,11 @@ import (
 )
 
 type runtimePlan struct {
-	WorkPlan workplan.Plan
-	Manifest Manifest
-	Bodies   map[string]string
-	Analyses map[string]AnalysePlan
+	WorkPlan  workplan.Plan
+	Manifest  Manifest
+	Bodies    map[string]string
+	Analyses  map[string]AnalysePlan
+	SourceDir string
 }
 
 func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error) {
@@ -44,6 +48,10 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 	wp.GlobalNProc = globalNProc
 	if len(wp.Steps) == 0 {
 		return runtimePlan{}, fmt.Errorf("jbs run requires at least one do block")
+	}
+	sourceDir, err := sourceDirForRun(opts)
+	if err != nil {
+		return runtimePlan{}, err
 	}
 
 	usedDirs := make(map[string]struct{})
@@ -109,7 +117,29 @@ func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error
 			Values: values,
 		})
 	}
-	return runtimePlan{WorkPlan: wp, Manifest: manifest, Bodies: bodies, Analyses: analyses}, nil
+	return runtimePlan{WorkPlan: wp, Manifest: manifest, Bodies: bodies, Analyses: analyses, SourceDir: sourceDir}, nil
+}
+
+func sourceDirForRun(opts Options) (string, error) {
+	path := strings.TrimSpace(opts.ProgramFile)
+	if path == "" {
+		path = strings.TrimSpace(opts.Input)
+	}
+	if path == "" || strings.HasPrefix(path, "<") {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("determine source directory: %w", err)
+		}
+		return filepath.Clean(cwd), nil
+	}
+	if !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve source file %q: %w", path, err)
+		}
+		path = abs
+	}
+	return filepath.Dir(filepath.Clean(path)), nil
 }
 
 func benchmarkName(res *sema.Result) (string, error) {

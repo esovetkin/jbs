@@ -56,10 +56,11 @@ Rules:
 
 Each workpackage executes the `do` body in its own work directory. Useful runtime variables include:
 
-- `$JBS_RUN_DIR`
-- `$JBS_STEP`
-- `$JBS_ROW`
-- `$JBS_WORK_DIR`
+- `$JBS_RUN_DIR`: absolute path to the final run directory
+- `$JBS_STEP`: current `do` step name
+- `$JBS_ROW`: zero-padded row/workpackage id
+- `$JBS_WORK_DIR`: absolute path to the current workpackage directory
+- `$JBS_SRC_DIR`: absolute path to the directory containing the entry `.jbs` file
 
 Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`.
 

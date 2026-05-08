@@ -69,6 +69,67 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandRunScriptExportsFinalDirectories(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	srcDir := filepath.Join(cwd, "cases")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "payload.txt"), []byte("payload\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`printf "run=%s\n" "$JBS_RUN_DIR"`,
+		`printf "work=%s\n" "$JBS_WORK_DIR"`,
+		`printf "src=%s\n" "$JBS_SRC_DIR"`,
+		`cat "$JBS_SRC_DIR/payload.txt"`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(srcDir, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	finalRunDir := filepath.Join(cwd, "bench", "000000")
+	finalWorkDir := filepath.Join(finalRunDir, "s", "000000")
+	script := readFileString(t, filepath.Join(finalWorkDir, "run.sh"))
+	if strings.Contains(script, ".creating-") {
+		t.Fatalf("run.sh leaked staging directory:\n%s", script)
+	}
+	if !strings.Contains(script, "export JBS_RUN_DIR='"+finalRunDir+"'") {
+		t.Fatalf("run.sh did not export final run dir:\n%s", script)
+	}
+	if !strings.Contains(script, "export JBS_WORK_DIR='"+finalWorkDir+"'") {
+		t.Fatalf("run.sh did not export final work dir:\n%s", script)
+	}
+	if !strings.Contains(script, "export JBS_SRC_DIR='"+srcDir+"'") {
+		t.Fatalf("run.sh did not export absolute source dir %q:\n%s", srcDir, script)
+	}
+
+	out := readFileString(t, filepath.Join(finalWorkDir, "stdout"))
+	if !strings.Contains(out, "payload\n") {
+		t.Fatalf("JBS_SRC_DIR did not resolve payload file from work dir:\n%s", out)
+	}
+}
+
 func TestContinueRejectsRunningRoot(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -398,6 +459,15 @@ func readRootStatus(t *testing.T, path string) jbsrun.RootStatus {
 		t.Fatal(err)
 	}
 	return status
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func writeRootStatus(t *testing.T, path string, status jbsrun.RootStatus) {
