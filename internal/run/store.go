@@ -106,6 +106,10 @@ func NewStore(runDir string, manifest Manifest, bodies map[string]string) *Store
 	return &Store{RunDir: runDir, Manifest: manifest, steps: steps, work: work, bodies: bodies}
 }
 
+func (s *Store) RunManifest() Manifest {
+	return s.Manifest
+}
+
 func LoadManifest(path string) (Manifest, error) {
 	var manifest Manifest
 	err := fsutil.ReadJSON(path, &manifest)

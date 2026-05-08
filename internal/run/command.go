@@ -27,9 +27,10 @@ func Run(ctx context.Context, opts Options) error {
 	ctx, stop := withSignals(ctx, nil)
 	defer stop()
 	progress := NewProgress(opts.Stdout)
-	final := NewScheduler(store, progress).Run(ctx)
+	schedulerResult := NewScheduler(store, progress).Run(ctx)
+	final := schedulerResult.Status
 	progress.Close(final)
-	message := finalMessage(final)
+	message := schedulerResultMessage(schedulerResult)
 	if final == StatusFinished {
 		if err := RunAnalyses(store, plan.Analyses); err != nil {
 			final = StatusError
@@ -43,6 +44,9 @@ func Run(ctx context.Context, opts Options) error {
 		printAnalyseTables(opts.Stdout, store)
 	}
 	if final != StatusFinished {
+		if schedulerResult.Err != nil {
+			return fmt.Errorf("benchmark %s: %w", final, schedulerResult.Err)
+		}
 		return fmt.Errorf("benchmark %s", final)
 	}
 	return nil
@@ -96,9 +100,10 @@ func Continue(ctx context.Context, opts Options) error {
 	ctx, stop := withSignals(ctx, unlockOnce)
 	defer stop()
 	progress := NewProgress(opts.Stdout)
-	final := NewScheduler(store, progress).Run(ctx)
+	schedulerResult := NewScheduler(store, progress).Run(ctx)
+	final := schedulerResult.Status
 	progress.Close(final)
-	message := finalMessage(final)
+	message := schedulerResultMessage(schedulerResult)
 	if final == StatusFinished {
 		if err := RunAnalyses(store, plan.Analyses); err != nil {
 			final = StatusError
@@ -112,9 +117,19 @@ func Continue(ctx context.Context, opts Options) error {
 		printAnalyseTables(opts.Stdout, store)
 	}
 	if final != StatusFinished {
+		if schedulerResult.Err != nil {
+			return fmt.Errorf("benchmark %s: %w", final, schedulerResult.Err)
+		}
 		return fmt.Errorf("benchmark %s", final)
 	}
 	return nil
+}
+
+func schedulerResultMessage(result SchedulerResult) string {
+	if result.Err != nil {
+		return result.Err.Error()
+	}
+	return finalMessage(result.Status)
 }
 
 func finalMessage(final Status) string {

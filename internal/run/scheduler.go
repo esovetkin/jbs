@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -38,8 +39,23 @@ type workDone struct {
 	result processResult
 }
 
+var runWorkProcess = runProcess
+
+type SchedulerResult struct {
+	Status Status
+	Err    error
+}
+
+type schedulerStore interface {
+	RunManifest() Manifest
+	WorkDir(ManifestWork) string
+	LoadWorkStatus(ManifestWork) (WorkStatus, error)
+	WriteWorkStatus(ManifestWork, WorkStatus) error
+}
+
 type Scheduler struct {
-	store     *Store
+	store     schedulerStore
+	manifest  Manifest
 	progress  *Progress
 	statuses  map[string]Status
 	children  map[string][]string
@@ -50,32 +66,37 @@ type Scheduler struct {
 	running   map[string]ManifestWork
 }
 
-func NewScheduler(store *Store, progress *Progress) *Scheduler {
+func NewScheduler(store schedulerStore, progress *Progress) *Scheduler {
+	manifest := store.RunManifest()
 	s := &Scheduler{
 		store:     store,
+		manifest:  manifest,
 		progress:  progress,
 		statuses:  make(map[string]Status),
 		children:  make(map[string][]string),
 		depsLeft:  make(map[string]int),
 		workByKey: make(map[string]ManifestWork),
-		global:    newLimiter(store.Manifest.GlobalNProc),
+		global:    newLimiter(manifest.GlobalNProc),
 		steps:     make(map[string]*limiter),
 		running:   make(map[string]ManifestWork),
 	}
-	for _, step := range store.Manifest.Steps {
+	for _, step := range manifest.Steps {
 		stepLimiter := newLimiter(step.NProc)
 		s.steps[step.Name] = &stepLimiter
 	}
-	for _, work := range store.Manifest.Work {
+	for _, work := range manifest.Work {
 		key := workKey(work.Step, work.Row)
 		s.workByKey[key] = work
 	}
 	return s
 }
 
-func (s *Scheduler) Run(ctx context.Context) Status {
+func (s *Scheduler) Run(ctx context.Context) SchedulerResult {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if err := s.loadStatuses(); err != nil {
-		return StatusError
+		return schedulerError(fmt.Errorf("load work statuses: %w", err))
 	}
 	s.progress.Update(s.snapshot())
 	ready := s.initialReady()
@@ -89,31 +110,47 @@ func (s *Scheduler) Run(ctx context.Context) Status {
 			}
 			work := ready[idx]
 			ready = append(ready[:idx], ready[idx+1:]...)
-			s.start(ctx, work, done)
+			if err := s.start(ctx, work, done); err != nil {
+				cancel()
+				return s.finishWithSchedulerError(done, err)
+			}
 			started = true
 		}
 		if s.allTerminal() {
-			return s.finalStatus()
+			return SchedulerResult{Status: s.finalStatus()}
 		}
 		if ctx.Err() != nil {
-			s.waitForRunning(done)
-			return StatusInterrupted
+			if err := s.waitForRunning(done); err != nil {
+				return schedulerError(err)
+			}
+			return SchedulerResult{Status: StatusInterrupted}
 		}
 		if !started && len(s.running) == 0 && len(ready) == 0 {
-			return s.finalStatus()
+			return SchedulerResult{Status: s.finalStatus()}
 		}
 		select {
 		case result := <-done:
-			ready = append(ready, s.finish(result)...)
+			next, err := s.finish(result)
+			if err != nil {
+				cancel()
+				return s.finishWithSchedulerError(done, err)
+			}
+			ready = append(ready, next...)
 		case <-ctx.Done():
-			s.waitForRunning(done)
-			return StatusInterrupted
+			if err := s.waitForRunning(done); err != nil {
+				return schedulerError(err)
+			}
+			return SchedulerResult{Status: StatusInterrupted}
 		}
 	}
 }
 
+func schedulerError(err error) SchedulerResult {
+	return SchedulerResult{Status: StatusError, Err: err}
+}
+
 func (s *Scheduler) loadStatuses() error {
-	for _, work := range s.store.Manifest.Work {
+	for _, work := range s.manifest.Work {
 		status, err := s.store.LoadWorkStatus(work)
 		if err != nil {
 			return err
@@ -121,7 +158,7 @@ func (s *Scheduler) loadStatuses() error {
 		key := workKey(work.Step, work.Row)
 		s.statuses[key] = status.Status
 	}
-	for _, work := range s.store.Manifest.Work {
+	for _, work := range s.manifest.Work {
 		key := workKey(work.Step, work.Row)
 		for _, dep := range work.Deps {
 			depKey := workKey(dep.Step, dep.Row)
@@ -136,7 +173,7 @@ func (s *Scheduler) loadStatuses() error {
 
 func (s *Scheduler) initialReady() []ManifestWork {
 	ready := make([]ManifestWork, 0)
-	for _, work := range s.store.Manifest.Work {
+	for _, work := range s.manifest.Work {
 		key := workKey(work.Step, work.Row)
 		status := s.statuses[key]
 		if status == StatusFinished || status == StatusRunning {
@@ -162,27 +199,33 @@ func (s *Scheduler) firstStartable(ready []ManifestWork) int {
 	return -1
 }
 
-func (s *Scheduler) start(ctx context.Context, work ManifestWork, done chan<- workDone) {
+func (s *Scheduler) start(ctx context.Context, work ManifestWork, done chan<- workDone) error {
 	key := workKey(work.Step, work.Row)
 	s.global.acquire()
 	s.steps[work.Step].acquire()
-	s.running[key] = work
-	s.statuses[key] = StatusRunning
 	now := time.Now().UTC()
 	status := WorkStatus{Schema: 1, Status: StatusRunning, Step: work.Step, Row: work.Row, StartedAt: &now}
-	_ = s.store.WriteWorkStatus(work, status)
+	if err := s.store.WriteWorkStatus(work, status); err != nil {
+		s.global.release()
+		s.steps[work.Step].release()
+		s.statuses[key] = StatusError
+		s.progress.Update(s.snapshot())
+		return fmt.Errorf("persist RUNNING status for %s: %w", key, err)
+	}
+	s.running[key] = work
+	s.statuses[key] = StatusRunning
 	s.progress.Update(s.snapshot())
 	go func() {
-		done <- workDone{key: key, work: work, result: runProcess(ctx, s.store.WorkDir(work))}
+		done <- workDone{key: key, work: work, result: runWorkProcess(ctx, s.store.WorkDir(work))}
 	}()
+	return nil
 }
 
-func (s *Scheduler) finish(done workDone) []ManifestWork {
+func (s *Scheduler) finish(done workDone) ([]ManifestWork, error) {
 	delete(s.running, done.key)
 	s.global.release()
 	s.steps[done.work.Step].release()
 	status := done.result.Status
-	s.statuses[done.key] = status
 	now := time.Now().UTC()
 	msg := ""
 	if done.result.Err != nil {
@@ -197,18 +240,32 @@ func (s *Scheduler) finish(done workDone) []ManifestWork {
 		ExitCode:   done.result.ExitCode,
 		Error:      msg,
 	}
-	_ = s.store.WriteWorkStatus(done.work, workStatus)
-	if status == StatusError {
-		s.markBlocked(done.key, fmt.Sprintf("dependency %s failed", done.key))
+	if err := s.store.WriteWorkStatus(done.work, workStatus); err != nil {
+		s.statuses[done.key] = StatusError
 		s.progress.Update(s.snapshot())
-		return nil
+		return nil, fmt.Errorf("persist final status for %s: %w", done.key, err)
+	}
+	s.statuses[done.key] = status
+	if status == StatusError {
+		if err := s.markBlocked(done.key, fmt.Sprintf("dependency %s failed", done.key)); err != nil {
+			s.progress.Update(s.snapshot())
+			return nil, err
+		}
+		s.progress.Update(s.snapshot())
+		return nil, nil
 	}
 	if status == StatusInterrupted {
 		s.progress.Update(s.snapshot())
-		return nil
+		return nil, nil
 	}
+	ready := s.releaseChildren(done.key)
+	s.progress.Update(s.snapshot())
+	return ready, nil
+}
+
+func (s *Scheduler) releaseChildren(parentKey string) []ManifestWork {
 	ready := make([]ManifestWork, 0)
-	for _, childKey := range s.children[done.key] {
+	for _, childKey := range s.children[parentKey] {
 		if s.statuses[childKey] == StatusFinished {
 			continue
 		}
@@ -219,11 +276,11 @@ func (s *Scheduler) finish(done workDone) []ManifestWork {
 			ready = append(ready, s.workByKey[childKey])
 		}
 	}
-	s.progress.Update(s.snapshot())
 	return ready
 }
 
-func (s *Scheduler) markBlocked(parentKey string, message string) {
+func (s *Scheduler) markBlocked(parentKey string, message string) error {
+	var out error
 	for _, childKey := range s.children[parentKey] {
 		if s.statuses[childKey] == StatusFinished || s.statuses[childKey] == StatusRunning || s.statuses[childKey] == StatusError {
 			continue
@@ -232,19 +289,36 @@ func (s *Scheduler) markBlocked(parentKey string, message string) {
 		s.statuses[childKey] = StatusError
 		now := time.Now().UTC()
 		status := WorkStatus{Schema: 1, Status: StatusError, Step: work.Step, Row: work.Row, FinishedAt: &now, Error: message}
-		_ = s.store.WriteWorkStatus(work, status)
-		s.markBlocked(childKey, message)
+		if err := s.store.WriteWorkStatus(work, status); err != nil {
+			out = errors.Join(out, fmt.Errorf("persist blocked status for %s: %w", childKey, err))
+			continue
+		}
+		if err := s.markBlocked(childKey, message); err != nil {
+			out = errors.Join(out, err)
+		}
 	}
+	return out
 }
 
-func (s *Scheduler) waitForRunning(done <-chan workDone) {
+func (s *Scheduler) waitForRunning(done <-chan workDone) error {
+	var out error
 	for len(s.running) > 0 {
 		result := <-done
 		if result.result.Status != StatusInterrupted {
 			result.result.Status = StatusInterrupted
 		}
-		s.finish(result)
+		_, err := s.finish(result)
+		out = errors.Join(out, err)
 	}
+	return out
+}
+
+func (s *Scheduler) finishWithSchedulerError(done <-chan workDone, err error) SchedulerResult {
+	if drainErr := s.waitForRunning(done); drainErr != nil {
+		err = errors.Join(err, drainErr)
+	}
+	s.progress.Update(s.snapshot())
+	return schedulerError(err)
 }
 
 func (s *Scheduler) allTerminal() bool {

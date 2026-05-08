@@ -2,6 +2,8 @@ package run
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,9 +54,13 @@ func runProcess(ctx context.Context, workDir string) processResult {
 		err := waitAfterCancellation(cmd, done)
 		result := finishProcess(workDir, cmd, err)
 		result.Status = StatusInterrupted
-		result.Err = ctx.Err()
+		result.Err = errors.Join(result.Err, ctx.Err())
 		return result
 	}
+}
+
+var writeExitCodeFile = func(workDir string, code int) error {
+	return fsutil.WriteFileAtomic(filepath.Join(workDir, "exitcode"), []byte(formatExitCode(code)), 0o644, durableWrite)
 }
 
 func finishProcess(workDir string, cmd *exec.Cmd, err error) processResult {
@@ -62,11 +68,14 @@ func finishProcess(workDir string, cmd *exec.Cmd, err error) processResult {
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
 	}
-	_ = fsutil.WriteFileAtomic(filepath.Join(workDir, "exitcode"), []byte(formatExitCode(code)), 0o644, durableWrite)
-	if err != nil || code != 0 {
-		return processResult{Status: StatusError, ExitCode: &code, Err: err}
+	exitCode := &code
+	if writeErr := writeExitCodeFile(workDir, code); writeErr != nil {
+		return processResult{Status: StatusError, ExitCode: exitCode, Err: errors.Join(err, fmt.Errorf("write exitcode: %w", writeErr))}
 	}
-	return processResult{Status: StatusFinished, ExitCode: &code}
+	if err != nil || code != 0 {
+		return processResult{Status: StatusError, ExitCode: exitCode, Err: err}
+	}
+	return processResult{Status: StatusFinished, ExitCode: exitCode}
 }
 
 func formatExitCode(code int) string {

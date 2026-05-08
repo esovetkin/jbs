@@ -2,8 +2,11 @@ package run
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,6 +77,31 @@ while :; do sleep 0.05; done
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("runProcess did not kill process after grace period")
+	}
+}
+
+func TestFinishProcessReportsExitcodeWriteFailure(t *testing.T) {
+	cmd := exec.Command("/usr/bin/env", "bash", "-c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	old := writeExitCodeFile
+	writeExitCodeFile = func(string, int) error {
+		return errors.New("disk full")
+	}
+	t.Cleanup(func() {
+		writeExitCodeFile = old
+	})
+
+	result := finishProcess(t.TempDir(), cmd, nil)
+	if result.Status != StatusError {
+		t.Fatalf("status = %s, want %s", result.Status, StatusError)
+	}
+	if result.ExitCode == nil || *result.ExitCode != 0 {
+		t.Fatalf("exit code = %v, want 0", result.ExitCode)
+	}
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "write exitcode") {
+		t.Fatalf("error = %v, want exitcode write error", result.Err)
 	}
 }
 
