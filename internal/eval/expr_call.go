@@ -11,6 +11,7 @@ import (
 var specialBuiltinCallNames = map[string]struct{}{
 	"all":      {},
 	"any":      {},
+	"bool":     {},
 	"filter":   {},
 	"float":    {},
 	"int":      {},
@@ -65,7 +66,7 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 	switch name {
 	case "read_csv":
 		return evalReadCSVCall(args, at, diags, opts)
-	case "int", "float", "str":
+	case "bool", "int", "float", "str":
 		return evalUnaryConvertCall(name, args, at, diags)
 	case "len":
 		return evalLenCall(args, at, diags)

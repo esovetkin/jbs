@@ -322,7 +322,7 @@ func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
 
 func TestBuiltinCallNames(t *testing.T) {
 	names := BuiltinCallNames()
-	for _, name := range []string{"range", "rev", "table", "t", "map", "reduce", "print", "read_csv"} {
+	for _, name := range []string{"bool", "range", "rev", "table", "t", "map", "reduce", "print", "read_csv"} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("BuiltinCallNames missing %q: %#v", name, names)
 		}
@@ -346,6 +346,43 @@ func TestBuiltinCallNames(t *testing.T) {
 		if IsBuiltinCallName(name) {
 			t.Fatalf("did not expect %q to be a builtin call name", name)
 		}
+	}
+}
+
+func TestEvalBoolBuiltinShadowing(t *testing.T) {
+	span := spanAt(329, 1)
+	call := ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "bool", Span: span},
+		Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span}),
+		Span:   span,
+	}
+
+	diags := &diag.Diagnostics{}
+	got := EvalExpr(call, map[string]Value{"bool": Int(1)}, diags)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null for non-callable shadow, got %#v", got)
+	}
+	if diagCount(diags, "E199") != 1 {
+		t.Fatalf("expected E199 for non-callable shadow, got: %s", diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	fn := Function(&FunctionValue{
+		Params: []ast.FuncParam{{Name: "x", Span: span}},
+		Body: []ast.FuncBodyStmt{
+			ast.ReturnStmt{
+				Expr: ast.StringExpr{Value: "shadowed", Span: span},
+				Span: span,
+			},
+		},
+		Span: span,
+	})
+	got = EvalExpr(call, map[string]Value{"bool": fn}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics for callable shadow: %s", diags.String())
+	}
+	if got.Kind != KindString || got.S != "shadowed" {
+		t.Fatalf("expected callable shadow result, got %#v", got)
 	}
 }
 

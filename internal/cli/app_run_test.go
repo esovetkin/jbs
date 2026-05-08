@@ -69,6 +69,43 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandSupportsBoolConversionInWorkpackages(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`enabled = bool("yes")`,
+		`do s with enabled {`,
+		`echo "${enabled}"`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "unknown function 'bool'") {
+		t.Fatalf("run reported bool as unknown:\n%s", stderr.String())
+	}
+	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "stdout"))
+	if workOut != "true\n" {
+		t.Fatalf("expected bool cast value in workpackage stdout, got %q", workOut)
+	}
+}
+
 func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

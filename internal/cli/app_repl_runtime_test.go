@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -512,17 +513,18 @@ func TestCommitReplChunkReduceEmptyInputReportsError(t *testing.T) {
 
 func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
 	cwd := t.TempDir()
-	commit, err := commitReplChunk(cwd, "", "int(\"42\")\nfloat(true)\nstr([1,2])")
+	commit, err := commitReplChunk(cwd, "", "int(\"42\")\nfloat(true)\nstr([1,2])\nbool(\"\")\nbool(\"x\")")
 	if err != nil {
 		t.Fatalf("unexpected commit error: %v", err)
 	}
 	if commit.HasErrors {
 		t.Fatalf("expected conversion expressions to succeed, diag=%q", commit.DiagText)
 	}
-	if len(commit.ExprOutput) != 3 {
-		t.Fatalf("expected 3 expr outputs, got %#v", commit.ExprOutput)
+	if len(commit.ExprOutput) != 5 {
+		t.Fatalf("expected 5 expr outputs, got %#v", commit.ExprOutput)
 	}
-	if commit.ExprOutput[0] != "42" || commit.ExprOutput[1] != "1.0" || commit.ExprOutput[2] != "[1,2]" {
+	want := []string{"42", "1.0", "[1,2]", "false", "true"}
+	if !slices.Equal(commit.ExprOutput, want) {
 		t.Fatalf("unexpected conversion expr output: %#v", commit.ExprOutput)
 	}
 }

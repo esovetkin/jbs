@@ -159,11 +159,14 @@ tuple([0,1,2]) * 2 == (0,1,2,0,1,2)
 list((0,1,2)) * 2 == [0,2,4]
 ```
 
-## `int()`, `float()`, `str()`
+## `bool()`, `int()`, `float()`, `str()`
 
 scalar conversions:
 
 ```jbs
+bool("") == false
+bool("x") == true
+bool("false") == true
 int("42") == 42
 int(3.9) == 3
 float("1e3") == 1000.0
@@ -173,6 +176,9 @@ str([1,2]) == "[1,2]"
 
 Rules:
 
+- `bool(...)` accepts any JBS value and applies JBS truthiness
+- empty strings, zero numeric values, `null`, empty lists, empty tuples, and empty tables are false
+- non-empty strings are true, so `bool("false")` is true
 - `int(...)` accepts `int`, `float`, `bool`, and integer strings
 - `int(...)` truncates float input toward zero
 - `float(...)` accepts `int`, `float`, `bool`, and finite numeric strings

@@ -13,6 +13,8 @@ func evalConvert(target string, value Value, at diag.Span, diags *diag.Diagnosti
 		return evalTupleCall([]Value{value}, at, diags)
 	case "list":
 		return evalListCall([]Value{value}, at, diags)
+	case "bool":
+		return convertToBool(value)
 	case "int":
 		return convertToInt(value, at, diags)
 	case "float":
@@ -30,6 +32,11 @@ func evalUnaryConvertCall(name string, args []Value, at diag.Span, diags *diag.D
 		return Null()
 	}
 	return evalConvert(name, args[0], at, diags)
+}
+
+func convertToBool(v Value) Value {
+	b, _ := truthy(v)
+	return Bool(b)
 }
 
 func convertToInt(v Value, at diag.Span, diags *diag.Diagnostics) Value {

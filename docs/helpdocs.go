@@ -33,6 +33,7 @@ type FunctionHelpEntry struct {
 var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "all", File: "function_help/all.md"},
 	{Name: "any", File: "function_help/any.md"},
+	{Name: "bool", File: "function_help/bool.md"},
 	{Name: "filter", File: "function_help/filter.md"},
 	{Name: "float", File: "function_help/float.md"},
 	{Name: "int", File: "function_help/int.md"},

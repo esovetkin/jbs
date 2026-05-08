@@ -1217,7 +1217,7 @@ func TestEvalTupleAndListRejectComb(t *testing.T) {
 
 }
 
-func TestEvalIntFloatStrCalls(t *testing.T) {
+func TestEvalConversionCalls(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     ast.Expr
@@ -1225,6 +1225,151 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 		want     Value
 		diagCode string
 	}{
+		{
+			name: "bool from bool true",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.BoolExpr{Value: true}),
+				Span:   spanAt(200, 1),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from bool false",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.BoolExpr{Value: false}),
+				Span:   spanAt(200, 10),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from zero int",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 0}),
+				Span:   spanAt(200, 20),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from nonzero int",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 1}),
+				Span:   spanAt(200, 30),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from zero float",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.NumberExpr{FloatValue: 0.0}),
+				Span:   spanAt(200, 40),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from nonzero float",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.NumberExpr{FloatValue: 2.5}),
+				Span:   spanAt(200, 50),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from empty string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: ""}),
+				Span:   spanAt(200, 60),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from non-empty string",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.StringExpr{Value: "x"}),
+				Span:   spanAt(200, 70),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from null",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "n"}),
+				Span:   spanAt(200, 80),
+			},
+			env:  map[string]Value{"n": Null()},
+			want: Bool(false),
+		},
+		{
+			name: "bool from empty list",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.ListExpr{}),
+				Span:   spanAt(200, 90),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from non-empty list",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.ListExpr{Items: []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}}}),
+				Span:   spanAt(200, 100),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from empty tuple",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.TupleExpr{}),
+				Span:   spanAt(200, 110),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from non-empty tuple",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.TupleExpr{Items: []ast.Expr{ast.NumberExpr{Int: true, IntValue: 1}}}),
+				Span:   spanAt(200, 120),
+			},
+			want: Bool(true),
+		},
+		{
+			name: "bool from empty table",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
+				Span:   spanAt(200, 130),
+			},
+			env: map[string]Value{
+				"m": CombValue(&Comb{Order: []string{"x"}}),
+			},
+			want: Bool(false),
+		},
+		{
+			name: "bool from non-empty table",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "m"}),
+				Span:   spanAt(200, 140),
+			},
+			env: map[string]Value{
+				"m": CombValue(&Comb{
+					Order: []string{"x"},
+					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+				}),
+			},
+			want: Bool(true),
+		},
 		{
 			name: "int from int",
 			expr: ast.CallExpr{
@@ -1414,11 +1559,29 @@ func TestEvalIntFloatStrCalls(t *testing.T) {
 	}
 }
 
-func TestEvalIntFloatStrArityErrors(t *testing.T) {
+func TestEvalUnaryConversionArityErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		expr ast.Expr
 	}{
+		{
+			name: "bool no args",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Span:   spanAt(217, 1),
+			},
+		},
+		{
+			name: "bool two args",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "bool"},
+				Args: ast.PosCallArgs(
+					ast.NumberExpr{Int: true, IntValue: 1},
+					ast.NumberExpr{Int: true, IntValue: 2},
+				),
+				Span: spanAt(217, 20),
+			},
+		},
 		{
 			name: "int no args",
 			expr: ast.CallExpr{
@@ -1461,6 +1624,21 @@ func TestEvalIntFloatStrArityErrors(t *testing.T) {
 				t.Fatalf("expected one E106, got: %s", diags.String())
 			}
 		})
+	}
+}
+
+func TestEvalBoolConversionDoesNotWarnForExplicitTruthiness(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := EvalExpr(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "bool"},
+		Args:   ast.PosCallArgs(ast.StringExpr{Value: "x"}),
+		Span:   spanAt(221, 1),
+	}, nil, diags)
+	if got.Kind != KindBool || !got.B {
+		t.Fatalf("expected true bool, got %#v", got)
+	}
+	if diagCount(diags, "W101") != 0 {
+		t.Fatalf("explicit bool() should not warn, got: %s", diags.String())
 	}
 }
 
@@ -2153,6 +2331,36 @@ func TestEvalConvert(t *testing.T) {
 			target: "int",
 			input:  String("42"),
 			want:   Int(42),
+		},
+		{
+			name:   "empty string to bool",
+			target: "bool",
+			input:  String(""),
+			want:   Bool(false),
+		},
+		{
+			name:   "non-empty string to bool",
+			target: "bool",
+			input:  String("x"),
+			want:   Bool(true),
+		},
+		{
+			name:   "zero int to bool",
+			target: "bool",
+			input:  Int(0),
+			want:   Bool(false),
+		},
+		{
+			name:   "non-empty tuple to bool",
+			target: "bool",
+			input:  Tuple([]Value{Int(1)}),
+			want:   Bool(true),
+		},
+		{
+			name:   "empty table to bool",
+			target: "bool",
+			input:  CombValue(&Comb{Order: []string{"x"}}),
+			want:   Bool(false),
 		},
 		{
 			name:   "bool to float",
