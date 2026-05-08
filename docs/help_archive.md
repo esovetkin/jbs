@@ -14,6 +14,12 @@ Archive entries are stored as:
 <timestamp>/<jbs_name>/<run_id>/...
 ```
 
+For `jbs_benchmarks` component output, archive entries preserve the component directories:
+
+```text
+<timestamp>/<jbs_name>/<component>/<run_id>/...
+```
+
 Repeated archive calls preserve previous snapshots in the existing archive and add a new timestamp directory. A successful archive removes the original benchmark output directory after the archive file has been written atomically.
 
-Archiving is rejected if any run in the benchmark directory is marked `RUNNING`. Dependency links are stored as symbolic links. External SQLite analyse databases are not included unless the database file is inside the benchmark output directory.
+Archiving is rejected if any run in the benchmark directory, including component run directories, is marked `RUNNING`. Dependency links are stored as symbolic links. External SQLite analyse databases are not included unless the database file is inside the benchmark output directory.

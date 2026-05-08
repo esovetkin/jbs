@@ -118,17 +118,48 @@ func archiveableRuns(root string) ([]string, error) {
 		if !entry.IsDir() || !numericRunDir.MatchString(entry.Name()) {
 			continue
 		}
-		status, err := LoadRootStatus(filepath.Join(root, entry.Name(), "status"))
-		if err != nil {
-			return nil, fmt.Errorf("cannot archive run %s: %w", entry.Name(), err)
-		}
-		if status.Status == StatusRunning {
-			return nil, fmt.Errorf("cannot archive %s: run %s status is RUNNING", root, entry.Name())
+		if err := validateArchiveRun(root, entry.Name()); err != nil {
+			return nil, err
 		}
 		runs = append(runs, entry.Name())
 	}
+	if len(runs) > 0 {
+		slices.Sort(runs)
+		return runs, nil
+	}
+	for _, component := range entries {
+		if !component.IsDir() || strings.HasPrefix(component.Name(), ".") || numericRunDir.MatchString(component.Name()) {
+			continue
+		}
+		componentDir := filepath.Join(root, component.Name())
+		componentEntries, err := os.ReadDir(componentDir)
+		if err != nil {
+			return nil, err
+		}
+		for _, run := range componentEntries {
+			if !run.IsDir() || !numericRunDir.MatchString(run.Name()) {
+				continue
+			}
+			rel := filepath.Join(component.Name(), run.Name())
+			if err := validateArchiveRun(root, rel); err != nil {
+				return nil, err
+			}
+			runs = append(runs, rel)
+		}
+	}
 	slices.Sort(runs)
 	return runs, nil
+}
+
+func validateArchiveRun(root, run string) error {
+	status, err := LoadRootStatus(filepath.Join(root, run, "status"))
+	if err != nil {
+		return fmt.Errorf("cannot archive run %s: %w", run, err)
+	}
+	if status.Status == StatusRunning {
+		return fmt.Errorf("cannot archive %s: run %s status is RUNNING", root, run)
+	}
+	return nil
 }
 
 func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []string) error {
@@ -341,7 +372,7 @@ func appendBenchmarkSnapshot(tw *tar.Writer, root, timestamp string, runs []stri
 	}
 	for _, run := range runs {
 		runPath := filepath.Join(root, run)
-		prefix := path.Join(archiveRoot, run)
+		prefix := path.Join(archiveRoot, filepath.ToSlash(run))
 		if err := appendTree(tw, runPath, prefix); err != nil {
 			return err
 		}
@@ -444,8 +475,7 @@ func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []st
 			continue
 		}
 		relSlash := filepath.ToSlash(rel)
-		first, _, _ := strings.Cut(relSlash, "/")
-		if numericRunDir.MatchString(first) {
+		if isInsideArchivedRun(relSlash, runs) {
 			continue
 		}
 		if _, ok := seen[relSlash]; ok {
@@ -467,4 +497,14 @@ func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []st
 		seen[relSlash] = struct{}{}
 	}
 	return nil
+}
+
+func isInsideArchivedRun(relSlash string, runs []string) bool {
+	for _, run := range runs {
+		runSlash := filepath.ToSlash(run)
+		if relSlash == runSlash || strings.HasPrefix(relSlash, runSlash+"/") {
+			return true
+		}
+	}
+	return false
 }

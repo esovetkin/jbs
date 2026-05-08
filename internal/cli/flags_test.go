@@ -30,6 +30,7 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 		wantFWaitPaths        []string
 		wantDryRun            bool
 		wantNoStrict          bool
+		wantBenchmark         string
 	}{
 		{
 			name:       "defaults",
@@ -148,6 +149,45 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantNoStrict: true,
 		},
 		{
+			name:          "run_command_benchmark_long",
+			args:          []string{"run", "--benchmark", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "run_command_benchmark_long_equals",
+			args:          []string{"run", "--benchmark=small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "run_command_benchmark_short",
+			args:          []string{"run", "-b", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "run_command_benchmark_short_equals",
+			args:          []string{"run", "-b=small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "continue_benchmark",
+			args:          []string{"continue", "-b", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantBenchmark: "small",
+		},
+		{
 			name:       "default_run_dry_run_short_before_input",
 			args:       []string{"-n", "input.jbs"},
 			wantInput:  "input.jbs",
@@ -195,6 +235,22 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantRun:      true,
 			wantNoStrict: true,
 		},
+		{
+			name:          "default_run_benchmark_before_input",
+			args:          []string{"--benchmark", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "default_run_benchmark_after_input",
+			args:          []string{"input.jbs", "-b=small"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantRun:       true,
+			wantBenchmark: "small",
+		},
 	}
 
 	for _, tc := range cases {
@@ -230,6 +286,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.NoStrict != tc.wantNoStrict {
 				t.Fatalf("unexpected no-strict flag: got=%v want=%v", f.NoStrict, tc.wantNoStrict)
+			}
+			if f.Benchmark != tc.wantBenchmark {
+				t.Fatalf("unexpected benchmark flag: got=%q want=%q", f.Benchmark, tc.wantBenchmark)
 			}
 		})
 	}
@@ -494,10 +553,15 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "run_dry_run_missing_input", args: []string{"run", "--dry-run"}},
 		{name: "run_duplicate_no_strict", args: []string{"run", "--no-strict", "--no-strict", "input.jbs"}},
 		{name: "run_no_strict_missing_input", args: []string{"run", "--no-strict"}},
+		{name: "run_duplicate_benchmark", args: []string{"run", "-b", "small", "--benchmark", "large", "input.jbs"}},
+		{name: "run_benchmark_missing_value", args: []string{"run", "-b"}},
+		{name: "run_benchmark_empty_value", args: []string{"run", "--benchmark=", "input.jbs"}},
 		{name: "run_rejects_option", args: []string{"run", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
+		{name: "continue_duplicate_benchmark", args: []string{"continue", "-b", "small", "-b", "large", "input.jbs"}},
+		{name: "continue_benchmark_missing_value", args: []string{"continue", "-b"}},
 		{name: "archive_missing_input", args: []string{"archive"}},
 		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
 		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},
@@ -506,12 +570,16 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "fwait_rejects_option", args: []string{"fwait", "--timeout", "1", "a"}},
 		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
 		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
+		{name: "check_rejects_benchmark", args: []string{"--check", "-b", "small", "input.jbs"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
 		{name: "help_rejects_dry_run", args: []string{"--help", "-n"}},
+		{name: "help_rejects_benchmark", args: []string{"--help", "-b", "small"}},
 		{name: "default_duplicate_dry_run", args: []string{"-n", "--dry-run", "input.jbs"}},
 		{name: "default_dry_run_missing_input", args: []string{"-n"}},
 		{name: "default_duplicate_no_strict", args: []string{"--no-strict", "--no-strict", "input.jbs"}},
 		{name: "default_no_strict_missing_input", args: []string{"--no-strict"}},
+		{name: "default_duplicate_benchmark", args: []string{"-b", "small", "-b", "large", "input.jbs"}},
+		{name: "default_benchmark_missing_input", args: []string{"-b", "small"}},
 		{name: "repl_extra_argument", args: []string{"repl", "extra"}},
 		{name: "too_many_args", args: []string{"a.jbs", "b.jbs"}},
 	}

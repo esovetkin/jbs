@@ -4,8 +4,9 @@ import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 func BuiltinGlobalValues() map[string]eval.Value {
 	return map[string]eval.Value{
-		"jbs_database": eval.String(""),
-		"jbs_name":     eval.String("jbs_benchmark"),
-		"jbs_nproc":    eval.Int(0),
+		"jbs_benchmarks": eval.DictValue(nil),
+		"jbs_database":   eval.String(""),
+		"jbs_name":       eval.String("jbs_benchmark"),
+		"jbs_nproc":      eval.Int(0),
 	}
 }

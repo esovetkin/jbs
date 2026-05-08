@@ -336,7 +336,7 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_database\", \"jbs_name\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_benchmarks\", \"jbs_database\", ...]" {
 		t.Fatalf("unexpected names() expr output: %#v", second.ExprOutput)
 	}
 }
@@ -448,7 +448,7 @@ func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_database\", \"jbs_name\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_benchmarks\", \"jbs_database\", ...]" {
 		t.Fatalf("unexpected names() output for function globals: %#v", second.ExprOutput)
 	}
 }

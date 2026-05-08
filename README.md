@@ -76,9 +76,9 @@ jbs fmt taster.jbs
 ## Commands
 
 ```text
-jbs <file.jbs> [--no-strict]      run a benchmark
-jbs run <file.jbs> [--no-strict]  run a benchmark
-jbs continue <file.jbs>           resume an interrupted benchmark
+jbs <file.jbs> [--no-strict] [-b name]      run a benchmark
+jbs run <file.jbs> [--no-strict] [-b name]  run a benchmark
+jbs continue <file.jbs> [-b name]           resume an interrupted benchmark
 jbs --check <file.jbs>            parse and validate only
 jbs printparam [opts] <file>      print expanded step parameters
 jbs fmt [-s|--strict] <file>      format a script in place
@@ -111,6 +111,7 @@ Top-level assignments define scalar values, lists, tuples, tables, and functions
 
 ```jbs
 jbs_nproc = 8
+jbs_benchmarks = {"small": "analyse_small", "large": ["analyse_large"]}
 jbs_database = "results.sqlite"
 
 do compile nproc 4 {
@@ -120,7 +121,9 @@ do compile nproc 4 {
 
 `jbs_nproc = 0` and `do ... nproc 0` both mean "use the number of available CPUs".
 
-`jbs_database = ""` keeps the default per-step `analyse.csv` files. A non-empty value writes all analyse outputs into one SQLite database, with one table per analysed step and run. Table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`, so later runs accumulate new tables instead of overwriting old ones. Relative database paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted.
+`jbs_benchmarks = {}` keeps the default single benchmark directory named by `jbs_name`. A non-empty dictionary maps component names to analyse block names. Each component is written below `<jbs_name>/<component>/` and runs only the steps needed by its requested analyse blocks. Use `jbs run -b <component> file.jbs` or `jbs continue -b <component> file.jbs` to operate on one component.
+
+`jbs_database = ""` keeps the default per-step `analyse.csv` files. A non-empty value writes all analyse outputs into one SQLite database, with one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`; component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs accumulate new tables instead of overwriting old ones. Relative database paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted.
 
 See [docs/language.md](docs/language.md) for details.
 

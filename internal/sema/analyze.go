@@ -145,5 +145,6 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		spec := compileAnalyseBlock(block, res, diags)
 		res.Analyse = append(res.Analyse, spec)
 	}
+	validateBenchmarksGlobal(res, diags)
 	return res
 }

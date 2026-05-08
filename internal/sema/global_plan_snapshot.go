@@ -111,7 +111,7 @@ func (e *globalSeqEngine) acceptGlobalVar(gv *GlobalVar) bool {
 			return false
 		}
 	}
-	if _, ok := e.scalarSeed[gv.Name]; ok && !isScalarGlobalValue(gv.Value) {
+	if _, ok := e.scalarSeed[gv.Name]; ok && gv.Name != "jbs_benchmarks" && !isScalarGlobalValue(gv.Value) {
 		e.diags.AddError(
 			diag.CodeE304,
 			"global variable '"+gv.Name+"' must be scalar; tuples/lists are not allowed",

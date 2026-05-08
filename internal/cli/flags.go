@@ -35,6 +35,7 @@ type Flags struct {
 	FWaitPaths        []string
 	DryRun            bool
 	NoStrict          bool
+	Benchmark         string
 	Output            string
 	Repl              bool
 	Check             bool
@@ -71,12 +72,7 @@ func ParseFlags(args []string) (Flags, error) {
 		return parseRunArgs(args[1:])
 	}
 	if args[0] == "continue" {
-		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
-			cfg.Continue = true
-			cfg.Input = args[1]
-			return cfg, nil
-		}
-		return Flags{}, UsageError{Message: "usage: jbs continue <file.jbs>"}
+		return parseContinueArgs(args[1:])
 	}
 	if args[0] == "archive" {
 		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
@@ -168,6 +164,24 @@ func ParseFlags(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 			}
 			cfg.NoStrict = true
+		case arg == "-b" || arg == "--benchmark":
+			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			i++
+			cfg.Benchmark = args[i]
+		case strings.HasPrefix(arg, "--benchmark="):
+			value := strings.TrimPrefix(arg, "--benchmark=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			cfg.Benchmark = value
+		case strings.HasPrefix(arg, "-b="):
+			value := strings.TrimPrefix(arg, "-b=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			cfg.Benchmark = value
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: fmt.Sprintf("unknown option: %s", arg)}
 		default:
@@ -178,7 +192,7 @@ func ParseFlags(args []string) (Flags, error) {
 			}
 		}
 	}
-	if (cfg.NoStrict || cfg.DryRun) && (cfg.Check || cfg.Help || cfg.Input == "") {
+	if (cfg.NoStrict || cfg.DryRun || cfg.Benchmark != "") && (cfg.Check || cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
 	if cfg.Input != "" && !cfg.Check && !cfg.Help {
@@ -191,9 +205,9 @@ func UsageText() string {
 	return `Usage:
 
 Run:
-  jbs input.jbs [-n|--dry-run] [--no-strict]
-  jbs run input.jbs [-n|--dry-run] [--no-strict]
-  jbs continue input.jbs
+  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs continue input.jbs [-b|--benchmark <name>]
 
 Archive:
   jbs archive input.jbs
@@ -203,6 +217,8 @@ Wait for files:
 
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
+  -b, --benchmark <name>
+                 Run or continue one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse+validate only
 
@@ -241,7 +257,8 @@ func parseFWaitArgs(args []string) (Flags, error) {
 
 func parseRunArgs(args []string) (Flags, error) {
 	cfg := Flags{Run: true, Output: "-"}
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case arg == "-n" || arg == "--dry-run":
 			if cfg.DryRun {
@@ -253,6 +270,24 @@ func parseRunArgs(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: runUsageMessage()}
 			}
 			cfg.NoStrict = true
+		case arg == "-b" || arg == "--benchmark":
+			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			i++
+			cfg.Benchmark = args[i]
+		case strings.HasPrefix(arg, "--benchmark="):
+			value := strings.TrimPrefix(arg, "--benchmark=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.Benchmark = value
+		case strings.HasPrefix(arg, "-b="):
+			value := strings.TrimPrefix(arg, "-b=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.Benchmark = value
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: runUsageMessage()}
 		default:
@@ -269,11 +304,53 @@ func parseRunArgs(args []string) (Flags, error) {
 }
 
 func runUsageMessage() string {
-	return "usage: jbs run [-n|--dry-run] [--no-strict] <file.jbs>"
+	return "usage: jbs run [-n|--dry-run] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func defaultRunUsageMessage() string {
-	return "usage: jbs [-n|--dry-run] [--no-strict] <file.jbs>"
+	return "usage: jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+}
+
+func parseContinueArgs(args []string) (Flags, error) {
+	cfg := Flags{Continue: true, Output: "-"}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-b" || arg == "--benchmark":
+			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return Flags{}, UsageError{Message: continueUsageMessage()}
+			}
+			i++
+			cfg.Benchmark = args[i]
+		case strings.HasPrefix(arg, "--benchmark="):
+			value := strings.TrimPrefix(arg, "--benchmark=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: continueUsageMessage()}
+			}
+			cfg.Benchmark = value
+		case strings.HasPrefix(arg, "-b="):
+			value := strings.TrimPrefix(arg, "-b=")
+			if cfg.Benchmark != "" || value == "" {
+				return Flags{}, UsageError{Message: continueUsageMessage()}
+			}
+			cfg.Benchmark = value
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: continueUsageMessage()}
+		default:
+			if cfg.Input != "" {
+				return Flags{}, UsageError{Message: continueUsageMessage()}
+			}
+			cfg.Input = arg
+		}
+	}
+	if cfg.Input == "" {
+		return Flags{}, UsageError{Message: continueUsageMessage()}
+	}
+	return cfg, nil
+}
+
+func continueUsageMessage() string {
+	return "usage: jbs continue [-b|--benchmark <name>] <file.jbs>"
 }
 
 func isKnownHelpTopic(topic string) bool {

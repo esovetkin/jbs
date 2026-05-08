@@ -4,11 +4,14 @@ Resume the latest non-running run directory for a benchmark:
 
 ```bash
 jbs continue input.jbs
+jbs continue -b small input.jbs
 ```
 
 Continue only works when the benchmark status is not `RUNNING` and the current source identity matches the run being resumed.
 
 `jbs continue` also starts a run that was prepared with `jbs run --dry-run`, `jbs run -n`, or the `jbs -n input.jbs` shorthand.
+
+When `jbs_benchmarks` is configured, `jbs continue input.jbs` resumes every configured component. Use `-b` or `--benchmark` to resume only one component. A selected component must exist in `jbs_benchmarks`.
 
 Source identity includes every loaded `.jbs` source file's content and loader label. For file modules, the loader label is the cleaned absolute path used to load the file. It is not resolved through symbolic links.
 

@@ -29,6 +29,30 @@ func TestFinalizeRunManifestPrefixesAnalyseTables(t *testing.T) {
 	}
 }
 
+func TestFinalizeRunManifestUsesAnalyseTablePrefix(t *testing.T) {
+	manifest := Manifest{
+		BenchmarkName:       "bench",
+		BenchmarkComponent:  "small",
+		AnalyseTablePrefix:  "bench_small",
+		AnalyseDatabasePath: "/tmp/results.sqlite",
+		Steps: []ManifestStep{{
+			Name:         "run",
+			Dir:          "run",
+			AnalyseTable: "run",
+		}},
+	}
+	got, err := finalizeRunManifest(manifest, "000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Steps[0].AnalyseTable != "bench_small_000001_run" {
+		t.Fatalf("AnalyseTable = %q", got.Steps[0].AnalyseTable)
+	}
+	if err := validateRunManifest(got); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFinalizeRunManifestKeepsCSVMode(t *testing.T) {
 	manifest := Manifest{
 		BenchmarkName: "bench",

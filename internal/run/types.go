@@ -12,6 +12,7 @@ type Options struct {
 	Result      *sema.Result
 	Sources     map[string]string
 	ProgramFile string
+	Benchmark   string
 	NoStrict    bool
 	PrintEvents []sema.PrintEvent
 	Stdout      io.Writer
@@ -53,6 +54,8 @@ type Manifest struct {
 	Schema              int            `json:"schema"`
 	SourceHash          string         `json:"source_hash"`
 	BenchmarkName       string         `json:"benchmark_name"`
+	BenchmarkComponent  string         `json:"benchmark_component,omitempty"`
+	AnalyseTablePrefix  string         `json:"analyse_table_prefix,omitempty"`
 	RunID               string         `json:"run_id"`
 	GlobalNProc         int            `json:"global_nproc"`
 	AnalyseDatabase     string         `json:"analyse_database,omitempty"`

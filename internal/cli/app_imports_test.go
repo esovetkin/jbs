@@ -329,6 +329,7 @@ func TestAnalyzeInputImportedFunctionsCoexistWithDataGlobals(t *testing.T) {
 	}
 	wantNames := eval.List([]eval.Value{
 		eval.String("add"),
+		eval.String("jbs_benchmarks"),
 		eval.String("jbs_database"),
 		eval.String("jbs_name"),
 		eval.String("jbs_nproc"),

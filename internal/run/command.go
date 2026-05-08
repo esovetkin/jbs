@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -17,57 +18,34 @@ import (
 
 func Run(ctx context.Context, opts Options) error {
 	diags := &diag.Diagnostics{}
-	plan, err := buildRuntimePlan(opts, diags)
+	suite, err := buildRuntimeSuitePlan(opts, diags)
 	if err != nil {
 		return err
 	}
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	store, err := CreateRunDirectory(plan.Manifest.BenchmarkName, plan)
+	prepared, err := createPreparedStores(suite.Plans)
 	if err != nil {
 		return err
 	}
 	printEvents(opts.Stdout, opts.PrintEvents)
 	ctx, stop := withSignals(ctx, nil)
 	defer stop()
-	progress := NewProgress(opts.Stdout)
-	schedulerResult := NewScheduler(store, progress).Run(ctx)
-	final := schedulerResult.Status
-	progress.Close(final)
-	message := schedulerResultMessage(schedulerResult)
-	if final == StatusFinished {
-		if err := RunAnalyses(store, plan.Analyses); err != nil {
-			final = StatusError
-			message = err.Error()
-		}
-	}
-	if err := store.MarkRootFinal(final, message); err != nil {
-		return err
-	}
-	if final == StatusFinished {
-		printAnalyseTables(opts.Stdout, store)
-	}
-	if final != StatusFinished {
-		if schedulerResult.Err != nil {
-			return fmt.Errorf("benchmark %s: %w", final, schedulerResult.Err)
-		}
-		return fmt.Errorf("benchmark %s", final)
-	}
-	return nil
+	return runPreparedStores(ctx, opts, prepared, false)
 }
 
 func DryRun(ctx context.Context, opts Options) error {
 	_ = ctx
 	diags := &diag.Diagnostics{}
-	plan, err := buildRuntimePlan(opts, diags)
+	suite, err := buildRuntimeSuitePlan(opts, diags)
 	if err != nil {
 		return err
 	}
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	if _, err := CreateDryRunDirectory(plan.Manifest.BenchmarkName, plan); err != nil {
+	if _, err := createPreparedStores(suite.Plans); err != nil {
 		return err
 	}
 	printEvents(opts.Stdout, opts.PrintEvents)
@@ -89,78 +67,181 @@ func printEvents(w io.Writer, events []sema.PrintEvent) {
 
 func Continue(ctx context.Context, opts Options) error {
 	diags := &diag.Diagnostics{}
-	plan, err := buildRuntimePlan(opts, diags)
+	suite, err := buildRuntimeSuitePlan(opts, diags)
 	if err != nil {
 		return err
 	}
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	unlock, err := acquireExistingRootLock(plan.Manifest.BenchmarkName)
+	prepared, unlock, err := openContinuableStores(suite)
 	if err != nil {
 		return err
 	}
 	unlockOnce := sync.OnceFunc(unlock)
 	defer unlockOnce()
-
-	runDir, err := latestRunDir(plan.Manifest.BenchmarkName)
-	if err != nil {
-		return err
-	}
-	rootStatus, err := LoadRootStatus(filepath.Join(runDir, "status"))
-	if err != nil {
-		return fmt.Errorf("cannot continue incomplete run %s: %w", runDir, err)
-	}
-	if rootStatus.Status == StatusRunning {
-		return fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
-	}
-	if rootStatus.SourceHash != plan.Manifest.SourceHash {
-		return sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
-	}
-	manifest, err := LoadManifest(filepath.Join(runDir, "manifest.json"))
-	if err != nil {
-		return err
-	}
-	if err := validateRunManifest(manifest); err != nil {
-		return fmt.Errorf("cannot continue %s: %w", runDir, err)
-	}
-	if manifest.SourceHash != plan.Manifest.SourceHash {
-		return sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
-	}
-	bodies := plan.Bodies
-	store := NewStore(runDir, manifest, bodies)
-	if err := store.NormalizeStaleRunning(); err != nil {
-		return err
-	}
-	if err := store.MarkRootRunning(); err != nil {
-		return err
-	}
 	ctx, stop := withSignals(ctx, unlockOnce)
 	defer stop()
-	progress := NewProgress(opts.Stdout)
+	return runPreparedStores(ctx, opts, prepared, true)
+}
+
+type preparedStore struct {
+	Plan  runtimePlan
+	Store *Store
+}
+
+type componentResult struct {
+	Label string
+	Store *Store
+	Final Status
+	Err   error
+}
+
+func createPreparedStores(plans []runtimePlan) ([]preparedStore, error) {
+	prepared := make([]preparedStore, 0, len(plans))
+	for _, plan := range plans {
+		store, err := CreateRunDirectoryWithInitial(plan.RootDir, plan, StatusNotStarted)
+		if err != nil {
+			return nil, err
+		}
+		prepared = append(prepared, preparedStore{Plan: plan, Store: store})
+	}
+	return prepared, nil
+}
+
+func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), error) {
+	prepared := make([]preparedStore, 0, len(suite.Plans))
+	unlocks := make([]func(), 0, len(suite.Plans))
+	unlockAll := func() {
+		for i := len(unlocks) - 1; i >= 0; i-- {
+			unlocks[i]()
+		}
+	}
+	for _, plan := range suite.Plans {
+		unlock, err := acquireExistingRootLock(plan.RootDir)
+		if err != nil {
+			unlockAll()
+			return nil, func() {}, err
+		}
+		unlocks = append(unlocks, unlock)
+		runDir, err := latestRunDir(plan.RootDir)
+		if err != nil {
+			unlockAll()
+			if suite.Configured && suite.SelectedName == "" {
+				return nil, func() {}, fmt.Errorf("cannot continue benchmark %q: %w; use --benchmark to continue one component", plan.ComponentName, err)
+			}
+			return nil, func() {}, err
+		}
+		rootStatus, err := LoadRootStatus(filepath.Join(runDir, "status"))
+		if err != nil {
+			unlockAll()
+			return nil, func() {}, fmt.Errorf("cannot continue incomplete run %s: %w", runDir, err)
+		}
+		if rootStatus.Status == StatusRunning {
+			unlockAll()
+			return nil, func() {}, fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
+		}
+		if rootStatus.SourceHash != plan.Manifest.SourceHash {
+			unlockAll()
+			return nil, func() {}, sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
+		}
+		manifest, err := LoadManifest(filepath.Join(runDir, "manifest.json"))
+		if err != nil {
+			unlockAll()
+			return nil, func() {}, err
+		}
+		if err := validateRunManifest(manifest); err != nil {
+			unlockAll()
+			return nil, func() {}, fmt.Errorf("cannot continue %s: %w", runDir, err)
+		}
+		if manifest.SourceHash != plan.Manifest.SourceHash {
+			unlockAll()
+			return nil, func() {}, sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
+		}
+		prepared = append(prepared, preparedStore{Plan: plan, Store: NewStore(runDir, manifest, plan.Bodies)})
+	}
+	return prepared, unlockAll, nil
+}
+
+func runPreparedStores(ctx context.Context, opts Options, prepared []preparedStore, continuing bool) error {
+	results := make([]componentResult, 0, len(prepared))
+	finished := make([]*Store, 0, len(prepared))
+	for i, item := range prepared {
+		if ctx.Err() != nil {
+			results = append(results, componentResult{Label: item.Plan.ComponentName, Store: item.Store, Final: StatusInterrupted, Err: ctx.Err()})
+			break
+		}
+		if len(prepared) > 1 && opts.Stdout != nil {
+			if i > 0 {
+				fmt.Fprintln(opts.Stdout)
+			}
+			fmt.Fprintf(opts.Stdout, "[%s]\n", item.Plan.ComponentName)
+		}
+		result := runOneStore(ctx, item, continuing, opts.Stdout)
+		results = append(results, result)
+		if result.Final == StatusFinished {
+			finished = append(finished, result.Store)
+		}
+		if result.Final == StatusInterrupted {
+			break
+		}
+	}
+	for _, store := range finished {
+		printAnalyseTables(opts.Stdout, store)
+	}
+	return aggregateComponentResults(results)
+}
+
+func runOneStore(ctx context.Context, item preparedStore, continuing bool, progressWriter io.Writer) componentResult {
+	label := item.Plan.ComponentName
+	store := item.Store
+	if continuing {
+		if err := store.NormalizeStaleRunning(); err != nil {
+			return componentResult{Label: label, Store: store, Final: StatusError, Err: err}
+		}
+	}
+	if err := store.MarkRootRunning(); err != nil {
+		return componentResult{Label: label, Store: store, Final: StatusError, Err: err}
+	}
+	progress := NewProgress(progressWriter)
 	schedulerResult := NewScheduler(store, progress).Run(ctx)
 	final := schedulerResult.Status
 	progress.Close(final)
 	message := schedulerResultMessage(schedulerResult)
 	if final == StatusFinished {
-		if err := RunAnalyses(store, plan.Analyses); err != nil {
+		if err := RunAnalyses(store, item.Plan.Analyses); err != nil {
 			final = StatusError
 			message = err.Error()
 		}
 	}
 	if err := store.MarkRootFinal(final, message); err != nil {
-		return err
+		return componentResult{Label: label, Store: store, Final: StatusError, Err: err}
 	}
 	if final == StatusFinished {
-		printAnalyseTables(opts.Stdout, store)
+		return componentResult{Label: label, Store: store, Final: final}
 	}
-	if final != StatusFinished {
-		if schedulerResult.Err != nil {
-			return fmt.Errorf("benchmark %s: %w", final, schedulerResult.Err)
+	if schedulerResult.Err != nil {
+		return componentResult{Label: label, Store: store, Final: final, Err: schedulerResult.Err}
+	}
+	return componentResult{Label: label, Store: store, Final: final}
+}
+
+func aggregateComponentResults(results []componentResult) error {
+	messages := make([]string, 0)
+	for _, result := range results {
+		if result.Final == StatusFinished {
+			continue
 		}
-		return fmt.Errorf("benchmark %s", final)
+		msg := fmt.Sprintf("%s: benchmark %s", result.Label, result.Final)
+		if result.Err != nil {
+			msg = fmt.Sprintf("%s: benchmark %s: %v", result.Label, result.Final, result.Err)
+		}
+		messages = append(messages, msg)
 	}
-	return nil
+	if len(messages) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s", strings.Join(messages, "; "))
 }
 
 func sourceHashMismatchError(runDir string, stored, current string, source string) error {

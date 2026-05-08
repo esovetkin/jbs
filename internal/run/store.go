@@ -27,6 +27,10 @@ func CreateDryRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	return createRunDirectory(root, plan, StatusNotStarted)
 }
 
+func CreateRunDirectoryWithInitial(root string, plan runtimePlan, initial Status) (*Store, error) {
+	return createRunDirectory(root, plan, initial)
+}
+
 func createRunDirectory(root string, plan runtimePlan, initial Status) (*Store, error) {
 	if initial != StatusRunning && initial != StatusNotStarted {
 		return nil, fmt.Errorf("invalid initial root status %s", initial)

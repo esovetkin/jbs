@@ -39,12 +39,15 @@ Global assignments, imports, top-level expressions, functions called from those 
 
 `jbs_name` names the benchmark directory. It defaults to `jbs_benchmark` and must evaluate to a string.
 
+`jbs_benchmarks` optionally splits one script into named benchmark components. It defaults to `{}`. When non-empty, it must be a dictionary from component names to analyse block names.
+
 `jbs_nproc` is the global concurrency limit. It defaults to `0`. A value of `0` means the number of available CPUs.
 
-`jbs_database` is the analyse SQLite database path. It defaults to `""`, which keeps per-step `analyse.csv` files. A non-empty relative path is resolved from the directory where `jbs run` is executed; absolute paths are accepted. SQLite analyse table names use `<benchmark_name>_<run_id>_<step_name>`.
+`jbs_database` is the analyse SQLite database path. It defaults to `""`, which keeps per-step `analyse.csv` files. A non-empty relative path is resolved from the directory where `jbs run` is executed; absolute paths are accepted. SQLite analyse table names use `<benchmark_name>_<run_id>_<step_name>` for single benchmarks and `<benchmark_name>_<component>_<run_id>_<step_name>` for benchmark components.
 
 ```jbs
 jbs_name = "sweep"
+jbs_benchmarks = {}
 jbs_nproc = 8
 jbs_database = "results.sqlite"
 ```
@@ -212,10 +215,37 @@ benchmark/
         exitcode
 ```
 
-If `jbs_database` is non-empty, analyse results are written to that SQLite database instead of per-step `analyse.csv` files. The database contains one table per analysed step and run. Table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints only the current run's tables.
+`jbs_benchmarks` defaults to `{}`. When empty, the single-directory layout above is used. When non-empty, it must be a dictionary mapping component names to analyse block names:
+
+```jbs
+jbs_benchmarks = {
+        "small": ["run_small", "summary"],
+        "large": "run_large",
+}
+```
+
+Each component is written below `<jbs_name>/<component>/` and runs only the steps needed by its requested analyse blocks:
+
+```text
+benchmark/
+  small/
+    000000/
+      status
+      step/
+        ...
+  large/
+    000000/
+      status
+      step/
+        ...
+```
+
+Without `--benchmark`, `jbs run` runs every configured component. `jbs run -b small file.jbs` and `jbs continue -b small file.jbs` operate on one configured component. Selecting a benchmark is an error when `jbs_benchmarks` is empty or the selected name is not configured.
+
+If `jbs_database` is non-empty, analyse results are written to that SQLite database instead of per-step `analyse.csv` files. The database contains one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints only the current run's tables.
 
 The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
 
-`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. The hash includes the contents and loader labels of all loaded `.jbs` files. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
+`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. With multiple configured components, it resumes all components; use `-b` to resume only one. The hash includes the contents and loader labels of all loaded `.jbs` files. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
 
 Generated workpackage `run.sh` files use `set -euo pipefail` by default. Pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.

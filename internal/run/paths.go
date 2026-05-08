@@ -6,32 +6,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/benchmarks"
 )
 
 var numericRunDir = regexp.MustCompile(`^\d{6}$`)
 
 func safePathComponent(name string) string {
-	name = strings.TrimSpace(name)
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range name {
-		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.'
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	out := strings.Trim(b.String(), "._-")
-	if out == "" {
-		return ""
-	}
-	return out
+	return benchmarks.SafeComponent(name)
 }
 
 func stepDirName(name string, used map[string]struct{}) string {

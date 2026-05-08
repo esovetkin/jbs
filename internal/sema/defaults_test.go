@@ -6,7 +6,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func TestBuiltinGlobalValuesIncludesAnalyseDatabase(t *testing.T) {
+func TestBuiltinGlobalValuesIncludesRuntimeDefaults(t *testing.T) {
 	defaults := BuiltinGlobalValues()
 	value, ok := defaults["jbs_database"]
 	if !ok {
@@ -17,5 +17,15 @@ func TestBuiltinGlobalValuesIncludesAnalyseDatabase(t *testing.T) {
 	}
 	if !isBuiltinGlobalName("jbs_database") {
 		t.Fatalf("jbs_database should be a built-in global")
+	}
+	value, ok = defaults["jbs_benchmarks"]
+	if !ok {
+		t.Fatalf("missing jbs_benchmarks default")
+	}
+	if value.Kind != eval.KindDict || value.D == nil || len(value.D.Order) != 0 {
+		t.Fatalf("jbs_benchmarks default = %#v, want empty dictionary", value)
+	}
+	if !isBuiltinGlobalName("jbs_benchmarks") {
+		t.Fatalf("jbs_benchmarks should be a built-in global")
 	}
 }

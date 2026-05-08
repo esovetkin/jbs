@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +129,35 @@ func TestArchiveRootRejectsRunningRun(t *testing.T) {
 	}
 	if _, statErr := os.Stat(root); statErr != nil {
 		t.Fatalf("expected root to remain: %v", statErr)
+	}
+}
+
+func TestArchiveRootIncludesComponentRuns(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	createArchiveRun(t, filepath.Join(root, "large"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "large\n"})
+	archive := filepath.Join(dir, "bench.tar.gz")
+	if _, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	entries := readTarGzEntries(t, archive)
+	if _, ok := entries["20260508T140000.000000000Z/bench/small/000000/status"]; !ok {
+		t.Fatalf("archive missing small component status; names=%v", sortedArchiveNames(entries))
+	}
+	if _, ok := entries["20260508T140000.000000000Z/bench/large/000000/status"]; !ok {
+		t.Fatalf("archive missing large component status; names=%v", sortedArchiveNames(entries))
+	}
+}
+
+func TestArchiveRootRejectsRunningComponentRun(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	createArchiveRun(t, filepath.Join(root, "large"), "000000", StatusRunning, map[string]string{"run/000000/stdout": "large\n"})
+	_, err := ArchiveRoot(root, filepath.Join(dir, "bench.tar.gz"), time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "large") || !strings.Contains(err.Error(), "RUNNING") {
+		t.Fatalf("expected running component rejection, got %v", err)
 	}
 }
 
@@ -340,6 +371,10 @@ func writeArchiveStatus(t *testing.T, path string, status RootStatus) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func sortedArchiveNames(entries map[string]archiveTestEntry) []string {
+	return slices.Sorted(maps.Keys(entries))
 }
 
 func readTarGzEntries(t *testing.T, archivePath string) map[string]archiveTestEntry {

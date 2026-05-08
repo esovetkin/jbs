@@ -67,10 +67,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return fwaitFiles(flags.FWaitPaths, flags.FWaitExitExisting, stdout, stderr)
 	}
 	if flags.Run {
-		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
+		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Benchmark, stdout, stderr)
 	}
 	if flags.Continue {
-		return continueBenchmark(flags.Input, stdout, stderr)
+		return continueBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
 	}
 	if flags.Archive {
 		return archiveBenchmark(flags.Input, stdout, stderr)
@@ -83,7 +83,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
-	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
+	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Benchmark, stdout, stderr)
 }
 
 func fwaitFiles(paths []string, exitExisting bool, stdout, stderr io.Writer) int {
@@ -115,7 +115,7 @@ func checkInput(path string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runBenchmark(path string, noStrict bool, dryRun bool, stdout, stderr io.Writer) int {
+func runBenchmark(path string, noStrict bool, dryRun bool, benchmark string, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
@@ -133,6 +133,7 @@ func runBenchmark(path string, noStrict bool, dryRun bool, stdout, stderr io.Wri
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
+		Benchmark:   benchmark,
 		NoStrict:    noStrict,
 		PrintEvents: bundle.Result.PrintEvents,
 		Stdout:      stdout,
@@ -151,7 +152,7 @@ func runBenchmark(path string, noStrict bool, dryRun bool, stdout, stderr io.Wri
 	return 0
 }
 
-func continueBenchmark(path string, stdout, stderr io.Writer) int {
+func continueBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(path, diags)
 	if err != nil {
@@ -169,6 +170,7 @@ func continueBenchmark(path string, stdout, stderr io.Writer) int {
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
+		Benchmark:   benchmark,
 		Stdout:      stdout,
 		Stderr:      stderr,
 	}); err != nil {

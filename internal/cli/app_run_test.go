@@ -70,6 +70,186 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandCreatesConfiguredBenchmarkComponents(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[small]\n") || !strings.Contains(out, "[large]\n") {
+		t.Fatalf("expected component progress headers, got %q", out)
+	}
+	for _, component := range []string{"small", "large"} {
+		status := readRootStatus(t, filepath.Join(cwd, "bench", component, "000000", "status"))
+		if status.Status != jbsrun.StatusFinished {
+			t.Fatalf("%s status = %#v", component, status)
+		}
+		if _, err := os.Stat(filepath.Join(cwd, "bench", component, "000000", "unrelated")); !os.IsNotExist(err) {
+			t.Fatalf("%s should not contain unrelated step, stat error: %v", component, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "small", "000000", "run_large")); !os.IsNotExist(err) {
+		t.Fatalf("small component should not contain large step, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "large", "000000", "run_small")); !os.IsNotExist(err) {
+		t.Fatalf("large component should not contain small step, stat error: %v", err)
+	}
+	smallCSV := readFileString(t, filepath.Join(cwd, "bench", "small", "000000", "run_small", "analyse.csv"))
+	if smallCSV != "run_id,value\n000000,1\n" {
+		t.Fatalf("unexpected small analyse csv: %q", smallCSV)
+	}
+	largeCSV := readFileString(t, filepath.Join(cwd, "bench", "large", "000000", "run_large", "analyse.csv"))
+	if largeCSV != "run_id,value\n000000,2\n" {
+		t.Fatalf("unexpected large analyse csv: %q", largeCSV)
+	}
+}
+
+func TestRunCommandSelectsConfiguredBenchmark(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("selected run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "small", "000000", "status")); err != nil {
+		t.Fatalf("expected small component run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "large")); !os.IsNotExist(err) {
+		t.Fatalf("large component should not be created, stat error: %v", err)
+	}
+	if strings.Contains(stdout.String(), "[small]") {
+		t.Fatalf("single selected component should not print component header: %q", stdout.String())
+	}
+}
+
+func TestRunCommandBenchmarkSelectionErrors(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	plain := filepath.Join(cwd, "plain.jbs")
+	if err := os.WriteFile(plain, []byte(strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo "value: 1" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-b", "small", plain}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected empty-config selection failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--benchmark requires non-empty jbs_benchmarks") {
+		t.Fatalf("unexpected empty-config error: %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	if code := Run([]string{"run", "--benchmark", "missing", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected missing selection failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `unknown benchmark "missing"`) {
+		t.Fatalf("unexpected missing benchmark error: %s", stderr.String())
+	}
+}
+
+func TestRunCommandDryRunContinueSelectedBenchmark(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	status := readRootStatus(t, filepath.Join(cwd, "bench", "small", "000000", "status"))
+	if status.Status != jbsrun.StatusNotStarted {
+		t.Fatalf("dry-run status = %#v", status)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "large")); !os.IsNotExist(err) {
+		t.Fatalf("large component should not be created by selected dry-run, stat error: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	status = readRootStatus(t, filepath.Join(cwd, "bench", "small", "000000", "status"))
+	if status.Status != jbsrun.StatusFinished {
+		t.Fatalf("continue status = %#v", status)
+	}
+}
+
+func TestRunCommandWritesComponentPrefixedAnalyseSQLiteTables(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, `jbs_database = "results.sqlite"`)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	assertSQLiteTable(t, dbPath, "bench_small_000000_run_small", []string{"run_id", "value"}, [][]string{{"000000", "1"}})
+	assertSQLiteTable(t, dbPath, "bench_large_000000_run_large", []string{"run_id", "value"}, [][]string{{"000000", "2"}})
+	if sqliteTableExists(t, dbPath, "bench_000000_run_small") {
+		t.Fatalf("unexpected non-component-prefixed sqlite table")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "results.sqlite:bench_small_000000_run_small") || !strings.Contains(out, "results.sqlite:bench_large_000000_run_large") {
+		t.Fatalf("missing sqlite analyse output in stdout: %q", out)
+	}
+}
+
 func TestRunCommandSupportsBoolConversionInWorkpackages(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1582,6 +1762,47 @@ func readRootStatus(t *testing.T, path string) jbsrun.RootStatus {
 		t.Fatal(err)
 	}
 	return status
+}
+
+func writeMultiBenchmarkInput(t *testing.T, cwd string, extra ...string) string {
+	t.Helper()
+	lines := []string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"small": "run_small", "large": "run_large"}`,
+	}
+	for _, line := range extra {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines,
+		`do prep {`,
+		`echo "prep" > prep.txt`,
+		`}`,
+		`do run_small after prep {`,
+		`echo "small: 1" > out.log`,
+		`}`,
+		`do run_large after prep {`,
+		`echo "large: 2" > out.log`,
+		`}`,
+		`do unrelated {`,
+		`echo "unrelated" > out.log`,
+		`}`,
+		`analyse run_small {`,
+		`value = "small: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		`analyse run_large {`,
+		`value = "large: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	)
+	input := filepath.Join(cwd, "multi.jbs")
+	if err := os.WriteFile(input, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return input
 }
 
 func readFileString(t *testing.T, path string) string {

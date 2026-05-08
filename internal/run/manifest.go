@@ -2,8 +2,15 @@ package run
 
 import "fmt"
 
-func analyseTableName(benchmarkName, runID, stepName string) string {
-	return benchmarkName + "_" + runID + "_" + stepName
+func analyseTableName(prefix, runID, stepName string) string {
+	return prefix + "_" + runID + "_" + stepName
+}
+
+func manifestAnalyseTablePrefix(manifest Manifest) string {
+	if manifest.AnalyseTablePrefix != "" {
+		return manifest.AnalyseTablePrefix
+	}
+	return manifest.BenchmarkName
 }
 
 func finalizeRunManifest(manifest Manifest, runID string) (Manifest, error) {
@@ -21,7 +28,7 @@ func finalizeRunManifest(manifest Manifest, runID string) (Manifest, error) {
 		if step.AnalyseTable == "" {
 			continue
 		}
-		table := analyseTableName(manifest.BenchmarkName, runID, step.Name)
+		table := analyseTableName(manifestAnalyseTablePrefix(manifest), runID, step.Name)
 		if _, ok := seen[table]; ok {
 			return Manifest{}, fmt.Errorf("duplicate analyse table name %q", table)
 		}
@@ -42,7 +49,7 @@ func validateRunManifest(manifest Manifest) error {
 		if step.AnalyseTable == "" {
 			continue
 		}
-		want := analyseTableName(manifest.BenchmarkName, manifest.RunID, step.Name)
+		want := analyseTableName(manifestAnalyseTablePrefix(manifest), manifest.RunID, step.Name)
 		if step.AnalyseTable != want {
 			return fmt.Errorf("manifest analyse table for step %q is %q, want %q", step.Name, step.AnalyseTable, want)
 		}
