@@ -61,7 +61,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runPrintParam(flags, stdout, stderr)
 	}
 	if flags.Run {
-		return runBenchmark(flags.Input, flags.NoStrict, stdout, stderr)
+		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
 	}
 	if flags.Continue {
 		return continueBenchmark(flags.Input, stdout, stderr)
@@ -74,7 +74,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
-	return runBenchmark(flags.Input, flags.NoStrict, stdout, stderr)
+	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, stdout, stderr)
 }
 
 func checkInput(path string, stdout, stderr io.Writer) int {
@@ -94,7 +94,7 @@ func checkInput(path string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
+func runBenchmark(path string, noStrict bool, dryRun bool, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
@@ -107,7 +107,7 @@ func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
 	if diags.HasErrors() {
 		return 1
 	}
-	if err := jbsrun.Run(context.Background(), jbsrun.Options{
+	opts := jbsrun.Options{
 		Input:       path,
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
@@ -116,8 +116,15 @@ func runBenchmark(path string, noStrict bool, stdout, stderr io.Writer) int {
 		PrintEvents: bundle.Result.PrintEvents,
 		Stdout:      stdout,
 		Stderr:      stderr,
-	}); err != nil {
-		fmt.Fprintln(stderr, err)
+	}
+	var runErr error
+	if dryRun {
+		runErr = jbsrun.DryRun(context.Background(), opts)
+	} else {
+		runErr = jbsrun.Run(context.Background(), opts)
+	}
+	if runErr != nil {
+		fmt.Fprintln(stderr, runErr)
 		return 1
 	}
 	return 0

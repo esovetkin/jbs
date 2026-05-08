@@ -501,6 +501,274 @@ func TestDefaultRunNoStrictOmitsStrictShell(t *testing.T) {
 	}
 }
 
+func TestRunCommandDryRunCreatesDirectoryWithoutExecuting(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do prep {`,
+		`echo prep >> ../../marker`,
+		`}`,
+		`do run after prep {`,
+		`echo run >> ../../marker`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "0% (") || strings.Contains(stdout.String(), "100% (") {
+		t.Fatalf("dry-run emitted progress output: %q", stdout.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	rootStatus := readRootStatus(t, filepath.Join(runDir, "status"))
+	if rootStatus.Status != jbsrun.StatusNotStarted || rootStatus.PID != 0 {
+		t.Fatalf("unexpected dry-run root status: %#v", rootStatus)
+	}
+	for _, step := range []string{"prep", "run"} {
+		workDir := filepath.Join(runDir, step, "000000")
+		status := readWorkStatus(t, filepath.Join(workDir, "status"))
+		if status.Status != jbsrun.StatusNotStarted {
+			t.Fatalf("%s status = %s, want %s", step, status.Status, jbsrun.StatusNotStarted)
+		}
+		for _, name := range []string{"run.sh", "stdout", "stderr"} {
+			if _, err := os.Stat(filepath.Join(workDir, name)); err != nil {
+				t.Fatalf("expected %s in %s: %v", name, workDir, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(workDir, "exitcode")); !os.IsNotExist(err) {
+			t.Fatalf("dry-run should not create exitcode in %s, stat error: %v", workDir, err)
+		}
+	}
+	linkPath := filepath.Join(runDir, "run", "000000", "prep")
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("expected dependency symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("dependency path is not a symlink: %s", linkPath)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "marker")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not execute work, marker stat error: %v", err)
+	}
+}
+
+func TestContinueStartsDryRunDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo hello`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-n", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	runDir := filepath.Join(cwd, "bench", "000000")
+	if status := readRootStatus(t, filepath.Join(runDir, "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected root status: %#v", status)
+	}
+	workDir := filepath.Join(runDir, "run", "000000")
+	if status := readWorkStatus(t, filepath.Join(workDir, "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected work status: %#v", status)
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "hello\n" {
+		t.Fatalf("unexpected work stdout: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "exitcode")); err != nil {
+		t.Fatalf("expected exitcode after continue: %v", err)
+	}
+}
+
+func TestRunCommandDryRunNoStrictPersistsToRunScript(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`echo before`,
+		`false`,
+		`echo after`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", "--no-strict", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	workDir := filepath.Join(runDir, "s", "000000")
+	script := readFileString(t, filepath.Join(workDir, "run.sh"))
+	if strings.Contains(script, "set -euo pipefail") {
+		t.Fatalf("run.sh should not contain strict mode:\n%s", script)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if status := readRootStatus(t, filepath.Join(runDir, "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected root status after continue: %#v", status)
+	}
+	out := readFileString(t, filepath.Join(workDir, "stdout"))
+	if !strings.Contains(out, "before\n") || !strings.Contains(out, "after\n") {
+		t.Fatalf("unexpected no-strict stdout: %q", out)
+	}
+}
+
+func TestRunCommandDryRunDoesNotRunAnalyse(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo "Number: 5" > out.log`,
+		`}`,
+		`analyse run {`,
+		`number = "Number: %d" in "out.log"`,
+		`(number)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	analysePath := filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")
+	if got := readFileString(t, analysePath); got != "run_id,number\n" {
+		t.Fatalf("dry-run should only write analyse header, got %q", got)
+	}
+	if strings.Contains(stdout.String(), "run/analyse.csv") {
+		t.Fatalf("dry-run should not print analyse table: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if got := readFileString(t, analysePath); got != "run_id,number\n000000,5\n" {
+		t.Fatalf("continue did not populate analyse output: %q", got)
+	}
+	if !strings.Contains(stdout.String(), "\nrun/analyse.csv\nrun_id,number\n000000,5\n") {
+		t.Fatalf("continue did not print analyse output: %q", stdout.String())
+	}
+}
+
+func TestDefaultRunDryRunShorthandCreatesDirectoryWithoutExecuting(t *testing.T) {
+	cases := []struct {
+		name string
+		args func(string) []string
+	}{
+		{name: "before_input", args: func(input string) []string { return []string{"-n", input} }},
+		{name: "after_input", args: func(input string) []string { return []string{input, "-n"} }},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			oldwd, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chdir(cwd); err != nil {
+				t.Fatal(err)
+			}
+			defer os.Chdir(oldwd)
+
+			src := strings.Join([]string{
+				`jbs_name = "bench"`,
+				`do s {`,
+				`echo executed >> ../../marker`,
+				`}`,
+				``,
+			}, "\n")
+			input := filepath.Join(cwd, "bench.jbs")
+			if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			if code := Run(tc.args(input), &stdout, &stderr); code != 0 {
+				t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+			}
+			runDir := filepath.Join(cwd, "bench", "000000")
+			if status := readRootStatus(t, filepath.Join(runDir, "status")); status.Status != jbsrun.StatusNotStarted {
+				t.Fatalf("unexpected root status: %#v", status)
+			}
+			if status := readWorkStatus(t, filepath.Join(runDir, "s", "000000", "status")); status.Status != jbsrun.StatusNotStarted {
+				t.Fatalf("unexpected work status: %#v", status)
+			}
+			if _, err := os.Stat(filepath.Join(runDir, "marker")); !os.IsNotExist(err) {
+				t.Fatalf("dry-run should not execute work, marker stat error: %v", err)
+			}
+		})
+	}
+}
+
 func TestContinueRejectsRunningRoot(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

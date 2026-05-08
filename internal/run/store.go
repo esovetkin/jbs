@@ -20,6 +20,17 @@ type Store struct {
 var durableWrite = fsutil.AtomicWriteOptions{SyncDir: true}
 
 func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
+	return createRunDirectory(root, plan, StatusRunning)
+}
+
+func CreateDryRunDirectory(root string, plan runtimePlan) (*Store, error) {
+	return createRunDirectory(root, plan, StatusNotStarted)
+}
+
+func createRunDirectory(root string, plan runtimePlan, initial Status) (*Store, error) {
+	if initial != StatusRunning && initial != StatusNotStarted {
+		return nil, fmt.Errorf("invalid initial root status %s", initial)
+	}
 	unlock, err := acquireRootLock(root)
 	if err != nil {
 		return nil, err
@@ -78,11 +89,13 @@ func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
 	now := time.Now().UTC()
 	rootStatus := RootStatus{
 		Schema:     1,
-		Status:     StatusRunning,
+		Status:     initial,
 		SourceHash: manifest.SourceHash,
-		PID:        os.Getpid(),
 		CreatedAt:  now,
 		UpdatedAt:  now,
+	}
+	if initial == StatusRunning {
+		rootStatus.PID = os.Getpid()
 	}
 	if err := fsutil.WriteJSONAtomic(filepath.Join(staging, "status"), rootStatus, 0o644, durableWrite); err != nil {
 		return nil, err

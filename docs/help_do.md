@@ -64,6 +64,18 @@ Each workpackage executes the `do` body in its own work directory. Useful runtim
 
 Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`. Generated `run.sh` files use `set -euo pipefail` by default; pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.
 
+Create the directory structure without starting work:
+
+```bash
+jbs run --dry-run do.jbs
+jbs run -n do.jbs
+jbs -n do.jbs
+jbs do.jbs -n
+jbs continue do.jbs
+```
+
+Dry-run creates the next numeric run directory with all workpackages marked `NOTSTARTED`. It does not execute workpackages or analyses.
+
 ## Example
 
 ```jbs

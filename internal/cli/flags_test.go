@@ -23,6 +23,7 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 		wantOutput   string
 		wantCheck    bool
 		wantRun      bool
+		wantDryRun   bool
 		wantNoStrict bool
 	}{
 		{
@@ -56,6 +57,39 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantRun:    true,
 		},
 		{
+			name:       "run_command_dry_run_long",
+			args:       []string{"run", "--dry-run", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:       "run_command_dry_run_short",
+			args:       []string{"run", "-n", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:       "run_command_dry_run_short_after_input",
+			args:       []string{"run", "input.jbs", "-n"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:         "run_command_dry_run_no_strict",
+			args:         []string{"run", "--no-strict", "-n", "input.jbs"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantRun:      true,
+			wantDryRun:   true,
+			wantNoStrict: true,
+		},
+		{
 			name:         "run_command_no_strict_after_input",
 			args:         []string{"run", "input.jbs", "--no-strict"},
 			wantInput:    "input.jbs",
@@ -70,6 +104,38 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantOutput:   "-",
 			wantRun:      true,
 			wantNoStrict: true,
+		},
+		{
+			name:       "default_run_dry_run_short_before_input",
+			args:       []string{"-n", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:       "default_run_dry_run_short_after_input",
+			args:       []string{"input.jbs", "-n"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:       "default_run_dry_run_long_before_input",
+			args:       []string{"--dry-run", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+		},
+		{
+			name:       "default_run_dry_run_long_after_input",
+			args:       []string{"input.jbs", "--dry-run"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
 		},
 		{
 			name:         "default_run_no_strict_after_input",
@@ -104,6 +170,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
+			}
+			if f.DryRun != tc.wantDryRun {
+				t.Fatalf("unexpected dry-run flag: got=%v want=%v", f.DryRun, tc.wantDryRun)
 			}
 			if f.NoStrict != tc.wantNoStrict {
 				t.Fatalf("unexpected no-strict flag: got=%v want=%v", f.NoStrict, tc.wantNoStrict)
@@ -367,13 +436,20 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
 		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
+		{name: "run_duplicate_dry_run", args: []string{"run", "-n", "--dry-run", "input.jbs"}},
+		{name: "run_dry_run_missing_input", args: []string{"run", "--dry-run"}},
 		{name: "run_duplicate_no_strict", args: []string{"run", "--no-strict", "--no-strict", "input.jbs"}},
 		{name: "run_no_strict_missing_input", args: []string{"run", "--no-strict"}},
 		{name: "run_rejects_option", args: []string{"run", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
+		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
+		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
+		{name: "help_rejects_dry_run", args: []string{"--help", "-n"}},
+		{name: "default_duplicate_dry_run", args: []string{"-n", "--dry-run", "input.jbs"}},
+		{name: "default_dry_run_missing_input", args: []string{"-n"}},
 		{name: "default_duplicate_no_strict", args: []string{"--no-strict", "--no-strict", "input.jbs"}},
 		{name: "default_no_strict_missing_input", args: []string{"--no-strict"}},
 		{name: "repl_extra_argument", args: []string{"repl", "extra"}},

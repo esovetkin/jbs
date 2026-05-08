@@ -27,6 +27,7 @@ type Flags struct {
 	Input      string
 	Run        bool
 	Continue   bool
+	DryRun     bool
 	NoStrict   bool
 	Output     string
 	Repl       bool
@@ -140,6 +141,11 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.Help = true
 		case arg == "-c" || arg == "--check":
 			cfg.Check = true
+		case arg == "-n" || arg == "--dry-run":
+			if cfg.DryRun {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			cfg.DryRun = true
 		case arg == "--no-strict":
 			if cfg.NoStrict {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
@@ -155,7 +161,7 @@ func ParseFlags(args []string) (Flags, error) {
 			}
 		}
 	}
-	if cfg.NoStrict && (cfg.Check || cfg.Help || cfg.Input == "") {
+	if (cfg.NoStrict || cfg.DryRun) && (cfg.Check || cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
 	if cfg.Input != "" && !cfg.Check && !cfg.Help {
@@ -168,11 +174,12 @@ func UsageText() string {
 	return `Usage:
 
 Run:
-  jbs input.jbs [--no-strict]
-  jbs run input.jbs [--no-strict]
+  jbs input.jbs [-n|--dry-run] [--no-strict]
+  jbs run input.jbs [-n|--dry-run] [--no-strict]
   jbs continue input.jbs
 
 Options:
+  -n, --dry-run  Create the run directory without starting workpackages
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse+validate only
 
@@ -195,6 +202,11 @@ func parseRunArgs(args []string) (Flags, error) {
 	cfg := Flags{Run: true, Output: "-"}
 	for _, arg := range args {
 		switch {
+		case arg == "-n" || arg == "--dry-run":
+			if cfg.DryRun {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.DryRun = true
 		case arg == "--no-strict":
 			if cfg.NoStrict {
 				return Flags{}, UsageError{Message: runUsageMessage()}
@@ -216,11 +228,11 @@ func parseRunArgs(args []string) (Flags, error) {
 }
 
 func runUsageMessage() string {
-	return "usage: jbs run [--no-strict] <file.jbs>"
+	return "usage: jbs run [-n|--dry-run] [--no-strict] <file.jbs>"
 }
 
 func defaultRunUsageMessage() string {
-	return "usage: jbs [--no-strict] <file.jbs>"
+	return "usage: jbs [-n|--dry-run] [--no-strict] <file.jbs>"
 }
 
 func isKnownHelpTopic(topic string) bool {

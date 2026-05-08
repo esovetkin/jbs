@@ -57,6 +57,23 @@ func Run(ctx context.Context, opts Options) error {
 	return nil
 }
 
+func DryRun(ctx context.Context, opts Options) error {
+	_ = ctx
+	diags := &diag.Diagnostics{}
+	plan, err := buildRuntimePlan(opts, diags)
+	if err != nil {
+		return err
+	}
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to build runtime workplan")
+	}
+	if _, err := CreateDryRunDirectory(plan.Manifest.BenchmarkName, plan); err != nil {
+		return err
+	}
+	printEvents(opts.Stdout, opts.PrintEvents)
+	return nil
+}
+
 func printEvents(w io.Writer, events []sema.PrintEvent) {
 	if w == nil || len(events) == 0 {
 		return
