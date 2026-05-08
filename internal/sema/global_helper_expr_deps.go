@@ -88,6 +88,10 @@ func collectFuncBodyLocalIdentDeps(body []ast.FuncBodyStmt, out map[string]struc
 		case ast.FuncIfStmt:
 			collectExprLocalIdentDeps(node.Cond, out)
 			collectFuncBodyLocalIdentDeps(node.Then, out)
+			for _, branch := range node.Elifs {
+				collectExprLocalIdentDeps(branch.Cond, out)
+				collectFuncBodyLocalIdentDeps(branch.Body, out)
+			}
 			collectFuncBodyLocalIdentDeps(node.Else, out)
 		case ast.FuncForStmt:
 			collectExprLocalIdentDeps(node.Iterable, out)

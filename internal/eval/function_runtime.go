@@ -159,6 +159,9 @@ func collectFunctionLocalNames(body []ast.FuncBodyStmt, out map[string]struct{})
 			}
 		case ast.FuncIfStmt:
 			collectFunctionLocalNames(node.Then, out)
+			for _, branch := range node.Elifs {
+				collectFunctionLocalNames(branch.Body, out)
+			}
 			collectFunctionLocalNames(node.Else, out)
 		case ast.FuncForStmt:
 			if node.Target != "" {
@@ -192,6 +195,14 @@ func functionBodyReferencesAnyName(body []ast.FuncBodyStmt, bound map[string]str
 			}
 			if functionBodyReferencesAnyName(node.Then, bound, walk) {
 				return true
+			}
+			for _, branch := range node.Elifs {
+				if walk(branch.Cond, bound) {
+					return true
+				}
+				if functionBodyReferencesAnyName(branch.Body, bound, walk) {
+					return true
+				}
 			}
 			if functionBodyReferencesAnyName(node.Else, bound, walk) {
 				return true
@@ -434,6 +445,9 @@ func predeclareFunctionLocals(body []ast.FuncBodyStmt, frame *Frame) {
 			}
 		case ast.FuncIfStmt:
 			predeclareFunctionLocals(node.Then, frame)
+			for _, branch := range node.Elifs {
+				predeclareFunctionLocals(branch.Body, frame)
+			}
 			predeclareFunctionLocals(node.Else, frame)
 		case ast.FuncForStmt:
 			if node.Target != "" {
@@ -496,6 +510,33 @@ func executeFunctionBody(body []ast.FuncBodyStmt, env map[string]Value, diags *d
 					return result
 				}
 				last = result.Value
+				continue
+			}
+			selected := false
+			for _, branch := range node.Elifs {
+				branchCond, ok := evalBoolConditionWithCtx("elif", branch.Cond, env, diags, opts, ctx)
+				if ctx.recursionLimitHit() {
+					return functionResult{Value: last}
+				}
+				if !ok {
+					selected = true
+					break
+				}
+				if !branchCond {
+					continue
+				}
+				result := executeFunctionBody(branch.Body, env, diags, opts, ctx)
+				if ctx.recursionLimitHit() {
+					return result
+				}
+				if result.Returned || result.Break || result.Continue {
+					return result
+				}
+				last = result.Value
+				selected = true
+				break
+			}
+			if selected {
 				continue
 			}
 			if len(node.Else) == 0 {

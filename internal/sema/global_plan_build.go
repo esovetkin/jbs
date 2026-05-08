@@ -47,6 +47,7 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 			Kind:    globalInputIf,
 			IfStmt:  &stmtCopy,
 			Then:    appendGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(index)),
+			Elifs:   appendGlobalPlanElifs(plan, stmtCopy.Elifs, baseDir, ctx, index),
 			Else:    appendGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(index)),
 			Index:   index,
 			BaseDir: baseDir,
@@ -159,6 +160,22 @@ func buildGlobalInputStep(plan *globalPlan, stmt ast.Stmt, index int, baseDir st
 	}
 }
 
+func appendGlobalPlanElifs(plan *globalPlan, branches []ast.ElifBranch, baseDir string, ctx globalPlanContext, index int) []globalIfBranch {
+	if len(branches) == 0 {
+		return nil
+	}
+	out := make([]globalIfBranch, 0, len(branches))
+	for _, branch := range branches {
+		branchCopy := branch
+		out = append(out, globalIfBranch{
+			Cond: branchCopy.Cond,
+			Body: appendGlobalPlanSteps(plan, branchCopy.Body, baseDir, ctx.nestedControl(index)),
+			Span: branchCopy.Span,
+		})
+	}
+	return out
+}
+
 func nextGlobalStepID(plan *globalPlan) int {
 	if plan == nil {
 		return 0
@@ -184,6 +201,11 @@ func collectProgramVisibleNameStmt(stmt ast.Stmt, names *[]string, seen map[stri
 	case ast.IfStmt:
 		for _, child := range n.Then {
 			collectProgramVisibleNameStmt(child, names, seen)
+		}
+		for _, branch := range n.Elifs {
+			for _, child := range branch.Body {
+				collectProgramVisibleNameStmt(child, names, seen)
+			}
 		}
 		for _, child := range n.Else {
 			collectProgramVisibleNameStmt(child, names, seen)
@@ -237,6 +259,9 @@ func assignGlobalStepNameCatalogs(steps []globalInputStep, catalog *eval.NameCat
 		steps[i].Reads = globalExprReadRefs(steps[i].EffectiveExpr)
 		steps[i].Names = catalog
 		assignGlobalStepNameCatalogs(steps[i].Then, catalog)
+		for j := range steps[i].Elifs {
+			assignGlobalStepNameCatalogs(steps[i].Elifs[j].Body, catalog)
+		}
 		assignGlobalStepNameCatalogs(steps[i].Else, catalog)
 		assignGlobalStepNameCatalogs(steps[i].Body, catalog)
 	}

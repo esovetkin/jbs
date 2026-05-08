@@ -21,7 +21,7 @@ Rules:
 - call sites may mix positional and named arguments, but positional arguments must come first
 - local assignments inside the body are local to that function and shadow captured or global names
 - local assignments may still use compound operators; that mutability is function-local, not top-level
-- function bodies may use `if condition { ... } else { ... }`, `for x in values { ... }`, and `while condition { ... }`
+- function bodies may use `if condition { ... } elif other { ... } else { ... }`, `for x in values { ... }`, and `while condition { ... }`
 - nested functions capture outer locals lexically
 - top-level globals are captured live, so a function sees later reassignment of a global it reads
 
@@ -61,7 +61,7 @@ jbs> factorial(5)
 - a `return` inside a loop returns from the enclosing function
 - `if` conditions must evaluate to `bool`
 - `if` does not create a new local scope
-- `else if` is not separate syntax; write nested `if` inside `else`
+- `else if` is not syntax; use `elif`
 - `for` iterates over list or tuple values
 - `while` conditions must evaluate to `bool`
 - loops do not create a new local scope

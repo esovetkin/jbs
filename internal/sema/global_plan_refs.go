@@ -108,6 +108,10 @@ func walkFuncBodyExprRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 		case ast.FuncIfStmt:
 			walk(node.Cond)
 			walkFuncBodyExprRefs(node.Then, walk)
+			for _, branch := range node.Elifs {
+				walk(branch.Cond)
+				walkFuncBodyExprRefs(branch.Body, walk)
+			}
 			walkFuncBodyExprRefs(node.Else, walk)
 		case ast.FuncForStmt:
 			walk(node.Iterable)

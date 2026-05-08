@@ -34,6 +34,12 @@ type projectedImport struct {
 	Span         diag.Span
 }
 
+type globalIfBranch struct {
+	Cond ast.Expr
+	Body []globalInputStep
+	Span diag.Span
+}
+
 type globalInputStep struct {
 	ID             int
 	Kind           globalInputKind
@@ -44,6 +50,7 @@ type globalInputStep struct {
 	ForStmt        *ast.ForStmt
 	WhileStmt      *ast.WhileStmt
 	Then           []globalInputStep
+	Elifs          []globalIfBranch
 	Else           []globalInputStep
 	Body           []globalInputStep
 	BreakStmt      *ast.BreakStmt

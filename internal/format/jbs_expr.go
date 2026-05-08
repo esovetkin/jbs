@@ -338,6 +338,9 @@ func formatFuncIfStmtLines(stmt ast.FuncIfStmt, srcRunes []rune) []string {
 	for _, child := range stmt.Then {
 		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
 	}
+	for _, branch := range stmt.Elifs {
+		lines = append(lines, formatFuncElifBranchLines(branch, srcRunes)...)
+	}
 	if len(stmt.Else) == 0 {
 		lines = append(lines, "}")
 		return lines
@@ -347,6 +350,22 @@ func formatFuncIfStmtLines(stmt ast.FuncIfStmt, srcRunes []rune) []string {
 		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
 	}
 	lines = append(lines, "}")
+	return lines
+}
+
+func formatFuncElifBranchLines(branch ast.FuncElifBranch, srcRunes []rune) []string {
+	condLines := formatExprLines(branch.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{"true"}
+		if branch.Cond != nil {
+			condLines = []string{strings.TrimSpace(spanText(srcRunes, branch.Cond.GetSpan()))}
+		}
+	}
+	lines := prefixFormattedLines("", "} elif ", condLines)
+	lines[len(lines)-1] += " {"
+	for _, child := range branch.Body {
+		lines = append(lines, indentLines(formatFuncBodyStmtLines(child, srcRunes), continuationIndent)...)
+	}
 	return lines
 }
 

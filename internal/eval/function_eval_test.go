@@ -139,6 +139,47 @@ func TestFunctionIfStatements(t *testing.T) {
 			}),
 			want: Int(4),
 		},
+		{
+			name: "elif branch return",
+			fn: fnExpr(nil, ast.FuncIfStmt{
+				Cond: ast.BoolExpr{Value: false},
+				Then: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(1)}},
+				Elifs: []ast.FuncElifBranch{{
+					Cond: ast.BoolExpr{Value: true},
+					Body: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(2)}},
+				}},
+				Else: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(3)}},
+			}),
+			want: Int(2),
+		},
+		{
+			name: "elif final else",
+			fn: fnExpr(nil, ast.FuncIfStmt{
+				Cond: ast.BoolExpr{Value: false},
+				Then: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(1)}},
+				Elifs: []ast.FuncElifBranch{{
+					Cond: ast.BoolExpr{Value: false},
+					Body: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(2)}},
+				}},
+				Else: []ast.FuncBodyStmt{ast.ReturnStmt{Expr: intExpr(3)}},
+			}),
+			want: Int(3),
+		},
+		{
+			name: "elif local assignment",
+			fn: fnExpr(nil,
+				ast.FuncIfStmt{
+					Cond: ast.BoolExpr{Value: false},
+					Then: []ast.FuncBodyStmt{localAssign("y", intExpr(1))},
+					Elifs: []ast.FuncElifBranch{{
+						Cond: ast.BoolExpr{Value: true},
+						Body: []ast.FuncBodyStmt{localAssign("y", intExpr(2))},
+					}},
+				},
+				exprStmt(ident("y")),
+			),
+			want: Int(2),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -170,6 +211,30 @@ func TestFunctionIfRejectsNonBoolCondition(t *testing.T) {
 	}
 	if diagCount(diags, "E102") != 1 {
 		t.Fatalf("expected one E102, got: %s", diags.String())
+	}
+}
+
+func TestFunctionElifRejectsNonBoolCondition(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(nil,
+		localAssign("x", intExpr(1)),
+		ast.FuncIfStmt{
+			Cond: ast.BoolExpr{Value: false},
+			Then: []ast.FuncBodyStmt{localAssign("x", intExpr(2))},
+			Elifs: []ast.FuncElifBranch{{
+				Cond: intExpr(1),
+				Body: []ast.FuncBodyStmt{localAssign("x", intExpr(3))},
+			}},
+			Else: []ast.FuncBodyStmt{localAssign("x", intExpr(4))},
+		},
+		exprStmt(ident("x")),
+	)
+	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+	if !Equal(got, Int(1)) {
+		t.Fatalf("expected invalid elif condition to skip branch chain, got %#v", got)
+	}
+	if diagCount(diags, "E102") != 1 || !strings.Contains(diags.String(), "elif condition requires boolean value") {
+		t.Fatalf("expected one elif E102, got: %s", diags.String())
 	}
 }
 

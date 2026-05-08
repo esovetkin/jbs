@@ -706,6 +706,16 @@ func (p *tokenParser) parseFunctionBodyStmt(ctx functionParseContext) ast.FuncBo
 	switch p.peek().Type {
 	case lexer.TokenIf:
 		return p.parseFuncIfStmt(ctx)
+	case lexer.TokenElif, lexer.TokenElse:
+		tok := p.next()
+		p.diags.AddError(
+			diag.CodeE080,
+			fmt.Sprintf("'%s' without matching if", tok.Text),
+			tok.Span,
+			"attach the branch to a preceding `if` block",
+		)
+		p.consumeUntilFunctionBodyStmtEnd()
+		return ast.ExprStmt{Span: tok.Span}
 	case lexer.TokenFor:
 		return p.parseFuncForStmt(ctx)
 	case lexer.TokenWhile:
@@ -750,42 +760,78 @@ func (p *tokenParser) parseFuncIfStmt(ctx functionParseContext) ast.FuncBodyStmt
 		end = closeTok.Span
 	}
 
+	elifs := []ast.FuncElifBranch(nil)
+	for {
+		p.skipStmtSeparators()
+		if p.peek().Type != lexer.TokenElif {
+			break
+		}
+		branch := p.parseFuncElifBranch(ctx)
+		elifs = append(elifs, branch)
+		end = branch.Span
+	}
+
 	elseBody := []ast.FuncBodyStmt(nil)
 	p.skipStmtSeparators()
 	if p.peek().Type == lexer.TokenElse {
-		elseTok := p.next()
-		p.skipNewlines()
-		if p.peek().Type != lexer.TokenLBrace {
-			p.diags.AddError(
-				diag.CodeE080,
-				"expected '{' after 'else'",
-				p.peek().Span,
-				"use `else { ... }`; nested `else if` is not supported yet",
-			)
-			if p.peek().Type == lexer.TokenIf {
-				discard := p.parseFuncIfStmt(ctx)
-				end = discard.GetSpan()
-			} else {
-				p.consumeUntilFunctionBodyStmtEnd()
-				end = elseTok.Span
-			}
-			return ast.FuncIfStmt{Cond: cond, Then: thenBody, Span: diag.Merge(ifTok.Span, end)}
-		}
-		openElse := p.next()
-		elseBody = p.parseFunctionBody(ctx)
-		closeElse := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close else body")
-		end = closeElse.Span
-		if openElse.Type != lexer.TokenLBrace {
-			end = elseTok.Span
-		}
+		elseBody, end = p.parseFuncElseBody(ctx, end)
 	}
 	p.skipStmtSeparators()
 	return ast.FuncIfStmt{
-		Cond: cond,
-		Then: thenBody,
-		Else: elseBody,
-		Span: diag.Merge(ifTok.Span, end),
+		Cond:  cond,
+		Then:  thenBody,
+		Elifs: elifs,
+		Else:  elseBody,
+		Span:  diag.Merge(ifTok.Span, end),
 	}
+}
+
+func (p *tokenParser) parseFuncElifBranch(ctx functionParseContext) ast.FuncElifBranch {
+	elifTok := p.expect(lexer.TokenElif, diag.CodeE080, "expected 'elif'")
+	p.skipNewlines()
+	cond := p.parseExpr()
+	open := p.expect(lexer.TokenLBrace, diag.CodeE080, "expected '{' after elif condition")
+	body := []ast.FuncBodyStmt(nil)
+	end := open.Span
+	if open.Type == lexer.TokenLBrace {
+		body = p.parseFunctionBody(ctx)
+		closeTok := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close elif body")
+		end = closeTok.Span
+	}
+	return ast.FuncElifBranch{
+		Cond: cond,
+		Body: body,
+		Span: diag.Merge(elifTok.Span, end),
+	}
+}
+
+func (p *tokenParser) parseFuncElseBody(ctx functionParseContext, previousEnd diag.Span) ([]ast.FuncBodyStmt, diag.Span) {
+	elseTok := p.next()
+	p.skipNewlines()
+	if p.peek().Type != lexer.TokenLBrace {
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' after 'else'",
+			p.peek().Span,
+			"use `elif condition { ... }` instead of `else if condition { ... }`",
+		)
+		if p.peek().Type == lexer.TokenIf {
+			discard := p.parseFuncIfStmt(ctx)
+			return nil, discard.GetSpan()
+		}
+		p.consumeUntilFunctionBodyStmtEnd()
+		return nil, elseTok.Span
+	}
+	openElse := p.next()
+	elseBody := p.parseFunctionBody(ctx)
+	closeElse := p.expect(lexer.TokenRBrace, diag.CodeE025, "expected '}' to close else body")
+	if openElse.Type != lexer.TokenLBrace {
+		return elseBody, elseTok.Span
+	}
+	if closeElse.Type != lexer.TokenRBrace {
+		return elseBody, previousEnd
+	}
+	return elseBody, closeElse.Span
 }
 
 func (p *tokenParser) parseFuncForStmt(ctx functionParseContext) ast.FuncBodyStmt {

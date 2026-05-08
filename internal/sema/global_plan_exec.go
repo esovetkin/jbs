@@ -244,13 +244,24 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) g
 	if !ok {
 		return globalStepResult{}
 	}
-	nextGuardDeps := append([]string(nil), guardDeps...)
-	nextGuardDeps = append(nextGuardDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
-	nextGuardDeps = uniqueSortedNamesExcept(nextGuardDeps, "")
+	checkedDeps := append([]string(nil), guardDeps...)
+	checkedDeps = append(checkedDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
+	checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
 	if cond {
-		return e.executeSteps(step.Then, nextGuardDeps)
+		return e.executeSteps(step.Then, checkedDeps)
 	}
-	return e.executeSteps(step.Else, nextGuardDeps)
+	for _, branch := range step.Elifs {
+		branchCond, ok := eval.EvalBoolConditionFor("elif", branch.Cond, nil, e.diags, e.evalOptions(step))
+		if !ok {
+			return globalStepResult{}
+		}
+		checkedDeps = append(checkedDeps, globalExprDependencies(branch.Cond, "")...)
+		checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
+		if branchCond {
+			return e.executeSteps(branch.Body, checkedDeps)
+		}
+	}
+	return e.executeSteps(step.Else, checkedDeps)
 }
 
 func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) globalStepResult {

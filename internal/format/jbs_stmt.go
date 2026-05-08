@@ -54,6 +54,9 @@ func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []formattedLine {
 	for _, child := range stmt.Then {
 		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
+	for _, branch := range stmt.Elifs {
+		lines = append(lines, formatElifBranch(branch, srcRunes)...)
+	}
 	if len(stmt.Else) == 0 {
 		lines = append(lines, plainLine("}"))
 		return lines
@@ -63,6 +66,22 @@ func formatIfStmt(stmt ast.IfStmt, srcRunes []rune) []formattedLine {
 		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
 	}
 	lines = append(lines, plainLine("}"))
+	return lines
+}
+
+func formatElifBranch(branch ast.ElifBranch, srcRunes []rune) []formattedLine {
+	condLines := formatExprLines(branch.Cond, srcRunes)
+	if len(condLines) == 0 {
+		condLines = []string{"true"}
+		if branch.Cond != nil {
+			condLines = []string{strings.TrimSpace(spanText(srcRunes, branch.Cond.GetSpan()))}
+		}
+	}
+	lines := plainLines(prefixFormattedLines("", "} elif ", condLines))
+	lines[len(lines)-1].Text += " {"
+	for _, child := range branch.Body {
+		lines = append(lines, indentFormattedLines(formatStmt(child, srcRunes), continuationIndent)...)
+	}
 	return lines
 }
 

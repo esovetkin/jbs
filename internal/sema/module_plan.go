@@ -73,6 +73,7 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 				Kind:    globalInputIf,
 				IfStmt:  &stmtCopy,
 				Then:    appendModuleGlobalPlanSteps(plan, stmtCopy.Then, baseDir, ctx.nestedControl(sourceIndex), nil, prep, prefixedByIndex),
+				Elifs:   appendModuleGlobalPlanElifs(plan, stmtCopy.Elifs, baseDir, ctx, sourceIndex, prep, prefixedByIndex),
 				Else:    appendModuleGlobalPlanSteps(plan, stmtCopy.Else, baseDir, ctx.nestedControl(sourceIndex), nil, prep, prefixedByIndex),
 				Index:   sourceIndex,
 				BaseDir: baseDir,
@@ -138,4 +139,20 @@ func appendModuleGlobalPlanSteps(plan *globalPlan, stmts []ast.Stmt, baseDir str
 		}
 	}
 	return steps
+}
+
+func appendModuleGlobalPlanElifs(plan *globalPlan, branches []ast.ElifBranch, baseDir string, ctx globalPlanContext, sourceIndex int, prep moduleBindingPrep, prefixedByIndex map[int]*moduleScope) []globalIfBranch {
+	if len(branches) == 0 {
+		return nil
+	}
+	out := make([]globalIfBranch, 0, len(branches))
+	for _, branch := range branches {
+		branchCopy := branch
+		out = append(out, globalIfBranch{
+			Cond: branchCopy.Cond,
+			Body: appendModuleGlobalPlanSteps(plan, branchCopy.Body, baseDir, ctx.nestedControl(sourceIndex), nil, prep, prefixedByIndex),
+			Span: branchCopy.Span,
+		})
+	}
+	return out
 }

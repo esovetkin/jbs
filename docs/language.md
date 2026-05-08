@@ -5,13 +5,19 @@ JBS files are evaluated top to bottom. They contain global assignments, imports,
 ## Program Shape
 
 ```text
-program       := statement*
-statement     := assignment | use_stmt | do_block | analyse_block | expr_stmt
-assignment    := IDENT assign_op expr
-assign_op     := "=" | "+=" | "-=" | "*=" | "/=" | "%="
-use_stmt      := "use" import_items "from" STRING
-do_block      := "do" IDENT header_item* "{" raw_body "}"
-analyse_block := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
+program        := statement*
+statement      := assignment | use_stmt | do_block | analyse_block
+                | if_stmt | for_stmt | while_stmt | break_stmt | continue_stmt
+                | expr_stmt
+assignment     := IDENT assign_op expr
+assign_op      := "=" | "+=" | "-=" | "*=" | "/=" | "%="
+use_stmt       := "use" import_items "from" STRING
+if_stmt        := "if" expr block elif_branch* else_branch?
+elif_branch    := "elif" expr block
+else_branch    := "else" block
+block          := "{" statement* "}"
+do_block       := "do" IDENT header_item* "{" raw_body "}"
+analyse_block  := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
 ```
 
 Top-level expression statements are evaluated. In files they are mainly useful for validation and quick inspection; in the REPL their values are printed.
@@ -61,6 +67,15 @@ Useful table operations:
 `if`, `for`, and `while` can compute globals before declarations.
 
 ```jbs
+mode = "small"
+if mode == "small" {
+        cases = table(x = range(2))
+} elif mode == "large" {
+        cases = table(x = range(10))
+} else {
+        cases = table(x = range(1))
+}
+
 values = ()
 for x in range(3) {
         values += (x,)

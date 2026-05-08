@@ -482,6 +482,11 @@ func collectStmtLocalSymbols(stmt ast.Stmt, out map[string]diag.Span) {
 		for _, child := range ifStmt.Then {
 			collectStmtLocalSymbols(child, out)
 		}
+		for _, branch := range ifStmt.Elifs {
+			for _, child := range branch.Body {
+				collectStmtLocalSymbols(child, out)
+			}
+		}
 		for _, child := range ifStmt.Else {
 			collectStmtLocalSymbols(child, out)
 		}

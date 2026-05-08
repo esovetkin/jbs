@@ -131,14 +131,23 @@ func (e ExprStmt) funcBodyStmtNode()  {}
 func (e ExprStmt) GetSpan() diag.Span { return e.Span }
 
 type IfStmt struct {
-	Cond Expr
-	Then []Stmt
-	Else []Stmt
-	Span diag.Span
+	Cond  Expr
+	Then  []Stmt
+	Elifs []ElifBranch
+	Else  []Stmt
+	Span  diag.Span
 }
 
 func (i IfStmt) stmtNode()          {}
 func (i IfStmt) GetSpan() diag.Span { return i.Span }
+
+type ElifBranch struct {
+	Cond Expr
+	Body []Stmt
+	Span diag.Span
+}
+
+func (b ElifBranch) GetSpan() diag.Span { return b.Span }
 
 type ForStmt struct {
 	Target   string
@@ -389,14 +398,23 @@ func (s ReturnStmt) funcBodyStmtNode()  {}
 func (s ReturnStmt) GetSpan() diag.Span { return s.Span }
 
 type FuncIfStmt struct {
-	Cond Expr
-	Then []FuncBodyStmt
-	Else []FuncBodyStmt
-	Span diag.Span
+	Cond  Expr
+	Then  []FuncBodyStmt
+	Elifs []FuncElifBranch
+	Else  []FuncBodyStmt
+	Span  diag.Span
 }
 
 func (s FuncIfStmt) funcBodyStmtNode()  {}
 func (s FuncIfStmt) GetSpan() diag.Span { return s.Span }
+
+type FuncElifBranch struct {
+	Cond Expr
+	Body []FuncBodyStmt
+	Span diag.Span
+}
+
+func (b FuncElifBranch) GetSpan() diag.Span { return b.Span }
 
 type FuncForStmt struct {
 	Target   string

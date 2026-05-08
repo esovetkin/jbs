@@ -44,24 +44,26 @@ func TestLexFunctionAndReturnKeywords(t *testing.T) {
 }
 
 func TestLexIfAndElseKeywords(t *testing.T) {
-	src := "if enabled { x = 1 } else { x = 2 }\n"
+	src := "if enabled { x = 1 } elif other { x = 2 } else { x = 3 }\n"
 	diags := &diag.Diagnostics{}
 	tokens := Lex("in.jbs", src, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected lexer errors: %s", diags.String())
 	}
 
-	var sawIf, sawElse bool
+	var sawIf, sawElif, sawElse bool
 	for _, tok := range tokens {
 		switch tok.Type {
 		case TokenIf:
 			sawIf = true
+		case TokenElif:
+			sawElif = true
 		case TokenElse:
 			sawElse = true
 		}
 	}
-	if !sawIf || !sawElse {
-		t.Fatalf("expected if and else tokens, got %#v", tokens)
+	if !sawIf || !sawElif || !sawElse {
+		t.Fatalf("expected if, elif, and else tokens, got %#v", tokens)
 	}
 }
 
@@ -84,8 +86,8 @@ func TestLexLoopKeywords(t *testing.T) {
 	}
 }
 
-func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
-	src := "function_name = 1\nreturn_value = 2\nifdef = 3\nelseif = 4\nforeach = 5\nwhiled = 6\nbreakfast = 7\ncontinued = 8\n"
+func TestLexKeywordLikeIdentifiersStayIdentifiers(t *testing.T) {
+	src := "function_name = 1\nreturn_value = 2\nifdef = 3\nelseif = 4\nelif_value = 5\nelifx = 6\nforeach = 7\nwhiled = 8\nbreakfast = 9\ncontinued = 10\n"
 	diags := &diag.Diagnostics{}
 	tokens := Lex("in.jbs", src, diags)
 	if diags.HasErrors() {
@@ -101,7 +103,7 @@ func TestLexFunctionAndReturnLikeIdentifiersStayIdentifiers(t *testing.T) {
 	if found["function_name"] != TokenIdent || found["return_value"] != TokenIdent {
 		t.Fatalf("expected identifier tokens for keyword-like names, got %#v", tokens)
 	}
-	if found["ifdef"] != TokenIdent || found["elseif"] != TokenIdent {
+	if found["ifdef"] != TokenIdent || found["elseif"] != TokenIdent || found["elif_value"] != TokenIdent || found["elifx"] != TokenIdent {
 		t.Fatalf("expected identifier tokens for if-like names, got %#v", tokens)
 	}
 	if found["foreach"] != TokenIdent || found["whiled"] != TokenIdent || found["breakfast"] != TokenIdent || found["continued"] != TokenIdent {

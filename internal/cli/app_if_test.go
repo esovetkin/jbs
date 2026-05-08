@@ -35,6 +35,35 @@ do run with cases {
 	}
 }
 
+func TestRunCheckAcceptsElifAssignments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := `
+jbs_name = "elif_demo"
+mode = "elif"
+if mode == "if" {
+	cases = t(x = range(2))
+} elif mode == "elif" {
+	cases = t(y = range(3))
+} else {
+	cases = t(z = range(4))
+}
+do run with cases {
+	echo $y
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no check output, got %q", stdout.String())
+	}
+}
+
 func TestRunRejectsDeclarationInsideIf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

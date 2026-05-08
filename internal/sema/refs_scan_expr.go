@@ -90,6 +90,10 @@ func walkFuncBodyIdentRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 		case ast.FuncIfStmt:
 			walk(node.Cond)
 			walkFuncBodyIdentRefs(node.Then, walk)
+			for _, branch := range node.Elifs {
+				walk(branch.Cond)
+				walkFuncBodyIdentRefs(branch.Body, walk)
+			}
 			walkFuncBodyIdentRefs(node.Else, walk)
 		case ast.FuncForStmt:
 			walk(node.Iterable)
@@ -177,6 +181,10 @@ func walkFuncBodyStringRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
 		case ast.FuncIfStmt:
 			walk(node.Cond)
 			walkFuncBodyStringRefs(node.Then, walk)
+			for _, branch := range node.Elifs {
+				walk(branch.Cond)
+				walkFuncBodyStringRefs(branch.Body, walk)
+			}
 			walkFuncBodyStringRefs(node.Else, walk)
 		case ast.FuncForStmt:
 			walk(node.Iterable)

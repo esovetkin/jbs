@@ -104,6 +104,9 @@ func collectFuncBodyLocalNames(body []ast.FuncBodyStmt, out map[string]struct{})
 			}
 		case ast.FuncIfStmt:
 			collectFuncBodyLocalNames(node.Then, out)
+			for _, branch := range node.Elifs {
+				collectFuncBodyLocalNames(branch.Body, out)
+			}
 			collectFuncBodyLocalNames(node.Else, out)
 		case ast.FuncForStmt:
 			if node.Target != "" {
@@ -128,6 +131,10 @@ func collectFuncBodyGlobalExprDeps(body []ast.FuncBodyStmt, out map[string]struc
 		case ast.FuncIfStmt:
 			collectGlobalExprDepsBound(node.Cond, out, bound)
 			collectFuncBodyGlobalExprDeps(node.Then, out, bound)
+			for _, branch := range node.Elifs {
+				collectGlobalExprDepsBound(branch.Cond, out, bound)
+				collectFuncBodyGlobalExprDeps(branch.Body, out, bound)
+			}
 			collectFuncBodyGlobalExprDeps(node.Else, out, bound)
 		case ast.FuncForStmt:
 			collectGlobalExprDepsBound(node.Iterable, out, bound)

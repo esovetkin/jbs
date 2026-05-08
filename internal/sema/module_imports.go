@@ -112,6 +112,11 @@ func collectModuleVisibleNameStmt(stmt ast.Stmt, out *moduleBindingPrep) {
 		for _, child := range n.Then {
 			collectModuleVisibleNameStmt(child, out)
 		}
+		for _, branch := range n.Elifs {
+			for _, child := range branch.Body {
+				collectModuleVisibleNameStmt(child, out)
+			}
+		}
 		for _, child := range n.Else {
 			collectModuleVisibleNameStmt(child, out)
 		}
@@ -164,6 +169,11 @@ func moduleLocalSymbolKind(prog ast.Program, name string) localSymbolKind {
 		case ast.IfStmt:
 			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Then}, name); kind != localSymbolNone {
 				return kind
+			}
+			for _, branch := range n.Elifs {
+				if kind := moduleLocalSymbolKind(ast.Program{Stmts: branch.Body}, name); kind != localSymbolNone {
+					return kind
+				}
 			}
 			if kind := moduleLocalSymbolKind(ast.Program{Stmts: n.Else}, name); kind != localSymbolNone {
 				return kind

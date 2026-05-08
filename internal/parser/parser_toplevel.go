@@ -53,6 +53,9 @@ func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
 		case "if":
 			p.consumeWord()
 			return p.parseIfStmt(start, ctx)
+		case "elif", "else":
+			p.consumeWord()
+			return p.parseUnexpectedBranchKeyword(start, word)
 		case "for":
 			p.consumeWord()
 			return p.parseForStmt(start, ctx)
@@ -85,6 +88,18 @@ func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
 	return p.parseTopLevelExprStmt(start)
 }
 
+func (p *Parser) parseUnexpectedBranchKeyword(start diag.Position, word string) ast.ExprStmt {
+	_, _ = p.readTopLevelStatement()
+	span := diag.NewSpan(p.file, start, p.pos())
+	p.diags.AddError(
+		diag.CodeE080,
+		fmt.Sprintf("'%s' without matching if", word),
+		span,
+		"attach the branch to a preceding `if` block",
+	)
+	return ast.ExprStmt{Span: span}
+}
+
 func (p *Parser) rejectControlBodyDeclaration(ctx topLevelParseContext, kind string, span diag.Span) {
 	if !ctx.InControlBody {
 		return
@@ -105,6 +120,7 @@ func (p *Parser) isTopLevelAssignmentStart() bool {
 	word, ok := p.peekWord()
 	if !ok ||
 		word == "if" ||
+		word == "elif" ||
 		word == "else" ||
 		word == "for" ||
 		word == "while" ||
@@ -375,42 +391,80 @@ func (p *Parser) parseIfStmt(start diag.Position, ctx topLevelParseContext) ast.
 	thenBody := p.parseStmtList(ctx.nestedControl(), true)
 	closeThen := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close if body")
 
-	elseBody := []ast.Stmt(nil)
 	end := closeThen
+	elifs := []ast.ElifBranch(nil)
+	for {
+		p.skipTrivia()
+		word, ok := p.peekWord()
+		if !ok || word != "elif" {
+			break
+		}
+		branchStart := p.pos()
+		p.consumeWord()
+		branch := p.parseElifBranch(branchStart, ctx)
+		elifs = append(elifs, branch)
+		end = branch.Span.End
+	}
+
+	elseBody := []ast.Stmt(nil)
 	p.skipTrivia()
 	if word, ok := p.peekWord(); ok && word == "else" {
 		p.consumeWord()
-		p.skipTrivia()
-		if p.peek() != '{' {
-			at := p.pos()
-			p.diags.AddError(
-				diag.CodeE080,
-				"expected '{' to start else body",
-				diag.NewSpan(p.file, at, at),
-				"use `else { ... }`; nested `else if` is not supported yet",
-			)
-			if word, ok := p.peekWord(); ok && word == "if" {
-				p.consumeWord()
-				discard := p.parseIfStmt(at, ctx)
-				end = discard.Span.End
-			}
-			return ast.IfStmt{
-				Cond: cond,
-				Then: thenBody,
-				Span: diag.NewSpan(p.file, start, end),
-			}
-		}
-		p.advance()
-		elseBody = p.parseStmtList(ctx.nestedControl(), true)
-		end = p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close else body")
+		elseBody, end = p.parseElseBody(end, ctx)
 	}
 
 	return ast.IfStmt{
+		Cond:  cond,
+		Then:  thenBody,
+		Elifs: elifs,
+		Else:  elseBody,
+		Span:  diag.NewSpan(p.file, start, end),
+	}
+}
+
+func (p *Parser) parseElifBranch(start diag.Position, ctx topLevelParseContext) ast.ElifBranch {
+	cond, ok := p.parseControlCondition("elif")
+	if !ok {
+		return ast.ElifBranch{Cond: cond, Span: diag.NewSpan(p.file, start, p.pos())}
+	}
+	p.advance()
+	body := p.parseStmtList(ctx.nestedControl(), true)
+	end := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close elif body")
+	return ast.ElifBranch{
 		Cond: cond,
-		Then: thenBody,
-		Else: elseBody,
+		Body: body,
 		Span: diag.NewSpan(p.file, start, end),
 	}
+}
+
+func (p *Parser) parseElseBody(previousEnd diag.Position, ctx topLevelParseContext) ([]ast.Stmt, diag.Position) {
+	p.skipTrivia()
+	if word, ok := p.peekWord(); ok && word == "if" {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' to start else body",
+			diag.NewSpan(p.file, at, at),
+			"use `elif condition { ... }` instead of `else if condition { ... }`",
+		)
+		p.consumeWord()
+		discard := p.parseIfStmt(at, ctx)
+		return nil, discard.Span.End
+	}
+	if p.peek() != '{' {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' to start else body",
+			diag.NewSpan(p.file, at, at),
+			"use `else { ... }` or `elif condition { ... }`",
+		)
+		return nil, previousEnd
+	}
+	p.advance()
+	body := p.parseStmtList(ctx.nestedControl(), true)
+	end := p.expectTopLevelRBrace(diag.CodeE025, "expected '}' to close else body")
+	return body, end
 }
 
 func (p *Parser) parseForStmt(start diag.Position, ctx topLevelParseContext) ast.ForStmt {
