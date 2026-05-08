@@ -58,6 +58,11 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		for _, it := range e.Items {
 			collectGlobalExprDepsBound(it, out, bound)
 		}
+	case ast.DictExpr:
+		for _, entry := range e.Entries {
+			collectGlobalExprDepsBound(entry.Key, out, bound)
+			collectGlobalExprDepsBound(entry.Value, out, bound)
+		}
 	case ast.CallExpr:
 		collectGlobalExprDepsBound(e.Callee, out, bound)
 		for _, arg := range e.Args {
@@ -271,7 +276,7 @@ func mergeGlobalVarsIntoState(state *GlobalState, byName map[string]*GlobalVar) 
 		if gv == nil || name == "" {
 			continue
 		}
-		state.Values[name] = gv.Value
+		state.Values[name] = eval.CloneValue(gv.Value)
 		state.Spans[name] = gv.Span
 	}
 }
@@ -284,6 +289,7 @@ func cloneCombRows(rows []eval.Row, fallback diag.Span) []eval.Row {
 			if cell.Origin.IsZero() {
 				cell.Origin = fallback
 			}
+			cell.Value = eval.CloneValue(cell.Value)
 			values[name] = cell
 		}
 		out = append(out, eval.Row{Values: values})

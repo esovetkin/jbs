@@ -114,6 +114,13 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 		diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' does not accept function values", op), at, "call the function first or remove it from the arithmetic expression")
 		return Null()
 	}
+	if l.Kind == KindDict || r.Kind == KindDict {
+		if op != "+" || l.Kind != KindDict || r.Kind != KindDict {
+			diags.AddError(diag.CodeE106, "dictionary '+' requires dictionary operands", at, "use dict + dict")
+			return Null()
+		}
+		return mergeDicts(l, r)
+	}
 
 	if IsComb(l) || IsComb(r) {
 		switch op {

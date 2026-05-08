@@ -3,7 +3,6 @@ package parser
 
 import (
 	"fmt"
-	"strings"
 	"unicode"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
@@ -468,16 +467,9 @@ func (p *Parser) parseElseBody(previousEnd diag.Position, ctx topLevelParseConte
 }
 
 func (p *Parser) parseForStmt(start diag.Position, ctx topLevelParseContext) ast.ForStmt {
-	header, headerStart, ok := p.readUntilControlBodyBrace()
-	target, iterable := p.parseForHeader(header, headerStart)
+	target, iterable, ok := p.parseForHeaderCurrent()
 	if !ok {
 		at := p.pos()
-		p.diags.AddError(
-			diag.CodeE080,
-			"expected '{' after for header",
-			diag.NewSpan(p.file, at, at),
-			"use syntax: for x in values { ... }",
-		)
 		return ast.ForStmt{
 			Target:   target,
 			Iterable: iterable,
@@ -495,14 +487,54 @@ func (p *Parser) parseForStmt(start diag.Position, ctx topLevelParseContext) ast
 	}
 }
 
+func (p *Parser) parseForHeaderCurrent() (string, ast.Expr, bool) {
+	p.skipTriviaInline()
+	start := p.pos()
+	endOff, ok := p.findControlBodyBrace(func(src string, start diag.Position, diags *diag.Diagnostics) bool {
+		_, expr := parseForHeaderTokens(p.file, src, start, diags)
+		return expr != nil && !diags.HasErrors()
+	})
+	if !ok {
+		stmt, stmtStart := p.readTopLevelStatement()
+		name, expr := p.parseForHeader(stmt, stmtStart)
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' after for header",
+			diag.NewSpan(p.file, at, at),
+			"use syntax: for x in values { ... }",
+		)
+		return name, expr, false
+	}
+	header := string(p.src[p.off:endOff])
+	name, expr := p.parseForHeader(header, start)
+	p.seekTo(diag.NewPos(endOff, 0, 0))
+	p.skipTriviaInline()
+	if p.peek() != '{' {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			"expected '{' after for header",
+			diag.NewSpan(p.file, at, at),
+			"use syntax: for x in values { ... }",
+		)
+		return name, expr, false
+	}
+	return name, expr, true
+}
+
 func (p *Parser) parseForHeader(src string, start diag.Position) (string, ast.Expr) {
-	tokens := lexer.LexFrom(p.file, src, start, p.diags)
-	tp := &tokenParser{tokens: tokens, diags: p.diags}
+	return parseForHeaderTokens(p.file, src, start, p.diags)
+}
+
+func parseForHeaderTokens(file string, src string, start diag.Position, diags *diag.Diagnostics) (string, ast.Expr) {
+	tokens := lexer.LexFrom(file, src, start, diags)
+	tp := &tokenParser{tokens: tokens, diags: diags}
 	tp.skipStmtSeparators()
 	nameTok := tp.expect(lexer.TokenIdent, diag.CodeE080, "expected loop variable after 'for'")
 	inTok := tp.expect(lexer.TokenIn, diag.CodeE080, "expected 'in' after loop variable")
 	if tp.peek().Type == lexer.TokenEOF {
-		p.diags.AddError(
+		diags.AddError(
 			diag.CodeE080,
 			"expected iterable expression after 'in'",
 			tp.peek().Span,
@@ -516,7 +548,7 @@ func (p *Parser) parseForHeader(src string, start diag.Position) (string, ast.Ex
 	expr := tp.parseExpr()
 	tp.skipStmtSeparators()
 	if tp.peek().Type != lexer.TokenEOF {
-		p.diags.AddError(
+		diags.AddError(
 			diag.CodeE061,
 			"unexpected trailing tokens after for iterable",
 			tp.peek().Span,
@@ -602,30 +634,24 @@ func (p *Parser) expectTopLevelRBrace(code diag.Code, message string) diag.Posit
 
 func (p *Parser) parseControlCondition(kind string) (ast.Expr, bool) {
 	p.skipTriviaInline()
-	condText, condStart, ok := p.readUntilControlBodyBrace()
-	if strings.TrimSpace(condText) == "" {
-		at := condStart
+	start := p.pos()
+	if p.eof() {
+		at := p.pos()
 		p.diags.AddError(
 			diag.CodeE080,
 			fmt.Sprintf("expected %s condition before '{'", kind),
 			diag.NewSpan(p.file, at, at),
 			fmt.Sprintf("use syntax: %s condition { ... }", kind),
 		)
+		return ast.StringExpr{Value: "", Span: diag.NewSpan(p.file, at, at)}, false
 	}
-	tokens := lexer.LexFrom(p.file, condText, condStart, p.diags)
-	tp := &tokenParser{tokens: tokens, diags: p.diags}
-	tp.skipStmtSeparators()
-	cond := tp.parseExpr()
-	tp.skipStmtSeparators()
-	if tp.peek().Type != lexer.TokenEOF {
-		p.diags.AddError(
-			diag.CodeE061,
-			fmt.Sprintf("unexpected trailing tokens after %s condition", kind),
-			tp.peek().Span,
-			"remove unsupported syntax before `{`",
-		)
-	}
+	endOff, ok := p.findControlBodyBrace(func(src string, start diag.Position, diags *diag.Diagnostics) bool {
+		cond := parseControlConditionExpr(p.file, src, start, kind, diags)
+		return cond != nil && !diags.HasErrors()
+	})
 	if !ok {
+		stmt, stmtStart := p.readTopLevelStatement()
+		cond := parseControlConditionExpr(p.file, stmt, stmtStart, kind, p.diags)
 		at := p.pos()
 		p.diags.AddError(
 			diag.CodeE080,
@@ -633,8 +659,122 @@ func (p *Parser) parseControlCondition(kind string) (ast.Expr, bool) {
 			diag.NewSpan(p.file, at, at),
 			fmt.Sprintf("use syntax: %s condition { ... }", kind),
 		)
+		return cond, false
 	}
-	return cond, ok
+	header := string(p.src[p.off:endOff])
+	cond := parseControlConditionExpr(p.file, header, start, kind, p.diags)
+	p.seekTo(diag.NewPos(endOff, 0, 0))
+	p.skipTriviaInline()
+	if p.peek() != '{' {
+		at := p.pos()
+		p.diags.AddError(
+			diag.CodeE080,
+			fmt.Sprintf("expected '{' after %s condition", kind),
+			diag.NewSpan(p.file, at, at),
+			fmt.Sprintf("use syntax: %s condition { ... }", kind),
+		)
+		return cond, false
+	}
+	return cond, true
+}
+
+func parseControlConditionExpr(file string, src string, start diag.Position, kind string, diags *diag.Diagnostics) ast.Expr {
+	tokens := lexer.LexFrom(file, src, start, diags)
+	tp := &tokenParser{tokens: tokens, diags: diags}
+	tp.skipStmtSeparators()
+	if tp.peek().Type == lexer.TokenEOF {
+		diags.AddError(
+			diag.CodeE080,
+			fmt.Sprintf("expected %s condition before '{'", kind),
+			tp.peek().Span,
+			fmt.Sprintf("use syntax: %s condition { ... }", kind),
+		)
+		return nil
+	}
+	cond := tp.parseExpr()
+	tp.skipStmtSeparators()
+	if tp.peek().Type != lexer.TokenEOF {
+		diags.AddError(
+			diag.CodeE061,
+			fmt.Sprintf("unexpected trailing tokens after %s condition", kind),
+			tp.peek().Span,
+			"remove unsupported syntax before `{`",
+		)
+	}
+	return cond
+}
+
+func (p *Parser) findControlBodyBrace(validHeader func(src string, start diag.Position, diags *diag.Diagnostics) bool) (int, bool) {
+	start := p.pos()
+	startOff := p.off
+	mode := blockScanCode
+	escaped := false
+	parenDepth := 0
+	bracketDepth := 0
+	for i := startOff; i < len(p.src); i++ {
+		r := p.src[i]
+		switch mode {
+		case blockScanLineComment:
+			if r == '\n' {
+				mode = blockScanCode
+			}
+		case blockScanSingleQuote:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '#':
+				mode = blockScanLineComment
+			case '\'':
+				mode = blockScanSingleQuote
+				escaped = false
+			case '"':
+				mode = blockScanDoubleQuote
+				escaped = false
+			case '(':
+				parenDepth++
+			case ')':
+				if parenDepth > 0 {
+					parenDepth--
+				}
+			case '[':
+				bracketDepth++
+			case ']':
+				if bracketDepth > 0 {
+					bracketDepth--
+				}
+			case '{':
+				if parenDepth == 0 && bracketDepth == 0 {
+					diags := &diag.Diagnostics{}
+					if validHeader(string(p.src[startOff:i]), start, diags) {
+						return i, true
+					}
+				}
+			}
+		}
+	}
+	return len(p.src), false
 }
 
 func (p *Parser) readUntilControlBodyBrace() (string, diag.Position, bool) {

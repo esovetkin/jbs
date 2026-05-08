@@ -52,6 +52,13 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 			}
 		}
 		return false
+	case ast.DictExpr:
+		for _, entry := range e.Entries {
+			if binaryNeedsRelaxedCombEval(entry.Key) || binaryNeedsRelaxedCombEval(entry.Value) {
+				return true
+			}
+		}
+		return false
 	case ast.CompareExpr:
 		return binaryNeedsRelaxedCombEval(e.Left) || binaryNeedsRelaxedCombEval(e.Right)
 	case ast.ConditionalExpr:

@@ -15,9 +15,14 @@ use_stmt       := "use" import_items "from" STRING
 if_stmt        := "if" expr block elif_branch* else_branch?
 elif_branch    := "elif" expr block
 else_branch    := "else" block
+for_stmt       := "for" IDENT "in" expr block
+while_stmt     := "while" expr block
 block          := "{" statement* "}"
 do_block       := "do" IDENT header_item* "{" raw_body "}"
 analyse_block  := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
+expr           := literal | name | call | index | member | unary | binary
+                | conditional | function | list | tuple | dict
+dict           := "{" (expr ":" expr ("," expr ":" expr)* ","?)? "}"
 ```
 
 Top-level expression statements are evaluated. In files they are mainly useful for validation and quick inspection; in the REPL their values are printed.
@@ -51,10 +56,44 @@ JBS supports:
 - `int`, `float`, `str`, `bool`, and `null`
 - lists: `[1, 2, 3]`
 - tuples: `(1, 2, 3)`
+- dictionaries: `{"name": "case-a", 1: "one"}` or `dict(name = "case-a")`
 - tables, created with `table(...)` or `t(...)`
 - functions: `function(x) { x + 1 }`
 
 Tuple syntax requires a comma for one item: `(1,)`.
+
+## Dictionaries
+
+Dictionaries map string, int, or bool keys to arbitrary JBS values.
+
+```jbs
+d = dict(name = "case-a", threads = 8)
+same = {"name": "case-a", 1: [1, 2, 3], true: "enabled"}
+```
+
+Literal keys are expressions, so a bare identifier is looked up first:
+
+```jbs
+key = "name"
+{"name": 1} == {key: 1}
+```
+
+Use index syntax for required keys and `get(...)` for optional keys:
+
+```jbs
+d["name"]
+get(d, "missing", "fallback")
+```
+
+`update(d, key = value, ...)` and `left + right` return new dictionaries. Right-hand values replace existing keys and duplicate literal keys keep their first insertion position.
+
+```jbs
+base = dict(a = 1, b = 2)
+next = base + dict(b = 3, c = 4)
+next == dict(a = 1, b = 3, c = 4)
+```
+
+`for key in d { ... }` iterates keys only, in insertion order.
 
 ## Tables
 

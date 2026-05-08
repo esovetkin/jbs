@@ -109,6 +109,12 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 					return true
 				}
 			}
+		case ast.DictExpr:
+			for _, entry := range n.Entries {
+				if walk(entry.Key, bound) || walk(entry.Value, bound) {
+					return true
+				}
+			}
 		case ast.CallExpr:
 			if walk(n.Callee, bound) {
 				return true

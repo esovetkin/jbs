@@ -16,6 +16,8 @@ func ReplValue(v eval.Value) string {
 		return replSequence("[", "]", v.L)
 	case eval.KindTuple:
 		return replSequence("(", ")", v.L)
+	case eval.KindDict:
+		return replDict(v.D)
 	case eval.KindComb:
 		return replTable(v.C)
 	default:
@@ -52,12 +54,53 @@ func replInlineValue(v eval.Value) string {
 		return replSequence("[", "]", v.L)
 	case eval.KindTuple:
 		return replSequence("(", ")", v.L)
+	case eval.KindDict:
+		return replDict(v.D)
 	case eval.KindComb:
 		return replTable(v.C)
 	case eval.KindString:
 		return strconv.Quote(v.S)
 	default:
 		return v.String()
+	}
+}
+
+func replDict(d *eval.Dict) string {
+	if d == nil || len(d.Entries) == 0 {
+		return "{}"
+	}
+	limit := len(d.Order)
+	if limit > maxPreviewItems {
+		limit = maxPreviewItems
+	}
+	parts := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		key := d.Order[i]
+		value, ok := d.Entries[key]
+		if !ok {
+			continue
+		}
+		parts = append(parts, replDictKey(key)+": "+replInlineValue(value))
+	}
+	if len(d.Order) > limit {
+		parts = append(parts, "...")
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+func replDictKey(key eval.DictKey) string {
+	switch key.Kind {
+	case eval.DictKeyString:
+		return strconv.Quote(key.S)
+	case eval.DictKeyInt:
+		return strconv.FormatInt(key.I, 10)
+	case eval.DictKeyBool:
+		if key.B {
+			return "true"
+		}
+		return "false"
+	default:
+		return strconv.Quote("")
 	}
 }
 

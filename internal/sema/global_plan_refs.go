@@ -64,6 +64,11 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			for _, item := range n.Items {
 				walk(item)
 			}
+		case ast.DictExpr:
+			for _, entry := range n.Entries {
+				walk(entry.Key)
+				walk(entry.Value)
+			}
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {

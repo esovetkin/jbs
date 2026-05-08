@@ -453,6 +453,16 @@ func valueKey(v eval.Value) string {
 			parts = append(parts, valueKey(item))
 		}
 		return "tuple:(" + strings.Join(parts, ",") + ")"
+	case eval.KindDict:
+		if v.D == nil || len(v.D.Entries) == 0 {
+			return "dict:{}"
+		}
+		parts := make([]string, 0, len(v.D.Entries))
+		for key, value := range v.D.Entries {
+			parts = append(parts, "dictkey:"+key.StableString()+"="+valueKey(value))
+		}
+		slices.Sort(parts)
+		return "dict:{" + strings.Join(parts, ",") + "}"
 	default:
 		return "other:" + v.String()
 	}

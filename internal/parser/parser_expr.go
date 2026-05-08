@@ -86,6 +86,9 @@ func exprWithSpan(expr ast.Expr, span diag.Span) ast.Expr {
 	case ast.TupleExpr:
 		e.Span = span
 		return e
+	case ast.DictExpr:
+		e.Span = span
+		return e
 	case ast.CallExpr:
 		e.Span = span
 		return e
@@ -409,6 +412,8 @@ func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 			Items: items,
 			Span:  diag.Merge(open.Span, close.Span),
 		}
+	case lexer.TokenLBrace:
+		return p.parseDictExpr()
 	default:
 		p.diags.AddError(diag.CodeE058,
 			fmt.Sprintf("unexpected token '%s' in expression", tok.Text),
@@ -418,6 +423,47 @@ func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 		p.next()
 		return ast.StringExpr{Value: "", Span: tok.Span}
 	}
+}
+
+func (p *tokenParser) parseDictExpr() ast.Expr {
+	open := p.expect(lexer.TokenLBrace, diag.CodeE058, "expected '{' to start dictionary")
+	p.skipNewlines()
+	entries := make([]ast.DictEntryExpr, 0)
+	if p.peek().Type != lexer.TokenRBrace {
+		for {
+			key := p.parseExpr()
+			p.skipNewlines()
+			colon := p.expect(lexer.TokenColon, diag.CodeE058, "expected ':' between dictionary key and value")
+			p.skipNewlines()
+			value := p.parseExpr()
+			span := diag.Span{}
+			if key != nil {
+				span = key.GetSpan()
+			}
+			if value != nil {
+				if span.IsZero() {
+					span = value.GetSpan()
+				} else {
+					span = diag.Merge(span, value.GetSpan())
+				}
+			}
+			if key != nil && value != nil && !colon.Span.IsZero() {
+				span = diag.Merge(key.GetSpan(), diag.Merge(colon.Span, value.GetSpan()))
+			}
+			entries = append(entries, ast.DictEntryExpr{Key: key, Value: value, Span: span})
+			p.skipNewlines()
+			if p.peek().Type != lexer.TokenComma {
+				break
+			}
+			p.next()
+			p.skipNewlines()
+			if p.peek().Type == lexer.TokenRBrace {
+				break
+			}
+		}
+	}
+	close := p.expect(lexer.TokenRBrace, diag.CodeE055, "expected '}' to close dictionary")
+	return ast.DictExpr{Entries: entries, Span: diag.Merge(open.Span, close.Span)}
 }
 
 func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {

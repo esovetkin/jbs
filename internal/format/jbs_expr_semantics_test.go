@@ -82,6 +82,16 @@ func TestJBSFormatsStructuredContainersWithoutChangingSiblingExpressions(t *test
 			src:  "x=((1,), f(a=1))\n",
 			want: "x = ((1,), f(a = 1))\n",
 		},
+		{
+			name: "dictionary grouped sibling",
+			src:  `x={"a":(1 + 2) * 3, 2:f(a=1)}` + "\n",
+			want: "x = {\"a\": (1 + 2) * 3, 2: f(a = 1)}\n",
+		},
+		{
+			name: "dictionary function value",
+			src:  `d={"a":function(x){x}}` + "\n",
+			want: "d = {\"a\": function(x) { x }}\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,6 +137,24 @@ func TestFormatExprInlineSpanlessFallbackPreservesSemantics(t *testing.T) {
 		}
 		if got := formatExprInline(expr, nil); got != "(a if b else c) + d" {
 			t.Fatalf("conditional expression formatted as %q", got)
+		}
+	})
+
+	t.Run("dictionary default", func(t *testing.T) {
+		src := `f=function(d={"a": (1,)}){d}` + "\n"
+		want := "f = function(d = {\"a\": (1,)}) {\n    d\n}\n"
+		if got := formatJBSForTest(t, "dict_default.jbs", src); got != want {
+			t.Fatalf("unexpected formatted output\n--- got ---\n%s--- want ---\n%s", got, want)
+		}
+	})
+
+	t.Run("spanless dictionary", func(t *testing.T) {
+		expr := ast.DictExpr{Entries: []ast.DictEntryExpr{{
+			Key:   ast.StringExpr{Value: "a"},
+			Value: ast.TupleExpr{Items: []ast.Expr{ast.IdentExpr{Name: "x"}}},
+		}}}
+		if got := formatExprInline(expr, nil); got != "{\"a\": (x,)}" {
+			t.Fatalf("dictionary formatted as %q", got)
 		}
 	})
 }

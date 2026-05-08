@@ -37,8 +37,10 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "all", File: "function_help/all.md"},
 	{Name: "any", File: "function_help/any.md"},
 	{Name: "bool", File: "function_help/bool.md"},
+	{Name: "dict", File: "function_help/dict.md"},
 	{Name: "filter", File: "function_help/filter.md"},
 	{Name: "float", File: "function_help/float.md"},
+	{Name: "get", File: "function_help/get.md"},
 	{Name: "int", File: "function_help/int.md"},
 	{Name: "len", File: "function_help/len.md"},
 	{Name: "list", File: "function_help/list.md"},
@@ -56,6 +58,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "table", File: "function_help/table.md"},
 	{Name: "t", File: "function_help/table.md", AliasOf: "table"},
 	{Name: "tuple", File: "function_help/tuple.md"},
+	{Name: "update", File: "function_help/update.md"},
 	{Name: "zip", File: "function_help/zip.md"},
 }
 

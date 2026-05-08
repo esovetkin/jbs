@@ -56,6 +56,14 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 									},
 									Span: sp,
 								},
+								ast.DictExpr{
+									Entries: []ast.DictEntryExpr{{
+										Key:   ast.IdentExpr{Name: "g", Span: sp},
+										Value: ast.IdentExpr{Name: "h", Span: sp},
+										Span:  sp,
+									}},
+									Span: sp,
+								},
 							},
 							Span: sp,
 						},
@@ -80,7 +88,7 @@ func TestCollectExprLocalIdentDeps_AllCases(t *testing.T) {
 
 	collectExprLocalIdentDeps(expr, deps)
 
-	want := []string{"a", "b", "c", "d", "e", "f", "ignored", "list", "m", "ns"}
+	want := []string{"a", "b", "c", "d", "e", "f", "g", "h", "ignored", "list", "m", "ns"}
 	if len(deps) != len(want) {
 		t.Fatalf("unexpected dep count: got=%d want=%d deps=%#v", len(deps), len(want), deps)
 	}

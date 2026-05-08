@@ -145,6 +145,14 @@ func TestValueKey(t *testing.T) {
 		{name: "bool false", in: Bool(false), want: "b:0"},
 		{name: "list", in: List([]Value{Int(1), String("x")}), want: "l:i:1,s:x"},
 		{name: "tuple", in: Tuple([]Value{Int(2), Bool(false)}), want: "t:i:2,b:0"},
+		{
+			name: "dict",
+			in: DictValue([]DictEntry{
+				{Key: DictKey{Kind: DictKeyString, S: "b"}, Value: Int(2)},
+				{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+			}),
+			want: `dict:{dictkey:s:"a"=i:1,dictkey:s:"b"=i:2}`,
+		},
 		{name: "comb nil", in: CombValue(nil), want: "c:nil"},
 		{
 			name: "comb value",

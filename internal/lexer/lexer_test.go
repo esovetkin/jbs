@@ -21,6 +21,24 @@ func TestLexBasicTokens(t *testing.T) {
 	}
 }
 
+func TestLexDictionaryPunctuation(t *testing.T) {
+	src := `d = {"a": 1, 2: "b"}`
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	found := map[TokenType]bool{}
+	for _, tok := range tokens {
+		found[tok.Type] = true
+	}
+	for _, tt := range []TokenType{TokenLBrace, TokenColon, TokenComma, TokenRBrace} {
+		if !found[tt] {
+			t.Fatalf("expected token %s, got %#v", tt, tokens)
+		}
+	}
+}
+
 func TestLexFunctionAndReturnKeywords(t *testing.T) {
 	src := "fn = function(x) {\n    return x\n}\n"
 	diags := &diag.Diagnostics{}

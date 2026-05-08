@@ -1,16 +1,12 @@
 package sema
 
-import (
-	"maps"
-
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
-)
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 func materializeModuleFunctionExports(scope *moduleScope) {
 	if scope == nil {
 		return
 	}
-	env := maps.Clone(scope.Globals.Values)
+	env := cloneValueMap(scope.Globals.Values)
 	mergeIntoValueEnv(env, scope.Env)
 	root := eval.NewRootFrame(env)
 	frameMemo := map[*eval.Frame]*eval.Frame{}
@@ -18,13 +14,10 @@ func materializeModuleFunctionExports(scope *moduleScope) {
 	fnMemo := map[*eval.FunctionValue]*eval.FunctionValue{}
 
 	rewriteValue := func(value eval.Value) eval.Value {
-		if value.Kind != eval.KindFunction || value.Fn == nil || !functionNeedsMaterialization(value.Fn) {
-			return value
-		}
-		return eval.Function(materializeCapturedFunction(value.Fn, root, frameMemo, cellMemo, fnMemo))
+		return materializeValue(value, root, frameMemo, cellMemo, fnMemo)
 	}
 	rewriteGlobalVar := func(gv *GlobalVar) {
-		if gv == nil || gv.Value.Kind != eval.KindFunction || gv.Value.Fn == nil {
+		if gv == nil {
 			return
 		}
 		gv.Value = rewriteValue(gv.Value)
@@ -59,8 +52,8 @@ func materializeCapturedFunction(fn *eval.FunctionValue, root *eval.Frame, frame
 	if len(fn.Defaults) > 0 {
 		next.Defaults = make(map[int]eval.FunctionDefault, len(fn.Defaults))
 		for index, defaultValue := range fn.Defaults {
-			if defaultValue.PreEvaluated && defaultValue.Value.Kind == eval.KindFunction && defaultValue.Value.Fn != nil && functionNeedsMaterialization(defaultValue.Value.Fn) {
-				defaultValue.Value = eval.Function(materializeCapturedFunction(defaultValue.Value.Fn, root, frameMemo, cellMemo, fnMemo))
+			if defaultValue.PreEvaluated {
+				defaultValue.Value = materializeValue(defaultValue.Value, root, frameMemo, cellMemo, fnMemo)
 			}
 			next.Defaults[index] = defaultValue
 		}
@@ -78,6 +71,43 @@ func functionNeedsMaterialization(fn *eval.FunctionValue) bool {
 		}
 	}
 	return false
+}
+
+func materializeValue(value eval.Value, root *eval.Frame, frameMemo map[*eval.Frame]*eval.Frame, cellMemo map[*eval.Cell]*eval.Cell, fnMemo map[*eval.FunctionValue]*eval.FunctionValue) eval.Value {
+	switch value.Kind {
+	case eval.KindFunction:
+		if value.Fn != nil && functionNeedsMaterialization(value.Fn) {
+			return eval.Function(materializeCapturedFunction(value.Fn, root, frameMemo, cellMemo, fnMemo))
+		}
+		return value
+	case eval.KindList:
+		out := make([]eval.Value, len(value.L))
+		for i, item := range value.L {
+			out[i] = materializeValue(item, root, frameMemo, cellMemo, fnMemo)
+		}
+		return eval.List(out)
+	case eval.KindTuple:
+		out := make([]eval.Value, len(value.L))
+		for i, item := range value.L {
+			out[i] = materializeValue(item, root, frameMemo, cellMemo, fnMemo)
+		}
+		return eval.Tuple(out)
+	case eval.KindDict:
+		if value.D == nil {
+			return value
+		}
+		out := eval.DictValue(nil)
+		for _, key := range value.D.Order {
+			item, ok := value.D.Entries[key]
+			if !ok {
+				continue
+			}
+			out.D.Set(key, materializeValue(item, root, frameMemo, cellMemo, fnMemo))
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func materializeCapturedFrame(frame *eval.Frame, root *eval.Frame, frameMemo map[*eval.Frame]*eval.Frame, cellMemo map[*eval.Cell]*eval.Cell, fnMemo map[*eval.FunctionValue]*eval.FunctionValue) *eval.Frame {
@@ -111,8 +141,8 @@ func materializeCapturedCell(cell *eval.Cell, root *eval.Frame, frameMemo map[*e
 		Assigned: cell.Assigned,
 	}
 	cellMemo[cell] = next
-	if next.Assigned && next.Value.Kind == eval.KindFunction && next.Value.Fn != nil && functionNeedsMaterialization(next.Value.Fn) {
-		next.Value = eval.Function(materializeCapturedFunction(next.Value.Fn, root, frameMemo, cellMemo, fnMemo))
+	if next.Assigned {
+		next.Value = materializeValue(next.Value, root, frameMemo, cellMemo, fnMemo)
 	}
 	return next
 }

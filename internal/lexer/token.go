@@ -13,6 +13,7 @@ const (
 	TokenNumber       TokenType = "NUMBER"
 	TokenString       TokenType = "STRING"
 	TokenComma        TokenType = ","
+	TokenColon        TokenType = ":"
 	TokenSemicolon    TokenType = ";"
 	TokenDot          TokenType = "."
 	TokenEqual        TokenType = "="

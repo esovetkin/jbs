@@ -96,7 +96,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 
 	env := make(map[string]eval.Value, len(analyseGlobals)+32)
 	for k, v := range analyseGlobals {
-		env[k] = v
+		env[k] = eval.CloneValue(v)
 	}
 	addEnvFromStepPlan(env, plan, res.BindingsByName)
 	analyseImports := resolveAnalyseWithImports(block.WithItems, analyseBindings, analyseGlobals, analyseNamespaces, diags)

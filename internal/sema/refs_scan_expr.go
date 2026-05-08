@@ -48,6 +48,11 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 			for _, it := range n.Items {
 				walk(it)
 			}
+		case ast.DictExpr:
+			for _, entry := range n.Entries {
+				walk(entry.Key)
+				walk(entry.Value)
+			}
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {
@@ -139,6 +144,11 @@ func collectExprStringRefsWith(expr ast.Expr, collect stringRefCollector) []varR
 			for _, it := range n.Items {
 				walk(it)
 			}
+		case ast.DictExpr:
+			for _, entry := range n.Entries {
+				walk(entry.Key)
+				walk(entry.Value)
+			}
 		case ast.CallExpr:
 			walk(n.Callee)
 			for _, arg := range n.Args {
@@ -218,6 +228,16 @@ func collectEvalStringRefsWith(value eval.Value, span diag.Span, collect stringR
 		case eval.KindList, eval.KindTuple:
 			for _, item := range v.L {
 				walk(item)
+			}
+		case eval.KindDict:
+			if v.D == nil {
+				return
+			}
+			for _, key := range v.D.Order {
+				walk(eval.ValueFromDictKey(key))
+				if value, ok := v.D.Entries[key]; ok {
+					walk(value)
+				}
 			}
 		}
 	}

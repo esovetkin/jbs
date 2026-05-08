@@ -109,7 +109,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	out.Program = scope.Program
 	out.BaseDirByFile = maps.Clone(scope.BaseDirByFile)
 	out.Globals = GlobalState{
-		Values: maps.Clone(scope.Globals.Values),
+		Values: cloneValueMap(scope.Globals.Values),
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(scope.GlobalVarByName, scope.GlobalVarOrder)
@@ -118,7 +118,7 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	out.DoBlocks = append([]ast.DoBlock(nil), scope.DoBlocks...)
 	out.AnalyseBlocks = append([]ast.AnalyseBlock(nil), scope.AnalyseBlocks...)
 	out.StepOrder = append([]string(nil), scope.StepOrder...)
-	out.Env = maps.Clone(scope.Env)
+	out.Env = cloneValueMap(scope.Env)
 	for name, exported := range scope.LocalExportsByName {
 		out.LocalExportsByName[name] = cloneGlobalVar(exported)
 	}
@@ -155,6 +155,7 @@ func cloneGlobalVars(byName map[string]*GlobalVar, order []string) (map[string]*
 			continue
 		}
 		next := *gv
+		next.Value = eval.CloneValue(gv.Value)
 		next.Order = append([]string(nil), gv.Order...)
 		next.Vars = cloneSeriesMap(gv.Vars)
 		next.DependsOn = append([]string(nil), gv.DependsOn...)
@@ -169,6 +170,7 @@ func cloneBinding(binding *GlobalBinding) *GlobalBinding {
 		return nil
 	}
 	next := *binding
+	next.Value = eval.CloneValue(binding.Value)
 	next.Order = append([]string(nil), binding.Order...)
 	next.Origins = maps.Clone(binding.Origins)
 	next.Vars = cloneSeriesMap(binding.Vars)
@@ -186,7 +188,7 @@ func cloneScopeSnapshot(snap *ScopeSnapshot) *ScopeSnapshot {
 	out := &ScopeSnapshot{
 		Index: snap.Index,
 		Globals: GlobalState{
-			Values: maps.Clone(snap.Globals.Values),
+			Values: cloneValueMap(snap.Globals.Values),
 			Spans:  maps.Clone(snap.Globals.Spans),
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(snap.Bindings)),
@@ -247,6 +249,7 @@ func cloneGlobalVar(gv *GlobalVar) *GlobalVar {
 		return nil
 	}
 	next := *gv
+	next.Value = eval.CloneValue(gv.Value)
 	next.Order = append([]string(nil), gv.Order...)
 	next.Vars = cloneSeriesMap(gv.Vars)
 	next.DependsOn = append([]string(nil), gv.DependsOn...)
@@ -281,10 +284,18 @@ func clonePrintEvents(in []PrintEvent) []PrintEvent {
 func mergeValueEnv(base map[string]eval.Value, extras map[string]eval.Value) map[string]eval.Value {
 	out := make(map[string]eval.Value, len(base)+len(extras))
 	for name, value := range base {
-		out[name] = value
+		out[name] = eval.CloneValue(value)
 	}
 	for name, value := range extras {
-		out[name] = value
+		out[name] = eval.CloneValue(value)
+	}
+	return out
+}
+
+func cloneValueMap(in map[string]eval.Value) map[string]eval.Value {
+	out := make(map[string]eval.Value, len(in))
+	for name, value := range in {
+		out[name] = eval.CloneValue(value)
 	}
 	return out
 }
@@ -340,7 +351,7 @@ func mergeIntoValueEnv(dst map[string]eval.Value, src map[string]eval.Value) {
 		return
 	}
 	for name, value := range src {
-		dst[name] = value
+		dst[name] = eval.CloneValue(value)
 	}
 }
 
@@ -352,7 +363,7 @@ func mergeBindingValues(env map[string]eval.Value, bindings map[string]*GlobalBi
 		if binding == nil {
 			continue
 		}
-		env[name] = binding.Value
+		env[name] = eval.CloneValue(binding.Value)
 	}
 }
 

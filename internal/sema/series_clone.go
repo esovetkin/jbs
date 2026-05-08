@@ -8,7 +8,11 @@ func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
 	}
 	out := make(map[string][]eval.Value, len(src))
 	for name, values := range src {
-		out[name] = append([]eval.Value(nil), values...)
+		next := make([]eval.Value, len(values))
+		for i, value := range values {
+			next[i] = eval.CloneValue(value)
+		}
+		out[name] = next
 	}
 	return out
 }

@@ -321,6 +321,22 @@ type TupleExpr struct {
 func (e TupleExpr) exprNode()          {}
 func (e TupleExpr) GetSpan() diag.Span { return e.Span }
 
+type DictEntryExpr struct {
+	Key   Expr
+	Value Expr
+	Span  diag.Span
+}
+
+func (e DictEntryExpr) GetSpan() diag.Span { return e.Span }
+
+type DictExpr struct {
+	Entries []DictEntryExpr
+	Span    diag.Span
+}
+
+func (e DictExpr) exprNode()          {}
+func (e DictExpr) GetSpan() diag.Span { return e.Span }
+
 // CallArg represents either a positional call argument (`Name == ""`)
 // or a named argument placeholder for later parser/evaluator phases.
 type CallArg struct {

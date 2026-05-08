@@ -255,6 +255,7 @@ func TestValueKeyAndUniqueStrings(t *testing.T) {
 		eval.Bool(true),
 		eval.List([]eval.Value{eval.Int(1), eval.String("x")}),
 		eval.Tuple([]eval.Value{eval.Bool(false), eval.Float(2)}),
+		eval.DictValue([]eval.DictEntry{{Key: eval.DictKey{Kind: eval.DictKeyString, S: "a"}, Value: eval.Int(1)}}),
 		{Kind: "weird"},
 	}
 	for _, value := range values {

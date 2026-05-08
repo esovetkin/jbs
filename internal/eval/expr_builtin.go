@@ -157,10 +157,12 @@ func evalLenCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 		return Int(int64(len(v.L)))
 	case KindString:
 		return Int(int64(utf8.RuneCountInString(v.S)))
+	case KindDict:
+		return Int(int64(dictLen(v.D)))
 	case KindComb:
 		return Int(int64(CombRowCount(v)))
 	default:
-		diags.AddError(diag.CodeE106, "len() expects list/tuple/string/table value", at, "use len() with supported value kinds")
+		diags.AddError(diag.CodeE106, "len() expects list/tuple/string/dictionary/table value", at, "use len() with supported value kinds")
 		return Null()
 	}
 }
@@ -273,6 +275,8 @@ func truthy(v Value) (bool, bool) {
 		return false, true
 	case KindList, KindTuple:
 		return len(v.L) > 0, true
+	case KindDict:
+		return dictLen(v.D) > 0, true
 	case KindComb:
 		return CombRowCount(v) > 0, true
 	default:

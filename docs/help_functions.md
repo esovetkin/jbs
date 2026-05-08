@@ -62,7 +62,7 @@ jbs> factorial(5)
 - `if` conditions must evaluate to `bool`
 - `if` does not create a new local scope
 - `else if` is not syntax; use `elif`
-- `for` iterates over list or tuple values
+- `for` iterates over list, tuple, or dictionary-key values
 - `while` conditions must evaluate to `bool`
 - loops do not create a new local scope
 - loop targets are ordinary function locals
@@ -176,6 +176,23 @@ tuple([0,1,2]) * 2 == (0,1,2,0,1,2)
 list((0,1,2)) * 2 == [0,2,4]
 ```
 
+## `dict(...)`, `get(...)`, `update(...)`
+
+Create, read, and update dictionaries:
+
+```jbs
+d = dict(name = "case-a", threads = 8)
+same = {"name": "case-a", "threads": 8}
+d["name"] == "case-a"
+get(d, "missing", "fallback") == "fallback"
+next = update(d, threads = 16)
+merged = d + dict(extra = true)
+```
+
+Dictionary literal keys are expressions and must evaluate to string, int, or bool. `dict(...)` and `update(...)` use named arguments, so each argument name becomes a string key. Updates and `+` return new dictionaries; they do not mutate the original value.
+
+`for key in d { ... }` iterates dictionary keys in insertion order.
+
 ## `bool()`, `int()`, `float()`, `str()`
 
 scalar conversions:
@@ -194,12 +211,12 @@ str([1,2]) == "[1,2]"
 Rules:
 
 - `bool(...)` accepts any JBS value and applies JBS truthiness
-- empty strings, zero numeric values, `null`, empty lists, empty tuples, and empty tables are false
+- empty strings, zero numeric values, `null`, empty lists, empty tuples, empty dictionaries, and empty tables are false
 - non-empty strings are true, so `bool("false")` is true
 - `int(...)` accepts `int`, `float`, `bool`, and integer strings
 - `int(...)` truncates float input toward zero
 - `float(...)` accepts `int`, `float`, `bool`, and finite numeric strings
-- `int(...)` and `float(...)` reject list/tuple/table values
+- `int(...)` and `float(...)` reject list/tuple/dictionary/table values
 - `str(...)` stringifies the whole value
 - `str([1,2])` returns one string value, not a list of strings
 

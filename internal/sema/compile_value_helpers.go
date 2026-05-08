@@ -8,9 +8,11 @@ func seriesAsValue(v []eval.Value) eval.Value {
 		return eval.Null()
 	}
 	if len(v) == 1 {
-		return v[0]
+		return eval.CloneValue(v[0])
 	}
 	out := make([]eval.Value, len(v))
-	copy(out, v)
+	for i, value := range v {
+		out[i] = eval.CloneValue(value)
+	}
 	return eval.List(out)
 }

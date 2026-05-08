@@ -73,7 +73,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			scope.BaseDirByFile[prog.File] = baseDir
 		}
 		scope.Globals = GlobalState{
-			Values: maps.Clone(exec.ScalarGlobals.Values),
+			Values: cloneValueMap(exec.ScalarGlobals.Values),
 			Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 		}
 		scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)
@@ -111,7 +111,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	}
 
 	res.Globals = GlobalState{
-		Values: maps.Clone(scope.Globals.Values),
+		Values: cloneValueMap(scope.Globals.Values),
 		Spans:  maps.Clone(scope.Globals.Spans),
 	}
 	res.BaseDirByFile = maps.Clone(scope.BaseDirByFile)

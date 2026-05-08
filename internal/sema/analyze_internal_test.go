@@ -58,6 +58,36 @@ func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDictionaryIndexAndIteration(t *testing.T) {
+	src := `
+d = dict(a = 1, b = 2)
+keys = ()
+for key in d {
+        keys += (key,)
+}
+d["a"]
+keys
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 2 {
+		t.Fatalf("expected two top-level expression results, got %#v", res.TopLevelExprs)
+	}
+	if !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(1)) {
+		t.Fatalf("unexpected dictionary index result: %#v", res.TopLevelExprs[0])
+	}
+	wantKeys := eval.Tuple([]eval.Value{eval.String("a"), eval.String("b")})
+	if !eval.Equal(res.TopLevelExprs[1].Value, wantKeys) {
+		t.Fatalf("unexpected dictionary iteration result: got=%#v want=%#v", res.TopLevelExprs[1].Value, wantKeys)
+	}
+}
+
 func TestAnalyzePrintEventsRequireOption(t *testing.T) {
 	src := "print(\"quiet\")\n"
 	diags := &diag.Diagnostics{}
@@ -204,6 +234,51 @@ func TestAnalyzeWithImportsReturnsTopLevelExprResults(t *testing.T) {
 	}
 	if !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(41)) {
 		t.Fatalf("unexpected imported top-level expr value: %#v", res.TopLevelExprs[0])
+	}
+}
+
+func TestAnalyzeWithImportsPreservesDictionaryValues(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	if err := os.WriteFile(libPath, []byte(`config = dict(name = "case", threads = 4)`+"\n"), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", `use "./lib.jbs" as lib`+"\n"+`lib.config["threads"]`+"\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(4)) {
+		t.Fatalf("unexpected imported dictionary result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeWithImportsMaterializesDictionaryFunctions(t *testing.T) {
+	cwd := t.TempDir()
+	libPath := filepath.Join(cwd, "lib.jbs")
+	libSrc := "mk = function(x) { x + 1 }\nbundle = dict(fn = mk)\n"
+	if err := os.WriteFile(libPath, []byte(libSrc), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	diags := &diag.Diagnostics{}
+	loadRes, err := imports.LoadAndExpandSource("<repl>", `use "./lib.jbs" as lib`+"\n"+`lib.bundle["fn"](4)`+"\n", cwd, cwd, diags)
+	if err != nil {
+		t.Fatalf("LoadAndExpandSource failed: %v", err)
+	}
+	res := AnalyzeWithImports(loadRes, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(5)) {
+		t.Fatalf("unexpected imported dictionary function result: %#v", res.TopLevelExprs)
 	}
 }
 

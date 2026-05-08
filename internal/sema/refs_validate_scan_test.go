@@ -68,12 +68,20 @@ func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 				Else: ast.IdentExpr{Name: "skip", Span: sp2},
 				Span: sp2,
 			},
+			ast.DictExpr{
+				Entries: []ast.DictEntryExpr{{
+					Key:   ast.StringExpr{Value: "$dict_key", Span: sp1},
+					Value: ast.StringExpr{Value: "$dict_value", Span: sp2},
+					Span:  sp2,
+				}},
+				Span: sp2,
+			},
 		},
 		Span: sp2,
 	}
 
 	got := refNames(collectExprStringRefs(expr))
-	want := []string{"left", "right", "then"}
+	want := []string{"left", "right", "then", "dict_key", "dict_value"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected wrapper refs: got=%#v want=%#v", got, want)
 	}
@@ -92,12 +100,12 @@ func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 	for _, ref := range collectExprStringRefsWith(expr, collector) {
 		gotNames = append(gotNames, ref.Name)
 	}
-	wantNames := []string{"${left}", "$right", "$then"}
+	wantNames := []string{"${left}", "$right", "$then", "$dict_key", "$dict_value"}
 	if !reflect.DeepEqual(gotNames, wantNames) {
 		t.Fatalf("unexpected collector refs: got=%#v want=%#v", gotNames, wantNames)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 collector calls, got %d", len(calls))
+	if len(calls) != 5 {
+		t.Fatalf("expected 5 collector calls, got %d", len(calls))
 	}
 	if calls[0].base.Offset != sp0.Start.Offset+1 || calls[1].base.Column != sp1.Start.Column+1 || calls[2].file != "expr.jbs" {
 		t.Fatalf("unexpected collector call metadata: %#v", calls)
@@ -165,6 +173,9 @@ func TestCollectEvalStringRefsWithTraversesListsAndDefaultBase(t *testing.T) {
 	value := eval.Tuple([]eval.Value{
 		eval.String("$top"),
 		eval.List([]eval.Value{eval.Int(1), eval.String("${nested}")}),
+		eval.DictValue([]eval.DictEntry{
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "$dict_key"}, Value: eval.String("$dict_value")},
+		}),
 	})
 	zeroSpan := diag.NewSpan("vals.jbs", diag.Position{}, diag.Position{})
 	setSpan := diag.NewSpan("vals.jbs", diag.NewPos(30, 4, 8), diag.NewPos(40, 4, 18))
@@ -184,7 +195,7 @@ func TestCollectEvalStringRefsWithTraversesListsAndDefaultBase(t *testing.T) {
 	}
 
 	got := refNames(collectEvalStringRefsWith(value, zeroSpan, collector))
-	want := []string{"$top", "${nested}"}
+	want := []string{"$top", "${nested}", "$dict_key", "$dict_value"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected eval refs: got=%#v want=%#v", got, want)
 	}

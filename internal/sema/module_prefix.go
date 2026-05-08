@@ -231,7 +231,7 @@ func prefixSnapshotBlockKey(key string, prefix string) string {
 func prefixValueMap(prefix string, in map[string]eval.Value) map[string]eval.Value {
 	out := make(map[string]eval.Value, len(in))
 	for name, value := range in {
-		out[prefix+"."+name] = value
+		out[prefix+"."+name] = eval.CloneValue(value)
 	}
 	return out
 }

@@ -77,6 +77,31 @@ if a {
 	}
 }
 
+func TestParseTopLevelIfConditionWithDictionaryLiteral(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	prog := Parse("if.jbs", `if d == {"a": 1} {
+	x = 1
+}
+`, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %#v", prog.Stmts)
+	}
+	stmt, ok := prog.Stmts[0].(ast.IfStmt)
+	if !ok {
+		t.Fatalf("expected IfStmt, got %#v", prog.Stmts[0])
+	}
+	cmp, ok := stmt.Cond.(ast.CompareExpr)
+	if !ok {
+		t.Fatalf("expected compare condition, got %#v", stmt.Cond)
+	}
+	if _, ok := cmp.Right.(ast.DictExpr); !ok {
+		t.Fatalf("expected dictionary literal on right side, got %#v", cmp.Right)
+	}
+}
+
 func TestParseTopLevelIfRejectsDeclarations(t *testing.T) {
 	tests := []struct {
 		name string

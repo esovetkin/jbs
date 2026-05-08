@@ -222,7 +222,7 @@ func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 
 	src := strings.Join([]string{
 		`jbs_name = "bench"`,
-		`print("starting", [1, 2, 3, 4])`,
+		`print("starting", [1, 2, 3, 4], dict(name = "case"))`,
 		`do run {`,
 		`echo shell`,
 		`}`,
@@ -238,7 +238,7 @@ func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.HasPrefix(out, "starting [1, 2, 3, ...]\n") {
+	if !strings.HasPrefix(out, "starting [1, 2, 3, ...] {\"name\": \"case\"}\n") {
 		t.Fatalf("expected print output before progress, got %q", out)
 	}
 	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "000000", "stdout"))

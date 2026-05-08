@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -126,6 +127,16 @@ func valueKey(v Value) string {
 			prefix = "t:"
 		}
 		return prefix + strings.Join(parts, ",")
+	case KindDict:
+		if v.D == nil || len(v.D.Entries) == 0 {
+			return "dict:{}"
+		}
+		parts := make([]string, 0, len(v.D.Entries))
+		for key, value := range v.D.Entries {
+			parts = append(parts, "dictkey:"+key.StableString()+"="+valueKey(value))
+		}
+		slices.Sort(parts)
+		return "dict:{" + strings.Join(parts, ",") + "}"
 	case KindComb:
 		if v.C == nil {
 			return "c:nil"

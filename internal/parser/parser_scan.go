@@ -228,6 +228,20 @@ func (p *Parser) pos() diag.Position {
 	return diag.NewPos(p.off, p.line, p.col)
 }
 
+func (p *Parser) seekTo(pos diag.Position) {
+	if pos.Offset < 0 {
+		return
+	}
+	if pos.Offset < p.off {
+		p.off = 0
+		p.line = 1
+		p.col = 1
+	}
+	for p.off < pos.Offset && !p.eof() {
+		p.advance()
+	}
+}
+
 func (p *tokenParser) skipNewlines() {
 	for {
 		t := p.peek().Type

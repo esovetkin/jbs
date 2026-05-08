@@ -61,6 +61,12 @@ func needsStructuredExprFormatting(expr ast.Expr) bool {
 				return true
 			}
 		}
+	case ast.DictExpr:
+		for _, entry := range e.Entries {
+			if needsStructuredExprFormatting(entry.Key) || needsStructuredExprFormatting(entry.Value) {
+				return true
+			}
+		}
 	case ast.IndexExpr:
 		if needsStructuredExprFormatting(e.Base) {
 			return true
@@ -191,6 +197,14 @@ func formatExprRebuilt(expr ast.Expr, srcRunes []rune) string {
 		default:
 			return "(" + strings.Join(items, ", ") + ")"
 		}
+	case ast.DictExpr:
+		items := make([]string, 0, len(e.Entries))
+		for _, entry := range e.Entries {
+			key := formatExprInlinePrec(entry.Key, srcRunes, precConditional, sideContainer)
+			value := formatExprInlinePrec(entry.Value, srcRunes, precConditional, sideContainer)
+			items = append(items, key+": "+value)
+		}
+		return "{" + strings.Join(items, ", ") + "}"
 	case ast.CallExpr:
 		lines := formatCallExprLines(e, srcRunes)
 		return flattenFormattedLines(lines)

@@ -54,11 +54,11 @@ type globalSeqEngine struct {
 }
 
 func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, opts globalExecOptions, diags *diag.Diagnostics) *globalSeqEngine {
-	values := maps.Clone(generalSeed)
+	values := cloneValueMap(generalSeed)
 	if values == nil {
 		values = map[string]eval.Value{}
 	}
-	scalars := maps.Clone(scalarSeed)
+	scalars := cloneValueMap(scalarSeed)
 	if scalars == nil {
 		scalars = map[string]eval.Value{}
 	}
@@ -71,7 +71,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		UserGlobalOrder:       make([]string, 0),
 		TopLevelExprs:         make([]TopLevelExprResult, 0),
 		PrintEvents:           make([]PrintEvent, 0),
-		ScalarGlobals:         GlobalState{Values: maps.Clone(scalars), Spans: make(map[string]diag.Span)},
+		ScalarGlobals:         GlobalState{Values: cloneValueMap(scalars), Spans: make(map[string]diag.Span)},
 		SnapshotBindings:      make([]*GlobalBinding, 0),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
@@ -105,11 +105,11 @@ func (e *globalSeqEngine) execute() {
 	if result := e.executeSteps(e.plan.Steps, nil); result.active() {
 		e.diags.AddError(diag.CodeE080, "'break' and 'continue' are only allowed inside loops", result.Span, "move the statement into a for/while body")
 	}
-	e.res.UserGlobals.Values = maps.Clone(e.values)
+	e.res.UserGlobals.Values = cloneValueMap(e.values)
 	e.res.UserGlobals.Spans = maps.Clone(e.spans)
 	e.res.UserGlobalVarByName, e.res.UserGlobalOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
 	e.res.ScalarGlobals = GlobalState{
-		Values: maps.Clone(e.scalarSeed),
+		Values: cloneValueMap(e.scalarSeed),
 		Spans:  maps.Clone(e.scalarSpans),
 	}
 }

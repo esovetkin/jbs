@@ -52,7 +52,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		scope.BaseDirByFile[info.Program.File] = info.BaseDir
 	}
 	scope.Globals = GlobalState{
-		Values: maps.Clone(exec.ScalarGlobals.Values),
+		Values: cloneValueMap(exec.ScalarGlobals.Values),
 		Spans:  maps.Clone(exec.ScalarGlobals.Spans),
 	}
 	scope.GlobalVarByName, scope.GlobalVarOrder = globalVarsFromExec(exec)

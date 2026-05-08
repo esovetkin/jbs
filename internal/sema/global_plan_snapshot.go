@@ -29,7 +29,7 @@ func (e *globalSeqEngine) cloneSnapshot(index int) *ScopeSnapshot {
 	snap := &ScopeSnapshot{
 		Index: index,
 		Globals: GlobalState{
-			Values: maps.Clone(e.values),
+			Values: cloneValueMap(e.values),
 			Spans:  maps.Clone(e.spans),
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(e.currentBindings)),

@@ -15,4 +15,4 @@ jbs_nproc = 0
 jbs_database = ""
 ```
 
-User globals can hold scalars, lists, tuples, tables, and functions. `do` and `analyse` blocks see the globals visible at the point where the block is declared.
+User globals can hold scalars, lists, tuples, dictionaries, tables, and functions. `do` and `analyse` blocks see the globals visible at the point where the block is declared.

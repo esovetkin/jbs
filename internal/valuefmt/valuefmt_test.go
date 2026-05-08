@@ -19,6 +19,18 @@ func TestReplValueListTupleTruncation(t *testing.T) {
 	}
 }
 
+func TestReplValueDictionaryPreview(t *testing.T) {
+	dict := eval.DictValue([]eval.DictEntry{
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "name"}, Value: eval.String("case")},
+		{Key: eval.DictKey{Kind: eval.DictKeyInt, I: 2}, Value: eval.List([]eval.Value{eval.Int(1), eval.Int(2), eval.Int(3), eval.Int(4)})},
+		{Key: eval.DictKey{Kind: eval.DictKeyBool, B: true}, Value: eval.Bool(false)},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "extra"}, Value: eval.Int(9)},
+	})
+	if got := ReplValue(dict); got != "{\"name\": \"case\", 2: [1, 2, 3, ...], true: false, ...}" {
+		t.Fatalf("unexpected dictionary preview: %q", got)
+	}
+}
+
 func TestReplValueTableSummary(t *testing.T) {
 	comb := eval.CombValue(&eval.Comb{
 		Order: []string{"a", "b"},

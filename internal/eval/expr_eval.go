@@ -218,6 +218,8 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 			}
 		}
 		return Tuple(items)
+	case ast.DictExpr:
+		return evalDictExpr(e, env, diags, opts, ctx)
 	case ast.FunctionExpr:
 		value := newFunctionValue(e, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
@@ -237,6 +239,9 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		base := evalExprWithCtx(e.Base, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
 			return Null()
+		}
+		if base.Kind == KindDict {
+			return evalDictIndex(base, e.Items, env, e.Span, diags, opts, ctx)
 		}
 		if !IsComb(base) {
 			diags.AddError(diag.CodeE106, "index expression requires a table base", e.Span, "use syntax: table_value[col] or table_value[col0,col1]")

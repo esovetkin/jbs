@@ -20,6 +20,7 @@ func TestCloneSeriesMap(t *testing.T) {
 	src := map[string][]eval.Value{
 		"a": {eval.Int(1), eval.Int(2)},
 		"b": {eval.String("x")},
+		"c": {eval.DictValue([]eval.DictEntry{{Key: eval.DictKey{Kind: eval.DictKeyString, S: "k"}, Value: eval.Int(1)}})},
 	}
 	got := cloneSeriesMap(src)
 	if len(got) != len(src) {
@@ -34,10 +35,14 @@ func TestCloneSeriesMap(t *testing.T) {
 
 	got["a"][0] = eval.Int(99)
 	got["b"] = append(got["b"], eval.String("y"))
+	got["c"][0].D.Set(eval.DictKey{Kind: eval.DictKeyString, S: "k"}, eval.Int(9))
 	if !reflect.DeepEqual(src["a"], []eval.Value{eval.Int(1), eval.Int(2)}) {
 		t.Fatalf("mutating clone should not affect source values: src=%#v", src)
 	}
 	if !reflect.DeepEqual(src["b"], []eval.Value{eval.String("x")}) {
 		t.Fatalf("mutating clone slice should not affect source: src=%#v", src)
+	}
+	if src["c"][0].D.Entries[eval.DictKey{Kind: eval.DictKeyString, S: "k"}].I != 1 {
+		t.Fatalf("mutating cloned dictionary should not affect source: src=%#v", src)
 	}
 }

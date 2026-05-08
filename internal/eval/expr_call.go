@@ -12,8 +12,10 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"all":      {},
 	"any":      {},
 	"bool":     {},
+	"dict":     {},
 	"filter":   {},
 	"float":    {},
+	"get":      {},
 	"int":      {},
 	"len":      {},
 	"map":      {},
@@ -27,6 +29,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"str":      {},
 	"table":    {},
 	"t":        {},
+	"update":   {},
 	"zip":      {},
 }
 
@@ -50,6 +53,10 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalProductCall(rawArgs, env, at, diags, opts, ctx)
 	case "select":
 		return evalSelectCall(rawArgs, env, at, diags, opts, ctx)
+	case "dict":
+		return evalDictCall(rawArgs, env, at, diags, opts, ctx)
+	case "get":
+		return evalDictGetCall(rawArgs, env, at, diags, opts, ctx)
 	case "names":
 		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
 	case "map":
@@ -58,6 +65,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalReduceCall(rawArgs, env, at, diags, opts, ctx)
 	case "shell":
 		return evalShellCall(rawArgs, env, at, diags, opts, ctx)
+	case "update":
+		return evalUpdateCall(rawArgs, env, at, diags, opts, ctx)
 	}
 	args := make([]Value, 0, len(rawArgs))
 	for _, arg := range rawArgs {

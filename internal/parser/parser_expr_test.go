@@ -670,6 +670,45 @@ func TestParsePrimaryTupleAndListBranches(t *testing.T) {
 	})
 }
 
+func TestParseDictionaryLiteral(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{name: "empty", src: "{}", want: 0},
+		{name: "string and int keys", src: `{"a": 1, 2: "two"}`, want: 2},
+		{name: "expression key and nested value", src: `{name: {"inner": [1, (2,)]}}`, want: 1},
+		{name: "trailing comma", src: `{"a": 1,}`, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(tc.src, diags)
+			expr := tp.parseExpr()
+			if diags.HasErrors() {
+				t.Fatalf("unexpected parse errors: %s", diags.String())
+			}
+			dict, ok := expr.(ast.DictExpr)
+			if !ok {
+				t.Fatalf("expected DictExpr, got %#v", expr)
+			}
+			if len(dict.Entries) != tc.want {
+				t.Fatalf("expected %d entries, got %#v", tc.want, dict.Entries)
+			}
+		})
+	}
+}
+
+func TestParseDictionaryMissingColonReportsE058(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`{"a" 1}`, diags)
+	_ = tp.parseExpr()
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for missing dictionary colon, got: %s", diags.String())
+	}
+}
+
 func TestParsePostfixChainedQualifiedIdentifier(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseExprTP("a.b.c", diags)
@@ -907,6 +946,30 @@ func TestParseFunctionLiteral(t *testing.T) {
 	}
 	if _, ok := stmt.Expr.(ast.BinaryExpr); !ok {
 		t.Fatalf("expected binary expr body, got %#v", stmt.Expr)
+	}
+}
+
+func TestParseFunctionIfConditionWithDictionaryLiteral(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`function(d) { if d == {"a": 1} { return true } else { return false } }`, diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok || len(fn.Body) != 1 {
+		t.Fatalf("expected function with one body statement, got %#v", expr)
+	}
+	stmt, ok := fn.Body[0].(ast.FuncIfStmt)
+	if !ok {
+		t.Fatalf("expected function if statement, got %#v", fn.Body[0])
+	}
+	cmp, ok := stmt.Cond.(ast.CompareExpr)
+	if !ok {
+		t.Fatalf("expected compare condition, got %#v", stmt.Cond)
+	}
+	if _, ok := cmp.Right.(ast.DictExpr); !ok {
+		t.Fatalf("expected dictionary literal on right side, got %#v", cmp.Right)
 	}
 }
 
