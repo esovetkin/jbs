@@ -277,38 +277,3 @@ func writeAnalyseHeader(path string, header []string) error {
 	rows = [][]string{header}
 	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
 }
-
-func acquireRootLock(root string) (func(), error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
-	}
-	return acquireLockFile(filepath.Join(root, ".jbs.lock"))
-}
-
-func acquireExistingRootLock(root string) (func(), error) {
-	info, err := os.Stat(root)
-	if err != nil {
-		return nil, fmt.Errorf("cannot lock benchmark root %s: %w", root, err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("cannot lock benchmark root %s: not a directory", root)
-	}
-	return acquireLockFile(filepath.Join(root, ".jbs.lock"))
-}
-
-func acquireLockFile(lockPath string) (func(), error) {
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("benchmark root is locked: %w", err)
-	}
-	if _, err := fmt.Fprintf(f, "%d\n", os.Getpid()); err != nil {
-		f.Close()
-		os.Remove(lockPath)
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(lockPath)
-		return nil, err
-	}
-	return func() { _ = os.Remove(lockPath) }, nil
-}
