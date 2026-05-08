@@ -105,7 +105,7 @@ func TestUnknownFunctionHelpReturnsError(t *testing.T) {
 }
 
 func TestHelpTopicsRemainStable(t *testing.T) {
-	want := []string{"analyse", "continue", "do", "functions", "globals", "repl", "use"}
+	want := []string{"analyse", "archive", "continue", "do", "functions", "globals", "repl", "use"}
 	if got := Topics(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected help topics: got=%#v want=%#v", got, want)
 	}

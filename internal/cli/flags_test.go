@@ -23,6 +23,7 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 		wantOutput   string
 		wantCheck    bool
 		wantRun      bool
+		wantArchive  bool
 		wantDryRun   bool
 		wantNoStrict bool
 	}{
@@ -55,6 +56,13 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantOutput: "-",
 			wantCheck:  false,
 			wantRun:    true,
+		},
+		{
+			name:        "archive_command",
+			args:        []string{"archive", "input.jbs"},
+			wantInput:   "input.jbs",
+			wantOutput:  "-",
+			wantArchive: true,
 		},
 		{
 			name:       "run_command_dry_run_long",
@@ -170,6 +178,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
+			}
+			if f.Archive != tc.wantArchive {
+				t.Fatalf("unexpected archive flag: got=%v want=%v", f.Archive, tc.wantArchive)
 			}
 			if f.DryRun != tc.wantDryRun {
 				t.Fatalf("unexpected dry-run flag: got=%v want=%v", f.DryRun, tc.wantDryRun)
@@ -444,6 +455,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
+		{name: "archive_missing_input", args: []string{"archive"}},
+		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
+		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},
 		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
 		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},

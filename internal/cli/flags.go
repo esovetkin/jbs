@@ -7,6 +7,7 @@ import (
 
 var knownHelpTopics = []string{
 	"analyse",
+	"archive",
 	"continue",
 	"do",
 	"functions",
@@ -27,6 +28,7 @@ type Flags struct {
 	Input      string
 	Run        bool
 	Continue   bool
+	Archive    bool
 	DryRun     bool
 	NoStrict   bool
 	Output     string
@@ -71,6 +73,14 @@ func ParseFlags(args []string) (Flags, error) {
 			return cfg, nil
 		}
 		return Flags{}, UsageError{Message: "usage: jbs continue <file.jbs>"}
+	}
+	if args[0] == "archive" {
+		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
+			cfg.Archive = true
+			cfg.Input = args[1]
+			return cfg, nil
+		}
+		return Flags{}, UsageError{Message: "usage: jbs archive <file.jbs>"}
 	}
 	if args[0] == "help" {
 		cfg.Help = true
@@ -178,13 +188,16 @@ Run:
   jbs run input.jbs [-n|--dry-run] [--no-strict]
   jbs continue input.jbs
 
+Archive:
+  jbs archive input.jbs
+
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|do|functions|globals|repl|use]
+  jbs help [analyse|archive|do|functions|globals|repl|use]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs

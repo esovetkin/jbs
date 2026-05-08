@@ -66,6 +66,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Continue {
 		return continueBenchmark(flags.Input, stdout, stderr)
 	}
+	if flags.Archive {
+		return archiveBenchmark(flags.Input, stdout, stderr)
+	}
 	if flags.Check {
 		return checkInput(flags.Input, stdout, stderr)
 	}
@@ -147,6 +150,32 @@ func continueBenchmark(path string, stdout, stderr io.Writer) int {
 		Input:       path,
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Stdout:      stdout,
+		Stderr:      stderr,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func archiveBenchmark(path string, stdout, stderr io.Writer) int {
+	diags := &diag.Diagnostics{}
+	bundle, err := analyzeInput(path, diags)
+	if err != nil {
+		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
+		return 1
+	}
+	if len(diags.Items) > 0 {
+		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
+	}
+	if diags.HasErrors() {
+		return 1
+	}
+	if err := jbsrun.Archive(context.Background(), jbsrun.Options{
+		Input:       path,
+		Result:      bundle.Result,
 		ProgramFile: bundle.Program.File,
 		Stdout:      stdout,
 		Stderr:      stderr,
