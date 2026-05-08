@@ -1,9 +1,12 @@
 package workplan
 
 import (
+	"reflect"
 	"testing"
 
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
@@ -50,5 +53,395 @@ echo step3
 		if work.Deps[0].Step != "step2" {
 			t.Fatalf("expected step3 to depend only on step2, got %#v", work.Deps)
 		}
+	}
+}
+
+func TestCollectStepsInResultOrderAndDeps(t *testing.T) {
+	s0 := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	s1 := diag.NewSpan("in.jbs", diag.NewPos(1, 2, 1), diag.NewPos(2, 2, 2))
+	s2 := diag.NewSpan("in.jbs", diag.NewPos(2, 3, 1), diag.NewPos(3, 3, 2))
+	nproc := 4
+	res := &sema.Result{
+		StepOrder: []string{"step0", "step1", "step2", "missing"},
+		DoBlocks: []ast.DoBlock{
+			{Name: "step0", Span: s0, Body: "echo step0"},
+			{Name: "step1", After: []string{"step0"}, NProc: &nproc, Span: s1, Body: "echo step1"},
+			{Name: "step2", After: []string{"step0", "step1"}, Span: s2, Body: "echo step2"},
+		},
+	}
+
+	got := collectStepsInResultOrder(res)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(got))
+	}
+	if got[0].Name != "step0" || got[0].Kind != "do" || got[1].NProc != 4 || got[1].Body != "echo step1" || got[2].Name != "step2" {
+		t.Fatalf("unexpected collected step order: %#v", got)
+	}
+	deps := stepDeps(map[string]stepDef{"step0": got[0], "step1": got[1], "step2": got[2]})
+	wantDeps := map[string][]string{"step0": nil, "step1": {"step0"}, "step2": {"step0", "step1"}}
+	if !reflect.DeepEqual(deps, wantDeps) {
+		t.Fatalf("unexpected step dependency map: got=%#v want=%#v", deps, wantDeps)
+	}
+}
+
+func TestGroupExplicitDeltaBySource(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	sources := map[string]*sema.GlobalBinding{
+		"p": {
+			Name:  "p",
+			Order: []string{"a", "b"},
+			Vars: map[string][]eval.Value{
+				"a": {eval.Int(1)},
+				"b": {eval.Int(2)},
+			},
+		},
+		"q": {
+			Name: "q",
+			Vars: map[string][]eval.Value{
+				"x": {eval.String("x")},
+			},
+		},
+	}
+	plan := &sema.StepScopePlan{
+		ExplicitDelta: []sema.ScopeImport{
+			{Source: "", Visible: "skip", Span: span},
+			{Source: "p", Full: true, Span: span},
+			{Source: "p", Visible: "a", SourceVar: "a", Span: span},
+			{Source: "q", Visible: "", SourceVar: "x", Span: span},
+			{Source: "q", Visible: "ren", SourceVar: "", Span: span},
+		},
+	}
+
+	got := groupExplicitDeltaBySource(plan, sources)
+	if len(got) != 2 {
+		t.Fatalf("expected two source groups, got %#v", got)
+	}
+	if got[0].Source != "p" || !got[0].Full {
+		t.Fatalf("unexpected first group: %#v", got[0])
+	}
+	if len(got[0].Vars) != 2 || got[0].Vars[0].Visible != "a" || got[0].Vars[1].Visible != "b" {
+		t.Fatalf("expected full-group vars in source order, got %#v", got[0].Vars)
+	}
+	if got[1].Source != "q" || got[1].Full {
+		t.Fatalf("unexpected second group: %#v", got[1])
+	}
+	if len(got[1].Vars) != 2 || got[1].Vars[0].Visible != "x" || got[1].Vars[0].SourceVar != "x" || got[1].Vars[1].Visible != "ren" || got[1].Vars[1].SourceVar != "ren" {
+		t.Fatalf("unexpected second-group vars: %#v", got[1].Vars)
+	}
+}
+
+func TestStateCloneHelpers(t *testing.T) {
+	empty := emptyState()
+	if len(empty.Values) != 0 || len(empty.SourceRows) != 0 || len(empty.Parents) != 0 {
+		t.Fatalf("expected emptyState to initialize empty maps and no parents, got %#v", empty)
+	}
+
+	st := state{
+		ID:         WorkID{Step: "s0", Row: 3},
+		Values:     map[string]eval.Value{"a": eval.Int(1)},
+		SourceRows: map[sema.BindingVersionKey][]int{{Public: "p", Version: "p:v1"}: {0, 1}},
+		Parents:    []WorkID{{Step: "parent", Row: 2}},
+	}
+	pKey := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
+	cloned := cloneState(st)
+	if !reflect.DeepEqual(cloned, st) {
+		t.Fatalf("cloneState mismatch: got=%#v want=%#v", cloned, st)
+	}
+	cloned.Values["a"] = eval.Int(2)
+	cloned.SourceRows[pKey][0] = 9
+	cloned.Parents[0].Row = 7
+	if st.Values["a"].I != 1 || st.SourceRows[pKey][0] != 0 || st.Parents[0].Row != 2 {
+		t.Fatalf("cloneState must deep copy maps, row slices, and parents, state=%#v clone=%#v", st, cloned)
+	}
+
+	sliceClone := cloneStateSlice([]state{st})
+	if len(sliceClone) != 1 || !reflect.DeepEqual(sliceClone[0], st) {
+		t.Fatalf("cloneStateSlice mismatch: got=%#v want %#v", sliceClone, st)
+	}
+	sliceClone[0].SourceRows[pKey][1] = 7
+	if st.SourceRows[pKey][1] != 1 {
+		t.Fatalf("cloneStateSlice must deep copy nested row slices, state=%#v clone=%#v", st, sliceClone)
+	}
+}
+
+func TestInheritParentStates(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	diags := &diag.Diagnostics{}
+
+	got := inheritParentStates(nil, nil, span, diags)
+	if len(got) != 1 || len(got[0].Values) != 0 || len(got[0].SourceRows) != 0 || len(got[0].Parents) != 0 {
+		t.Fatalf("expected a single empty state for no dependencies, got %#v", got)
+	}
+
+	p := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
+	q := sema.BindingVersionKey{Public: "q", Version: "q:v1"}
+	byStep := map[string][]state{
+		"s0": {
+			{ID: WorkID{Step: "s0", Row: 0}, Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}},
+			{ID: WorkID{Step: "s0", Row: 1}, Values: map[string]eval.Value{"a": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{p: {1}}},
+		},
+		"s1": {
+			{ID: WorkID{Step: "s1", Row: 0}, Values: map[string]eval.Value{"b": eval.String("x")}, SourceRows: map[sema.BindingVersionKey][]int{q: {0}}},
+		},
+	}
+	got = inheritParentStates([]string{"s0", "s0", "s1"}, byStep, span, diags)
+	if len(got) != 2 {
+		t.Fatalf("expected deduped parent dependencies to produce two states, got %#v", got)
+	}
+	if got[0].Values["a"].I != 1 || got[0].Values["b"].S != "x" {
+		t.Fatalf("unexpected first inherited state: %#v", got[0])
+	}
+	if !reflect.DeepEqual(got[0].Parents, []WorkID{{Step: "s0", Row: 0}, {Step: "s1", Row: 0}}) {
+		t.Fatalf("unexpected first inherited parents: %#v", got[0].Parents)
+	}
+	if got[1].Values["a"].I != 2 || got[1].Values["b"].S != "x" {
+		t.Fatalf("unexpected second inherited state: %#v", got[1])
+	}
+	if !reflect.DeepEqual(got[1].Parents, []WorkID{{Step: "s0", Row: 1}, {Step: "s1", Row: 0}}) {
+		t.Fatalf("unexpected second inherited parents: %#v", got[1].Parents)
+	}
+
+	if got := inheritParentStates([]string{"missing"}, byStep, span, diags); got != nil {
+		t.Fatalf("expected nil when a dependency has no states, got %#v", got)
+	}
+}
+
+func TestInheritParentStatesConflicts(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	p := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
+	q := sema.BindingVersionKey{Public: "q", Version: "q:v1"}
+
+	diags := &diag.Diagnostics{}
+	a := state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b := state{Values: map[string]eval.Value{"x": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{q: {1}}}
+	_, ok := mergeParentStates(a, b, span, diags)
+	if ok {
+		t.Fatalf("expected value conflict merge to fail")
+	}
+	if countWorkplanDiag(diags, diag.CodeE500) != 1 {
+		t.Fatalf("expected one E500, got %d: %s", countWorkplanDiag(diags, diag.CodeE500), diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	a = state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b = state{Values: map[string]eval.Value{"y": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{p: {1}}}
+	_, ok = mergeParentStates(a, b, span, diags)
+	if ok {
+		t.Fatalf("expected source-row conflict merge to fail")
+	}
+	if countWorkplanDiag(diags, diag.CodeE501) != 1 {
+		t.Fatalf("expected one E501, got %d: %s", countWorkplanDiag(diags, diag.CodeE501), diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	p2 := sema.BindingVersionKey{Public: "p", Version: "p:v2"}
+	a = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
+	b = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p2: {1}}}
+	merged, ok := mergeParentStates(a, b, span, diags)
+	if !ok {
+		t.Fatalf("same public source with different versions should not conflict: %s", diags.String())
+	}
+	if len(merged.SourceRows) != 2 {
+		t.Fatalf("expected both row contexts to survive, got %#v", merged.SourceRows)
+	}
+}
+
+func TestValueKeyAndUniqueStrings(t *testing.T) {
+	values := []eval.Value{
+		eval.Null(),
+		eval.Int(7),
+		eval.Float(1.5),
+		eval.String("abc"),
+		eval.Bool(true),
+		eval.List([]eval.Value{eval.Int(1), eval.String("x")}),
+		eval.Tuple([]eval.Value{eval.Bool(false), eval.Float(2)}),
+		{Kind: "weird"},
+	}
+	for _, value := range values {
+		if got := valueKey(value); got == "" {
+			t.Fatalf("valueKey must not be empty for %#v", value)
+		}
+	}
+	if got := uniqueStrings([]string{"a", "b", "a", "c", "b"}); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("uniqueStrings did not preserve first appearance order: %#v", got)
+	}
+}
+
+func TestBuildChoicesBranches(t *testing.T) {
+	sources := map[string]*sema.GlobalBinding{
+		"p": {
+			Name:  "p",
+			Shape: sema.BindingTable,
+			Order: []string{"a", "b"},
+			Vars: map[string][]eval.Value{
+				"a": {eval.Int(1), eval.Int(1), eval.Int(2)},
+				"b": {eval.String("x"), eval.String("x"), eval.String("y")},
+			},
+		},
+		"empty": {Name: "empty", Shape: sema.BindingTable, Vars: map[string][]eval.Value{}},
+	}
+
+	if got := buildChoices(emptyState(), sourceGroup{Source: "missing"}, sources); got != nil {
+		t.Fatalf("expected nil choices for missing source, got %#v", got)
+	}
+
+	st := emptyState()
+	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p")] = []int{1, 5}
+	choices := buildChoices(st, sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
+	if len(choices) != 1 {
+		t.Fatalf("expected invalid row indices to be skipped, got %#v", choices)
+	}
+	if choices[0].Rows[0] != 1 || choices[0].Values["a"].I != 1 {
+		t.Fatalf("unexpected constrained choice: %#v", choices[0])
+	}
+
+	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Full: true}, sources)
+	if len(choices) != 3 {
+		t.Fatalf("expected full-import choices per row, got %#v", choices)
+	}
+	if choices[2].Values["a"].I != 2 || choices[2].Values["b"].S != "y" {
+		t.Fatalf("unexpected full-import row values: %#v", choices[2].Values)
+	}
+
+	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
+	if len(choices) != 2 {
+		t.Fatalf("expected grouped choices for a=[1,1,2], got %#v", choices)
+	}
+	if !reflect.DeepEqual(choices[0].Rows, []int{0, 1}) || choices[0].Values["a"].I != 1 {
+		t.Fatalf("unexpected first grouped choice: %#v", choices[0])
+	}
+	if !reflect.DeepEqual(choices[1].Rows, []int{2}) || choices[1].Values["a"].I != 2 {
+		t.Fatalf("unexpected second grouped choice: %#v", choices[1])
+	}
+
+	choices = buildChoices(emptyState(), sourceGroup{Source: "empty", Full: true}, sources)
+	if len(choices) != 1 {
+		t.Fatalf("expected rowCount fallback of 1 for empty source, got %#v", choices)
+	}
+}
+
+func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
+	sources := map[string]*sema.GlobalBinding{"p0": hiddenProjectionBinding()}
+	st := emptyState()
+	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p0")] = []int{0, 1, 12, 13}
+
+	choices := buildChoices(st, sourceGroup{
+		Source: "p0",
+		Vars: []sourceVar{
+			{Visible: "b", SourceVar: "b"},
+			{Visible: "c", SourceVar: "c"},
+		},
+	}, sources)
+	want := []sourceChoice{
+		{
+			Rows: []int{0, 1},
+			Values: map[string]eval.Value{
+				"b": eval.String("a"),
+				"c": eval.String("x"),
+			},
+		},
+		{
+			Rows: []int{12, 13},
+			Values: map[string]eval.Value{
+				"b": eval.String("a"),
+				"c": eval.String("z"),
+			},
+		},
+	}
+	if !reflect.DeepEqual(choices, want) {
+		t.Fatalf("expected inherited regrouping by projected values, got %#v want %#v", choices, want)
+	}
+}
+
+func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
+	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	sources := map[string]*sema.GlobalBinding{
+		"p": {
+			Name:  "p",
+			Shape: sema.BindingTable,
+			Vars:  map[string][]eval.Value{"a": {eval.Int(1), eval.Int(2)}},
+		},
+	}
+	diags := &diag.Diagnostics{}
+
+	if got := expandStep(nil, nil, sources, span, diags); got != nil {
+		t.Fatalf("expected nil expansion for empty parent states, got %#v", got)
+	}
+
+	parent := state{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}}
+	groups := []sourceGroup{{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}}
+	got := expandStep([]state{parent}, groups, sources, span, diags)
+	if len(got) != 1 {
+		t.Fatalf("expected one expanded state after conflict filtering, got %#v", got)
+	}
+	if got[0].Values["a"].I != 1 {
+		t.Fatalf("unexpected remaining state value: %#v", got[0].Values)
+	}
+	if countWorkplanDiag(diags, diag.CodeE502) != 1 {
+		t.Fatalf("expected one E502 from conflicting choice, got %d: %s", countWorkplanDiag(diags, diag.CodeE502), diags.String())
+	}
+
+	diags = &diag.Diagnostics{}
+	merged, ok := mergeWithChoice(
+		state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}},
+		sourceGroup{Source: "p", DisplaySource: "p"},
+		sourceChoice{Rows: []int{0}, Values: map[string]eval.Value{"x": eval.Int(2)}},
+		span,
+		diags,
+	)
+	if ok {
+		t.Fatalf("expected mergeWithChoice conflict to fail, got %#v", merged)
+	}
+	if countWorkplanDiag(diags, diag.CodeE502) != 1 {
+		t.Fatalf("expected one E502 from mergeWithChoice conflict, got %d: %s", countWorkplanDiag(diags, diag.CodeE502), diags.String())
+	}
+}
+
+func countWorkplanDiag(diags *diag.Diagnostics, code diag.Code) int {
+	count := 0
+	for _, item := range diags.Items {
+		if item.Code == string(code) {
+			count++
+		}
+	}
+	return count
+}
+
+func hiddenProjectionBinding() *sema.GlobalBinding {
+	aVals := make([]eval.Value, 0, 24)
+	bVals := make([]eval.Value, 0, 24)
+	cVals := make([]eval.Value, 0, 24)
+	dVals := make([]eval.Value, 0, 24)
+	pairs := []struct {
+		a int64
+		b string
+	}{
+		{a: 0, b: "a"},
+		{a: 1, b: "b"},
+		{a: 2, b: "c"},
+		{a: 3, b: "a"},
+		{a: 4, b: "b"},
+		{a: 5, b: "c"},
+	}
+	for _, c := range []string{"x", "z"} {
+		for _, pair := range pairs {
+			for _, d := range []bool{true, false} {
+				aVals = append(aVals, eval.Int(pair.a))
+				bVals = append(bVals, eval.String(pair.b))
+				cVals = append(cVals, eval.String(c))
+				dVals = append(dVals, eval.Bool(d))
+			}
+		}
+	}
+	return &sema.GlobalBinding{
+		Name:  "p0",
+		Shape: sema.BindingTable,
+		Order: []string{"a", "b", "c", "d"},
+		Vars: map[string][]eval.Value{
+			"a": aVals,
+			"b": bVals,
+			"c": cVals,
+			"d": dVals,
+		},
 	}
 }
