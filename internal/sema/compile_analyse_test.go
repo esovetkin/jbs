@@ -35,9 +35,12 @@ func TestNormalizePatternRegexAndHasErrorCodeSince(t *testing.T) {
 	if !ok || regex != "pair=([A-Z]+)-([0-9]+)" || typ != "string" {
 		t.Fatalf("unexpected manual group normalization: regex=%q type=%q ok=%v", regex, typ, ok)
 	}
-	regex, typ, ok = normalizePatternRegex("literal%")
+	regex, typ, ok = normalizePatternRegex("literal%%")
 	if !ok || regex != "literal%" || typ != "string" {
-		t.Fatalf("unexpected trailing-percent normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+		t.Fatalf("unexpected literal-percent normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+	}
+	if _, _, ok := normalizePatternRegex("value %"); ok {
+		t.Fatalf("expected trailing percent normalization to fail")
 	}
 	if _, _, ok := normalizePatternRegex("%x"); ok {
 		t.Fatalf("expected invalid placeholder normalization to fail")
@@ -219,6 +222,35 @@ func TestCompileAnalyseBlockUnknownStep(t *testing.T) {
 	}
 	if countDiagCode(diags, "E410") != 1 {
 		t.Fatalf("expected one unknown-step diagnostic, got %d: %s", countDiagCode(diags, "E410"), diags.String())
+	}
+}
+
+func TestCompileAnalyseBlockRejectsTrailingPercentPlaceholder(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals:        GlobalState{Values: map[string]eval.Value{}},
+		BindingsByName: map[string]*GlobalBinding{},
+		DoBlocks:       []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{
+			"run": {Effective: map[string]VisibleBinding{}},
+		},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{Name: "value", File: "out.txt", Expr: ast.StringExpr{Value: "value %", Span: span}, Span: span},
+		},
+		Columns: []ast.AnalyseColumn{{Name: "value", Span: span}},
+		Span:    span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, diags)
+	if len(spec.Assignments) != 0 {
+		t.Fatalf("expected invalid trailing-percent assignment to be skipped, got %#v", spec.Assignments)
+	}
+	if countDiagCode(diags, "E402") != 1 {
+		t.Fatalf("expected one invalid-placeholder diagnostic, got %d: %s", countDiagCode(diags, "E402"), diags.String())
 	}
 }
 

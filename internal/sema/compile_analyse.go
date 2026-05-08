@@ -32,8 +32,7 @@ func normalizePatternRegex(input string) (string, string, bool) {
 			continue
 		}
 		if i+1 >= len(runes) {
-			out.WriteRune('%')
-			continue
+			return "", "", false
 		}
 		next := runes[i+1]
 		switch next {

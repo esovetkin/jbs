@@ -125,6 +125,7 @@ Pattern shortcuts:
 - `%d` captures an integer.
 - `%f` captures a floating-point value.
 - `%w` captures a word.
+- `%%` matches a literal percent character.
 
 Plain regular expressions are also allowed. If a pattern has multiple capture groups, result columns are suffixed with `.0`, `.1`, and so on. Multiple matches in one file produce multiple rows. Generated CSV files include `run_id`.
 
