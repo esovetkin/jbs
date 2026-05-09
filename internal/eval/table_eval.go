@@ -7,26 +7,36 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
+type tableColumnInput struct {
+	Name   string
+	Values []Value
+	Span   diag.Span
+}
+
 func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) == 0 {
-		diags.AddError(diag.CodeE106, "table() expects at least one named column argument", at, "use syntax such as table(id = ids, label = labels)")
+		diags.AddError(diag.CodeE106, "table() expects named column arguments or one dictionary argument", at, "use table(id = ids) or table(dict_value)")
 		return Null()
 	}
+	if len(rawArgs) == 1 && rawArgs[0].Name == "" {
+		return evalTableFromDictArg(rawArgs[0], env, at, diags, opts, ctx)
+	}
+	if hasPositionalArg(rawArgs) {
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", firstPositionalSpan(rawArgs), "use table(dict_value) or named columns such as table(id = ids)")
+		return Null()
+	}
+	return evalNamedTableColumns(rawArgs, env, at, diags, opts, ctx)
+}
 
-	order := make([]string, 0, len(rawArgs))
-	seriesByName := make(map[string][]Value, len(rawArgs))
-	spansByName := make(map[string]diag.Span, len(rawArgs))
-	expectedLen := -1
-
+func evalNamedTableColumns(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	seen := make(map[string]struct{}, len(rawArgs))
+	columns := make([]tableColumnInput, 0, len(rawArgs))
 	for _, arg := range rawArgs {
-		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "table() requires named arguments only", arg.Span, "use syntax such as table(id = ids, label = labels)")
-			return Null()
-		}
-		if _, exists := seriesByName[arg.Name]; exists {
+		if _, exists := seen[arg.Name]; exists {
 			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", arg.Name), arg.Span, "use each column name at most once")
 			return Null()
 		}
+		seen[arg.Name] = struct{}{}
 		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
 			return Null()
@@ -35,42 +45,135 @@ func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", arg.Name), arg.Span, "pass a scalar, tuple, or list column value")
 			return Null()
 		}
-		series := ToSeries(value)
-		if expectedLen < 0 {
-			expectedLen = len(series)
-		} else if len(series) != expectedLen {
+		columns = append(columns, tableColumnInput{
+			Name:   arg.Name,
+			Values: ToSeries(value),
+			Span:   arg.Span,
+		})
+	}
+	return buildTableFromColumns(columns, at, diags)
+}
+
+func evalTableFromDictArg(arg ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
+	if value.Kind != KindDict || value.D == nil {
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", arg.Span, "use table(dict_value) or named columns such as table(id = ids)")
+		return Null()
+	}
+	return tableFromDict(value, arg.Span, diags)
+}
+
+func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if value.D == nil || len(value.D.Order) == 0 {
+		return CombValue(&Comb{})
+	}
+	seen := make(map[string]struct{}, len(value.D.Order))
+	columns := make([]tableColumnInput, 0, len(value.D.Order))
+	for _, key := range value.D.Order {
+		colValue, ok := value.D.Entries[key]
+		if !ok {
+			continue
+		}
+		if key.Kind != DictKeyString {
+			diags.AddError(diag.CodeE106, "table() dictionary keys must be strings", at, "use string keys that are valid table column names")
+			return Null()
+		}
+		if !isValidCombColumnName(key.S) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid dictionary key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
+			return Null()
+		}
+		if _, exists := seen[key.S]; exists {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", key.S), at, "use each column name at most once")
+			return Null()
+		}
+		if IsComb(colValue) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", key.S), at, "pass a scalar, tuple, or list column value")
+			return Null()
+		}
+		seen[key.S] = struct{}{}
+		columns = append(columns, tableColumnInput{
+			Name:   key.S,
+			Values: ToSeries(colValue),
+			Span:   at,
+		})
+	}
+	return buildTableFromColumns(columns, at, diags)
+}
+
+func buildTableFromColumns(columns []tableColumnInput, at diag.Span, diags *diag.Diagnostics) Value {
+	order := make([]string, 0, len(columns))
+	maxLen := 0
+	for _, col := range columns {
+		order = append(order, col.Name)
+		if len(col.Values) > maxLen {
+			maxLen = len(col.Values)
+		}
+	}
+	if maxLen == 0 {
+		return CombValue(&Comb{
+			Order: append([]string(nil), order...),
+			Rows:  nil,
+		})
+	}
+	for _, col := range columns {
+		if len(col.Values) == 0 {
 			diags.AddError(
 				diag.CodeE106,
-				fmt.Sprintf("table() column '%s' has length %d; expected %d", arg.Name, len(series), expectedLen),
-				arg.Span,
-				"use equal-length column values; table() does not broadcast columns",
+				fmt.Sprintf("table() column '%s' is empty and cannot be broadcast to length %d", col.Name, maxLen),
+				nonZeroSpan(col.Span, at),
+				"use a non-empty column or make all table columns empty",
 			)
 			return Null()
 		}
-		order = append(order, arg.Name)
-		seriesByName[arg.Name] = series
-		spansByName[arg.Name] = arg.Span
+		if len(col.Values) != maxLen && maxLen%len(col.Values) != 0 {
+			diags.AddWarning(
+				diag.CodeW101,
+				fmt.Sprintf("length mismatch in table(): column '%s' has length %d; cyclic broadcast to length %d", col.Name, len(col.Values), maxLen),
+				nonZeroSpan(col.Span, at),
+				"align column lengths to avoid cyclic broadcast",
+			)
+		}
 	}
-
-	if expectedLen < 0 {
-		expectedLen = 0
-	}
-	rows := make([]Row, 0, expectedLen)
-	for i := 0; i < expectedLen; i++ {
-		values := make(map[string]Cell, len(order))
-		for _, name := range order {
-			origin := spansByName[name]
-			if origin.IsZero() {
-				origin = at
-			}
-			values[name] = Cell{
-				Value:  seriesByName[name][i],
-				Origin: origin,
+	rows := make([]Row, 0, maxLen)
+	for i := 0; i < maxLen; i++ {
+		values := make(map[string]Cell, len(columns))
+		for _, col := range columns {
+			values[col.Name] = Cell{
+				Value:  CloneValue(col.Values[i%len(col.Values)]),
+				Origin: nonZeroSpan(col.Span, at),
 			}
 		}
 		rows = append(rows, Row{Values: values})
 	}
-	return tableValueFromOrderedRows(order, rows)
+	return CombValue(&Comb{Order: order, Rows: rows})
+}
+
+func hasPositionalArg(args []ast.CallArg) bool {
+	for _, arg := range args {
+		if arg.Name == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstPositionalSpan(args []ast.CallArg) diag.Span {
+	for _, arg := range args {
+		if arg.Name == "" {
+			return arg.Span
+		}
+	}
+	return diag.Span{}
+}
+
+func nonZeroSpan(primary, fallback diag.Span) diag.Span {
+	if !primary.IsZero() {
+		return primary
+	}
+	return fallback
 }
 
 func evalZipCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {

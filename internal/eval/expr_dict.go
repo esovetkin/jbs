@@ -42,10 +42,21 @@ func evalDictExpr(expr ast.DictExpr, env map[string]Value, diags *diag.Diagnosti
 }
 
 func evalDictCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) == 1 && rawArgs[0].Name == "" {
+		value := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		if !IsComb(value) {
+			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", rawArgs[0].Span, "use dict(table_value) or named keys such as dict(name = value)")
+			return Null()
+		}
+		return dictFromTable(value, rawArgs[0].Span, diags)
+	}
 	entries := make([]DictEntry, 0, len(rawArgs))
 	for _, arg := range rawArgs {
 		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "dict() expects named arguments only", arg.Span, "use dict(name = value)")
+			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", arg.Span, "use dict(table_value) or named keys such as dict(name = value)")
 			return Null()
 		}
 		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
@@ -53,6 +64,23 @@ func evalDictCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, dia
 			return Null()
 		}
 		entries = append(entries, DictEntry{Key: DictKey{Kind: DictKeyString, S: arg.Name}, Value: value})
+	}
+	return DictValue(entries)
+}
+
+func dictFromTable(value Value, at diag.Span, diags *diag.Diagnostics) Value {
+	names := CombNames(value)
+	entries := make([]DictEntry, 0, len(names))
+	for _, name := range names {
+		column, ok := CombColumn(value, name)
+		if !ok {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("dict() could not read table column '%s'", name), at, "convert well-formed table values only")
+			return Null()
+		}
+		entries = append(entries, DictEntry{
+			Key:   DictKey{Kind: DictKeyString, S: name},
+			Value: List(CloneValues(column)),
+		})
 	}
 	return DictValue(entries)
 }

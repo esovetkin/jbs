@@ -1,0 +1,81 @@
+package sema
+
+import (
+	"reflect"
+	"testing"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
+)
+
+func TestAnalyzeSupportsTableFromDictConversion(t *testing.T) {
+	src := `
+x = range(5)
+y = range(10)
+cases = table(dict(x = x, y = y))
+names(cases)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	binding := res.BindingsByName["cases"]
+	if binding == nil || binding.Shape != BindingTable {
+		t.Fatalf("expected table binding, got %#v", binding)
+	}
+	if len(binding.Rows) != 10 {
+		t.Fatalf("expected 10 rows, got %#v", binding.Rows)
+	}
+	if !reflect.DeepEqual(binding.Order, []string{"x", "y"}) {
+		t.Fatalf("unexpected column order: %#v", binding.Order)
+	}
+	wantNames := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
+		t.Fatalf("unexpected names(cases) result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeSupportsDictFromTableConversion(t *testing.T) {
+	src := `
+cases = table(x = [1, 2], y = ["a", "b"])
+columns = dict(cases)
+columns["x"]
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	wantDict := eval.DictValue([]eval.DictEntry{
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "x"}, Value: eval.List([]eval.Value{eval.Int(1), eval.Int(2)})},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "y"}, Value: eval.List([]eval.Value{eval.String("a"), eval.String("b")})},
+	})
+	if gv := res.GlobalVarByName["columns"]; gv == nil || !eval.Equal(gv.Value, wantDict) {
+		t.Fatalf("unexpected columns dictionary: %#v", gv)
+	}
+	wantX := eval.List([]eval.Value{eval.Int(1), eval.Int(2)})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantX) {
+		t.Fatalf("unexpected columns[\"x\"] result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeTableBroadcastWarning(t *testing.T) {
+	src := `cases = table(x = range(3), y = range(10))`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := countDiagCode(diags, "W101"); got != 1 {
+		t.Fatalf("expected one W101, got %d: %s", got, diags.String())
+	}
+	binding := res.BindingsByName["cases"]
+	if binding == nil || len(binding.Rows) != 10 {
+		t.Fatalf("expected 10 broadcast rows, got %#v", binding)
+	}
+}

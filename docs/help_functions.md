@@ -199,9 +199,12 @@ d["name"] == "case-a"
 get(d, "missing", "fallback") == "fallback"
 next = update(d, threads = 16)
 merged = d + dict(extra = true)
+columns = dict(table(x = [1, 2], y = ["a", "b"]))
 ```
 
 Dictionary literal keys are expressions and must evaluate to string, int, or bool. `dict(...)` and `update(...)` use named arguments, so each argument name becomes a string key. Updates and `+` return new dictionaries; they do not mutate the original value.
+
+`dict(table_value)` converts a table to a dictionary whose string keys are column names and whose values are lists of column values in row order.
 
 `for key in d { ... }` iterates dictionary keys in insertion order.
 
@@ -332,7 +335,7 @@ Rules:
 
 ## `table(...)`, `t(...)`
 
-`table(...)` builds one table from named columns. `t(...)` is a short alias.
+`table(...)` builds one table from named columns or from one dictionary argument. `t(...)` is a short alias.
 
 ```jbs
 cases = table(
@@ -340,14 +343,19 @@ cases = table(
         label = ("a", "b"),
 )
 short = t(id = (1, 2), label = ("a", "b"))
+from_dict = table(dict(id = range(5), replica = range(10)))
 ```
 
 Rules:
 
-- every argument must be named
+- pass either named column arguments or one dictionary argument
 - each name becomes one output column
-- all columns must have the same length
-- `table(...)`/`t(...)` do not broadcast columns
+- dictionary keys must be valid string column names such as `x`, `system_name`, or `ns.value`
+- scalar values are treated as one-row columns
+- shorter non-empty columns are cyclically broadcast to the longest column
+- non-divisible broadcasts emit `W101`
+- empty columns can only be used when all columns are empty
+- `zip(...)` still requires equal row counts and does not inherit this broadcasting
 
 ## `zip(...)`
 

@@ -105,6 +105,8 @@ Top-level assignments define scalar values, lists, tuples, tables, and functions
 
 `env("NAME", "fallback")` reads the environment of the running `jbs` process during evaluation.
 
+`table(...)` builds row tables from named columns or `table(dict_value)`. Shorter non-empty columns are cyclically broadcast to the longest column, with a warning when lengths do not divide cleanly. `dict(table_value)` converts table columns back to dictionary entries containing lists.
+
 `with` imports row-varying data into a step. Multiple sources are combined using the table algebra provided by functions such as `table`, `product`, `select`, and `zip`.
 
 `after` declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.

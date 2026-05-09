@@ -263,7 +263,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 		}
 	})
 
-	t.Run("table rejects duplicate names and mismatched lengths", func(t *testing.T) {
+	t.Run("table rejects duplicate names and broadcasts mismatched lengths", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := evalTableCall(
 			[]ast.CallArg{
@@ -295,8 +295,11 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 			ExprOptions{},
 			ctx,
 		)
-		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
-			t.Fatalf("expected length-mismatch error, got value=%#v diags=%s", got, diags.String())
+		if diags.HasErrors() || diagCount(diags, "W101") != 0 {
+			t.Fatalf("expected clean broadcast, got value=%#v diags=%s", got, diags.String())
+		}
+		if !IsComb(got) || len(got.C.Rows) != 2 {
+			t.Fatalf("expected two broadcast rows, got %#v", got)
 		}
 	})
 

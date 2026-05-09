@@ -100,13 +100,23 @@ next == dict(a = 1, b = 3, c = 4)
 
 `for key in d { ... }` iterates keys only, in insertion order.
 
+`dict(table_value)` converts a table to a dictionary. Each table column becomes
+a string key and each value is a list of that column's row values.
+
 ## Tables
 
-Tables are named columns with equal row counts.
+Tables are named columns. Shorter non-empty columns are cyclically broadcast to
+the longest column; non-divisible broadcasts emit `W101`.
 
 ```jbs
 cases = table(x = (1, 2), label = ("a", "b"))
+grid = table(x = range(5), replica = range(10))
+from_dict = table(dict(x = range(5), replica = range(10)))
 ```
+
+`table(dict_value)` converts a dictionary to a table. Dictionary keys must be
+valid string column names such as `x`, `system_name`, or `ns.value`. Empty
+columns can only be used when all table columns are empty.
 
 Useful table operations:
 
