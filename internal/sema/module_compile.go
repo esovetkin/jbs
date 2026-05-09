@@ -42,7 +42,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 		buildModuleGlobalPlan(info, childByIndex, prefixedByIndex, globals, diags),
 		globals,
 		globals,
-		globalExecOptions{CollectPrints: opts.CollectPrints, ShellRunner: opts.ShellRunner, Environ: opts.Environ},
+		globalExecOptions(opts),
 		diags,
 	)
 	scope := emptyModuleScope()

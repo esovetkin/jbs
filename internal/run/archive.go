@@ -274,7 +274,7 @@ func copyExistingArchive(archivePath string, out *tar.Writer) error {
 		if err := out.WriteHeader(&copied); err != nil {
 			return err
 		}
-		if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+		if hdr.Typeflag == tar.TypeReg {
 			_, err := io.Copy(out, tr)
 			return err
 		}

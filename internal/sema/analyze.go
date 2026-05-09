@@ -65,7 +65,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 			buildGlobalPlan(prog, globals, baseDirForProgramFile(prog.File)),
 			globals,
 			globals,
-			globalExecOptions{CollectPrints: opts.CollectPrints, ShellRunner: opts.ShellRunner, Environ: opts.Environ},
+			globalExecOptions(opts),
 			diags,
 		)
 		scope = emptyModuleScope()

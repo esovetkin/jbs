@@ -400,7 +400,7 @@ func readTarGzEntries(t *testing.T, archivePath string) map[string]archiveTestEn
 			t.Fatal(err)
 		}
 		entry := archiveTestEntry{Header: *hdr}
-		if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+		if hdr.Typeflag == tar.TypeReg {
 			body, readErr := readTarBody(tr)
 			if readErr != nil {
 				t.Fatal(readErr)
