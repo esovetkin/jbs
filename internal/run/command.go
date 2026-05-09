@@ -29,6 +29,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	printFileSubstitutionWarnings(opts.Stderr, prepared)
 	printEvents(opts.Stdout, opts.PrintEvents)
 	ctx, stop := withSignals(ctx, nil)
 	defer stop()
@@ -45,9 +46,11 @@ func DryRun(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	if _, err := createPreparedStores(suite.Plans); err != nil {
+	prepared, err := createPreparedStores(suite.Plans)
+	if err != nil {
 		return err
 	}
+	printFileSubstitutionWarnings(opts.Stderr, prepared)
 	printEvents(opts.Stdout, opts.PrintEvents)
 	return nil
 }
@@ -86,8 +89,9 @@ func Continue(ctx context.Context, opts Options) error {
 }
 
 type preparedStore struct {
-	Plan  runtimePlan
-	Store *Store
+	Plan     runtimePlan
+	Store    *Store
+	Warnings []FileSubstitutionWarning
 }
 
 type componentResult struct {
@@ -100,13 +104,24 @@ type componentResult struct {
 func createPreparedStores(plans []runtimePlan) ([]preparedStore, error) {
 	prepared := make([]preparedStore, 0, len(plans))
 	for _, plan := range plans {
-		store, err := CreateRunDirectoryWithInitial(plan.RootDir, plan, StatusNotStarted)
+		store, warnings, err := CreateRunDirectoryWithInitial(plan.RootDir, plan, StatusNotStarted)
 		if err != nil {
 			return nil, err
 		}
-		prepared = append(prepared, preparedStore{Plan: plan, Store: store})
+		prepared = append(prepared, preparedStore{Plan: plan, Store: store, Warnings: warnings})
 	}
 	return prepared, nil
+}
+
+func printFileSubstitutionWarnings(w io.Writer, prepared []preparedStore) {
+	if w == nil {
+		return
+	}
+	for _, item := range prepared {
+		for _, warning := range item.Warnings {
+			fmt.Fprintf(w, "warning: fsub step %s row %s file %s pattern %q matched %d times; replaced all matches\n", warning.Step, rowDir(warning.Row), warning.DestName, warning.Pattern, warning.Matches)
+		}
+	}
 }
 
 func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), error) {
@@ -141,10 +156,6 @@ func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), err
 			unlockAll()
 			return nil, func() {}, fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
 		}
-		if rootStatus.SourceHash != plan.Manifest.SourceHash {
-			unlockAll()
-			return nil, func() {}, sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
-		}
 		manifest, err := LoadManifest(filepath.Join(runDir, "manifest.json"))
 		if err != nil {
 			unlockAll()
@@ -153,6 +164,14 @@ func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), err
 		if err := validateRunManifest(manifest); err != nil {
 			unlockAll()
 			return nil, func() {}, fmt.Errorf("cannot continue %s: %w", runDir, err)
+		}
+		if err := validateTemplateHashes(runDir, manifest.TemplateHashes, plan.Manifest.TemplateHashes); err != nil {
+			unlockAll()
+			return nil, func() {}, err
+		}
+		if rootStatus.SourceHash != plan.Manifest.SourceHash {
+			unlockAll()
+			return nil, func() {}, sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
 		}
 		if manifest.SourceHash != plan.Manifest.SourceHash {
 			unlockAll()

@@ -26,7 +26,9 @@ type runtimeSuitePlan struct {
 type runtimeInputs struct {
 	RootName            string
 	SourceHash          string
+	Sources             map[string]string
 	WorkPlan            workplan.Plan
+	FileSubs            map[string][]FileSubstitutionPlan
 	Analyses            map[string]AnalysePlan
 	SourceDir           string
 	NoStrict            bool
@@ -41,6 +43,8 @@ type runtimePlan struct {
 	WorkPlan            workplan.Plan
 	Manifest            Manifest
 	Bodies              map[string]string
+	FileSubs            map[string][]FileSubstitutionPlan
+	TemplateHashes      []TemplateHash
 	Analyses            map[string]AnalysePlan
 	SourceDir           string
 	NoStrict            bool
@@ -130,6 +134,10 @@ func buildRuntimeInputs(opts Options, diags *diag.Diagnostics) (runtimeInputs, e
 	if err != nil {
 		return runtimeInputs{}, err
 	}
+	fileSubs, err := fileSubPlansByStep(res)
+	if err != nil {
+		return runtimeInputs{}, err
+	}
 	if database.Path != "" {
 		for step, plan := range analyses {
 			if dup := duplicateHeader(plan.Header); dup != "" {
@@ -140,7 +148,9 @@ func buildRuntimeInputs(opts Options, diags *diag.Diagnostics) (runtimeInputs, e
 	return runtimeInputs{
 		RootName:            name,
 		SourceHash:          hash,
+		Sources:             maps.Clone(opts.Sources),
 		WorkPlan:            wp,
+		FileSubs:            fileSubs,
 		Analyses:            analyses,
 		SourceDir:           sourceDir,
 		NoStrict:            opts.NoStrict,
@@ -240,14 +250,26 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		stepDirs[step.Name] = step.DirName
 		bodies[step.Name] = step.Body
 	}
+	fileSubs := make(map[string][]FileSubstitutionPlan, len(wp.Steps))
+	for _, step := range wp.Steps {
+		if entries := inputs.FileSubs[step.Name]; len(entries) > 0 {
+			fileSubs[step.Name] = cloneFileSubstitutionPlans(entries)
+		}
+	}
+	sourceHash, templateHashes, err := sourceHashWithFileSubs(inputs.Sources, fileSubs)
+	if err != nil {
+		return runtimePlan{}, err
+	}
+	wp.SourceHash = sourceHash
 
 	manifest := Manifest{
 		Schema:              1,
-		SourceHash:          inputs.SourceHash,
+		SourceHash:          sourceHash,
 		BenchmarkName:       inputs.RootName,
 		GlobalNProc:         wp.GlobalNProc,
 		AnalyseDatabase:     inputs.AnalyseDatabase,
 		AnalyseDatabasePath: inputs.AnalyseDatabasePath,
+		TemplateHashes:      templateHashes,
 		Steps:               make([]ManifestStep, 0, len(wp.Steps)),
 		Work:                make([]ManifestWork, 0, len(wp.Work)),
 	}
@@ -303,6 +325,8 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		WorkPlan:            wp,
 		Manifest:            manifest,
 		Bodies:              bodies,
+		FileSubs:            fileSubs,
+		TemplateHashes:      templateHashes,
 		Analyses:            analyses,
 		SourceDir:           inputs.SourceDir,
 		NoStrict:            inputs.NoStrict,

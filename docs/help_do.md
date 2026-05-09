@@ -8,6 +8,7 @@ The `do` block defines shell commands executed by direct `jbs run` workpackages.
 do <name>
         [after <step0>, <step1>, ...]
         [with <source>, <source2>[<col0>, <col1>, ...], ...]
+        [fsub "<template>" { "<regex>": <expr>, ... }]
         [nproc <int>]
 {
         # shell commands
@@ -51,6 +52,36 @@ Rules:
 - importing selected columns such as `with cases[x, y]` exposes only those names
 - importing multiple sources such as `with cases[x], env[host]` creates a Cartesian product across those sources
 - name collisions across imported or inherited variables are errors
+
+### `fsub`: copy and substitute a template file
+
+`fsub "path" { ... }` copies a template into every workpackage directory for the step and applies ordered regular-expression substitutions before `run.sh` starts. Relative template paths are resolved relative to the `.jbs` file that defines the step. The copied filename is the template basename.
+
+```jbs
+cases = table(x = [1, 2], label = ["a", "b"])
+
+do run
+        with cases
+        fsub "input.template" {
+                "###X###": x,
+                "###LABEL###": label,
+        }
+{
+        ./solver input.template
+}
+```
+
+Rules:
+
+- rule keys are Go regular expressions
+- rules run in declaration order
+- a rule must match at least once in every workpackage template
+- multiple matches are all replaced and reported as warnings
+- without capture groups, the whole match is replaced by one scalar value
+- with capture groups, provide a tuple/list with one scalar value per group
+- replacement expressions can use variables visible in the step through `with` or `after`
+
+Dry-run creates substituted files without executing work. `jbs continue` resumes the already prepared files and rejects the run if configured template hashes no longer match.
 
 ### `JBS_...`: useful direct-run variables inside `do`
 

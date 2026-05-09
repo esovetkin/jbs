@@ -13,6 +13,6 @@ Continue only works when the benchmark status is not `RUNNING` and the current s
 
 When `jbs_benchmarks` is configured, `jbs continue input.jbs` resumes every configured component. Use `-b` or `--benchmark` to resume only one component. A selected component must exist in `jbs_benchmarks`.
 
-Source identity includes every loaded `.jbs` source file's content and loader label. For file modules, the loader label is the cleaned absolute path used to load the file. It is not resolved through symbolic links.
+Source identity includes every loaded `.jbs` source file's content and loader label, plus the contents of any `fsub` templates used by the selected benchmark. For file modules, the loader label is the cleaned absolute path used to load the file. It is not resolved through symbolic links.
 
 Use the same path spelling for `jbs continue` that was used for `jbs run`. Continuing through a symlink or alternate absolute path can produce a different hash even when the source bytes are identical.

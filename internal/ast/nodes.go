@@ -42,6 +42,7 @@ type HeaderElemKind string
 const (
 	HeaderElemAfter   HeaderElemKind = "after"
 	HeaderElemWith    HeaderElemKind = "with"
+	HeaderElemFSub    HeaderElemKind = "fsub"
 	HeaderElemOption  HeaderElemKind = "option"
 	HeaderElemComment HeaderElemKind = "comment"
 	HeaderElemBlank   HeaderElemKind = "blank"
@@ -222,6 +223,7 @@ type DoBlock struct {
 	After     []string
 	WithItems []WithItem
 	NProc     *int
+	FSubs     []FileSubstitution
 	HeaderRaw string
 	Header    []HeaderElem
 	Body      string
@@ -232,6 +234,26 @@ type DoBlock struct {
 
 func (d DoBlock) stmtNode()          {}
 func (d DoBlock) GetSpan() diag.Span { return d.Span }
+
+type FileSubstitution struct {
+	Path      string
+	PathSpan  diag.Span
+	Rules     []FileSubstitutionRule
+	BodyRaw   string
+	BodyStart diag.Position
+	Span      diag.Span
+}
+
+func (f FileSubstitution) GetSpan() diag.Span { return f.Span }
+
+type FileSubstitutionRule struct {
+	Pattern     string
+	PatternSpan diag.Span
+	Expr        Expr
+	Span        diag.Span
+}
+
+func (r FileSubstitutionRule) GetSpan() diag.Span { return r.Span }
 
 type Expr interface {
 	Node

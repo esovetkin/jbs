@@ -19,6 +19,8 @@ for_stmt       := "for" IDENT "in" expr block
 while_stmt     := "while" expr block
 block          := "{" statement* "}"
 do_block       := "do" IDENT header_item* "{" raw_body "}"
+header_item    := after_clause | with_clause | nproc_clause | fsub_clause
+fsub_clause    := "fsub" STRING "{" (STRING ":" expr ("," STRING ":" expr)* ","?)? "}"
 analyse_block  := "analyse" IDENT analyse_header_item* "{" analyse_body "}"
 expr           := literal | name | call | index | member | unary | binary
                 | conditional | function | list | tuple | dict
@@ -172,9 +174,12 @@ Header clauses:
 - `with source` imports all columns from a data source.
 - `with source[a,b]` imports selected columns.
 - `after step` waits for another step and inherits that step's visible variables.
+- `fsub "path" { "regex": expr }` copies a template into each workpackage directory and applies substitutions before `run.sh` starts.
 - `nproc N` limits concurrent workpackages for this step.
 
 `nproc 0` means the number of available CPUs. The effective step concurrency is limited by both `jbs_nproc` and the step's own `nproc`.
+
+`fsub` template paths are resolved relative to the `.jbs` file that defines the `do` block. The destination filename is the template basename. Substitution rules are regular expressions applied in declaration order. A rule with no capture groups replaces the full match with a scalar replacement value. A rule with capture groups replaces each captured group and requires a tuple/list with the same number of scalar values. Rules must match at least once for every workpackage; multiple matches are all replaced and reported as warnings. Dry-run materializes substituted files, and `jbs continue` resumes those prepared files after checking the stored template hashes.
 
 ## `analyse`
 
@@ -246,6 +251,6 @@ If `jbs_database` is non-empty, analyse results are written to that SQLite datab
 
 The top-level status file is written last during initial directory creation. This keeps incomplete initializations from being resumable.
 
-`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. With multiple configured components, it resumes all components; use `-b` to resume only one. The hash includes the contents and loader labels of all loaded `.jbs` files. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
+`jbs continue file.jbs` resumes interrupted work when the benchmark is not already marked `RUNNING` and the source identity hash matches. With multiple configured components, it resumes all components; use `-b` to resume only one. The hash includes the contents and loader labels of all loaded `.jbs` files plus the contents of any `fsub` templates used by the selected benchmark. File labels are the cleaned absolute paths used by the loader, so continuing through a symlink or alternate absolute path can fail even if the file contents are identical.
 
 Generated workpackage `run.sh` files use `set -euo pipefail` by default. Pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.

@@ -18,21 +18,27 @@ func parseHeaderElements(file string, raw string, start diag.Position) []ast.Hea
 	lines := strings.Split(raw, "\n")
 	out := make([]ast.HeaderElem, 0, len(lines))
 	pos := start
+	fsubDepth := 0
 	for idx, line := range lines {
 		lineStart := pos
 		lineEnd := advancePosition(lineStart, line)
 		span := diag.NewSpan(file, lineStart, lineEnd)
 
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		code, commentText, hasComment := splitLineComment(line)
+		codeTrimmed := strings.TrimSpace(code)
+		if fsubDepth > 0 {
+			fsubDepth += headerBraceDelta(code)
+			if fsubDepth < 0 {
+				fsubDepth = 0
+			}
+		} else if trimmed == "" {
 			out = append(out, ast.HeaderElem{
 				Kind: ast.HeaderElemBlank,
 				Text: "",
 				Span: span,
 			})
 		} else {
-			code, commentText, hasComment := splitLineComment(line)
-			codeTrimmed := strings.TrimSpace(code)
 			if codeTrimmed == "" {
 				comment := ast.Comment{
 					Text: strings.TrimSpace(commentText),
@@ -57,6 +63,12 @@ func parseHeaderElements(file string, raw string, start diag.Position) []ast.Hea
 					elem.Inline = &comment
 				}
 				out = append(out, elem)
+				if elem.Kind == ast.HeaderElemFSub {
+					fsubDepth += headerBraceDelta(code)
+					if fsubDepth < 0 {
+						fsubDepth = 0
+					}
+				}
 			}
 		}
 
@@ -147,12 +159,59 @@ func splitLineComment(line string) (code string, comment string, hasComment bool
 	return line, "", false
 }
 
+func headerBraceDelta(line string) int {
+	inSingle := false
+	inDouble := false
+	escaped := false
+	delta := 0
+	for _, r := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inSingle {
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				inSingle = false
+			}
+			continue
+		}
+		if inDouble {
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				inDouble = false
+			}
+			continue
+		}
+		switch r {
+		case '\'':
+			inSingle = true
+		case '"':
+			inDouble = true
+		case '{':
+			delta++
+		case '}':
+			delta--
+		}
+	}
+	return delta
+}
+
 func classifyHeaderElemKind(code string) ast.HeaderElemKind {
 	if hasKeywordPrefix(code, "after") {
 		return ast.HeaderElemAfter
 	}
 	if hasKeywordPrefix(code, "with") {
 		return ast.HeaderElemWith
+	}
+	if hasKeywordPrefix(code, "fsub") {
+		return ast.HeaderElemFSub
 	}
 	if isDoHeaderOptionLine(code) {
 		return ast.HeaderElemOption

@@ -3,6 +3,7 @@ package parser
 import (
 	"testing"
 
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
@@ -27,6 +28,34 @@ func TestParseDoBlockBranches(t *testing.T) {
 		}
 		if block.Body == "" {
 			t.Fatalf("expected non-empty do body")
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("with fsub", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		src := "do run with p[x] fsub \"input.tpl\" { \"###X###\": x, \"Y\": \"lit\" } {\n  cat input.tpl\n}\n"
+		p := newTopLevelParser(src, diags)
+		start := p.pos()
+		p.consumeWord()
+		block := p.parseDoBlock(start)
+		if len(block.FSubs) != 1 {
+			t.Fatalf("expected one fsub, got %#v", block.FSubs)
+		}
+		fsub := block.FSubs[0]
+		if fsub.Path != "input.tpl" || len(fsub.Rules) != 2 {
+			t.Fatalf("unexpected fsub parse: %#v", fsub)
+		}
+		if fsub.Rules[0].Pattern != "###X###" {
+			t.Fatalf("unexpected first pattern: %#v", fsub.Rules[0])
+		}
+		if _, ok := fsub.Rules[0].Expr.(ast.IdentExpr); !ok {
+			t.Fatalf("expected identifier replacement, got %#v", fsub.Rules[0].Expr)
+		}
+		if block.Body == "" || block.BodyStart.Line == 0 {
+			t.Fatalf("expected raw do body after fsub, got %#v", block)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())

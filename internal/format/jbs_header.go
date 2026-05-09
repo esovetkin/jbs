@@ -12,12 +12,13 @@ type headerClauseKind int
 const (
 	headerClauseAfter headerClauseKind = iota
 	headerClauseWith
+	headerClauseFSub
 	headerClauseOptions
 )
 
 type renderedHeaderClause struct {
-	Kind headerClauseKind
-	Text string
+	Kind  headerClauseKind
+	Lines []string
 }
 
 type headerCommentBucket struct {
@@ -25,12 +26,12 @@ type headerCommentBucket struct {
 	Inline string
 }
 
-func renderBlockHeader(kind, name string, after []string, with []ast.WithItem, nproc *int, header []ast.HeaderElem) []string {
+func renderBlockHeader(kind, name string, after []string, with []ast.WithItem, nproc *int, fsubs []ast.FileSubstitution, header []ast.HeaderElem, srcRunes []rune) []string {
 	lines := []string{kind + " " + name}
-	clauses := buildRenderedHeaderClauses(after, with, nproc)
+	clauses := buildRenderedHeaderClauses(after, with, nproc, fsubs, srcRunes)
 	if len(header) == 0 {
 		for _, clause := range clauses {
-			lines = append(lines, clauseIndent+clause.Text)
+			lines = append(lines, renderHeaderClauseLines(clause, nil)...)
 		}
 		return lines
 	}
@@ -43,11 +44,7 @@ func renderBlockHeader(kind, name string, after []string, with []ast.WithItem, n
 				lines = append(lines, renderHeaderCommentLine(text))
 			}
 		}
-		line := clauseIndent + clause.Text
-		if bucket != nil && bucket.Inline != "" {
-			line += "  " + bucket.Inline
-		}
-		lines = append(lines, line)
+		lines = append(lines, renderHeaderClauseLines(clause, bucket)...)
 	}
 	for _, text := range trailing {
 		lines = append(lines, renderHeaderCommentLine(text))
@@ -55,24 +52,42 @@ func renderBlockHeader(kind, name string, after []string, with []ast.WithItem, n
 	return lines
 }
 
-func buildRenderedHeaderClauses(after []string, with []ast.WithItem, nproc *int) []renderedHeaderClause {
+func renderHeaderClauseLines(clause renderedHeaderClause, bucket *headerCommentBucket) []string {
+	lines := make([]string, 0, len(clause.Lines))
+	for i, text := range clause.Lines {
+		line := clauseIndent + text
+		if i == 0 && bucket != nil && bucket.Inline != "" {
+			line += "  " + bucket.Inline
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func buildRenderedHeaderClauses(after []string, with []ast.WithItem, nproc *int, fsubs []ast.FileSubstitution, srcRunes []rune) []renderedHeaderClause {
 	clauses := make([]renderedHeaderClause, 0, 4)
 	if len(after) > 0 {
 		clauses = append(clauses, renderedHeaderClause{
-			Kind: headerClauseAfter,
-			Text: "after " + strings.Join(after, ", "),
+			Kind:  headerClauseAfter,
+			Lines: []string{"after " + strings.Join(after, ", ")},
 		})
 	}
 	if len(with) > 0 {
 		clauses = append(clauses, renderedHeaderClause{
-			Kind: headerClauseWith,
-			Text: "with " + renderWithClause(with),
+			Kind:  headerClauseWith,
+			Lines: []string{"with " + renderWithClause(with)},
+		})
+	}
+	for _, fsub := range fsubs {
+		clauses = append(clauses, renderedHeaderClause{
+			Kind:  headerClauseFSub,
+			Lines: renderFSubClause(fsub, srcRunes),
 		})
 	}
 	if optionLine := renderStepOptionClause(nproc); optionLine != "" {
 		clauses = append(clauses, renderedHeaderClause{
-			Kind: headerClauseOptions,
-			Text: optionLine,
+			Kind:  headerClauseOptions,
+			Lines: []string{optionLine},
 		})
 	}
 	return clauses
@@ -82,6 +97,7 @@ func collectHeaderCommentBuckets(header []ast.HeaderElem) (map[headerClauseKind]
 	buckets := map[headerClauseKind]*headerCommentBucket{
 		headerClauseAfter:   {},
 		headerClauseWith:    {},
+		headerClauseFSub:    {},
 		headerClauseOptions: {},
 	}
 	pending := make([]string, 0)
@@ -104,7 +120,7 @@ func collectHeaderCommentBuckets(header []ast.HeaderElem) (map[headerClauseKind]
 			} else {
 				pending = append(pending, "#")
 			}
-		case ast.HeaderElemAfter, ast.HeaderElemWith, ast.HeaderElemOption:
+		case ast.HeaderElemAfter, ast.HeaderElemWith, ast.HeaderElemFSub, ast.HeaderElemOption:
 			kind := toHeaderClauseKind(elem.Kind)
 			if elem.Inline != nil && buckets[kind].Inline != "" {
 				buckets[kind].Before = append(buckets[kind].Before, buckets[kind].Inline)
@@ -137,6 +153,8 @@ func toHeaderClauseKind(kind ast.HeaderElemKind) headerClauseKind {
 		return headerClauseAfter
 	case ast.HeaderElemWith:
 		return headerClauseWith
+	case ast.HeaderElemFSub:
+		return headerClauseFSub
 	default:
 		return headerClauseOptions
 	}
@@ -167,4 +185,20 @@ func renderWithClause(items []ast.WithItem) string {
 		parts = append(parts, item.Source+"["+strings.Join(item.Selectors, ",")+"]")
 	}
 	return strings.Join(parts, ", ")
+}
+
+func renderFSubClause(fsub ast.FileSubstitution, srcRunes []rune) []string {
+	lines := []string{"fsub " + strconv.Quote(fsub.Path) + " {"}
+	for _, rule := range fsub.Rules {
+		value := formatExprInline(rule.Expr, srcRunes)
+		if value == "" && rule.Expr != nil {
+			value = strings.TrimSpace(spanText(srcRunes, rule.Expr.GetSpan()))
+		}
+		if value == "" {
+			value = `""`
+		}
+		lines = append(lines, bodyIndent+strconv.Quote(rule.Pattern)+": "+value+",")
+	}
+	lines = append(lines, "}")
+	return lines
 }

@@ -107,6 +107,18 @@ Top-level assignments define scalar values, lists, tuples, tables, and functions
 
 `after` declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
 
+`fsub` copies a template file into each workpackage directory and applies regular-expression substitutions using the step's visible variables before `run.sh` starts:
+
+```jbs
+do run with cases
+        fsub "input.template" {
+                "###X###": x,
+        }
+{
+        ./solver input.template
+}
+```
+
 `nproc` limits concurrent workpackages:
 
 ```jbs

@@ -33,9 +33,9 @@ func formatStmt(stmt ast.Stmt, srcRunes []rune) []formattedLine {
 	case ast.UseStmt:
 		return plainLines(formatUseStmt(s))
 	case ast.DoBlock:
-		return formatDoBlock(s)
+		return formatDoBlock(s, srcRunes)
 	case ast.AnalyseBlock:
-		return plainLines(formatAnalyseBlock(s))
+		return plainLines(formatAnalyseBlock(s, srcRunes))
 	default:
 		return nil
 	}
@@ -140,16 +140,16 @@ func formatGlobalAssign(g ast.GlobalAssign, srcRunes []rune) []string {
 	return prefixFormattedLines("", g.Name+" "+op+" ", exprLines)
 }
 
-func formatDoBlock(d ast.DoBlock) []formattedLine {
-	lines := plainLines(renderBlockHeader("do", d.Name, d.After, d.WithItems, d.NProc, d.Header))
+func formatDoBlock(d ast.DoBlock, srcRunes []rune) []formattedLine {
+	lines := plainLines(renderBlockHeader("do", d.Name, d.After, d.WithItems, d.NProc, d.FSubs, d.Header, srcRunes))
 	lines = append(lines, plainLine("{"))
 	lines = append(lines, preserveRawBodyLines(d.Body)...)
 	lines = append(lines, plainLine("}"))
 	return lines
 }
 
-func formatAnalyseBlock(a ast.AnalyseBlock) []string {
-	lines := renderBlockHeader("analyse", a.StepName, nil, a.WithItems, nil, a.Header)
+func formatAnalyseBlock(a ast.AnalyseBlock, srcRunes []rune) []string {
+	lines := renderBlockHeader("analyse", a.StepName, nil, a.WithItems, nil, nil, a.Header, srcRunes)
 	lines = append(lines, "{")
 	body := normalizeBody(a.BodyRaw, bodyIndent)
 	lines = append(lines, body...)

@@ -25,3 +25,8 @@ func SourceBundleHash(sources map[string]string) string {
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

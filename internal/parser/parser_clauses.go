@@ -38,6 +38,7 @@ func (p *Parser) parseOptionalAfterAndWith() ([]string, []ast.WithItem) {
 
 type doHeaderOptions struct {
 	NProc *int
+	FSubs []ast.FileSubstitution
 	seen  map[string]diag.Span
 }
 
@@ -64,6 +65,13 @@ func (p *Parser) parseOptionalDoHeaderClauses() ([]string, []ast.WithItem, doHea
 			}
 			p.consumeWord()
 			opts.setNProc(p.parseNProcValue("do"), diag.NewSpan(p.file, p.pos(), p.pos()), p.diags)
+		case "fsub":
+			if !p.headerWordFollowedBySpace(word) {
+				return after, withItems, opts
+			}
+			start := p.pos()
+			p.consumeWord()
+			opts.FSubs = append(opts.FSubs, p.parseFileSubstitution(start))
 		default:
 			return after, withItems, opts
 		}

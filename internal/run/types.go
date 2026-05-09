@@ -60,9 +60,17 @@ type Manifest struct {
 	GlobalNProc         int            `json:"global_nproc"`
 	AnalyseDatabase     string         `json:"analyse_database,omitempty"`
 	AnalyseDatabasePath string         `json:"analyse_database_path,omitempty"`
+	TemplateHashes      []TemplateHash `json:"template_hashes,omitempty"`
 	CreatedAt           time.Time      `json:"created_at"`
 	Steps               []ManifestStep `json:"steps"`
 	Work                []ManifestWork `json:"work"`
+}
+
+type TemplateHash struct {
+	Step       string `json:"step"`
+	SourcePath string `json:"source_path"`
+	DestName   string `json:"dest_name"`
+	SHA256     string `json:"sha256"`
 }
 
 type ManifestStep struct {

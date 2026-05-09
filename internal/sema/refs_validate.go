@@ -169,6 +169,11 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			base = block.Span.Start
 		}
 		refs := shellRefsToVarRefs(shellref.Collect(block.Body, base, block.Span.File))
+		for _, fsub := range block.FSubs {
+			for _, rule := range fsub.Rules {
+				refs = append(refs, collectExprIdentRefs(rule.Expr)...)
+			}
+		}
 		effectiveImports := resolveEffectiveImports(block.Name, bindings)
 		candidatesByVar := stepWarningCandidates(res, catalog, block.Name, snap)
 		processStepWithImports(block.Name, effectiveImports, refs, candidatesByVar)

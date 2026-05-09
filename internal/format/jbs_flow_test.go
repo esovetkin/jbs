@@ -290,14 +290,16 @@ func TestHeaderClauseRenderingCoverage(t *testing.T) {
 		[]string{"s0", "s1"},
 		with,
 		intPtr(2),
+		nil,
+		nil,
 	)
 	if len(clauses) != 3 {
 		t.Fatalf("unexpected clause count: %d", len(clauses))
 	}
-	if got := clauses[1].Text; got != "with p[x,y], p0[x]" {
+	if got := clauses[1].Lines[0]; got != "with p[x,y], p0[x]" {
 		t.Fatalf("unexpected with clause: %q", got)
 	}
-	if got := clauses[2].Text; got != "nproc 2" {
+	if got := clauses[2].Lines[0]; got != "nproc 2" {
 		t.Fatalf("unexpected option clause: %q", got)
 	}
 
@@ -320,7 +322,7 @@ func TestActiveBlockFormatters(t *testing.T) {
 		NProc:     intPtr(2),
 		Body:      "echo one \\\ntwo",
 	}
-	doLines := formattedLineTexts(formatDoBlock(doBlock))
+	doLines := formattedLineTexts(formatDoBlock(doBlock, nil))
 	if len(doLines) == 0 || doLines[0] != "do run" {
 		t.Fatalf("unexpected do block header: %v", doLines)
 	}
@@ -336,12 +338,69 @@ func TestActiveBlockFormatters(t *testing.T) {
 		WithItems: []ast.WithItem{{Source: "p"}},
 		BodyRaw:   "n = \"N: %d\" in \"out.log\"\n(n)",
 	}
-	analyseLines := formatAnalyseBlock(analyseBlock)
+	analyseLines := formatAnalyseBlock(analyseBlock, nil)
 	if len(analyseLines) == 0 || analyseLines[0] != "analyse run" {
 		t.Fatalf("unexpected analyse block header: %v", analyseLines)
 	}
 	if !containsLine(analyseLines, "        with p") {
 		t.Fatalf("missing with clause in analyse block: %v", analyseLines)
+	}
+}
+
+func TestFormatDoBlockWithFSub(t *testing.T) {
+	block := ast.DoBlock{
+		Name:      "run",
+		WithItems: []ast.WithItem{{Source: "cases"}},
+		FSubs: []ast.FileSubstitution{{
+			Path: "input.tpl",
+			Rules: []ast.FileSubstitutionRule{
+				{Pattern: "###X###", Expr: ast.IdentExpr{Name: "x"}},
+				{Pattern: "###Y###", Expr: ast.TupleExpr{Items: []ast.Expr{ast.IdentExpr{Name: "y"}}}},
+			},
+		}},
+		Body: "cat input.tpl",
+	}
+	lines := formattedLineTexts(formatDoBlock(block, nil))
+	want := []string{
+		"do run",
+		"        with cases",
+		"        fsub \"input.tpl\" {",
+		"                \"###X###\": x,",
+		"                \"###Y###\": (y,),",
+		"        }",
+		"{",
+		"cat input.tpl",
+		"}",
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("formatted block:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestJBSFormatsParsedDoBlockWithFSubOnce(t *testing.T) {
+	src := `
+do run
+   with cases
+   fsub "input.tpl" {
+      "###X###": (x,),
+   }
+{
+cat input.tpl
+}
+`
+	var diags diag.Diagnostics
+	got, err := JBS("fsub.jbs", src, &diags)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if strings.Count(got, `fsub "input.tpl"`) != 1 {
+		t.Fatalf("formatted fsub duplicated:\n%s", got)
+	}
+	if strings.Count(got, `"###X###": (x,),`) != 1 {
+		t.Fatalf("formatted fsub rule duplicated:\n%s", got)
 	}
 }
 

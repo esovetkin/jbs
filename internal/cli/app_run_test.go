@@ -796,6 +796,170 @@ func TestContinueStartsDryRunDirectory(t *testing.T) {
 	}
 }
 
+func TestRunCommandFSubCreatesSubstitutedFilesAndWarnings(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.WriteFile(filepath.Join(cwd, "input.tpl"), []byte("x=###X###\nagain=###X###\ny=###Y###\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[7], y=["label"])`,
+		`do run`,
+		`        with cases`,
+		`        fsub "input.tpl" {`,
+		`                "###X###": x,`,
+		`                "###Y###": y,`,
+		`        }`,
+		`{`,
+		`cat input.tpl`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "run", "000000")
+	want := "x=7\nagain=7\ny=label\n"
+	if got := readFileString(t, filepath.Join(workDir, "input.tpl")); got != want {
+		t.Fatalf("substituted file = %q", got)
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != want {
+		t.Fatalf("stdout = %q", got)
+	}
+	if !strings.Contains(stderr.String(), `warning: fsub step run row 000000 file input.tpl pattern "###X###" matched 2 times`) {
+		t.Fatalf("missing fsub warning in stderr: %q", stderr.String())
+	}
+}
+
+func TestRunCommandFSubDryRunContinueAndTemplateHash(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.WriteFile(filepath.Join(cwd, "input.tpl"), []byte("value=TOKEN\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run`,
+		`        fsub "input.tpl" { "TOKEN": "prepared" }`,
+		`{`,
+		`cat input.tpl`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-n", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "run", "000000")
+	if got := readFileString(t, filepath.Join(workDir, "input.tpl")); got != "value=prepared\n" {
+		t.Fatalf("dry-run substituted file = %q", got)
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "" {
+		t.Fatalf("dry-run stdout = %q", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "value=prepared\n" {
+		t.Fatalf("continue stdout = %q", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(cwd, "input.tpl"), []byte("value=changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("continue should fail after template change\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "fsub template input.tpl hash does not match current file") {
+		t.Fatalf("missing template hash diagnostic: %q", stderr.String())
+	}
+
+	if err := os.Remove(filepath.Join(cwd, "input.tpl")); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("continue should fail after template removal\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "fsub template") || !strings.Contains(stderr.String(), "not found") {
+		t.Fatalf("missing removed-template diagnostic: %q", stderr.String())
+	}
+}
+
+func TestRunCommandFSubCreationFailureDoesNotCommitRun(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.WriteFile(filepath.Join(cwd, "input.tpl"), []byte("present\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run`,
+		`        fsub "input.tpl" { "missing": "x" }`,
+		`{`,
+		`cat input.tpl`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("run should fail\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "did not match") {
+		t.Fatalf("missing fsub failure diagnostic: %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "000000")); !os.IsNotExist(err) {
+		t.Fatalf("failed creation should not commit final run dir, stat error: %v", err)
+	}
+}
+
 func TestRunCommandDryRunNoStrictPersistsToRunScript(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

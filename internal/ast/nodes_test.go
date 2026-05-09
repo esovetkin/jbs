@@ -15,6 +15,8 @@ var (
 	_ Node         = Assignment{}
 	_ Node         = AnalyseAssign{}
 	_ Node         = AnalyseColumn{}
+	_ Node         = FileSubstitution{}
+	_ Node         = FileSubstitutionRule{}
 	_ Node         = CallArg{}
 	_ Node         = FuncParam{}
 	_ Node         = LocalAssignStmt{}
@@ -84,6 +86,8 @@ func TestPlainNodeGetSpan(t *testing.T) {
 		{name: "Assignment", node: Assignment{Span: testSpan(6)}, want: testSpan(6)},
 		{name: "AnalyseAssign", node: AnalyseAssign{Span: testSpan(7)}, want: testSpan(7)},
 		{name: "AnalyseColumn", node: AnalyseColumn{Span: testSpan(8)}, want: testSpan(8)},
+		{name: "FileSubstitution", node: FileSubstitution{Span: testSpan(9)}, want: testSpan(9)},
+		{name: "FileSubstitutionRule", node: FileSubstitutionRule{Span: testSpan(10)}, want: testSpan(10)},
 		{name: "CallArg", node: CallArg{Span: testSpan(10)}, want: testSpan(10)},
 		{name: "FuncParam", node: FuncParam{Span: testSpan(11)}, want: testSpan(11)},
 		{name: "LocalAssignStmt", node: LocalAssignStmt{Span: testSpan(12)}, want: testSpan(12)},

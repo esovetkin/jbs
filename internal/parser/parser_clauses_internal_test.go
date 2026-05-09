@@ -39,7 +39,7 @@ func TestReadHeaderIntegerValue(t *testing.T) {
 func TestParseOptionalDoHeaderClauses(t *testing.T) {
 	t.Run("do header parses clauses and nproc then stops at unknown", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("after prep with p[x] nproc 3 unknown", diags)
+		p := newTopLevelParser("after prep with p[x] fsub \"a.tpl\" { \"A\": x } nproc 3 unknown", diags)
 		after, withItems, opts := p.parseOptionalDoHeaderClauses()
 		if len(after) != 1 || after[0] != "prep" {
 			t.Fatalf("unexpected after: %#v", after)
@@ -50,6 +50,9 @@ func TestParseOptionalDoHeaderClauses(t *testing.T) {
 		if opts.NProc == nil || *opts.NProc != 3 {
 			t.Fatalf("unexpected parsed nproc: %#v", opts)
 		}
+		if len(opts.FSubs) != 1 || opts.FSubs[0].Path != "a.tpl" || len(opts.FSubs[0].Rules) != 1 {
+			t.Fatalf("unexpected fsub clauses: %#v", opts.FSubs)
+		}
 		word, ok := p.peekWord()
 		if !ok || word != "unknown" {
 			t.Fatalf("expected parser to stop before unknown token, got word=%q ok=%v", word, ok)
@@ -59,6 +62,30 @@ func TestParseOptionalDoHeaderClauses(t *testing.T) {
 		}
 	})
 
+}
+
+func TestParseFileSubstitutionErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{name: "missing path", src: `fsub { "X": x }`},
+		{name: "non string path", src: `fsub 1 { "X": x }`},
+		{name: "non dict body", src: `fsub "x" [1]`},
+		{name: "non string pattern", src: `fsub "x" { 1: x }`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			p := newTopLevelParser(tc.src, diags)
+			start := p.pos()
+			p.consumeWord()
+			_ = p.parseFileSubstitution(start)
+			if !hasDiag(diags, "E035") {
+				t.Fatalf("expected E035 for %s, got: %s", tc.name, diags.String())
+			}
+		})
+	}
 }
 
 func TestParseOptionalAfterAndWith(t *testing.T) {

@@ -140,6 +140,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	validateSteps(res, diags)
 	validateUseClauses(res, diags)
 	buildStepScopePlans(res, diags)
+	validateFileSubstitutions(res, diags)
 	validateStepVarReferences(res, diags)
 	for _, block := range scope.AnalyseBlocks {
 		spec := compileAnalyseBlock(block, res, diags)
