@@ -33,7 +33,7 @@ Top-level expression statements are evaluated. In files they are mainly useful f
 
 ## Compile-Time And Runtime
 
-Global assignments, imports, top-level expressions, functions called from those expressions, `read_csv(...)`, `print(...)`, and `shell(...)` are evaluated before benchmark work starts. `shell(...)` runs in the source file's directory, captures stdout as a string, and can export currently assigned scalar JBS variables referenced as shell variables.
+Global assignments, imports, top-level expressions, functions called from those expressions, `read_csv(...)`, `print(...)`, `shell(...)`, and `env(...)` are evaluated before benchmark work starts. `shell(...)` runs in the source file's directory, captures stdout as a string, and can export currently assigned scalar JBS variables referenced as shell variables. `env(...)` reads the environment of the running `jbs` process.
 
 `do` block bodies run later as generated `run.sh` scripts inside workpackage directories. Their stdout and stderr are stored in each workpackage's output files.
 

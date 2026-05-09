@@ -167,6 +167,18 @@ Scalar JBS variables referenced as `$name` or `${name}` are exported to the shel
 
 If the shell command cannot start or exits non-zero, evaluation fails. Non-zero exit diagnostics include the exit code and stderr.
 
+## `env(...)`
+
+Reads the environment of the running `jbs` process:
+
+```jbs
+home = env("HOME")
+threads = int(env("THREADS", "4"))
+all_env = env()
+```
+
+`env()` returns a dictionary with string keys and string values. Missing variables return `""` unless a fallback is provided.
+
 ## `tuple()`, `list()`
 
 treat a list as a tuple, and vice versa

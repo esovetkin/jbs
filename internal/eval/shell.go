@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -161,7 +160,7 @@ func buildShellEnv(command string, span diag.Span, env map[string]Value, diags *
 		overrides[name] = value.String()
 	}
 
-	return mergeEnv(os.Environ(), overrides)
+	return mergeEnv(currentEnviron(opts), overrides)
 }
 
 func mergeEnv(base []string, overrides map[string]string) []string {

@@ -427,6 +427,41 @@ func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 	}
 }
 
+func TestRunCommandSupportsEnvFunction(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+	t.Setenv("JBS_ENV_RUN_TEST", "from-run")
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`value = env("JBS_ENV_RUN_TEST", "missing")`,
+		`print(value)`,
+		`do run {`,
+		`true`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.HasPrefix(stdout.String(), "from-run\n") {
+		t.Fatalf("expected env print output before progress, got %q", stdout.String())
+	}
+}
+
 func TestDefaultRunPrintsJBSPrintOutput(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

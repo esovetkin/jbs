@@ -11,6 +11,7 @@ import (
 type globalExecOptions struct {
 	CollectPrints bool
 	ShellRunner   eval.ShellRunner
+	Environ       func() []string
 }
 
 func execGlobalPlan(plan *globalPlan, generalSeed map[string]eval.Value, scalarSeed map[string]eval.Value, diags *diag.Diagnostics) *globalExecResult {
@@ -48,6 +49,7 @@ type globalSeqEngine struct {
 	snapshotNames       map[string]struct{}
 	collectPrints       bool
 	shellRunner         eval.ShellRunner
+	environ             func() []string
 	shellUses           []string
 	outputSeq           int
 	res                 *globalExecResult
@@ -94,6 +96,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		snapshotNames:       make(map[string]struct{}),
 		collectPrints:       opts.CollectPrints,
 		shellRunner:         opts.ShellRunner,
+		environ:             opts.Environ,
 		res:                 res,
 	}
 }
@@ -140,6 +143,7 @@ func (e *globalSeqEngine) evalOptions(step globalInputStep) eval.ExprOptions {
 		Frame:                           e.rootFrame,
 		ShellRunner:                     e.shellRunner,
 		ShellUse:                        e.recordShellUse,
+		Environ:                         e.environ,
 	}
 	if e.collectPrints {
 		opts.Print = e.recordPrintEvent

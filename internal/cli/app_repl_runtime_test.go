@@ -171,6 +171,35 @@ func TestCommitReplChunkShellExpressionOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkEnvExpressionOutput(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("JBS_ENV_REPL_TEST", "from-repl")
+	commit, err := commitReplChunk(cwd, "", `env("JBS_ENV_REPL_TEST")`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected env expression to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "from-repl" {
+		t.Fatalf("unexpected env expression output: %#v", commit.ExprOutput)
+	}
+
+	if err := os.Unsetenv("JBS_ENV_REPL_MISSING"); err != nil {
+		t.Fatal(err)
+	}
+	commit, err = commitReplChunk(cwd, commit.Source, `env("JBS_ENV_REPL_MISSING", "fallback")`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected env fallback expression to succeed, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "fallback" {
+		t.Fatalf("unexpected env fallback output: %#v", commit.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkMergesPrintAndExpressionOutput(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", strings.Join([]string{

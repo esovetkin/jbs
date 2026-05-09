@@ -38,6 +38,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "any", File: "function_help/any.md"},
 	{Name: "bool", File: "function_help/bool.md"},
 	{Name: "dict", File: "function_help/dict.md"},
+	{Name: "env", File: "function_help/env.md"},
 	{Name: "filter", File: "function_help/filter.md"},
 	{Name: "float", File: "function_help/float.md"},
 	{Name: "get", File: "function_help/get.md"},

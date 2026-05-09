@@ -39,6 +39,7 @@ type ExprOptions struct {
 	NextPrintSeq                    func() int
 	ShellRunner                     ShellRunner
 	ShellUse                        func(ShellUseEvent)
+	Environ                         func() []string
 }
 
 const MaxLoopIterations = 1000000
