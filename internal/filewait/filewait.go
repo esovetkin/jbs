@@ -78,13 +78,10 @@ func WaitAnyWithOptions(ctx context.Context, targets []string, opts Options) (Re
 			if !ok {
 				return Result{}, nil
 			}
-			if !relevantEventAny(states, event) {
-				continue
-			}
 			if err := state.refreshAllWatches(states); err != nil {
 				return Result{}, err
 			}
-			result, ok, err := firstCompleted(states)
+			result, ok, err := firstCompletedAfterEvent(states, event)
 			if err != nil {
 				return Result{}, err
 			}
@@ -151,12 +148,30 @@ func firstCompleted(targets []targetState) (Result, bool, error) {
 	return Result{}, false, nil
 }
 
+func firstCompletedAfterEvent(targets []targetState, event fsnotify.Event) (Result, bool, error) {
+	for i, target := range targets {
+		current, err := statSnapshot(target.abs)
+		if err != nil {
+			return Result{}, false, fmt.Errorf("stat fwait target %s: %w", target.abs, err)
+		}
+		ok, completeErr := complete(target.initial, current)
+		if completeErr != nil {
+			return Result{}, false, fmt.Errorf("%w: %s", completeErr, target.input)
+		}
+		if ok || (target.initial.exists && eventNamesTarget(target.abs, event)) {
+			return Result{Path: target.input, Index: i}, true, nil
+		}
+	}
+	return Result{}, false, nil
+}
+
 type snapshot struct {
 	exists  bool
 	isDir   bool
 	size    int64
 	mode    os.FileMode
 	modTime time.Time
+	info    os.FileInfo
 }
 
 func statSnapshot(path string) (snapshot, error) {
@@ -168,6 +183,7 @@ func statSnapshot(path string) (snapshot, error) {
 			size:    info.Size(),
 			mode:    info.Mode(),
 			modTime: info.ModTime(),
+			info:    info,
 		}, nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
@@ -189,9 +205,17 @@ func complete(initial, current snapshot) (bool, error) {
 func sameSnapshot(a, b snapshot) bool {
 	return a.exists == b.exists &&
 		a.isDir == b.isDir &&
+		sameFile(a, b) &&
 		a.size == b.size &&
 		a.mode == b.mode &&
 		a.modTime.Equal(b.modTime)
+}
+
+func sameFile(a, b snapshot) bool {
+	if !a.exists || !b.exists {
+		return true
+	}
+	return os.SameFile(a.info, b.info)
 }
 
 type waitState struct {
@@ -292,26 +316,8 @@ func nextPathComponent(dir, target string) (string, error) {
 	return filepath.Join(dir, name), nil
 }
 
-func relevantEvent(target string, event fsnotify.Event) bool {
-	eventPath := filepath.Clean(event.Name)
-	if eventPath == target {
-		return true
-	}
-	parent := filepath.Dir(target)
-	if eventPath == parent {
-		return true
-	}
-	rel, err := filepath.Rel(eventPath, target)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
-func relevantEventAny(targets []targetState, event fsnotify.Event) bool {
-	for _, target := range targets {
-		if relevantEvent(target.abs, event) {
-			return true
-		}
-	}
-	return false
+func eventNamesTarget(target string, event fsnotify.Event) bool {
+	return filepath.Clean(event.Name) == target
 }
 
 func signalReady(ch chan<- struct{}) {

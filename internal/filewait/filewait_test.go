@@ -131,6 +131,33 @@ func TestWaitExistingTargetIsReplaced(t *testing.T) {
 	waitDone(t, done)
 }
 
+func TestSnapshotDistinguishesSameMetadataFiles(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	fixedTime := time.Unix(123, 0)
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("same\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, fixedTime, fixedTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	firstSnapshot, err := statSnapshot(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondSnapshot, err := statSnapshot(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameSnapshot(firstSnapshot, secondSnapshot) {
+		t.Fatal("expected snapshots for distinct files to differ")
+	}
+}
+
 func TestWaitAnyReturnsFirstCompletedInArgumentOrder(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first.flag")
