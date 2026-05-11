@@ -462,6 +462,47 @@ func TestRunCommandSupportsEnvFunction(t *testing.T) {
 	}
 }
 
+func TestRunCommandSupportsDeleteBuiltin(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`delete_me_token = 1`,
+		`delete(delete_me_token)`,
+		`keep_token = 2`,
+		`do s with keep_token {`,
+		`echo "keep=$keep_token"`,
+		`if [ "${delete_me_token+set}" = set ]; then echo "delete_me_token=$delete_me_token"; fi`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "s", "000000")
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "keep=2\n" {
+		t.Fatalf("unexpected work output: %q", got)
+	}
+	script := readFileString(t, filepath.Join(workDir, "run.sh"))
+	if strings.Contains(script, "export delete_me_token=") {
+		t.Fatalf("deleted variable leaked into run.sh:\n%s", script)
+	}
+}
+
 func TestDefaultRunPrintsJBSPrintOutput(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

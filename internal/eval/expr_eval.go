@@ -40,7 +40,10 @@ type ExprOptions struct {
 	ShellRunner                     ShellRunner
 	ShellUse                        func(ShellUseEvent)
 	Environ                         func() []string
+	DeleteName                      DeleteNameFunc
 }
+
+type DeleteNameFunc func(name string, at diag.Span, diags *diag.Diagnostics) bool
 
 const MaxLoopIterations = 1000000
 const MaxFunctionCallDepth = 10000

@@ -370,6 +370,58 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkDeleteIsQuietAndRemovesName(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "a = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "delete(a)")
+	if err != nil {
+		t.Fatalf("unexpected delete commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected delete(a) to succeed, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 0 {
+		t.Fatalf("delete(a) should not echo output, got %#v", second.ExprOutput)
+	}
+	third, err := commitReplChunk(cwd, second.Source, "names()")
+	if err != nil {
+		t.Fatalf("unexpected names commit error: %v", err)
+	}
+	if third.HasErrors {
+		t.Fatalf("expected names() to succeed after delete, diag=%q", third.DiagText)
+	}
+	if len(third.ExprOutput) != 1 {
+		t.Fatalf("expected one names() output, got %#v", third.ExprOutput)
+	}
+	if strings.Contains(third.ExprOutput[0], "\"a\"") {
+		t.Fatalf("deleted name is still visible: %#v", third.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkDeleteProtectedGlobalKeepsSource(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "a = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "delete(jbs_name)")
+	if err != nil {
+		t.Fatalf("unexpected delete commit error: %v", err)
+	}
+	if !second.HasErrors {
+		t.Fatalf("expected delete(jbs_name) to fail")
+	}
+	if second.Source != first.Source {
+		t.Fatalf("failed delete should not update accepted source: %q", second.Source)
+	}
+	if !strings.Contains(second.DiagText, "cannot delete global variable 'jbs_name'") {
+		t.Fatalf("missing protected global diagnostic: %q", second.DiagText)
+	}
+}
+
 func TestCommitReplChunkFunctionDefinitionAndCall(t *testing.T) {
 	cwd := t.TempDir()
 	first, err := commitReplChunk(cwd, "", strings.Join([]string{

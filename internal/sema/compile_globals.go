@@ -65,6 +65,9 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		}
 	case ast.CallExpr:
 		collectGlobalExprDepsBound(e.Callee, out, bound)
+		if isDeleteCallExpr(e) {
+			return
+		}
 		for _, arg := range e.Args {
 			collectGlobalExprDepsBound(arg.Expr, out, bound)
 		}

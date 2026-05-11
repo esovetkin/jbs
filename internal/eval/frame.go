@@ -67,6 +67,17 @@ func (f *Frame) HasLocal(name string) bool {
 	return ok
 }
 
+func (f *Frame) DeleteLocal(name string) bool {
+	if f == nil || f.Values == nil || name == "" {
+		return false
+	}
+	if _, ok := f.Values[name]; !ok {
+		return false
+	}
+	delete(f.Values, name)
+	return true
+}
+
 func (f *Frame) DeclareLocal(name string) {
 	if f == nil || name == "" {
 		return

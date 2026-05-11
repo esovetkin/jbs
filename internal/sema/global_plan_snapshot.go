@@ -254,6 +254,48 @@ func (e *globalSeqEngine) publishBinding(binding *GlobalBinding) {
 	}
 }
 
+func (e *globalSeqEngine) deleteGlobalName(name string, at diag.Span, diags *diag.Diagnostics) bool {
+	if e == nil || name == "" {
+		return false
+	}
+	if isBuiltinGlobalName(name) {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete global variable '%s'", name), at, "built-in JBS globals are protected")
+		return false
+	}
+	if _, ok := e.values[name]; !ok {
+		if eval.IsBuiltinCallName(name) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete built-in function '%s'", name), at, "built-in functions are always available")
+			return false
+		}
+		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "delete only variables that exist in the current scope")
+		return false
+	}
+
+	delete(e.values, name)
+	delete(e.spans, name)
+	e.rootFrame.DeleteLocal(name)
+	delete(e.globalVars, name)
+	e.globalOrder = removeString(e.globalOrder, name)
+	delete(e.globalOrderSeen, name)
+	delete(e.currentBindings, name)
+	e.currentBindingOrder = removeString(e.currentBindingOrder, name)
+	delete(e.currentBindingSeen, name)
+	return true
+}
+
+func removeString(values []string, target string) []string {
+	if len(values) == 0 || target == "" {
+		return values
+	}
+	out := values[:0]
+	for _, value := range values {
+		if value != target {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 func (e *globalSeqEngine) currentNameCatalog() *eval.NameCatalog {
 	if e == nil {
 		return nil

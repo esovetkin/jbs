@@ -12,6 +12,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"all":      {},
 	"any":      {},
 	"bool":     {},
+	"delete":   {},
 	"dict":     {},
 	"env":      {},
 	"filter":   {},
@@ -57,6 +58,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalSelectCall(rawArgs, env, at, diags, opts, ctx)
 	case "dict":
 		return evalDictCall(rawArgs, env, at, diags, opts, ctx)
+	case "delete":
+		return evalDeleteCall(rawArgs, at, diags, opts, ctx)
 	case "env":
 		return evalEnvCall(rawArgs, env, at, diags, opts, ctx)
 	case "get":

@@ -51,6 +51,9 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 		}
 	case ast.CallExpr:
 		collectExprLocalIdentDeps(e.Callee, out)
+		if isDeleteCallExpr(e) {
+			return
+		}
 		for _, arg := range e.Args {
 			collectExprLocalIdentDeps(arg.Expr, out)
 		}

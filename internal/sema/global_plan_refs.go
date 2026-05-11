@@ -71,6 +71,9 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			}
 		case ast.CallExpr:
 			walk(n.Callee)
+			if isDeleteCallExpr(n) {
+				return
+			}
 			for _, arg := range n.Args {
 				walk(arg.Expr)
 			}
