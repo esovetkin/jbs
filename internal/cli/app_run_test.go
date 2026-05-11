@@ -712,6 +712,285 @@ func TestRunCommandUsesStrictShellByDefault(t *testing.T) {
 	}
 }
 
+func TestRunCommandMarksDependentsBlockedAndPrintsStatusSummary(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do prep {`,
+		`false`,
+		`}`,
+		`do run after prep {`,
+		`echo should-not-run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected run failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	root := readRootStatus(t, filepath.Join(runDir, "status"))
+	if root.Status != jbsrun.StatusError {
+		t.Fatalf("root status = %#v, want ERROR", root)
+	}
+	if status := readWorkStatus(t, filepath.Join(runDir, "prep", "000000", "status")); status.Status != jbsrun.StatusError {
+		t.Fatalf("prep status = %#v, want ERROR", status)
+	}
+	if status := readWorkStatus(t, filepath.Join(runDir, "run", "000000", "status")); status.Status != jbsrun.StatusBlocked {
+		t.Fatalf("run status = %#v, want BLOCKED", status)
+	}
+	out := stdout.String()
+	for _, want := range []string{"BLOCKED", "└── prep", "└── run", "total:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status summary missing %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000000", "exitcode")); !os.IsNotExist(err) {
+		t.Fatalf("blocked work should not have exitcode, stat error: %v", err)
+	}
+}
+
+func TestContinueRetriesBlockedWorkAfterDependencySucceeds(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do prep {`,
+		`false`,
+		`}`,
+		`do run after prep {`,
+		`echo child`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected initial run failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+
+	runDir := filepath.Join(cwd, "bench", "000000")
+	prepScript := filepath.Join(runDir, "prep", "000000", "run.sh")
+	if err := os.WriteFile(prepScript, []byte("#!/usr/bin/env bash\ntrue\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if status := readRootStatus(t, filepath.Join(runDir, "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("root status = %#v, want FINISHED", status)
+	}
+	if status := readWorkStatus(t, filepath.Join(runDir, "prep", "000000", "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("prep status = %#v, want FINISHED", status)
+	}
+	if status := readWorkStatus(t, filepath.Join(runDir, "run", "000000", "status")); status.Status != jbsrun.StatusFinished {
+		t.Fatalf("run status = %#v, want FINISHED", status)
+	}
+	if got := readFileString(t, filepath.Join(runDir, "run", "000000", "stdout")); got != "child\n" {
+		t.Fatalf("child stdout = %q, want child", got)
+	}
+}
+
+func TestStatsCommandPrintsLatestRunStatus(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`echo should-not-run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "NOTSTARTED") || !strings.Contains(out, "└── s") || !strings.Contains(out, "|          1 |") {
+		t.Fatalf("stats output missing not-started summary:\n%s", out)
+	}
+	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "stdout")); got != "" {
+		t.Fatalf("stats should not run workpackage, stdout=%q", got)
+	}
+}
+
+func TestStatsCommandSupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"stats", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "[large]") || strings.Contains(out, "run_large") {
+		t.Fatalf("selected stats output included large component:\n%s", out)
+	}
+	if !strings.Contains(out, "run_small") {
+		t.Fatalf("selected stats output missing small component:\n%s", out)
+	}
+}
+
+func TestStatsCommandAllowsRunningStatus(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`true`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	root := readRootStatus(t, filepath.Join(runDir, "status"))
+	root.Status = jbsrun.StatusRunning
+	writeRootStatus(t, filepath.Join(runDir, "status"), root)
+	writeWorkStatus(t, filepath.Join(runDir, "s", "000000", "status"), jbsrun.WorkStatus{
+		Schema: 1,
+		Status: jbsrun.StatusRunning,
+		Step:   "s",
+		Row:    0,
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "RUNNING") || !strings.Contains(stdout.String(), "|       1 |") {
+		t.Fatalf("stats output missing running count:\n%s", stdout.String())
+	}
+}
+
+func TestStatsCommandPrintsFailedWorkDirectories(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`false`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	failedDir := filepath.Join(cwd, "bench", "000000", "s", "000000")
+	writeWorkStatus(t, filepath.Join(failedDir, "status"), jbsrun.WorkStatus{
+		Schema: 1,
+		Status: jbsrun.StatusError,
+		Step:   "s",
+		Row:    0,
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "failed workpackage directories:") {
+		t.Fatalf("stats output missing failed directory header:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join("bench", "000000", "s", "000000")) {
+		t.Fatalf("stats output missing failed directory path:\n%s", out)
+	}
+}
+
 func TestDefaultRunNoStrictOmitsStrictShell(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1133,8 +1412,9 @@ func TestRunCommandDryRunDoesNotRunAnalyse(t *testing.T) {
 	if got := readFileString(t, analysePath); got != "run_id,number\n000000,5\n" {
 		t.Fatalf("continue did not populate analyse output: %q", got)
 	}
-	if !strings.Contains(stdout.String(), "\nrun/analyse.csv\nrun_id,number\n000000,5\n") {
-		t.Fatalf("continue did not print analyse output: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "bench/000000/run/analyse.csv") ||
+		!strings.Contains(stdout.String(), "|     1 |     2 |") {
+		t.Fatalf("continue did not print analyse summary: %q", stdout.String())
 	}
 }
 
@@ -1420,11 +1700,13 @@ func TestRunCommandPrintsAnalyseAfterProgress(t *testing.T) {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if strings.Contains(out, "\rrun/analyse.csv") {
-		t.Fatalf("analyse table starts on a carriage-return line: %q", out)
+	if strings.Contains(out, "\r| analysis") {
+		t.Fatalf("analyse summary starts on a carriage-return line: %q", out)
 	}
-	if !strings.Contains(out, "\nrun/analyse.csv\nrun_id,x\n000000,1\n") {
-		t.Fatalf("analyse table missing or not separated from progress: %q", out)
+	if !strings.Contains(out, "\n| analysis") ||
+		!strings.Contains(out, "bench/000000/run/analyse.csv") ||
+		!strings.Contains(out, "|     1 |     2 |") {
+		t.Fatalf("analyse summary missing or not separated from progress: %q", out)
 	}
 }
 
@@ -1463,9 +1745,13 @@ func TestRunCommandPopulatesAnalyseWithPatterns(t *testing.T) {
 	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
-	want := "\nrun/analyse.csv\nrun_id,x,number,Pair.0,Pair.1\n000000,1,1,AA,17\n000000,1,2,,\n"
-	if !strings.Contains(stdout.String(), want) {
-		t.Fatalf("analyse output missing\nwant fragment:\n%s\nstdout:\n%s", want, stdout.String())
+	wantCSV := "run_id,x,number,Pair.0,Pair.1\n000000,1,1,AA,17\n000000,1,2,,\n"
+	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")); got != wantCSV {
+		t.Fatalf("analyse csv = %q, want %q", got, wantCSV)
+	}
+	if !strings.Contains(stdout.String(), "bench/000000/run/analyse.csv") ||
+		!strings.Contains(stdout.String(), "|     2 |     5 |") {
+		t.Fatalf("analyse summary missing\nstdout:\n%s", stdout.String())
 	}
 }
 
@@ -1618,9 +1904,9 @@ func TestRunCommandWritesAnalyseSQLiteDatabase(t *testing.T) {
 	header, rows := readSQLiteTable(t, dbPath, "bench_000000_run")
 	assertStringSlices(t, header, []string{"run_id", "x", "number"})
 	assertStringRows(t, rows, [][]string{{"000000", "1", "7"}})
-	want := "\nresults.sqlite:bench_000000_run\nrun_id,x,number\n000000,1,7\n"
-	if !strings.Contains(stdout.String(), want) {
-		t.Fatalf("sqlite analyse output missing\nwant fragment:\n%s\nstdout:\n%s", want, stdout.String())
+	if !strings.Contains(stdout.String(), "results.sqlite:bench_000000_run") ||
+		!strings.Contains(stdout.String(), "|     1 |     3 |") {
+		t.Fatalf("sqlite analyse summary missing\nstdout:\n%s", stdout.String())
 	}
 }
 

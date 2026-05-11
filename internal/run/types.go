@@ -26,6 +26,7 @@ const (
 	StatusRunning     Status = "RUNNING"
 	StatusFinished    Status = "FINISHED"
 	StatusError       Status = "ERROR"
+	StatusBlocked     Status = "BLOCKED"
 	StatusInterrupted Status = "INTERRUPTED"
 )
 

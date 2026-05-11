@@ -9,7 +9,7 @@ jbs continue -b small input.jbs
 
 Continue only works when the benchmark status is not `RUNNING` and the current source identity matches the run being resumed.
 
-`jbs continue` also starts a run that was prepared with `jbs run --dry-run`, `jbs run -n`, or the `jbs -n input.jbs` shorthand.
+`jbs continue` also starts a run that was prepared with `jbs run --dry-run`, `jbs run -n`, or the `jbs -n input.jbs` shorthand. It can retry workpackages previously marked `ERROR`, `INTERRUPTED`, or `BLOCKED`; blocked work starts once its dependencies finish successfully.
 
 When `jbs_benchmarks` is configured, `jbs continue input.jbs` resumes every configured component. Use `-b` or `--benchmark` to resume only one component. A selected component must exist in `jbs_benchmarks`.
 

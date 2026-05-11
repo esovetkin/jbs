@@ -122,7 +122,7 @@ func TestSchedulerBlockedStatusWriteFailureIsReturned(t *testing.T) {
 	child := ManifestWork{Step: "s", Row: 1, Dir: "000001", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
 	store := newFakeSchedulerStore(schedulerTestManifest(parent, child))
 	store.write = func(work ManifestWork, status WorkStatus) error {
-		if work.Row == child.Row && status.Status == StatusError {
+		if work.Row == child.Row && status.Status == StatusBlocked {
 			return errors.New("permission denied")
 		}
 		return nil
@@ -274,10 +274,13 @@ func TestSchedulerMarksDependentTreeBlockedOnProcessError(t *testing.T) {
 	if launched.Load() != 1 {
 		t.Fatalf("process launches = %d, want only parent", launched.Load())
 	}
-	for _, work := range []ManifestWork{parent, child, grandchild} {
+	if got := store.statuses[workKey(parent.Step, parent.Row)].Status; got != StatusError {
+		t.Fatalf("parent status = %s, want %s", got, StatusError)
+	}
+	for _, work := range []ManifestWork{child, grandchild} {
 		key := workKey(work.Step, work.Row)
-		if got := store.statuses[key].Status; got != StatusError {
-			t.Fatalf("%s status = %s, want %s", key, got, StatusError)
+		if got := store.statuses[key].Status; got != StatusBlocked {
+			t.Fatalf("%s status = %s, want %s", key, got, StatusBlocked)
 		}
 	}
 	wantMessage := "dependency s/000000 failed"
@@ -291,7 +294,8 @@ func TestSchedulerMarkBlockedSkipsTerminalChildren(t *testing.T) {
 	finished := ManifestWork{Step: "s", Row: 1, Dir: "000001", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
 	running := ManifestWork{Step: "s", Row: 2, Dir: "000002", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
 	failed := ManifestWork{Step: "s", Row: 3, Dir: "000003", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
-	store := newFakeSchedulerStore(schedulerTestManifest(parent, finished, running, failed))
+	blocked := ManifestWork{Step: "s", Row: 4, Dir: "000004", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
+	store := newFakeSchedulerStore(schedulerTestManifest(parent, finished, running, failed, blocked))
 
 	var writes atomic.Int32
 	store.write = func(ManifestWork, WorkStatus) error {
@@ -305,10 +309,12 @@ func TestSchedulerMarkBlockedSkipsTerminalChildren(t *testing.T) {
 		workKey(finished.Step, finished.Row),
 		workKey(running.Step, running.Row),
 		workKey(failed.Step, failed.Row),
+		workKey(blocked.Step, blocked.Row),
 	}
 	s.statuses[workKey(finished.Step, finished.Row)] = StatusFinished
 	s.statuses[workKey(running.Step, running.Row)] = StatusRunning
 	s.statuses[workKey(failed.Step, failed.Row)] = StatusError
+	s.statuses[workKey(blocked.Step, blocked.Row)] = StatusBlocked
 
 	if err := s.markBlocked(parentKey, "blocked"); err != nil {
 		t.Fatalf("markBlocked error = %v, want nil", err)
@@ -324,7 +330,7 @@ func TestSchedulerRecursiveBlockedStatusWriteFailureIsReturned(t *testing.T) {
 	grandchild := ManifestWork{Step: "s", Row: 2, Dir: "000002", Deps: []ManifestWorkRef{{Step: "s", Row: 1}}}
 	store := newFakeSchedulerStore(schedulerTestManifest(parent, child, grandchild))
 	store.write = func(work ManifestWork, status WorkStatus) error {
-		if work.Row == grandchild.Row && status.Status == StatusError {
+		if work.Row == grandchild.Row && status.Status == StatusBlocked {
 			return errors.New("cannot persist grandchild")
 		}
 		return nil
@@ -341,6 +347,34 @@ func TestSchedulerRecursiveBlockedStatusWriteFailureIsReturned(t *testing.T) {
 	}
 	if result.Err == nil || !strings.Contains(result.Err.Error(), "cannot persist grandchild") {
 		t.Fatalf("error = %v, want recursive blocked status persistence error", result.Err)
+	}
+}
+
+func TestSchedulerRetriesBlockedAfterDependencySucceeds(t *testing.T) {
+	parent := ManifestWork{Step: "s", Row: 0, Dir: "000000"}
+	child := ManifestWork{Step: "s", Row: 1, Dir: "000001", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
+	store := newFakeSchedulerStore(schedulerTestManifest(parent, child))
+	store.statuses[workKey(parent.Step, parent.Row)] = WorkStatus{Schema: 1, Status: StatusError, Step: parent.Step, Row: parent.Row}
+	store.statuses[workKey(child.Step, child.Row)] = WorkStatus{Schema: 1, Status: StatusBlocked, Step: child.Step, Row: child.Row}
+
+	var launched []string
+	withRunWorkProcess(t, func(_ context.Context, dir string) processResult {
+		launched = append(launched, dir)
+		code := 0
+		return processResult{Status: StatusFinished, ExitCode: &code}
+	})
+
+	result := NewScheduler(store, nil).Run(context.Background())
+	if result.Status != StatusFinished {
+		t.Fatalf("status = %s, want %s: %v", result.Status, StatusFinished, result.Err)
+	}
+	if strings.Join(launched, ",") != "s/000000,s/000001" {
+		t.Fatalf("launches = %v, want parent then child", launched)
+	}
+	for _, work := range []ManifestWork{parent, child} {
+		if got := store.statuses[workKey(work.Step, work.Row)].Status; got != StatusFinished {
+			t.Fatalf("%s status = %s, want %s", workKey(work.Step, work.Row), got, StatusFinished)
+		}
 	}
 }
 

@@ -282,13 +282,16 @@ func (s *Scheduler) releaseChildren(parentKey string) []ManifestWork {
 func (s *Scheduler) markBlocked(parentKey string, message string) error {
 	var out error
 	for _, childKey := range s.children[parentKey] {
-		if s.statuses[childKey] == StatusFinished || s.statuses[childKey] == StatusRunning || s.statuses[childKey] == StatusError {
+		if s.statuses[childKey] == StatusFinished ||
+			s.statuses[childKey] == StatusRunning ||
+			s.statuses[childKey] == StatusError ||
+			s.statuses[childKey] == StatusBlocked {
 			continue
 		}
 		work := s.workByKey[childKey]
-		s.statuses[childKey] = StatusError
+		s.statuses[childKey] = StatusBlocked
 		now := time.Now().UTC()
-		status := WorkStatus{Schema: 1, Status: StatusError, Step: work.Step, Row: work.Row, FinishedAt: &now, Error: message}
+		status := WorkStatus{Schema: 1, Status: StatusBlocked, Step: work.Step, Row: work.Row, FinishedAt: &now, Error: message}
 		if err := s.store.WriteWorkStatus(work, status); err != nil {
 			out = errors.Join(out, fmt.Errorf("persist blocked status for %s: %w", childKey, err))
 			continue
@@ -338,7 +341,7 @@ func (s *Scheduler) finalStatus() Status {
 	hasInterrupted := false
 	for _, status := range s.statuses {
 		switch status {
-		case StatusError:
+		case StatusError, StatusBlocked:
 			hasError = true
 		case StatusInterrupted:
 			hasInterrupted = true
@@ -368,6 +371,8 @@ func (s *Scheduler) snapshot() ProgressSnapshot {
 			snap.Finished++
 		case StatusError:
 			snap.Error++
+		case StatusBlocked:
+			snap.Blocked++
 		case StatusInterrupted:
 			snap.Interrupted++
 		}

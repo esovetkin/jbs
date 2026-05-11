@@ -36,9 +36,9 @@ Rules:
   - `%w` captures a word.
   - `%%` matches a literal percent character.
 
-`jbs run` creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints generated tables after the progress output. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`, and only the analyse blocks requested by that component are generated.
+`jbs run` creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints a summary of generated analyse outputs after the progress output. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`, and only the analyse blocks requested by that component are generated.
 
-If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints only the tables generated for the current run, even when the database also contains older runs.
+If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints the current run's analyse path or table name with row and column counts, not full table contents.
 
 ## Example
 

@@ -11,10 +11,11 @@ func TestProgressSnapshotDone(t *testing.T) {
 		Total:       10,
 		Finished:    4,
 		Error:       2,
+		Blocked:     1,
 		Interrupted: 1,
-		Running:     3,
+		Running:     2,
 	}
-	if got, want := s.Done(), 7; got != want {
+	if got, want := s.Done(), 8; got != want {
 		t.Fatalf("Done() = %d, want %d", got, want)
 	}
 }
@@ -28,18 +29,22 @@ func TestProgressSuffix(t *testing.T) {
 	if got != "0R|1E|2I" {
 		t.Fatalf("suffix with interrupted = %q", got)
 	}
+	got = progressSuffix(ProgressSnapshot{Running: 1, Error: 2, Blocked: 3})
+	if got != "1R|2E|3B" {
+		t.Fatalf("suffix with blocked = %q", got)
+	}
 }
 
 func TestProgressLineMode(t *testing.T) {
 	var buf bytes.Buffer
 	p := NewProgressWithOptions(&buf, ProgressOptions{Mode: ProgressLines})
-	p.Update(ProgressSnapshot{Total: 100, Finished: 40, Error: 2, Running: 3})
+	p.Update(ProgressSnapshot{Total: 100, Finished: 40, Error: 2, Blocked: 3, Running: 3})
 
 	got := buf.String()
-	if !strings.Contains(got, "42% (42/100)") {
+	if !strings.Contains(got, "45% (45/100)") {
 		t.Fatalf("line output missing count: %q", got)
 	}
-	if !strings.Contains(got, "3R|2E") {
+	if !strings.Contains(got, "3R|2E|3B") {
 		t.Fatalf("line output missing status suffix: %q", got)
 	}
 	if strings.Contains(got, "\r") {
@@ -54,11 +59,11 @@ func TestProgressBarModeSmoke(t *testing.T) {
 		Width: 8,
 	})
 	p.Update(ProgressSnapshot{Total: 10})
-	p.Update(ProgressSnapshot{Total: 10, Finished: 4, Error: 1, Running: 2})
+	p.Update(ProgressSnapshot{Total: 10, Finished: 4, Error: 1, Blocked: 1, Running: 2})
 	p.Close(StatusError)
 
 	got := buf.String()
-	for _, want := range []string{"50%", "5/10", "2R|1E"} {
+	for _, want := range []string{"60%", "6/10", "2R|1E|1B"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("bar output missing %q in %q", want, got)
 		}

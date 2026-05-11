@@ -16,11 +16,12 @@ type ProgressSnapshot struct {
 	Running     int
 	Finished    int
 	Error       int
+	Blocked     int
 	Interrupted int
 }
 
 func (s ProgressSnapshot) Done() int {
-	return s.Finished + s.Error + s.Interrupted
+	return s.Finished + s.Error + s.Blocked + s.Interrupted
 }
 
 type ProgressMode int
@@ -138,6 +139,9 @@ func (p *Progress) updateLine(s ProgressSnapshot) {
 		pct = int(math.Round(float64(s.Done()) * 100 / float64(s.Total)))
 	}
 	detail := fmt.Sprintf("%d finished", s.Finished)
+	if s.Blocked > 0 {
+		detail += fmt.Sprintf(", %d blocked", s.Blocked)
+	}
 	if s.Interrupted > 0 {
 		detail += fmt.Sprintf(", %d interrupted", s.Interrupted)
 	}
@@ -146,6 +150,9 @@ func (p *Progress) updateLine(s ProgressSnapshot) {
 
 func progressSuffix(s ProgressSnapshot) string {
 	suffix := fmt.Sprintf("%dR|%dE", s.Running, s.Error)
+	if s.Blocked > 0 {
+		suffix += fmt.Sprintf("|%dB", s.Blocked)
+	}
 	if s.Interrupted > 0 {
 		suffix += fmt.Sprintf("|%dI", s.Interrupted)
 	}

@@ -33,9 +33,18 @@ analyse step {
 }
 # Run the benchmark.
 % jbs taster.jbs
- 100% |████████████████████████████████| (6/6, 31 it/s) 0R|0E
+ 100% |████████████████████████████████| (6/6, 30 it/s) 0R|0E
 
-step/analyse.csv
+| step     | FINISHED | ERROR | BLOCKED | NOTSTARTED | RUNNING | INTERRUPTED |
+|----------|----------|-------|---------|------------|---------|-------------|
+| └── step |        6 |     0 |       0 |          0 |       0 |           0 |
+|----------|----------|-------|---------|------------|---------|-------------|
+| total:   |        6 |     0 |       0 |          0 |       0 |           0 |
+
+| analysis                              | nrows | ncols |
+|---------------------------------------|-------|-------|
+| jbs_benchmark/000000/step/analyse.csv |     6 |     5 |
+% cat jbs_benchmark/000000/step/analyse.csv
 run_id,name of a column,x,number,letter
 000000,a,1,1,a
 000001,a,2,2,a

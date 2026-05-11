@@ -11,6 +11,7 @@ type Flags struct {
 	Input             string
 	Run               bool
 	Continue          bool
+	Stats             bool
 	Archive           bool
 	FWait             bool
 	FWaitExitExisting bool
@@ -55,6 +56,9 @@ func ParseFlags(args []string) (Flags, error) {
 	}
 	if args[0] == "continue" {
 		return parseContinueArgs(args[1:])
+	}
+	if args[0] == "stats" {
+		return parseStatsArgs(args[1:])
 	}
 	if args[0] == "archive" {
 		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
@@ -178,9 +182,10 @@ func UsageText() string {
 	return fmt.Sprintf(`Usage:
 
 Run:
-  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-  jbs continue input.jbs [-b|--benchmark <name>]
+	  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+	  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+	  jbs continue input.jbs [-b|--benchmark <name>]
+	  jbs stats input.jbs [-b|--benchmark <name>]
 
 Archive:
   jbs archive input.jbs
@@ -306,6 +311,39 @@ func parseContinueArgs(args []string) (Flags, error) {
 
 func continueUsageMessage() string {
 	return "usage: jbs continue [-b|--benchmark <name>] <file.jbs>"
+}
+
+func parseStatsArgs(args []string) (Flags, error) {
+	cfg := Flags{Stats: true, Output: "-"}
+	for i := 0; i < len(args); i++ {
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, statsUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+
+		arg := args[i]
+		switch {
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: statsUsageMessage()}
+		default:
+			if cfg.Input != "" {
+				return Flags{}, UsageError{Message: statsUsageMessage()}
+			}
+			cfg.Input = arg
+		}
+	}
+	if cfg.Input == "" {
+		return Flags{}, UsageError{Message: statsUsageMessage()}
+	}
+	return cfg, nil
+}
+
+func statsUsageMessage() string {
+	return "usage: jbs stats [-b|--benchmark <name>] <file.jbs>"
 }
 
 func consumeBenchmarkOption(cfg *Flags, args []string, i int, usage string) (int, bool, error) {

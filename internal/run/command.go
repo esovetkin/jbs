@@ -2,10 +2,8 @@ package run
 
 import (
 	"context"
-	"encoding/csv"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -184,7 +182,6 @@ func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), err
 
 func runPreparedStores(ctx context.Context, opts Options, prepared []preparedStore, continuing bool) error {
 	results := make([]componentResult, 0, len(prepared))
-	finished := make([]*Store, 0, len(prepared))
 	for i, item := range prepared {
 		if ctx.Err() != nil {
 			results = append(results, componentResult{Label: item.Plan.ComponentName, Store: item.Store, Final: StatusInterrupted, Err: ctx.Err()})
@@ -198,16 +195,11 @@ func runPreparedStores(ctx context.Context, opts Options, prepared []preparedSto
 		}
 		result := runOneStore(ctx, item, continuing, opts.Stdout)
 		results = append(results, result)
-		if result.Final == StatusFinished {
-			finished = append(finished, result.Store)
-		}
 		if result.Final == StatusInterrupted {
 			break
 		}
 	}
-	for _, store := range finished {
-		printAnalyseTables(opts.Stdout, store)
-	}
+	printPostRunSummaries(opts.Stdout, opts.Stderr, results)
 	return aggregateComponentResults(results)
 }
 
@@ -290,59 +282,53 @@ func finalMessage(final Status) string {
 	}
 }
 
-func printAnalyseTables(w io.Writer, store *Store) {
+func printPostRunSummaries(stdout, stderr io.Writer, results []componentResult) {
+	if stdout == nil {
+		return
+	}
+	multi := len(results) > 1
+	first := true
+	for _, result := range results {
+		if result.Store == nil {
+			continue
+		}
+		if first {
+			fmt.Fprintln(stdout)
+			first = false
+		} else {
+			fmt.Fprintln(stdout)
+		}
+		if multi {
+			fmt.Fprintf(stdout, "[%s]\n", result.Label)
+		}
+		summary, err := BuildStatusSummary(result.Store)
+		if err != nil {
+			printSummaryWarning(stderr, result.Label, "status", err)
+			continue
+		}
+		PrintStatusSummary(stdout, summary)
+		if result.Final != StatusFinished {
+			continue
+		}
+		analyseSummaries, err := BuildAnalyseOutputSummaries(result.Store)
+		if err != nil {
+			printSummaryWarning(stderr, result.Label, "analyse", err)
+			continue
+		}
+		if len(analyseSummaries) > 0 {
+			fmt.Fprintln(stdout)
+			PrintAnalyseOutputSummaries(stdout, analyseSummaries)
+		}
+	}
+}
+
+func printSummaryWarning(w io.Writer, label, kind string, err error) {
 	if w == nil {
 		return
 	}
-	if store.Manifest.AnalyseDatabasePath != "" {
-		printAnalyseDatabaseTables(w, store)
+	if label == "" {
+		fmt.Fprintf(w, "warning: failed to print %s summary: %v\n", kind, err)
 		return
 	}
-	printAnalyseCSVTables(w, store)
-}
-
-func printAnalyseCSVTables(w io.Writer, store *Store) {
-	for _, step := range store.Manifest.Steps {
-		if step.AnalyseCSV == "" {
-			continue
-		}
-		path := filepath.Join(store.RunDir, step.Dir, step.AnalyseCSV)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(w, "\n%s/analyse.csv\n", step.Name)
-		if len(data) > 0 {
-			w.Write(data)
-			if data[len(data)-1] != '\n' {
-				fmt.Fprintln(w)
-			}
-		}
-	}
-}
-
-func printAnalyseDatabaseTables(w io.Writer, store *Store) {
-	db, err := openAnalyseDB(store.Manifest.AnalyseDatabasePath)
-	if err != nil {
-		return
-	}
-	defer db.Close()
-
-	for _, step := range store.Manifest.Steps {
-		if step.AnalyseTable == "" {
-			continue
-		}
-		header, rows, err := readAnalyseTable(db, step.AnalyseTable)
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(w, "\n%s:%s\n", store.Manifest.AnalyseDatabase, step.AnalyseTable)
-		writeCSVRows(w, append([][]string{header}, rows...))
-	}
-}
-
-func writeCSVRows(w io.Writer, rows [][]string) {
-	cw := csv.NewWriter(w)
-	cw.WriteAll(rows)
-	cw.Flush()
+	fmt.Fprintf(w, "warning: failed to print %s summary for %s: %v\n", kind, label, err)
 }

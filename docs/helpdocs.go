@@ -23,6 +23,7 @@ var topicToFile = map[string]string{
 	"fwait":    "help_fwait.md",
 	"globals":  "help_globals.md",
 	"repl":     "help_repl.md",
+	"stats":    "help_stats.md",
 	"use":      "help_use.md",
 }
 

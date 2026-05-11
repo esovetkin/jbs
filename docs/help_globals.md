@@ -23,7 +23,7 @@ Calling `jbs run -b small` executes all dependency steps needed for the `run_sma
 
 `jbs_database` is the path to the analyse SQLite database. It defaults to `""`, which uses CSV mode and keeps per-step `analyse.csv` files. A non-empty relative path is resolved from the directory where `jbs run` is executed.
 
-The database contains one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints only the current run's tables.
+The database contains one table per analysed step and run. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database instead of overwriting previous runs. `jbs continue` rewrites the table for the original run, and command output prints a path, row count, and column count summary for the current run's tables.
 
 ## `jbs_nproc`: set global concurrency limit
 

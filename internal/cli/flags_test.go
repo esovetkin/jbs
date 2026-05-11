@@ -26,6 +26,7 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 		wantOutput            string
 		wantCheck             bool
 		wantRun               bool
+		wantStats             bool
 		wantArchive           bool
 		wantFWait             bool
 		wantFWaitExitExisting bool
@@ -190,6 +191,29 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantBenchmark: "small",
 		},
 		{
+			name:       "stats_command",
+			args:       []string{"stats", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantStats:  true,
+		},
+		{
+			name:          "stats_benchmark_short",
+			args:          []string{"stats", "-b", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantStats:     true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "stats_benchmark_long_equals",
+			args:          []string{"stats", "--benchmark=small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantStats:     true,
+			wantBenchmark: "small",
+		},
+		{
 			name:       "default_run_dry_run_short_before_input",
 			args:       []string{"-n", "input.jbs"},
 			wantInput:  "input.jbs",
@@ -271,6 +295,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
 			}
+			if f.Stats != tc.wantStats {
+				t.Fatalf("unexpected stats flag: got=%v want=%v", f.Stats, tc.wantStats)
+			}
 			if f.Archive != tc.wantArchive {
 				t.Fatalf("unexpected archive flag: got=%v want=%v", f.Archive, tc.wantArchive)
 			}
@@ -301,6 +328,7 @@ func TestParseFlagsBenchmarkEqualsAllowsDashValue(t *testing.T) {
 		{"run", "--benchmark=-dash", "input.jbs"},
 		{"run", "-b=-dash", "input.jbs"},
 		{"continue", "--benchmark=-dash", "input.jbs"},
+		{"stats", "--benchmark=-dash", "input.jbs"},
 		{"--benchmark=-dash", "input.jbs"},
 	} {
 		args := args
@@ -586,6 +614,11 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_duplicate_benchmark", args: []string{"continue", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "continue_benchmark_missing_value", args: []string{"continue", "-b"}},
+		{name: "stats_missing_input", args: []string{"stats"}},
+		{name: "stats_duplicate_benchmark", args: []string{"stats", "-b", "small", "-b", "large", "input.jbs"}},
+		{name: "stats_benchmark_missing_value", args: []string{"stats", "-b"}},
+		{name: "stats_rejects_option", args: []string{"stats", "-o", "out.yaml", "input.jbs"}},
+		{name: "stats_extra_argument", args: []string{"stats", "input.jbs", "extra"}},
 		{name: "archive_missing_input", args: []string{"archive"}},
 		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
 		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},

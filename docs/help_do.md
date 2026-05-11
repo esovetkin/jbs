@@ -95,7 +95,7 @@ Each workpackage executes the `do` body in its own work directory. Useful runtim
 - `$JBS_WORK_DIR`: absolute path to the current workpackage directory
 - `$JBS_SRC_DIR`: absolute path to the directory containing the entry `.jbs` file
 
-Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`. Generated `run.sh` files use `set -euo pipefail` by default; pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.
+Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`. Workpackage status is one of `NOTSTARTED`, `RUNNING`, `FINISHED`, `ERROR`, `BLOCKED`, or `INTERRUPTED`. `BLOCKED` means the workpackage did not run because a dependency failed. Generated `run.sh` files use `set -euo pipefail` by default; pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.
 
 Create the directory structure without starting work:
 
