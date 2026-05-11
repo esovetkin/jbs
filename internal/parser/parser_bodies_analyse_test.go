@@ -284,4 +284,28 @@ func TestParseAnalyseTupleAdditionalBranches(t *testing.T) {
 			t.Fatalf("did not expect errors for valid dotted tuple item, got: %s", diags.String())
 		}
 	})
+
+	t.Run("deep dotted tuple item parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_deep_ok.jbs", "(pkg.ns.value)", diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_deep_ok.jbs", diags)
+		if len(cols) != 1 || cols[0].Name != "pkg.ns.value" {
+			t.Fatalf("expected one deep dotted tuple item pkg.ns.value, got %#v", cols)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for valid deep dotted tuple item, got: %s", diags.String())
+		}
+	})
+
+	t.Run("deep dotted tuple item with title parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_deep_title.jbs", `(pkg.ns.value as "Value")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_deep_title.jbs", diags)
+		if len(cols) != 1 || cols[0].Name != "pkg.ns.value" || cols[0].Title != "Value" {
+			t.Fatalf("expected titled deep dotted tuple item, got %#v", cols)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for titled deep dotted tuple item, got: %s", diags.String())
+		}
+	})
 }

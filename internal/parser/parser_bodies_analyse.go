@@ -152,14 +152,7 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		}
 
 		nameTok := tp.next()
-		name := nameTok.Value
-		span := nameTok.Span
-		if tp.peek().Type == lexer.TokenDot {
-			tp.next()
-			memberTok := tp.expect(lexer.TokenIdent, diag.CodeE417, "expected identifier after '.' in analyse result tuple")
-			name = name + "." + memberTok.Value
-			span = diag.Merge(span, memberTok.Span)
-		}
+		name, span := tp.parseQualifiedNameAfterFirst(nameTok, diag.CodeE417, "expected identifier after '.' in analyse result tuple")
 		title := ""
 		if tp.peek().Type == lexer.TokenAs {
 			tp.next()
@@ -207,4 +200,19 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		tp.consumeUntilNewline()
 		return columns
 	}
+}
+
+func (p *tokenParser) parseQualifiedNameAfterFirst(first lexer.Token, code diag.Code, message string) (string, diag.Span) {
+	name := first.Value
+	span := first.Span
+	for p.peek().Type == lexer.TokenDot {
+		p.next()
+		partTok := p.expect(lexer.TokenIdent, code, message)
+		name += "." + partTok.Value
+		span = diag.Merge(span, partTok.Span)
+		if partTok.Type != lexer.TokenIdent {
+			break
+		}
+	}
+	return name, span
 }

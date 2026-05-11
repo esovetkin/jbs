@@ -116,6 +116,21 @@ func TestParseAnalyseBlockBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("deep qualified result column", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		src := "analyse run {\n  (pkg.ns.value as \"Value\")\n}\n"
+		p := newTopLevelParser(src, diags)
+		start := p.pos()
+		p.consumeWord()
+		block := p.parseAnalyseBlock(start)
+		if len(block.Columns) != 1 || block.Columns[0].Name != "pkg.ns.value" || block.Columns[0].Title != "Value" {
+			t.Fatalf("unexpected analyse columns: %#v", block.Columns)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
 	t.Run("after-clause rejected", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		p := newTopLevelParser("analyse run after prep {}", diags)
