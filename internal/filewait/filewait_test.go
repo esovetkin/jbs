@@ -131,6 +131,71 @@ func TestWaitExistingTargetIsReplaced(t *testing.T) {
 	waitDone(t, done)
 }
 
+func TestWaitMissingTargetCreatedDuringSetupReturns(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "done.flag")
+	afterPrepareTargetsForTest = func() {
+		if err := os.WriteFile(target, []byte("ok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { afterPrepareTargetsForTest = nil }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	result, err := WaitAnyWithOptions(ctx, []string{target}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != target || result.Index != 0 {
+		t.Fatalf("unexpected result: got=%+v want path=%q index=0", result, target)
+	}
+}
+
+func TestWaitExistingTargetChangedDuringSetupReturns(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(target, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	afterPrepareTargetsForTest = func() {
+		// Use a different size so the post-watch snapshot observes the setup-window
+		// change even on filesystems with coarse timestamp resolution.
+		if err := os.WriteFile(target, []byte("new content after setup\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { afterPrepareTargetsForTest = nil }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	if err := WaitWithOptions(ctx, target, Options{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitSetupRaceReturnsBeforeReady(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "done.flag")
+	ready := make(chan struct{})
+	afterPrepareTargetsForTest = func() {
+		if err := os.WriteFile(target, []byte("ok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { afterPrepareTargetsForTest = nil }()
+
+	_, err := WaitAnyWithOptions(context.Background(), []string{target}, Options{Ready: ready})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ready:
+		t.Fatal("ready should not be signaled when setup completion returns immediately")
+	default:
+	}
+}
+
 func TestSnapshotDistinguishesSameMetadataFiles(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first.txt")

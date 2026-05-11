@@ -22,6 +22,8 @@ type Result struct {
 	Index int
 }
 
+var afterPrepareTargetsForTest func()
+
 func Wait(ctx context.Context, target string) error {
 	_, err := WaitAnyWithOptions(ctx, []string{target}, Options{})
 	return err
@@ -50,6 +52,9 @@ func WaitAnyWithOptions(ctx context.Context, targets []string, opts Options) (Re
 			return result, nil
 		}
 	}
+	if afterPrepareTargetsForTest != nil {
+		afterPrepareTargetsForTest()
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -60,6 +65,11 @@ func WaitAnyWithOptions(ctx context.Context, targets []string, opts Options) (Re
 	state := waitState{watcher: watcher, watched: map[string]struct{}{}}
 	if err := state.refreshAllWatches(states); err != nil {
 		return Result{}, err
+	}
+	if result, ok, err := firstCompleted(states); err != nil {
+		return Result{}, err
+	} else if ok {
+		return result, nil
 	}
 	signalReady(opts.Ready)
 
