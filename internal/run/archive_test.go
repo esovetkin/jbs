@@ -2,22 +2,97 @@ package run
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 type archiveTestEntry struct {
 	Header tar.Header
 	Body   string
+}
+
+func TestArchiveReportsMissingResult(t *testing.T) {
+	err := Archive(context.Background(), Options{})
+	if err == nil || !strings.Contains(err.Error(), "missing analysis result") {
+		t.Fatalf("expected missing result error, got %v", err)
+	}
+}
+
+func TestArchiveUsesBenchmarkNameAndWritesSummary(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	createArchiveRun(t, filepath.Join(dir, "bench"), "000000", StatusFinished, map[string]string{
+		"run/000000/stdout": "out\n",
+	})
+	var stdout bytes.Buffer
+	err := Archive(context.Background(), Options{
+		Input: "bench.jbs",
+		Result: &sema.Result{Globals: sema.GlobalState{Values: map[string]eval.Value{
+			"jbs_name": eval.String("bench"),
+		}}},
+		Stdout: &stdout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bench.tar.gz")); err != nil {
+		t.Fatalf("expected archive to be written: %v", err)
+	}
+	text := stdout.String()
+	if !strings.Contains(text, "archived bench to bench.tar.gz as ") || !strings.Contains(text, " and removed bench") {
+		t.Fatalf("summary = %q", text)
+	}
+}
+
+func TestArchivePropagatesBenchmarkNameError(t *testing.T) {
+	err := Archive(context.Background(), Options{
+		Input: "bench.jbs",
+		Result: &sema.Result{Globals: sema.GlobalState{Values: map[string]eval.Value{
+			"jbs_name": eval.Int(1),
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "jbs_name must be a string") {
+		t.Fatalf("expected benchmark name error, got %v", err)
+	}
+}
+
+func TestArchivePropagatesArchivePathError(t *testing.T) {
+	err := Archive(context.Background(), Options{
+		Result: &sema.Result{Globals: sema.GlobalState{Values: map[string]eval.Value{
+			"jbs_name": eval.String("bench"),
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "empty input path") {
+		t.Fatalf("expected archive path error, got %v", err)
+	}
+}
+
+func TestArchivePropagatesArchiveRootError(t *testing.T) {
+	err := Archive(context.Background(), Options{
+		Input: "bench.jbs",
+		Result: &sema.Result{Globals: sema.GlobalState{Values: map[string]eval.Value{
+			"jbs_name": eval.String("missing"),
+		}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot lock benchmark root") {
+		t.Fatalf("expected archive root error, got %v", err)
+	}
 }
 
 func TestArchiveRootCreatesTarGz(t *testing.T) {
@@ -129,6 +204,66 @@ func TestArchiveRootRejectsRunningRun(t *testing.T) {
 	}
 	if _, statErr := os.Stat(root); statErr != nil {
 		t.Fatalf("expected root to remain: %v", statErr)
+	}
+}
+
+func TestArchiveRootRejectsLockedRoot(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	archive := filepath.Join(dir, "bench.tar.gz")
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"run/000000/stdout": ""})
+	unlock, err := acquireExistingRootLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	_, err = ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("expected lock error, got %v", err)
+	}
+}
+
+func TestArchiveRootRejectsEmptyRoot(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ArchiveRoot(root, filepath.Join(dir, "bench.tar.gz"), time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "no run directories") {
+		t.Fatalf("expected no-runs error, got %v", err)
+	}
+}
+
+func TestArchiveableRunsRejectsMissingStatus(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	if err := os.MkdirAll(filepath.Join(root, "000000"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := archiveableRuns(root)
+	if err == nil || !strings.Contains(err.Error(), "cannot archive run 000000") {
+		t.Fatalf("expected missing status error, got %v", err)
+	}
+}
+
+func TestArchiveRootPropagatesRewriteError(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"run/000000/stdout": ""})
+	_, err := ArchiveRoot(root, filepath.Join(dir, "missing", "bench.tar.gz"), time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err == nil {
+		t.Fatal("expected rewrite error")
+	}
+	if _, statErr := os.Stat(root); statErr != nil {
+		t.Fatalf("expected root to remain after rewrite error: %v", statErr)
+	}
+}
+
+func TestArchiveableRunsReportsReadDirError(t *testing.T) {
+	_, err := archiveableRuns(filepath.Join(t.TempDir(), "missing"))
+	if err == nil {
+		t.Fatal("expected readdir error")
 	}
 }
 
@@ -338,6 +473,300 @@ func TestArchiveRootReportsCleanupFailure(t *testing.T) {
 	}
 }
 
+func TestRewriteArchiveWithSnapshotReportsExistingArchiveReadError(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "bench.tar.gz")
+	if err := os.WriteFile(archive, []byte("not gzip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := rewriteArchiveWithSnapshot(root, archive, "stamp", nil)
+	if err == nil || !strings.Contains(err.Error(), "read existing archive") {
+		t.Fatalf("expected existing archive read error, got %v", err)
+	}
+}
+
+func TestRewriteArchiveWithSnapshotReportsCreateTempError(t *testing.T) {
+	err := rewriteArchiveWithSnapshot(t.TempDir(), filepath.Join(t.TempDir(), "missing", "bench.tar.gz"), "stamp", nil)
+	if err == nil {
+		t.Fatal("expected create-temp error")
+	}
+}
+
+func TestRewriteArchiveWithSnapshotReportsAppendError(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(dir, "bench.tar.gz")
+	err := rewriteArchiveWithSnapshot(root, archive, "stamp", []string{"000000"})
+	if err == nil {
+		t.Fatal("expected append error for missing run")
+	}
+	if _, statErr := os.Stat(archive); !os.IsNotExist(statErr) {
+		t.Fatalf("expected archive not to be renamed into place, stat error: %v", statErr)
+	}
+}
+
+func TestRemoveArchivedRootReportsRenameError(t *testing.T) {
+	err := removeArchivedRoot(filepath.Join(t.TempDir(), "missing"), "stamp")
+	if err == nil || !strings.Contains(err.Error(), "failed to move benchmark directory") {
+		t.Fatalf("expected rename error, got %v", err)
+	}
+}
+
+func TestUniqueRemovalPathUsesFallbackStampAndAvoidsCollision(t *testing.T) {
+	parent := t.TempDir()
+	got, err := uniqueRemovalPath(parent, "bench", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.Base(got), "archive-") {
+		t.Fatalf("fallback path = %q", got)
+	}
+
+	first := filepath.Join(parent, ".archived-bench-stamp-"+fmtInt(os.Getpid()))
+	if err := os.Mkdir(first, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err = uniqueRemovalPath(parent, "bench", "stamp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(got, "-001") {
+		t.Fatalf("collision path = %q", got)
+	}
+}
+
+func TestUniqueRemovalPathReportsLstatErrorAndExhaustion(t *testing.T) {
+	fileParent := filepath.Join(t.TempDir(), "parent")
+	if err := os.WriteFile(fileParent, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uniqueRemovalPath(fileParent, "bench", "stamp"); err == nil {
+		t.Fatal("expected lstat error below file parent")
+	}
+
+	parent := t.TempDir()
+	stamp := "full"
+	for i := 0; i < 1000; i++ {
+		suffix := stamp + "-" + fmtInt(os.Getpid())
+		if i > 0 {
+			suffix = stamp + "-" + fmtInt(os.Getpid()) + "-" + fmt.Sprintf("%03d", i)
+		}
+		if err := os.Mkdir(filepath.Join(parent, ".archived-bench-"+suffix), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := uniqueRemovalPath(parent, "bench", stamp); err == nil || !strings.Contains(err.Error(), "could not choose removal path") {
+		t.Fatalf("expected exhaustion error, got %v", err)
+	}
+}
+
+func TestCopyExistingArchiveReportsWriteError(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "existing.tar.gz")
+	writeTarGzEntries(t, archive, []archiveTestEntry{{
+		Header: tar.Header{Name: "old/file.txt", Mode: 0o644, Size: int64(len("old\n")), Typeflag: tar.TypeReg},
+		Body:   "old\n",
+	}})
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyExistingArchive(archive, tw); err == nil {
+		t.Fatal("expected write-after-close error")
+	}
+}
+
+func TestWalkExistingArchiveReportsUnsafeEntryAndVisitError(t *testing.T) {
+	unsafeArchive := filepath.Join(t.TempDir(), "unsafe.tar.gz")
+	writeTarGzEntries(t, unsafeArchive, []archiveTestEntry{{
+		Header: tar.Header{Name: "../evil", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg},
+		Body:   "x",
+	}})
+	err := walkExistingArchive(unsafeArchive, func(*tar.Header, *tar.Reader) error {
+		t.Fatal("visit should not be called for unsafe entries")
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsafe archive entry") {
+		t.Fatalf("expected unsafe entry error, got %v", err)
+	}
+
+	validArchive := filepath.Join(t.TempDir(), "valid.tar.gz")
+	writeTarGzEntries(t, validArchive, []archiveTestEntry{{
+		Header: tar.Header{Name: "old/file.txt", Mode: 0o644, Size: 1, Typeflag: tar.TypeReg},
+		Body:   "x",
+	}})
+	err = walkExistingArchive(validArchive, func(*tar.Header, *tar.Reader) error {
+		return errors.New("visit failed")
+	})
+	if err == nil || !strings.Contains(err.Error(), "visit failed") {
+		t.Fatalf("expected visit error, got %v", err)
+	}
+}
+
+func TestWalkExistingArchiveReportsTarReadError(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "bad-tar.tar.gz")
+	f, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	if _, err := gz.Write([]byte("not a tar stream")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = walkExistingArchive(archive, func(*tar.Header, *tar.Reader) error {
+		t.Fatal("visit should not be called for malformed tar")
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "read existing archive") {
+		t.Fatalf("expected tar read error, got %v", err)
+	}
+}
+
+func TestValidateArchiveNameRejectsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"", "/abs", "../x", "a/../x", "."} {
+		if err := validateArchiveName(name); err == nil {
+			t.Fatalf("expected %q to be rejected", name)
+		}
+	}
+	if err := validateArchiveName("safe/path"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppendBenchmarkSnapshotReportsClosedWriter(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := appendBenchmarkSnapshot(tw, t.TempDir(), "stamp", nil, time.Now().UTC())
+	if err == nil {
+		t.Fatal("expected closed writer error")
+	}
+}
+
+func TestAppendTreeReportsMissingRootAndClosedWriter(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := appendTree(tw, filepath.Join(t.TempDir(), "missing"), "root"); err == nil {
+		t.Fatal("expected missing root error")
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendTree(tw, root, "root"); err == nil {
+		t.Fatal("expected closed writer error")
+	}
+}
+
+func TestAppendManifestDatabasesHandlesRelativeDuplicateMissingExternalAndRunLocalDatabases(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	writeArchiveManifest(t, filepath.Join(root, "000000", "manifest.json"), Manifest{AnalyseDatabasePath: "results.sqlite"})
+	writeArchiveManifest(t, filepath.Join(root, "000001", "manifest.json"), Manifest{AnalyseDatabasePath: "results.sqlite"})
+	writeArchiveManifest(t, filepath.Join(root, "000002", "manifest.json"), Manifest{AnalyseDatabasePath: filepath.Join(root, "000002", "inside.sqlite")})
+	writeArchiveManifest(t, filepath.Join(root, "000003", "manifest.json"), Manifest{AnalyseDatabasePath: filepath.Join(t.TempDir(), "external.sqlite")})
+	writeArchiveManifest(t, filepath.Join(root, "000004", "manifest.json"), Manifest{})
+	writeArchiveManifest(t, filepath.Join(root, "000006", "manifest.json"), Manifest{AnalyseDatabasePath: filepath.Join(root, "missing.sqlite")})
+	if err := os.WriteFile(filepath.Join(root, "results.sqlite"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000", "000001", "000002", "000003", "000004", "000005", "000006"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries := readTarEntriesFromBytes(t, buf.Bytes())
+	if got := entries["stamp/bench/results.sqlite"].Body; got != "db" {
+		t.Fatalf("database body = %q entries=%v", got, archiveEntryNames(entries))
+	}
+	for name := range entries {
+		if strings.Contains(name, "inside.sqlite") || strings.Contains(name, "external.sqlite") || strings.Contains(name, "missing.sqlite") {
+			t.Fatalf("unexpected database entry %q", name)
+		}
+	}
+}
+
+func TestAppendManifestDatabasesReportsManifestAndDirectoryErrors(t *testing.T) {
+	t.Run("manifest read", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "000000"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "000000", "manifest.json"), []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
+		if err == nil || !strings.Contains(err.Error(), "inspect archive database") {
+			t.Fatalf("expected manifest read error, got %v", err)
+		}
+	})
+
+	t.Run("directory database", func(t *testing.T) {
+		root := t.TempDir()
+		dbDir := filepath.Join(root, "results.sqlite")
+		if err := os.Mkdir(dbDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeArchiveManifest(t, filepath.Join(root, "000000", "manifest.json"), Manifest{AnalyseDatabasePath: dbDir})
+		var buf bytes.Buffer
+		err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
+		if err == nil || !strings.Contains(err.Error(), "is a directory") {
+			t.Fatalf("expected directory database error, got %v", err)
+		}
+	})
+}
+
+func TestAppendManifestDatabasesPropagatesAppendTreeError(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "results.sqlite")
+	if err := os.WriteFile(dbPath, []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeArchiveManifest(t, filepath.Join(root, "000000", "manifest.json"), Manifest{AnalyseDatabasePath: dbPath})
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000"})
+	if err == nil {
+		t.Fatal("expected append tree error")
+	}
+}
+
+func TestIsInsideArchivedRun(t *testing.T) {
+	if !isInsideArchivedRun("000000/results.sqlite", []string{"000000"}) {
+		t.Fatal("expected run-local database to be detected")
+	}
+	if isInsideArchivedRun("results.sqlite", []string{"000000"}) {
+		t.Fatal("root database should not be run-local")
+	}
+}
+
 func createArchiveRun(t *testing.T, root, runID string, status Status, files map[string]string) {
 	t.Helper()
 	runDir := filepath.Join(root, runID)
@@ -369,6 +798,20 @@ func writeArchiveStatus(t *testing.T, path string, status RootStatus) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeArchiveManifest(t *testing.T, filePath string, manifest Manifest) {
+	t.Helper()
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -417,10 +860,75 @@ func readTarBody(r *tar.Reader) (string, error) {
 	return string(data), err
 }
 
+func writeTarGzEntries(t *testing.T, archivePath string, entries []archiveTestEntry) {
+	t.Helper()
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for _, entry := range entries {
+		header := entry.Header
+		if header.Typeflag == 0 {
+			header.Typeflag = tar.TypeReg
+		}
+		if header.Typeflag == tar.TypeReg && header.Size == 0 {
+			header.Size = int64(len(entry.Body))
+		}
+		if err := tw.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Typeflag == tar.TypeReg {
+			if _, err := tw.Write([]byte(entry.Body)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readTarEntriesFromBytes(t *testing.T, data []byte) map[string]archiveTestEntry {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(data))
+	entries := make(map[string]archiveTestEntry)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := archiveTestEntry{Header: *hdr}
+		if hdr.Typeflag == tar.TypeReg {
+			body, readErr := readTarBody(tr)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			entry.Body = body
+		}
+		entries[hdr.Name] = entry
+	}
+	return entries
+}
+
 func archiveEntryNames(entries map[string]archiveTestEntry) []string {
 	names := make([]string, 0, len(entries))
 	for name := range entries {
 		names = append(names, name)
 	}
 	return names
+}
+
+func fmtInt(v int) string {
+	return strconv.FormatInt(int64(v), 10)
 }
