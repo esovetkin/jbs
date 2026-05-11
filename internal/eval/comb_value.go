@@ -1,11 +1,5 @@
 package eval
 
-import (
-	"fmt"
-	"slices"
-	"strings"
-)
-
 func IsComb(v Value) bool {
 	return v.Kind == KindComb && v.C != nil
 }
@@ -61,16 +55,16 @@ func CombProject(v Value, cols []string) (Value, bool) {
 	seenKeys := make(map[string]struct{}, len(v.C.Rows))
 	for _, row := range v.C.Rows {
 		projected := Row{Values: make(map[string]Cell, len(order))}
-		keyParts := make([]string, 0, len(order))
+		keyValues := make([]Value, 0, len(order))
 		for _, col := range order {
 			cell, ok := row.Values[col]
 			if !ok {
 				return Null(), false
 			}
 			projected.Values[col] = cell
-			keyParts = append(keyParts, valueKey(cell.Value))
+			keyValues = append(keyValues, cell.Value)
 		}
-		key := strings.Join(keyParts, "\x1f")
+		key := StableValueTupleKey(keyValues)
 		if _, exists := seenKeys[key]; exists {
 			continue
 		}
@@ -100,49 +94,4 @@ func containsCombColumn(order []string, name string) bool {
 		}
 	}
 	return false
-}
-
-func valueKey(v Value) string {
-	switch v.Kind {
-	case KindNull:
-		return "n:"
-	case KindInt:
-		return fmt.Sprintf("i:%d", v.I)
-	case KindFloat:
-		return fmt.Sprintf("f:%g", v.F)
-	case KindString:
-		return "s:" + v.S
-	case KindBool:
-		if v.B {
-			return "b:1"
-		}
-		return "b:0"
-	case KindList, KindTuple:
-		parts := make([]string, 0, len(v.L))
-		for _, item := range v.L {
-			parts = append(parts, valueKey(item))
-		}
-		prefix := "l:"
-		if v.Kind == KindTuple {
-			prefix = "t:"
-		}
-		return prefix + strings.Join(parts, ",")
-	case KindDict:
-		if v.D == nil || len(v.D.Entries) == 0 {
-			return "dict:{}"
-		}
-		parts := make([]string, 0, len(v.D.Entries))
-		for key, value := range v.D.Entries {
-			parts = append(parts, "dictkey:"+key.StableString()+"="+valueKey(value))
-		}
-		slices.Sort(parts)
-		return "dict:{" + strings.Join(parts, ",") + "}"
-	case KindComb:
-		if v.C == nil {
-			return "c:nil"
-		}
-		return fmt.Sprintf("c:%d:%d", len(v.C.Order), len(v.C.Rows))
-	default:
-		return "u:"
-	}
 }

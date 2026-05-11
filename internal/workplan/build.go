@@ -3,8 +3,6 @@ package workplan
 import (
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
@@ -277,7 +275,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 		allowedRows = planutil.SequentialIndices(rowCount)
 	}
 
-	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full, valueKey)
+	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full, eval.StableValueKey)
 	choices := make([]sourceChoice, 0, len(projected))
 	for _, grp := range projected {
 		vals := make(map[string]eval.Value, len(visibleNames))
@@ -424,48 +422,6 @@ func cloneSourceRows(in map[sema.BindingVersionKey][]int) map[sema.BindingVersio
 		out[k] = slices.Clone(v)
 	}
 	return out
-}
-
-func valueKey(v eval.Value) string {
-	switch v.Kind {
-	case eval.KindNull:
-		return "null"
-	case eval.KindInt:
-		return "int:" + strconv.FormatInt(v.I, 10)
-	case eval.KindFloat:
-		return "float:" + strconv.FormatFloat(v.F, 'g', -1, 64)
-	case eval.KindString:
-		return "str:" + strconv.Quote(v.S)
-	case eval.KindBool:
-		if v.B {
-			return "bool:true"
-		}
-		return "bool:false"
-	case eval.KindList:
-		parts := make([]string, 0, len(v.L))
-		for _, item := range v.L {
-			parts = append(parts, valueKey(item))
-		}
-		return "list:[" + strings.Join(parts, ",") + "]"
-	case eval.KindTuple:
-		parts := make([]string, 0, len(v.L))
-		for _, item := range v.L {
-			parts = append(parts, valueKey(item))
-		}
-		return "tuple:(" + strings.Join(parts, ",") + ")"
-	case eval.KindDict:
-		if v.D == nil || len(v.D.Entries) == 0 {
-			return "dict:{}"
-		}
-		parts := make([]string, 0, len(v.D.Entries))
-		for key, value := range v.D.Entries {
-			parts = append(parts, "dictkey:"+key.StableString()+"="+valueKey(value))
-		}
-		slices.Sort(parts)
-		return "dict:{" + strings.Join(parts, ",") + "}"
-	default:
-		return "other:" + v.String()
-	}
 }
 
 func uniqueStrings(items []string) []string {

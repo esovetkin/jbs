@@ -259,8 +259,8 @@ func TestValueKeyAndUniqueStrings(t *testing.T) {
 		{Kind: "weird"},
 	}
 	for _, value := range values {
-		if got := valueKey(value); got == "" {
-			t.Fatalf("valueKey must not be empty for %#v", value)
+		if got := eval.StableValueKey(value); got == "" {
+			t.Fatalf("StableValueKey must not be empty for %#v", value)
 		}
 	}
 	if got := uniqueStrings([]string{"a", "b", "a", "c", "b"}); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
