@@ -20,16 +20,6 @@ type Store struct {
 
 var durableWrite = fsutil.AtomicWriteOptions{SyncDir: true}
 
-func CreateRunDirectory(root string, plan runtimePlan) (*Store, error) {
-	store, _, err := createRunDirectory(root, plan, StatusRunning)
-	return store, err
-}
-
-func CreateDryRunDirectory(root string, plan runtimePlan) (*Store, error) {
-	store, _, err := createRunDirectory(root, plan, StatusNotStarted)
-	return store, err
-}
-
 func CreateRunDirectoryWithInitial(root string, plan runtimePlan, initial Status) (*Store, []FileSubstitutionWarning, error) {
 	return createRunDirectory(root, plan, initial)
 }

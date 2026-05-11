@@ -73,7 +73,7 @@ seed += 1
 `)
 
 	diags := &diag.Diagnostics{}
-	out, order := compileUserGlobals(prog, nil, diags)
+	out, order := compileGlobalsForTest(t, prog, nil, diags)
 	if countDiagCode(diags, "E100") != 1 {
 		t.Fatalf("expected one unknown-variable diagnostic, got %d: %s", countDiagCode(diags, "E100"), diags.String())
 	}

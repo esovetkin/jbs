@@ -28,7 +28,7 @@ y = x + 1
 `)
 
 	diags := &diag.Diagnostics{}
-	out, order := compileUserGlobals(prog, nil, diags)
+	out, order := compileGlobalsForTest(t, prog, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -134,7 +134,7 @@ choice = cfg[key]
 `)
 
 	diags := &diag.Diagnostics{}
-	out, _ := compileUserGlobals(prog, nil, diags)
+	out, _ := compileGlobalsForTest(t, prog, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -151,7 +151,7 @@ lookup = function(key) { cfg[key] }
 `)
 
 	diags := &diag.Diagnostics{}
-	out, _ := compileUserGlobals(prog, nil, diags)
+	out, _ := compileGlobalsForTest(t, prog, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -200,7 +200,7 @@ func TestCompileUserGlobalsAllowsSeedOverrideCompoundAssignAndTracksDeps(t *test
 	}
 
 	diags := &diag.Diagnostics{}
-	out, order := compileUserGlobals(prog, map[string]eval.Value{"builtin": eval.Int(7)}, diags)
+	out, order := compileGlobalsForTest(t, prog, map[string]eval.Value{"builtin": eval.Int(7)}, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -481,7 +481,7 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 			Span: span,
 		}
 		diags := &diag.Diagnostics{}
-		out, order := compileUserGlobals(prog, nil, diags)
+		out, order := compileGlobalsForTest(t, prog, nil, diags)
 		if countDiagCode(diags, "E100") == 0 {
 			t.Fatalf("expected forward-reference diagnostic, got: %s", diags.String())
 		}
@@ -521,7 +521,7 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 			Span: span,
 		}
 		diags := &diag.Diagnostics{}
-		out, order := compileUserGlobals(prog, nil, diags)
+		out, order := compileGlobalsForTest(t, prog, nil, diags)
 		if countDiagCode(diags, "E100") == 0 {
 			t.Fatalf("expected forward-reference diagnostic, got: %s", diags.String())
 		}
@@ -552,7 +552,7 @@ func TestCompileUserGlobalsPlannerSemantics(t *testing.T) {
 			Span: span,
 		}
 		diags := &diag.Diagnostics{}
-		out, _ := compileUserGlobals(prog, nil, diags)
+		out, _ := compileGlobalsForTest(t, prog, nil, diags)
 		if countDiagCode(diags, "E100") != 1 {
 			t.Fatalf("expected one unknown-variable diagnostic, got %d: %s", countDiagCode(diags, "E100"), diags.String())
 		}
@@ -578,7 +578,7 @@ value = apply(inc, 1)
 `)
 
 	diags := &diag.Diagnostics{}
-	out, order := compileUserGlobals(prog, nil, diags)
+	out, order := compileGlobalsForTest(t, prog, nil, diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}

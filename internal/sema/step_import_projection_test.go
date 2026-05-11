@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
@@ -117,40 +116,5 @@ func TestAddEnvFromStepPlan(t *testing.T) {
 	}
 	if _, ok := env["d"]; ok {
 		t.Fatalf("did not expect missing source to be added, got %#v", env["d"])
-	}
-}
-
-func TestResolveImportedVars(t *testing.T) {
-	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(0, 1, 10))
-	bindings := map[string]*GlobalBinding{
-		"p": bindingWithOrigins("p", []string{"a", "b"}, map[string][]eval.Value{
-			"a": {eval.Int(1)},
-			"b": {eval.Int(2)},
-		}, nil),
-		"x": bindingWithOrigins("x", []string{"v"}, map[string][]eval.Value{
-			"v": {eval.String("fallback")},
-		}, nil),
-	}
-	items := []ast.WithItem{
-		{Source: "p", Span: span},
-		{Source: "p", Span: span},
-		{Source: "p", Selectors: []string{"a"}, Span: span},
-		{Source: "missing", Selectors: []string{"z"}, Span: span},
-		{Source: "missing_full", Span: span},
-		{Source: "p", Selectors: []string{"b", "missing"}, Span: span},
-	}
-
-	got := resolveImportedVars(items, bindings)
-	if len(got["a"]) != 1 {
-		t.Fatalf("expected dedup for repeated import of a, got %#v", got["a"])
-	}
-	if len(got["b"]) != 1 || got["b"][0].SourceVar != "b" || got["b"][0].Source != "p" {
-		t.Fatalf("expected source-slice/full import for b, got %#v", got["b"])
-	}
-	if _, ok := got["z"]; ok {
-		t.Fatalf("did not expect unknown source to be imported, got %#v", got["z"])
-	}
-	if _, ok := got["missing_full"]; ok {
-		t.Fatalf("did not expect unknown full import to be imported, got %#v", got["missing_full"])
 	}
 }

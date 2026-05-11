@@ -1,7 +1,6 @@
 package sema
 
 import (
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/planutil"
@@ -109,42 +108,4 @@ func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindings
 			env[name] = seriesAsValue(vals)
 		}
 	}
-}
-
-func resolveImportedVars(items []ast.WithItem, bindings map[string]*GlobalBinding) map[string][]importedVar {
-	out := make(map[string][]importedVar)
-	seen := make(map[string]struct{})
-	add := func(name, sourceVar, source string, span diag.Span) {
-		key := source + "::" + sourceVar + "::" + name
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out[name] = append(out[name], importedVar{
-			Name:      name,
-			SourceVar: sourceVar,
-			Source:    source,
-			Span:      span,
-		})
-	}
-
-	for _, item := range items {
-		src := bindings[item.Source]
-		if src == nil {
-			continue
-		}
-		if len(item.Selectors) > 0 {
-			for _, sel := range item.Selectors {
-				if _, ok := src.Vars[sel]; !ok {
-					continue
-				}
-				add(sel, sel, src.Name, item.Span)
-			}
-			continue
-		}
-		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-			add(name, name, src.Name, item.Span)
-		}
-	}
-	return out
 }

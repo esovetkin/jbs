@@ -227,7 +227,7 @@ func TestResolveTopLevelGlobalsRejectsForwardReference(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	out, order := compileUserGlobals(prog, nil, diags)
+	out, order := compileGlobalsForTest(t, prog, nil, diags)
 	if countDiagCode(diags, "E100") == 0 {
 		t.Fatalf("expected unknown-variable diagnostic for forward reference, got: %s", diags.String())
 	}

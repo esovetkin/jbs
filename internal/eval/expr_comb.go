@@ -149,26 +149,6 @@ func combRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value,
 	}
 }
 
-func firstDuplicatedColumnName(left, right []Row) (string, bool) {
-	if len(left) == 0 || len(right) == 0 {
-		return "", false
-	}
-	leftNames := RowVariableNames(left)
-	if len(leftNames) == 0 {
-		return "", false
-	}
-	leftSet := make(map[string]struct{}, len(leftNames))
-	for _, name := range leftNames {
-		leftSet[name] = struct{}{}
-	}
-	for _, name := range RowVariableNames(right) {
-		if _, ok := leftSet[name]; ok {
-			return name, true
-		}
-	}
-	return "", false
-}
-
 func combRowsFromValue(value Value, _ diag.Span) []Row {
 	if IsComb(value) {
 		return cloneRows(value.C.Rows)

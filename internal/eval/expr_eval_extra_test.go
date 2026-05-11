@@ -689,24 +689,6 @@ func TestCombRowsHelpersCoverage(t *testing.T) {
 	}
 }
 
-func TestFirstDuplicatedColumnNameExtraBranches(t *testing.T) {
-	if dup, ok := firstDuplicatedColumnName(nil, []Row{{Values: map[string]Cell{"a": {Value: Int(1)}}}}); ok || dup != "" {
-		t.Fatalf("expected no duplicate for empty left, got %q", dup)
-	}
-	if dup, ok := firstDuplicatedColumnName([]Row{{Values: map[string]Cell{"a": {Value: Int(1)}}}}, nil); ok || dup != "" {
-		t.Fatalf("expected no duplicate for empty right, got %q", dup)
-	}
-	if dup, ok := firstDuplicatedColumnName([]Row{{Values: map[string]Cell{}}}, []Row{{Values: map[string]Cell{"a": {Value: Int(1)}}}}); ok || dup != "" {
-		t.Fatalf("expected no duplicate for empty left-name set, got %q", dup)
-	}
-	if dup, ok := firstDuplicatedColumnName(
-		[]Row{{Values: map[string]Cell{"a": {Value: Int(1)}}}},
-		[]Row{{Values: map[string]Cell{"a": {Value: Int(2)}}}},
-	); !ok || dup != "a" {
-		t.Fatalf("expected duplicate column 'a', got (%q,%v)", dup, ok)
-	}
-}
-
 func TestEvalExprWithCtxDefaultUnsupportedNode(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}

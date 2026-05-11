@@ -9,11 +9,6 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func compileUserGlobals(prog ast.Program, builtins map[string]eval.Value, diags *diag.Diagnostics) (map[string]*GlobalVar, []string) {
-	exec := execGlobalPlan(buildGlobalPlan(prog, builtins, baseDirForProgramFile(prog.File)), builtins, builtins, diags)
-	return globalVarsFromExec(exec)
-}
-
 func globalExprDependencies(expr ast.Expr, self string) []string {
 	if expr == nil {
 		return nil
