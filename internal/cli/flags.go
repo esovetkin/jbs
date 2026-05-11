@@ -3,26 +3,9 @@ package cli
 import (
 	"fmt"
 	"strings"
+
+	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 )
-
-var knownHelpTopics = []string{
-	"analyse",
-	"archive",
-	"continue",
-	"do",
-	"fwait",
-	"globals",
-	"repl",
-	"use",
-}
-
-var knownHelpTopicSet = func() map[string]struct{} {
-	set := make(map[string]struct{}, len(knownHelpTopics))
-	for _, topic := range knownHelpTopics {
-		set[topic] = struct{}{}
-	}
-	return set
-}()
 
 type Flags struct {
 	Input             string
@@ -147,6 +130,15 @@ func ParseFlags(args []string) (Flags, error) {
 		return cfg, nil
 	}
 	for i := 0; i < len(args); i++ {
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, defaultRunUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+
 		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help":
@@ -163,24 +155,6 @@ func ParseFlags(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 			}
 			cfg.NoStrict = true
-		case arg == "-b" || arg == "--benchmark":
-			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
-			}
-			i++
-			cfg.Benchmark = args[i]
-		case strings.HasPrefix(arg, "--benchmark="):
-			value := strings.TrimPrefix(arg, "--benchmark=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
-			}
-			cfg.Benchmark = value
-		case strings.HasPrefix(arg, "-b="):
-			value := strings.TrimPrefix(arg, "-b=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
-			}
-			cfg.Benchmark = value
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: fmt.Sprintf("unknown option: %s", arg)}
 		default:
@@ -201,7 +175,7 @@ func ParseFlags(args []string) (Flags, error) {
 }
 
 func UsageText() string {
-	return `Usage:
+	return fmt.Sprintf(`Usage:
 
 Run:
   jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
@@ -222,7 +196,7 @@ Options:
   -c, --check   Parse+validate only
 
 Read examples/help:
-  jbs help [analyse|archive|continue|do|fwait|globals|repl|use]
+  jbs help [%s]
 
 Inspect step parameter expansion:
   jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
@@ -233,7 +207,7 @@ Format jbs in place:
 
 Interactive mode:
   jbs
-  jbs repl`
+  jbs repl`, helpUsageTopics())
 }
 
 func parseFWaitArgs(args []string) (Flags, error) {
@@ -257,6 +231,15 @@ func parseFWaitArgs(args []string) (Flags, error) {
 func parseRunArgs(args []string) (Flags, error) {
 	cfg := Flags{Run: true, Output: "-"}
 	for i := 0; i < len(args); i++ {
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, runUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+
 		arg := args[i]
 		switch {
 		case arg == "-n" || arg == "--dry-run":
@@ -269,24 +252,6 @@ func parseRunArgs(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: runUsageMessage()}
 			}
 			cfg.NoStrict = true
-		case arg == "-b" || arg == "--benchmark":
-			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return Flags{}, UsageError{Message: runUsageMessage()}
-			}
-			i++
-			cfg.Benchmark = args[i]
-		case strings.HasPrefix(arg, "--benchmark="):
-			value := strings.TrimPrefix(arg, "--benchmark=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: runUsageMessage()}
-			}
-			cfg.Benchmark = value
-		case strings.HasPrefix(arg, "-b="):
-			value := strings.TrimPrefix(arg, "-b=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: runUsageMessage()}
-			}
-			cfg.Benchmark = value
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: runUsageMessage()}
 		default:
@@ -313,26 +278,17 @@ func defaultRunUsageMessage() string {
 func parseContinueArgs(args []string) (Flags, error) {
 	cfg := Flags{Continue: true, Output: "-"}
 	for i := 0; i < len(args); i++ {
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, continueUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+
 		arg := args[i]
 		switch {
-		case arg == "-b" || arg == "--benchmark":
-			if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return Flags{}, UsageError{Message: continueUsageMessage()}
-			}
-			i++
-			cfg.Benchmark = args[i]
-		case strings.HasPrefix(arg, "--benchmark="):
-			value := strings.TrimPrefix(arg, "--benchmark=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: continueUsageMessage()}
-			}
-			cfg.Benchmark = value
-		case strings.HasPrefix(arg, "-b="):
-			value := strings.TrimPrefix(arg, "-b=")
-			if cfg.Benchmark != "" || value == "" {
-				return Flags{}, UsageError{Message: continueUsageMessage()}
-			}
-			cfg.Benchmark = value
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: continueUsageMessage()}
 		default:
@@ -352,13 +308,49 @@ func continueUsageMessage() string {
 	return "usage: jbs continue [-b|--benchmark <name>] <file.jbs>"
 }
 
+func consumeBenchmarkOption(cfg *Flags, args []string, i int, usage string) (int, bool, error) {
+	arg := args[i]
+	switch {
+	case arg == "-b" || arg == "--benchmark":
+		if cfg.Benchmark != "" || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Benchmark = args[i+1]
+		return i + 1, true, nil
+	case strings.HasPrefix(arg, "--benchmark="):
+		value := strings.TrimPrefix(arg, "--benchmark=")
+		if cfg.Benchmark != "" || value == "" {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Benchmark = value
+		return i, true, nil
+	case strings.HasPrefix(arg, "-b="):
+		value := strings.TrimPrefix(arg, "-b=")
+		if cfg.Benchmark != "" || value == "" {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Benchmark = value
+		return i, true, nil
+	default:
+		return i, false, nil
+	}
+}
+
+func helpTopics() []string {
+	return helpdocs.Topics()
+}
+
 func isKnownHelpTopic(topic string) bool {
-	_, ok := knownHelpTopicSet[topic]
-	return ok
+	for _, known := range helpTopics() {
+		if topic == known {
+			return true
+		}
+	}
+	return false
 }
 
 func helpUsageTopics() string {
-	return strings.Join(knownHelpTopics, "|")
+	return strings.Join(helpTopics(), "|")
 }
 
 func helpUsageMessage() string {

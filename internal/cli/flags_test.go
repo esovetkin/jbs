@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
@@ -294,6 +296,23 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 	}
 }
 
+func TestParseFlagsBenchmarkEqualsAllowsDashValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"run", "--benchmark=-dash", "input.jbs"},
+		{"run", "-b=-dash", "input.jbs"},
+		{"continue", "--benchmark=-dash", "input.jbs"},
+		{"--benchmark=-dash", "input.jbs"},
+	} {
+		args := args
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			f := mustParseFlags(t, args)
+			if f.Benchmark != "-dash" {
+				t.Fatalf("unexpected benchmark for %v: got=%q want=-dash", args, f.Benchmark)
+			}
+		})
+	}
+}
+
 func TestParseFlagsNoArgMode(t *testing.T) {
 	f := mustParseFlags(t, nil)
 	if !f.Repl || f.Help || f.HelpTopic != "" {
@@ -331,7 +350,7 @@ func TestParseFlagsReplMode(t *testing.T) {
 }
 
 func TestParseFlagsHelpTopics(t *testing.T) {
-	for _, topic := range knownHelpTopics {
+	for _, topic := range helpdocs.Topics() {
 		topic := topic
 		t.Run(topic, func(t *testing.T) {
 			f := mustParseFlags(t, []string{"help", topic})
@@ -400,18 +419,23 @@ func TestParseFlagsHelpCommandForms(t *testing.T) {
 	}
 }
 
-func TestKnownHelpTopicsExistInDocs(t *testing.T) {
-	for _, topic := range knownHelpTopics {
-		if _, err := helpdocs.Page(topic); err != nil {
-			t.Fatalf("help topic %q has no docs page: %v", topic, err)
-		}
+func TestHelpTopicsComeFromDocsRegistry(t *testing.T) {
+	if got, want := helpTopics(), helpdocs.Topics(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected CLI help topics: got=%#v want=%#v", got, want)
 	}
 }
 
 func TestHelpUsageTextMatchesTopicRegistry(t *testing.T) {
-	want := "usage: jbs help [" + helpUsageTopics() + "]"
+	want := "usage: jbs help [" + strings.Join(helpdocs.Topics(), "|") + "]"
 	if got := helpUsageMessage(); got != want {
 		t.Fatalf("unexpected help usage message: got=%q want=%q", got, want)
+	}
+}
+
+func TestUsageTextUsesHelpTopicRegistry(t *testing.T) {
+	want := "jbs help [" + strings.Join(helpdocs.Topics(), "|") + "]"
+	if got := UsageText(); !strings.Contains(got, want) {
+		t.Fatalf("usage text missing help topic list %q:\n%s", want, got)
 	}
 }
 
