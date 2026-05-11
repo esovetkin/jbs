@@ -2,13 +2,12 @@ package sema
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
-	"strings"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsubutil"
 )
 
 func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
@@ -22,7 +21,7 @@ func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
 		visible := visibleNamesForStep(res.StepScopeByName[block.Name])
 		seenDest := make(map[string]diag.Span, len(block.FSubs))
 		for _, fsub := range block.FSubs {
-			dest := fsubDestName(fsub.Path)
+			dest := fsubutil.DestName(fsub.Path)
 			if dest == "" {
 				diags.AddError(diag.CodeE220, "fsub path must name a file", fsub.PathSpan, "use a path with a filename")
 			} else if prev, ok := seenDest[dest]; ok {
@@ -60,18 +59,6 @@ func visibleNamesForStep(plan *StepScopePlan) map[string]struct{} {
 		out[name] = struct{}{}
 	}
 	return out
-}
-
-func fsubDestName(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
-	}
-	dest := filepath.Base(filepath.Clean(path))
-	if dest == "" || dest == "." || dest == ".." {
-		return ""
-	}
-	return dest
 }
 
 func validateFSubExprRefs(stepName string, visible map[string]struct{}, expr ast.Expr, diags *diag.Diagnostics) {

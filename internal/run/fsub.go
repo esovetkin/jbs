@@ -12,6 +12,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsubutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
@@ -51,7 +52,7 @@ func fileSubPlansByStep(res *sema.Result) (map[string][]FileSubstitutionPlan, er
 		base := fileSubBaseDir(res, block.Span)
 		for _, fsub := range block.FSubs {
 			sourcePath := resolveFSubTemplatePath(base, fsub.Path)
-			destName := fsubDestName(fsub.Path)
+			destName := fsubutil.DestName(fsub.Path)
 			rules, err := compileFSubRules(fsub.Rules)
 			if err != nil {
 				return nil, err
@@ -93,18 +94,6 @@ func resolveFSubTemplatePath(base, raw string) string {
 		base = "."
 	}
 	return filepath.Clean(filepath.Join(base, raw))
-}
-
-func fsubDestName(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
-	}
-	dest := filepath.Base(filepath.Clean(path))
-	if dest == "" || dest == "." || dest == ".." {
-		return ""
-	}
-	return dest
 }
 
 func compileFSubRules(rules []ast.FileSubstitutionRule) ([]FileSubstitutionRulePlan, error) {
