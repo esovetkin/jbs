@@ -88,6 +88,9 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.IndexExpr:
 		collectGlobalExprDepsBound(e.Base, out, bound)
+		for _, item := range e.Items {
+			collectGlobalExprDepsBound(item, out, bound)
+		}
 	case ast.UnaryExpr:
 		collectGlobalExprDepsBound(e.Expr, out, bound)
 	case ast.BinaryExpr:

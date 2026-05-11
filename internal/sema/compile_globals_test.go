@@ -71,7 +71,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 						Left: ast.MemberExpr{
 							Base: ast.IndexExpr{
 								Base:  ast.IdentExpr{Name: "g", Span: span},
-								Items: []ast.Expr{ast.IdentExpr{Name: "selector_ignored", Span: span}},
+								Items: []ast.Expr{ast.IdentExpr{Name: "selector_key", Span: span}},
 								Span:  span,
 							},
 							Name: "member_ignored",
@@ -85,7 +85,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 								Expr: ast.IndexExpr{
 									Base: ast.IdentExpr{Name: "f", Span: span},
 									Items: []ast.Expr{
-										ast.IdentExpr{Name: "index_ignored", Span: span},
+										ast.IdentExpr{Name: "index_key", Span: span},
 									},
 									Span: span,
 								},
@@ -106,7 +106,7 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 
 	out := map[string]struct{}{}
 	collectGlobalExprDeps(expr, out)
-	gotCollected := []string{"b", "d", "f", "g", "ns", "self"}
+	gotCollected := []string{"b", "d", "f", "g", "index_key", "ns", "selector_key", "self"}
 	for _, name := range gotCollected {
 		if _, ok := out[name]; !ok {
 			t.Fatalf("expected collected dependency %q, got %#v", name, out)
@@ -115,20 +115,49 @@ func TestGlobalExprDependenciesAndCollector(t *testing.T) {
 	if _, ok := out["callee_ignored"]; !ok {
 		t.Fatalf("expected call callee to be collected, got %#v", out)
 	}
-	if _, ok := out["index_ignored"]; ok {
-		t.Fatalf("did not expect index item to be collected, got %#v", out)
-	}
-	if _, ok := out["selector_ignored"]; ok {
-		t.Fatalf("did not expect member selector to be collected, got %#v", out)
-	}
 	if _, ok := out["member_ignored"]; ok {
 		t.Fatalf("did not expect member name to be collected, got %#v", out)
 	}
 
 	gotDeps := globalExprDependencies(expr, "self")
-	wantDeps := []string{"b", "callee_ignored", "d", "f", "g", "ns"}
+	wantDeps := []string{"b", "callee_ignored", "d", "f", "g", "index_key", "ns", "selector_key"}
 	if !reflect.DeepEqual(gotDeps, wantDeps) {
 		t.Fatalf("unexpected global dependencies: got=%#v want=%#v", gotDeps, wantDeps)
+	}
+}
+
+func TestCompileUserGlobalsTracksDictionaryIndexKeyDeps(t *testing.T) {
+	prog := parseSemaProgram(t, "dict_index_deps.jbs", `
+cfg = {"a": 1}
+key = "a"
+choice = cfg[key]
+`)
+
+	diags := &diag.Diagnostics{}
+	out, _ := compileUserGlobals(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	want := []string{"cfg", "key"}
+	if !reflect.DeepEqual(out["choice"].DependsOn, want) {
+		t.Fatalf("unexpected choice deps: got=%#v want=%#v", out["choice"].DependsOn, want)
+	}
+}
+
+func TestCompileUserGlobalsDoesNotReportFunctionIndexParameterAsGlobal(t *testing.T) {
+	prog := parseSemaProgram(t, "dict_index_param_deps.jbs", `
+cfg = {"a": 1}
+lookup = function(key) { cfg[key] }
+`)
+
+	diags := &diag.Diagnostics{}
+	out, _ := compileUserGlobals(prog, nil, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	want := []string{"cfg"}
+	if !reflect.DeepEqual(out["lookup"].DependsOn, want) {
+		t.Fatalf("unexpected lookup deps: got=%#v want=%#v", out["lookup"].DependsOn, want)
 	}
 }
 
@@ -413,14 +442,14 @@ func TestGlobalExprReadNames(t *testing.T) {
 				Span: span,
 			},
 			Items: []ast.Expr{
-				ast.IdentExpr{Name: "ignored", Span: span},
+				ast.IdentExpr{Name: "key", Span: span},
 			},
 			Span: span,
 		},
 		Span: span,
 	}
 	got := globalExprReadNames(expr)
-	want := []string{"lib", "lib.value", "jobs", "jobs.x"}
+	want := []string{"lib", "lib.value", "jobs", "jobs.x", "key"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected read names: got=%#v want=%#v", got, want)
 	}

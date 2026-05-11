@@ -86,6 +86,9 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 			walk(n.Expr)
 		case ast.IndexExpr:
 			walk(n.Base)
+			for _, item := range n.Items {
+				walk(item)
+			}
 		case ast.UnaryExpr:
 			walk(n.Expr)
 		case ast.BinaryExpr:
