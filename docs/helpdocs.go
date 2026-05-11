@@ -52,6 +52,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "read_csv", File: "function_help/read_csv.md"},
 	{Name: "reduce", File: "function_help/reduce.md"},
 	{Name: "rev", File: "function_help/rev.md"},
+	{Name: "rows", File: "function_help/rows.md"},
 	{Name: "select", File: "function_help/select.md"},
 	{Name: "shell", File: "function_help/shell.md"},
 	{Name: "str", File: "function_help/str.md"},

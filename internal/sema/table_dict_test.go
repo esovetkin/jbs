@@ -63,6 +63,36 @@ columns["x"]
 	}
 }
 
+func TestAnalyzeSupportsRowsFromTableConversion(t *testing.T) {
+	src := `
+cases = table(x = [1, 2], y = ["a", "b"])
+r = rows(cases)
+r
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	wantRows := eval.List([]eval.Value{
+		eval.DictValue([]eval.DictEntry{
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "x"}, Value: eval.Int(1)},
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "y"}, Value: eval.String("a")},
+		}),
+		eval.DictValue([]eval.DictEntry{
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "x"}, Value: eval.Int(2)},
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "y"}, Value: eval.String("b")},
+		}),
+	})
+	if gv := res.GlobalVarByName["r"]; gv == nil || !eval.Equal(gv.Value, wantRows) {
+		t.Fatalf("unexpected rows list: %#v", gv)
+	}
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantRows) {
+		t.Fatalf("unexpected top-level rows result: %#v", res.TopLevelExprs)
+	}
+}
+
 func TestAnalyzeTableBroadcastWarning(t *testing.T) {
 	src := `cases = table(x = range(3), y = range(10))`
 	diags := &diag.Diagnostics{}

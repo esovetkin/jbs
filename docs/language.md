@@ -302,6 +302,7 @@ Useful functions:
 - `names(table)`        # column names
 - `dict(table)`         # table -> dictionary
 - `table(dict)`         # dictionary -> table
+- `rows(table)`         # table rows as list of dictionaries
 
 ### Functions
 

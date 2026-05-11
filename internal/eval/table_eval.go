@@ -282,6 +282,50 @@ func evalSelectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 	return projected
 }
 
+func evalRowsCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) != 1 {
+		diags.AddError(diag.CodeE106, "rows() expects exactly one table argument", at, "use rows(table_value)")
+		return Null()
+	}
+	if rawArgs[0].Name != "" {
+		diags.AddError(diag.CodeE106, "rows() does not accept named arguments", rawArgs[0].Span, "pass the table as a positional argument")
+		return Null()
+	}
+
+	tableValue := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
+	if !IsComb(tableValue) {
+		diags.AddError(diag.CodeE106, "rows() argument must be a table value", rawArgs[0].Span, "pass a table built by table(), zip(), product(), select(), or read_csv()")
+		return Null()
+	}
+	return rowsFromTable(tableValue, rawArgs[0].Span, diags)
+}
+
+func rowsFromTable(tableValue Value, at diag.Span, diags *diag.Diagnostics) Value {
+	names := CombNames(tableValue)
+	out := make([]Value, 0, len(tableValue.C.Rows))
+
+	for _, row := range tableValue.C.Rows {
+		entries := make([]DictEntry, 0, len(names))
+		for _, name := range names {
+			cell, ok := row.Values[name]
+			if !ok {
+				diags.AddError(diag.CodeE106, fmt.Sprintf("rows() could not read table column '%s'", name), at, "convert well-formed table values only")
+				return Null()
+			}
+			entries = append(entries, DictEntry{
+				Key:   DictKey{Kind: DictKeyString, S: name},
+				Value: CloneValue(cell.Value),
+			})
+		}
+		out = append(out, DictValue(entries))
+	}
+
+	return List(out)
+}
+
 func evalPositionalTableArgs(name string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Value, bool) {
 	if len(rawArgs) == 0 {
 		diags.AddError(diag.CodeE106, name+"() expects at least one table argument", at, "pass one or more table values")
