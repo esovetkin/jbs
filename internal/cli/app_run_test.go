@@ -1463,6 +1463,13 @@ func TestRunCommandAnalysisFailureMarksRootError(t *testing.T) {
 	if status.Status != jbsrun.StatusError || !strings.Contains(status.Error, "missing.log") {
 		t.Fatalf("unexpected root status after analysis failure: %#v", status)
 	}
+	errText := stderr.String()
+	if !strings.Contains(errText, "bench: benchmark ERROR:") {
+		t.Fatalf("expected detailed benchmark error, got %q", errText)
+	}
+	if !strings.Contains(errText, "read analyse file") || !strings.Contains(errText, "missing.log") {
+		t.Fatalf("expected analysis cause in stderr, got %q", errText)
+	}
 	if strings.Contains(stdout.String(), "\nrun/analyse.csv\n") {
 		t.Fatalf("did not expect analysis table after failure: %q", stdout.String())
 	}

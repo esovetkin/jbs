@@ -227,10 +227,12 @@ func runOneStore(ctx context.Context, item preparedStore, continuing bool, progr
 	final := schedulerResult.Status
 	progress.Close(final)
 	message := schedulerResultMessage(schedulerResult)
+	var runErr error
 	if final == StatusFinished {
 		if err := RunAnalyses(store, item.Plan.Analyses); err != nil {
 			final = StatusError
 			message = err.Error()
+			runErr = err
 		}
 	}
 	if err := store.MarkRootFinal(final, message); err != nil {
@@ -238,6 +240,9 @@ func runOneStore(ctx context.Context, item preparedStore, continuing bool, progr
 	}
 	if final == StatusFinished {
 		return componentResult{Label: label, Store: store, Final: final}
+	}
+	if runErr != nil {
+		return componentResult{Label: label, Store: store, Final: final, Err: runErr}
 	}
 	if schedulerResult.Err != nil {
 		return componentResult{Label: label, Store: store, Final: final, Err: schedulerResult.Err}
