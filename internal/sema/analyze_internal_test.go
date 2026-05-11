@@ -88,6 +88,39 @@ keys
 	}
 }
 
+func TestAnalyzeSequenceIndexing(t *testing.T) {
+	src := `
+xs = [10, 20, 30]
+last = xs[-1]
+selected = xs[[0, -1]]
+masked = xs[[true, false]]
+last
+selected
+masked
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(res.TopLevelExprs) != 3 {
+		t.Fatalf("expected three top-level expression results, got %#v", res.TopLevelExprs)
+	}
+	want := []eval.Value{
+		eval.Int(30),
+		eval.List([]eval.Value{eval.Int(10), eval.Int(30)}),
+		eval.List([]eval.Value{eval.Int(10), eval.Int(30)}),
+	}
+	for i, wantValue := range want {
+		if !eval.Equal(res.TopLevelExprs[i].Value, wantValue) {
+			t.Fatalf("unexpected result %d: got=%#v want=%#v", i, res.TopLevelExprs[i].Value, wantValue)
+		}
+	}
+}
+
 func TestAnalyzePrintEventsRequireOption(t *testing.T) {
 	src := "print(\"quiet\")\n"
 	diags := &diag.Diagnostics{}

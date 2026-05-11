@@ -66,6 +66,15 @@ func TestJBSFormatsNamedCallArgumentsWithoutChangingExpressionSemantics(t *testi
 	}
 }
 
+func TestJBSFormatsNestedIndexSelectors(t *testing.T) {
+	src := "x=xs[[0, -1]]\ny=ys[[true, false]]\n"
+	want := "x = xs[[0, -1]]\ny = ys[[true, false]]\n"
+	got := formatJBSForTest(t, "nested_index_selectors.jbs", src)
+	if got != want {
+		t.Fatalf("unexpected formatted output\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}
+
 func TestJBSFormatsStructuredContainersWithoutChangingSiblingExpressions(t *testing.T) {
 	cases := []struct {
 		name string

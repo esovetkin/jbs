@@ -244,35 +244,17 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		if ctx.recursionLimitHit() {
 			return Null()
 		}
-		if base.Kind == KindDict {
+		switch {
+		case base.Kind == KindDict:
 			return evalDictIndex(base, e.Items, env, e.Span, diags, opts, ctx)
-		}
-		if !IsComb(base) {
-			diags.AddError(diag.CodeE106, "index expression requires a table base", e.Span, "use syntax: table_value[col] or table_value[col0,col1]")
+		case base.Kind == KindList || base.Kind == KindTuple:
+			return evalSequenceIndex(base, e.Items, env, e.Span, diags, opts, ctx)
+		case IsComb(base):
+			return evalCombIndex(base, e.Items, e.Span, diags)
+		default:
+			diags.AddError(diag.CodeE106, "index expression requires a list, tuple, dictionary, or table base", e.Span, "use value[index], dict_value[key], or table_value[col]")
 			return Null()
 		}
-		selectors := make([]string, 0, len(e.Items))
-		for _, item := range e.Items {
-			switch n := item.(type) {
-			case ast.IdentExpr:
-				selectors = append(selectors, n.Name)
-			case ast.QualifiedIdentExpr:
-				selectors = append(selectors, n.Namespace+"."+n.Name)
-			default:
-				diags.AddError(diag.CodeE106, "table index selectors must be identifiers", item.GetSpan(), "use syntax: table_value[col] or table_value[col0,col1]")
-				return Null()
-			}
-		}
-		if len(selectors) == 0 {
-			diags.AddError(diag.CodeE106, "table index selectors cannot be empty", e.Span, "use at least one selector inside []")
-			return Null()
-		}
-		projected, ok := CombProject(base, selectors)
-		if !ok {
-			diags.AddError(diag.CodeE106, "invalid table projection selector", e.Span, "select existing table columns only")
-			return Null()
-		}
-		return projected
 	case ast.UnaryExpr:
 		v := evalExprWithCtx(e.Expr, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {

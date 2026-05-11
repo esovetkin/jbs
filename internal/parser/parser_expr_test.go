@@ -811,6 +811,70 @@ func TestParseIndexExprBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("nested integer selector list", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("xs[[0,-1]]", diags)
+		expr := tp.parseExpr()
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index expression, got %#v", expr)
+		}
+		if len(idx.Items) != 1 {
+			t.Fatalf("expected one selector item, got %#v", idx.Items)
+		}
+		list, ok := idx.Items[0].(ast.ListExpr)
+		if !ok {
+			t.Fatalf("expected nested list selector, got %#v", idx.Items[0])
+		}
+		if len(list.Items) != 2 {
+			t.Fatalf("expected two selector values, got %#v", list.Items)
+		}
+		if first, ok := list.Items[0].(ast.NumberExpr); !ok || !first.Int || first.IntValue != 0 {
+			t.Fatalf("expected first selector value 0, got %#v", list.Items[0])
+		}
+		second, ok := list.Items[1].(ast.UnaryExpr)
+		if !ok || second.Op != "-" {
+			t.Fatalf("expected second selector value to be unary -1, got %#v", list.Items[1])
+		}
+		if inner, ok := second.Expr.(ast.NumberExpr); !ok || !inner.Int || inner.IntValue != 1 {
+			t.Fatalf("expected unary selector inner value 1, got %#v", second.Expr)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
+	t.Run("nested boolean selector list", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("xs[[true,false]]", diags)
+		expr := tp.parseExpr()
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index expression, got %#v", expr)
+		}
+		if len(idx.Items) != 1 {
+			t.Fatalf("expected one selector item, got %#v", idx.Items)
+		}
+		list, ok := idx.Items[0].(ast.ListExpr)
+		if !ok {
+			t.Fatalf("expected nested list selector, got %#v", idx.Items[0])
+		}
+		if len(list.Items) != 2 {
+			t.Fatalf("expected two selector values, got %#v", list.Items)
+		}
+		first, ok := list.Items[0].(ast.BoolExpr)
+		if !ok || !first.Value {
+			t.Fatalf("expected first selector value true, got %#v", list.Items[0])
+		}
+		second, ok := list.Items[1].(ast.BoolExpr)
+		if !ok || second.Value {
+			t.Fatalf("expected second selector value false, got %#v", list.Items[1])
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
 	t.Run("missing closing bracket reports E055", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		tp := parseExprTP("a[1,2", diags)
