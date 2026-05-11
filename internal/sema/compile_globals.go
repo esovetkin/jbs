@@ -30,133 +30,97 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 	if expr == nil {
 		return
 	}
-	isBound := func(name string) bool {
-		_, ok := bound[name]
-		return ok
-	}
-	switch e := expr.(type) {
-	case ast.IdentExpr:
-		if e.Name != "" && !isBound(e.Name) {
-			out[e.Name] = struct{}{}
-		}
-	case ast.QualifiedIdentExpr:
-		if e.Namespace != "" && !isBound(e.Namespace) {
-			out[e.Namespace] = struct{}{}
-		}
-	case ast.MemberExpr:
-		collectGlobalExprDepsBound(e.Base, out, bound)
-	case ast.ListExpr:
-		for _, it := range e.Items {
-			collectGlobalExprDepsBound(it, out, bound)
-		}
-	case ast.TupleExpr:
-		for _, it := range e.Items {
-			collectGlobalExprDepsBound(it, out, bound)
-		}
-	case ast.DictExpr:
-		for _, entry := range e.Entries {
-			collectGlobalExprDepsBound(entry.Key, out, bound)
-			collectGlobalExprDepsBound(entry.Value, out, bound)
-		}
-	case ast.CallExpr:
-		collectGlobalExprDepsBound(e.Callee, out, bound)
-		if isDeleteCallExpr(e) {
-			return
-		}
-		for _, arg := range e.Args {
-			collectGlobalExprDepsBound(arg.Expr, out, bound)
-		}
-	case ast.FunctionExpr:
-		nextBound := make(map[string]struct{}, len(bound)+len(e.Params))
-		for name := range bound {
-			nextBound[name] = struct{}{}
-		}
-		for _, param := range e.Params {
-			collectGlobalExprDepsBound(param.Default, out, nextBound)
-			if param.Name != "" {
-				nextBound[param.Name] = struct{}{}
-			}
-		}
-		collectFuncBodyLocalNames(e.Body, nextBound)
-		collectFuncBodyGlobalExprDeps(e.Body, out, nextBound)
-	case ast.AliasExpr:
-		collectGlobalExprDepsBound(e.Expr, out, bound)
-	case ast.IndexExpr:
-		collectGlobalExprDepsBound(e.Base, out, bound)
-		for _, item := range e.Items {
-			collectGlobalExprDepsBound(item, out, bound)
-		}
-	case ast.UnaryExpr:
-		collectGlobalExprDepsBound(e.Expr, out, bound)
-	case ast.BinaryExpr:
-		collectGlobalExprDepsBound(e.Left, out, bound)
-		collectGlobalExprDepsBound(e.Right, out, bound)
-	case ast.CompareExpr:
-		collectGlobalExprDepsBound(e.Left, out, bound)
-		collectGlobalExprDepsBound(e.Right, out, bound)
-	case ast.ConditionalExpr:
-		collectGlobalExprDepsBound(e.Then, out, bound)
-		collectGlobalExprDepsBound(e.Cond, out, bound)
-		collectGlobalExprDepsBound(e.Else, out, bound)
-	}
-}
+	var walkExprBound func(ast.Expr, map[string]struct{})
+	var walkBodyBound func([]ast.FuncBodyStmt, map[string]struct{})
 
-func collectFuncBodyLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			if node.Name != "" {
-				out[node.Name] = struct{}{}
+	callbacksForBound := func(bound map[string]struct{}) ast.WalkCallbacks {
+		var callbacks ast.WalkCallbacks
+		callbacks.Expr = func(node ast.Expr) ast.WalkAction {
+			switch n := node.(type) {
+			case ast.IdentExpr:
+				if n.Name != "" && !nameSetContains(bound, n.Name) {
+					out[n.Name] = struct{}{}
+				}
+			case ast.QualifiedIdentExpr:
+				if n.Namespace != "" && !nameSetContains(bound, n.Namespace) {
+					out[n.Namespace] = struct{}{}
+				}
+			case ast.CallExpr:
+				if isDeleteCallExpr(n) {
+					walkExprBound(n.Callee, bound)
+					return ast.WalkSkipChildren
+				}
+			case ast.FunctionExpr:
+				nextBound := cloneNameSet(bound)
+				for _, param := range n.Params {
+					walkExprBound(param.Default, nextBound)
+					if param.Name != "" {
+						nextBound[param.Name] = struct{}{}
+					}
+				}
+				collectFuncBodyLocalNames(n.Body, nextBound)
+				walkBodyBound(n.Body, nextBound)
+				return ast.WalkSkipChildren
 			}
-		case ast.FuncIfStmt:
-			collectFuncBodyLocalNames(node.Then, out)
-			for _, branch := range node.Elifs {
-				collectFuncBodyLocalNames(branch.Body, out)
-			}
-			collectFuncBodyLocalNames(node.Else, out)
-		case ast.FuncForStmt:
-			if node.Target != "" {
-				out[node.Target] = struct{}{}
-			}
-			collectFuncBodyLocalNames(node.Body, out)
-		case ast.FuncWhileStmt:
-			collectFuncBodyLocalNames(node.Body, out)
+			return ast.WalkContinue
 		}
-	}
-}
-
-func collectFuncBodyGlobalExprDeps(body []ast.FuncBodyStmt, out map[string]struct{}, bound map[string]struct{}) {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			collectGlobalExprDepsBound(node.Expr, out, bound)
-		case ast.ReturnStmt:
-			collectGlobalExprDepsBound(node.Expr, out, bound)
-		case ast.ExprStmt:
-			collectGlobalExprDepsBound(node.Expr, out, bound)
-		case ast.FuncIfStmt:
-			collectGlobalExprDepsBound(node.Cond, out, bound)
-			collectFuncBodyGlobalExprDeps(node.Then, out, bound)
-			for _, branch := range node.Elifs {
-				collectGlobalExprDepsBound(branch.Cond, out, bound)
-				collectFuncBodyGlobalExprDeps(branch.Body, out, bound)
+		callbacks.FuncBodyStmt = func(stmt ast.FuncBodyStmt) ast.WalkAction {
+			node, ok := stmt.(ast.FuncForStmt)
+			if !ok {
+				return ast.WalkContinue
 			}
-			collectFuncBodyGlobalExprDeps(node.Else, out, bound)
-		case ast.FuncForStmt:
-			collectGlobalExprDepsBound(node.Iterable, out, bound)
-			nextBound := make(map[string]struct{}, len(bound)+1)
-			for name := range bound {
-				nextBound[name] = struct{}{}
-			}
+			walkExprBound(node.Iterable, bound)
+			nextBound := cloneNameSet(bound)
 			if node.Target != "" {
 				nextBound[node.Target] = struct{}{}
 			}
-			collectFuncBodyGlobalExprDeps(node.Body, out, nextBound)
-		case ast.FuncWhileStmt:
-			collectGlobalExprDepsBound(node.Cond, out, bound)
-			collectFuncBodyGlobalExprDeps(node.Body, out, bound)
+			walkBodyBound(node.Body, nextBound)
+			return ast.WalkSkipChildren
 		}
+		return callbacks
 	}
+
+	walkExprBound = func(expr ast.Expr, bound map[string]struct{}) {
+		ast.WalkExpr(expr, callbacksForBound(bound))
+	}
+	walkBodyBound = func(body []ast.FuncBodyStmt, bound map[string]struct{}) {
+		ast.WalkFuncBody(body, callbacksForBound(bound))
+	}
+	walkExprBound(expr, bound)
+}
+
+func collectFuncBodyLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
+	ast.WalkFuncBody(body, ast.WalkCallbacks{
+		Expr: func(ast.Expr) ast.WalkAction {
+			return ast.WalkSkipChildren
+		},
+		FuncBodyStmt: func(stmt ast.FuncBodyStmt) ast.WalkAction {
+			switch node := stmt.(type) {
+			case ast.LocalAssignStmt:
+				if node.Name != "" {
+					out[node.Name] = struct{}{}
+				}
+			case ast.FuncForStmt:
+				if node.Target != "" {
+					out[node.Target] = struct{}{}
+				}
+			}
+			return ast.WalkContinue
+		},
+	})
+}
+
+func nameSetContains(names map[string]struct{}, name string) bool {
+	_, ok := names[name]
+	return ok
+}
+
+func cloneNameSet(names map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(names))
+	for name := range names {
+		out[name] = struct{}{}
+	}
+	return out
 }
 
 func globalVarSeries(name string, value eval.Value) ([]string, map[string][]eval.Value) {

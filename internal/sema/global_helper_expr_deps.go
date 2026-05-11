@@ -24,91 +24,26 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 	if expr == nil {
 		return
 	}
-	switch e := expr.(type) {
-	case ast.IdentExpr:
-		if e.Name != "" {
-			out[e.Name] = struct{}{}
-		}
-	case ast.QualifiedIdentExpr:
-		if e.Namespace != "" {
-			out[e.Namespace] = struct{}{}
-		}
-		return
-	case ast.MemberExpr:
-		collectExprLocalIdentDeps(e.Base, out)
-	case ast.ListExpr:
-		for _, it := range e.Items {
-			collectExprLocalIdentDeps(it, out)
-		}
-	case ast.TupleExpr:
-		for _, it := range e.Items {
-			collectExprLocalIdentDeps(it, out)
-		}
-	case ast.DictExpr:
-		for _, entry := range e.Entries {
-			collectExprLocalIdentDeps(entry.Key, out)
-			collectExprLocalIdentDeps(entry.Value, out)
-		}
-	case ast.CallExpr:
-		collectExprLocalIdentDeps(e.Callee, out)
-		if isDeleteCallExpr(e) {
-			return
-		}
-		for _, arg := range e.Args {
-			collectExprLocalIdentDeps(arg.Expr, out)
-		}
-	case ast.FunctionExpr:
-		for _, param := range e.Params {
-			collectExprLocalIdentDeps(param.Default, out)
-		}
-		collectFuncBodyLocalIdentDeps(e.Body, out)
-	case ast.AliasExpr:
-		collectExprLocalIdentDeps(e.Expr, out)
-	case ast.IndexExpr:
-		collectExprLocalIdentDeps(e.Base, out)
-		for _, item := range e.Items {
-			collectExprLocalIdentDeps(item, out)
-		}
-	case ast.UnaryExpr:
-		collectExprLocalIdentDeps(e.Expr, out)
-	case ast.BinaryExpr:
-		collectExprLocalIdentDeps(e.Left, out)
-		collectExprLocalIdentDeps(e.Right, out)
-	case ast.CompareExpr:
-		collectExprLocalIdentDeps(e.Left, out)
-		collectExprLocalIdentDeps(e.Right, out)
-	case ast.ConditionalExpr:
-		collectExprLocalIdentDeps(e.Then, out)
-		collectExprLocalIdentDeps(e.Cond, out)
-		collectExprLocalIdentDeps(e.Else, out)
-	}
-}
-
-func collectFuncBodyLocalIdentDeps(body []ast.FuncBodyStmt, out map[string]struct{}) {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			collectExprLocalIdentDeps(node.Expr, out)
-		case ast.ReturnStmt:
-			collectExprLocalIdentDeps(node.Expr, out)
-		case ast.ExprStmt:
-			collectExprLocalIdentDeps(node.Expr, out)
-		case ast.FuncIfStmt:
-			collectExprLocalIdentDeps(node.Cond, out)
-			collectFuncBodyLocalIdentDeps(node.Then, out)
-			for _, branch := range node.Elifs {
-				collectExprLocalIdentDeps(branch.Cond, out)
-				collectFuncBodyLocalIdentDeps(branch.Body, out)
+	var callbacks ast.WalkCallbacks
+	callbacks.Expr = func(node ast.Expr) ast.WalkAction {
+		switch n := node.(type) {
+		case ast.IdentExpr:
+			if n.Name != "" {
+				out[n.Name] = struct{}{}
 			}
-			collectFuncBodyLocalIdentDeps(node.Else, out)
-		case ast.FuncForStmt:
-			collectExprLocalIdentDeps(node.Iterable, out)
-			collectFuncBodyLocalIdentDeps(node.Body, out)
-		case ast.FuncWhileStmt:
-			collectExprLocalIdentDeps(node.Cond, out)
-			collectFuncBodyLocalIdentDeps(node.Body, out)
+		case ast.QualifiedIdentExpr:
+			if n.Namespace != "" {
+				out[n.Namespace] = struct{}{}
+			}
+		case ast.CallExpr:
+			if isDeleteCallExpr(n) {
+				ast.WalkExpr(n.Callee, callbacks)
+				return ast.WalkSkipChildren
+			}
 		}
+		return ast.WalkContinue
 	}
+	ast.WalkExpr(expr, callbacks)
 }
 
 type contributorKind uint8

@@ -79,161 +79,102 @@ func exprReferencesAnyName(expr ast.Expr, names map[string]struct{}) bool {
 	if expr == nil || len(names) == 0 {
 		return false
 	}
-	var walk func(ast.Expr, map[string]struct{}) bool
 	isBound := func(name string, bound map[string]struct{}) bool {
 		_, ok := bound[name]
 		return ok
 	}
-	walk = func(node ast.Expr, bound map[string]struct{}) bool {
-		if node == nil {
-			return false
-		}
-		switch n := node.(type) {
-		case ast.IdentExpr:
-			_, target := names[n.Name]
-			return target && !isBound(n.Name, bound)
-		case ast.QualifiedIdentExpr:
-			_, target := names[n.Namespace]
-			return target && !isBound(n.Namespace, bound)
-		case ast.MemberExpr:
-			return walk(n.Base, bound)
-		case ast.ListExpr:
-			for _, item := range n.Items {
-				if walk(item, bound) {
-					return true
-				}
-			}
-		case ast.TupleExpr:
-			for _, item := range n.Items {
-				if walk(item, bound) {
-					return true
-				}
-			}
-		case ast.DictExpr:
-			for _, entry := range n.Entries {
-				if walk(entry.Key, bound) || walk(entry.Value, bound) {
-					return true
-				}
-			}
-		case ast.CallExpr:
-			if walk(n.Callee, bound) {
-				return true
-			}
-			for _, arg := range n.Args {
-				if walk(arg.Expr, bound) {
-					return true
-				}
-			}
-		case ast.FunctionExpr:
-			nextBound := cloneNameSet(bound)
-			for _, param := range n.Params {
-				if walk(param.Default, nextBound) {
-					return true
-				}
-				if param.Name != "" {
-					nextBound[param.Name] = struct{}{}
-				}
-			}
-			collectFunctionLocalNames(n.Body, nextBound)
-			if functionBodyReferencesAnyName(n.Body, nextBound, walk) {
-				return true
-			}
-		case ast.AliasExpr:
-			return walk(n.Expr, bound)
-		case ast.IndexExpr:
-			return walk(n.Base, bound)
-		case ast.UnaryExpr:
-			return walk(n.Expr, bound)
-		case ast.BinaryExpr:
-			return walk(n.Left, bound) || walk(n.Right, bound)
-		case ast.CompareExpr:
-			return walk(n.Left, bound) || walk(n.Right, bound)
-		case ast.ConditionalExpr:
-			return walk(n.Then, bound) || walk(n.Cond, bound) || walk(n.Else, bound)
-		}
-		return false
-	}
-	return walk(expr, nil)
-}
 
-func collectFunctionLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			if node.Name != "" {
-				out[node.Name] = struct{}{}
-			}
-		case ast.FuncIfStmt:
-			collectFunctionLocalNames(node.Then, out)
-			for _, branch := range node.Elifs {
-				collectFunctionLocalNames(branch.Body, out)
-			}
-			collectFunctionLocalNames(node.Else, out)
-		case ast.FuncForStmt:
-			if node.Target != "" {
-				out[node.Target] = struct{}{}
-			}
-			collectFunctionLocalNames(node.Body, out)
-		case ast.FuncWhileStmt:
-			collectFunctionLocalNames(node.Body, out)
-		}
-	}
-}
+	var walkExprBound func(ast.Expr, map[string]struct{}) bool
+	var walkBodyBound func([]ast.FuncBodyStmt, map[string]struct{}) bool
 
-func functionBodyReferencesAnyName(body []ast.FuncBodyStmt, bound map[string]struct{}, walk func(ast.Expr, map[string]struct{}) bool) bool {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			if walk(node.Expr, bound) {
-				return true
-			}
-		case ast.ReturnStmt:
-			if walk(node.Expr, bound) {
-				return true
-			}
-		case ast.ExprStmt:
-			if walk(node.Expr, bound) {
-				return true
-			}
-		case ast.FuncIfStmt:
-			if walk(node.Cond, bound) {
-				return true
-			}
-			if functionBodyReferencesAnyName(node.Then, bound, walk) {
-				return true
-			}
-			for _, branch := range node.Elifs {
-				if walk(branch.Cond, bound) {
-					return true
+	callbacksForBound := func(bound map[string]struct{}, found *bool) ast.WalkCallbacks {
+		var callbacks ast.WalkCallbacks
+		callbacks.Expr = func(node ast.Expr) ast.WalkAction {
+			switch n := node.(type) {
+			case ast.IdentExpr:
+				if _, target := names[n.Name]; target && !isBound(n.Name, bound) {
+					*found = true
+					return ast.WalkStop
 				}
-				if functionBodyReferencesAnyName(branch.Body, bound, walk) {
-					return true
+			case ast.QualifiedIdentExpr:
+				if _, target := names[n.Namespace]; target && !isBound(n.Namespace, bound) {
+					*found = true
+					return ast.WalkStop
 				}
+			case ast.FunctionExpr:
+				nextBound := cloneNameSet(bound)
+				for _, param := range n.Params {
+					if walkExprBound(param.Default, nextBound) {
+						*found = true
+						return ast.WalkStop
+					}
+					if param.Name != "" {
+						nextBound[param.Name] = struct{}{}
+					}
+				}
+				collectFunctionLocalNames(n.Body, nextBound)
+				if walkBodyBound(n.Body, nextBound) {
+					*found = true
+					return ast.WalkStop
+				}
+				return ast.WalkSkipChildren
 			}
-			if functionBodyReferencesAnyName(node.Else, bound, walk) {
-				return true
+			return ast.WalkContinue
+		}
+		callbacks.FuncBodyStmt = func(stmt ast.FuncBodyStmt) ast.WalkAction {
+			node, ok := stmt.(ast.FuncForStmt)
+			if !ok {
+				return ast.WalkContinue
 			}
-		case ast.FuncForStmt:
-			if walk(node.Iterable, bound) {
-				return true
+			if walkExprBound(node.Iterable, bound) {
+				*found = true
+				return ast.WalkStop
 			}
 			nextBound := cloneNameSet(bound)
 			if node.Target != "" {
 				nextBound[node.Target] = struct{}{}
 			}
-			if functionBodyReferencesAnyName(node.Body, nextBound, walk) {
-				return true
+			if walkBodyBound(node.Body, nextBound) {
+				*found = true
+				return ast.WalkStop
 			}
-		case ast.FuncWhileStmt:
-			if walk(node.Cond, bound) {
-				return true
-			}
-			if functionBodyReferencesAnyName(node.Body, bound, walk) {
-				return true
-			}
+			return ast.WalkSkipChildren
 		}
+		return callbacks
 	}
-	return false
+
+	walkExprBound = func(expr ast.Expr, bound map[string]struct{}) bool {
+		found := false
+		ast.WalkExpr(expr, callbacksForBound(bound, &found))
+		return found
+	}
+	walkBodyBound = func(body []ast.FuncBodyStmt, bound map[string]struct{}) bool {
+		found := false
+		ast.WalkFuncBody(body, callbacksForBound(bound, &found))
+		return found
+	}
+	return walkExprBound(expr, nil)
+}
+
+func collectFunctionLocalNames(body []ast.FuncBodyStmt, out map[string]struct{}) {
+	ast.WalkFuncBody(body, ast.WalkCallbacks{
+		Expr: func(ast.Expr) ast.WalkAction {
+			return ast.WalkSkipChildren
+		},
+		FuncBodyStmt: func(stmt ast.FuncBodyStmt) ast.WalkAction {
+			switch node := stmt.(type) {
+			case ast.LocalAssignStmt:
+				if node.Name != "" {
+					out[node.Name] = struct{}{}
+				}
+			case ast.FuncForStmt:
+				if node.Target != "" {
+					out[node.Target] = struct{}{}
+				}
+			}
+			return ast.WalkContinue
+		},
+	})
 }
 
 func cloneNameSet(in map[string]struct{}) map[string]struct{} {

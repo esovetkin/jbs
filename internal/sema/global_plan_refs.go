@@ -28,7 +28,6 @@ func globalExprReadNames(expr ast.Expr) []string {
 func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 	out := make([]globalReadRef, 0)
 	seen := make(map[globalReadRef]struct{})
-	var walk func(ast.Expr)
 	appendRef := func(ref globalReadRef) {
 		if ref.Name == "" && ref.SeedAlt == "" {
 			return
@@ -39,10 +38,8 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 		seen[ref] = struct{}{}
 		out = append(out, ref)
 	}
-	walk = func(node ast.Expr) {
-		if node == nil {
-			return
-		}
+	var callbacks ast.WalkCallbacks
+	callbacks.Expr = func(node ast.Expr) ast.WalkAction {
 		switch n := node.(type) {
 		case ast.IdentExpr:
 			appendRef(globalReadRef{Name: n.Name})
@@ -54,82 +51,14 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 				}
 				appendRef(globalReadRef{Name: n.Namespace, SeedAlt: seedAlt})
 			}
-		case ast.MemberExpr:
-			walk(n.Base)
-		case ast.ListExpr:
-			for _, item := range n.Items {
-				walk(item)
-			}
-		case ast.TupleExpr:
-			for _, item := range n.Items {
-				walk(item)
-			}
-		case ast.DictExpr:
-			for _, entry := range n.Entries {
-				walk(entry.Key)
-				walk(entry.Value)
-			}
 		case ast.CallExpr:
-			walk(n.Callee)
 			if isDeleteCallExpr(n) {
-				return
+				ast.WalkExpr(n.Callee, callbacks)
+				return ast.WalkSkipChildren
 			}
-			for _, arg := range n.Args {
-				walk(arg.Expr)
-			}
-		case ast.FunctionExpr:
-			for _, param := range n.Params {
-				walk(param.Default)
-			}
-			walkFuncBodyExprRefs(n.Body, walk)
-		case ast.AliasExpr:
-			walk(n.Expr)
-		case ast.IndexExpr:
-			walk(n.Base)
-			for _, item := range n.Items {
-				walk(item)
-			}
-		case ast.UnaryExpr:
-			walk(n.Expr)
-		case ast.BinaryExpr:
-			walk(n.Left)
-			walk(n.Right)
-		case ast.CompareExpr:
-			walk(n.Left)
-			walk(n.Right)
-		case ast.ConditionalExpr:
-			walk(n.Then)
-			walk(n.Cond)
-			walk(n.Else)
 		}
+		return ast.WalkContinue
 	}
-	walk(expr)
+	ast.WalkExpr(expr, callbacks)
 	return out
-}
-
-func walkFuncBodyExprRefs(body []ast.FuncBodyStmt, walk func(ast.Expr)) {
-	for _, stmt := range body {
-		switch node := stmt.(type) {
-		case ast.LocalAssignStmt:
-			walk(node.Expr)
-		case ast.ReturnStmt:
-			walk(node.Expr)
-		case ast.ExprStmt:
-			walk(node.Expr)
-		case ast.FuncIfStmt:
-			walk(node.Cond)
-			walkFuncBodyExprRefs(node.Then, walk)
-			for _, branch := range node.Elifs {
-				walk(branch.Cond)
-				walkFuncBodyExprRefs(branch.Body, walk)
-			}
-			walkFuncBodyExprRefs(node.Else, walk)
-		case ast.FuncForStmt:
-			walk(node.Iterable)
-			walkFuncBodyExprRefs(node.Body, walk)
-		case ast.FuncWhileStmt:
-			walk(node.Cond)
-			walkFuncBodyExprRefs(node.Body, walk)
-		}
-	}
 }

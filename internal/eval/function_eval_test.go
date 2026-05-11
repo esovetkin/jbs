@@ -507,6 +507,37 @@ func TestFunctionNamedArgsDefaultsAndBindingErrors(t *testing.T) {
 	})
 }
 
+func TestFunctionDefaultIndexItemReferenceUsesCallArgument(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(
+		[]ast.FuncParam{
+			{Name: "key"},
+			{
+				Name: "value",
+				Default: ast.IndexExpr{
+					Base:  ident("cfg"),
+					Items: []ast.Expr{ident("key")},
+				},
+			},
+		},
+		exprStmt(ident("value")),
+	)
+	env := map[string]Value{
+		"cfg": DictValue([]DictEntry{
+			{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+			{Key: DictKey{Kind: DictKeyString, S: "b"}, Value: Int(2)},
+		}),
+	}
+
+	got := EvalExprWithOptions(callExpr(fn, posArg(stringExpr("b"))), env, diags, ExprOptions{})
+	if !Equal(got, Int(2)) {
+		t.Fatalf("got %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
 func TestFunctionClosuresHigherOrderAndLocals(t *testing.T) {
 	t.Run("closure captures outer variable by reference", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
