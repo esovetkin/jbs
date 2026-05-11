@@ -115,7 +115,7 @@ The `jbs` language defines several data types and operations on those types.
 
 Lists and tuples can be combined in [tables](docs/language.md#tables). Tables support slicing, which lets you take subsets of parameters. Tables can also be imported from CSV/TSV files (see [`?read_csv`](docs/function_help/read_csv.md) in the REPL). JBS also supports [dictionaries](docs/language.md#dictionaries), which can be converted to and from tables.
 
-`jbs` supports [loops, conditional statements](docs/language.md#control-flow), and [functions](docs/language.md#functions).
+`jbs` supports [loops](docs/language.md#for-while-loops), [conditional statements](docs/language.md#ifelse), and [functions](docs/language.md#functions).
 
 Defined variables can be imported into `do` sections, and the corresponding scalar values are set as variables in each workpackage job.
 
