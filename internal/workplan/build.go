@@ -275,7 +275,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 		allowedRows = planutil.SequentialIndices(rowCount)
 	}
 
-	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full, eval.StableValueKey)
+	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full)
 	choices := make([]sourceChoice, 0, len(projected))
 	for _, grp := range projected {
 		vals := make(map[string]eval.Value, len(visibleNames))

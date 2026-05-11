@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+type StableNamedValuePart struct {
+	Name  string
+	Value Value
+}
+
 // StableValueKey returns a deterministic key for a JBS value within this process.
 func StableValueKey(v Value) string {
 	var b strings.Builder
@@ -22,6 +27,20 @@ func StableValueTupleKey(values []Value) string {
 	b.WriteByte('[')
 	for _, value := range values {
 		appendKeyPart(&b, StableValueKey(value))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// StableNamedValueTupleKey returns a deterministic key for named ordered values.
+func StableNamedValueTupleKey(parts []StableNamedValuePart) string {
+	var b strings.Builder
+	b.WriteByte('M')
+	b.WriteString(strconv.Itoa(len(parts)))
+	b.WriteByte('[')
+	for _, part := range parts {
+		appendKeyPart(&b, part.Name)
+		appendKeyPart(&b, StableValueKey(part.Value))
 	}
 	b.WriteByte(']')
 	return b.String()

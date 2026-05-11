@@ -7,36 +7,24 @@
 // logic.
 package planutil
 
-import (
-	"strconv"
-	"strings"
-
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
-)
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 
 type RowGroup struct {
 	Rep  int
 	Rows []int
 }
 
-type ValueKeyFunc func(eval.Value) string
-
-func BuildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int, keyFn ValueKeyFunc) []RowGroup {
+func BuildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCount int) []RowGroup {
 	if rowCount <= 0 {
 		return nil
 	}
 	if len(vars) == 0 {
 		return []RowGroup{{Rep: 0, Rows: SequentialIndices(rowCount)}}
 	}
-	if keyFn == nil {
-		keyFn = func(v eval.Value) string {
-			return v.String()
-		}
-	}
 	indexByKey := make(map[string]int)
 	groups := make([]RowGroup, 0, rowCount)
 	for row := 0; row < rowCount; row++ {
-		key := tupleKeyAt(vars, valuesByName, row, keyFn)
+		key := tupleKeyAt(vars, valuesByName, row)
 		if idx, exists := indexByKey[key]; exists {
 			groups[idx].Rows = append(groups[idx].Rows, row)
 			continue
@@ -48,7 +36,7 @@ func BuildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCoun
 }
 
 // BuildProjectedRowGroups regroups only the allowed rows; full imports keep one group per raw row.
-func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[string][]eval.Value, full bool, keyFn ValueKeyFunc) []RowGroup {
+func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[string][]eval.Value, full bool) []RowGroup {
 	if len(allowedRows) == 0 {
 		return nil
 	}
@@ -63,15 +51,10 @@ func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[
 		rows := append([]int(nil), allowedRows...)
 		return []RowGroup{{Rep: allowedRows[0], Rows: rows}}
 	}
-	if keyFn == nil {
-		keyFn = func(v eval.Value) string {
-			return v.String()
-		}
-	}
 	indexByKey := make(map[string]int)
 	groups := make([]RowGroup, 0, len(allowedRows))
 	for _, row := range allowedRows {
-		key := tupleKeyAt(vars, valuesByName, row, keyFn)
+		key := tupleKeyAt(vars, valuesByName, row)
 		if idx, exists := indexByKey[key]; exists {
 			groups[idx].Rows = append(groups[idx].Rows, row)
 			continue
@@ -82,23 +65,22 @@ func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[
 	return groups
 }
 
-func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int, keyFn ValueKeyFunc) string {
-	var b strings.Builder
+func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {
+	parts := make([]eval.StableNamedValuePart, 0, len(vars))
 	for _, name := range vars {
-		values := valuesByName[name]
-		value := eval.Null()
-		if row >= 0 && row < len(values) {
-			value = values[row]
-		}
-		lit := keyFn(value)
-		b.WriteString(name)
-		b.WriteByte('=')
-		b.WriteString(strconv.Itoa(len(lit)))
-		b.WriteByte(':')
-		b.WriteString(lit)
-		b.WriteByte('|')
+		parts = append(parts, eval.StableNamedValuePart{
+			Name:  name,
+			Value: rowValue(valuesByName[name], row),
+		})
 	}
-	return b.String()
+	return eval.StableNamedValueTupleKey(parts)
+}
+
+func rowValue(values []eval.Value, row int) eval.Value {
+	if row >= 0 && row < len(values) {
+		return values[row]
+	}
+	return eval.Null()
 }
 
 func SequentialIndices(n int) []int {

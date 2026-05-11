@@ -64,6 +64,8 @@ func CombProject(v Value, cols []string) (Value, bool) {
 			projected.Values[col] = cell
 			keyValues = append(keyValues, cell.Value)
 		}
+		// The stable tuple key is length-prefixed, so user strings cannot
+		// collide with tuple boundaries.
 		key := StableValueTupleKey(keyValues)
 		if _, exists := seenKeys[key]; exists {
 			continue
