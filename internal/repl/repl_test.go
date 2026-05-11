@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
+
 	"github.com/chzyer/readline"
 )
 
@@ -433,13 +435,32 @@ func TestRunQuestionHelpCommand(t *testing.T) {
 	}
 }
 
+func TestRunBareQuestionListsFunctionHelp(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "?"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	want := "available internal functions: " + helpdocs.FunctionNamesText()
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("expected %q in stdout, got %q", want, out.String())
+	}
+	if err.String() != "" {
+		t.Fatalf("did not expect stderr, got %q", err.String())
+	}
+}
+
 func TestRunHelpInvalidForms(t *testing.T) {
 	tests := []struct {
 		name string
 		line string
 		want string
 	}{
-		{name: "bare question", line: "?", want: "usage: ?<function_name>"},
 		{name: "question extra spaced", line: "? range extra", want: "usage: ?<function_name>"},
 		{name: "question extra compact", line: "?range extra", want: "usage: ?<function_name>"},
 		{name: "help extra", line: ":help range extra", want: "usage: :help [function_name]"},
@@ -468,10 +489,17 @@ func TestRunHelpInvalidForms(t *testing.T) {
 }
 
 func TestRunHelpQueriesDoNotCommitSource(t *testing.T) {
-	tests := []string{"?range", ":help range"}
-	for _, line := range tests {
-		t.Run(line, func(t *testing.T) {
-			reader := &fakeReader{events: []fakeEvent{{line: line}, {line: ":show"}, {err: io.EOF}}}
+	tests := []struct {
+		line string
+		want string
+	}{
+		{line: "?", want: "available internal functions: " + helpdocs.FunctionNamesText()},
+		{line: "?range", want: "# `range(...)`"},
+		{line: ":help range", want: "# `range(...)`"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.line, func(t *testing.T) {
+			reader := &fakeReader{events: []fakeEvent{{line: tc.line}, {line: ":show"}, {err: io.EOF}}}
 			var out, err strings.Builder
 			opts := baseOptions(t, reader)
 			opts.Stdout = &out
@@ -481,8 +509,8 @@ func TestRunHelpQueriesDoNotCommitSource(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("Run returned %d, want 0", code)
 			}
-			if !strings.Contains(out.String(), "# `range(...)`") {
-				t.Fatalf("expected range help in stdout, got %q", out.String())
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("expected %q in stdout, got %q", tc.want, out.String())
 			}
 			if !strings.Contains(out.String(), "(empty)") {
 				t.Fatalf("expected help query not to commit source, got %q", out.String())
@@ -505,7 +533,9 @@ func TestRunBareHelpStillPrintsCommandHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "REPL commands:") || !strings.Contains(out.String(), "?<function_name>") {
+	if !strings.Contains(out.String(), "REPL commands:") ||
+		!strings.Contains(out.String(), "?                      list internal functions with focused help") ||
+		!strings.Contains(out.String(), "?<function_name>       shortcut for :help <function_name>") {
 		t.Fatalf("expected command help, got %q", out.String())
 	}
 	if err.String() != "" {

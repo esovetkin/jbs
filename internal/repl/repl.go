@@ -23,6 +23,7 @@ const (
 const helpText = `REPL commands:
 :help                  show this help
 :help <function_name>  show help for an internal function
+?                      list internal functions with focused help
 ?<function_name>       shortcut for :help <function_name>
 :show                  print accepted session source
 :check                 run parser+sema validation on accepted source
@@ -200,12 +201,15 @@ func handleCommand(
 	stderr io.Writer,
 	check CheckFunc,
 ) (bool, int) {
-	if name, ok, valid := parseQuestionHelp(line); ok {
-		if !valid {
+	if q := parseQuestionHelp(line); q.kind != questionHelpNone {
+		switch q.kind {
+		case questionHelpList:
+			printAvailableFunctions(stdout)
+		case questionHelpFunction:
+			printFunctionHelp(stdout, stderr, q.name)
+		case questionHelpInvalid:
 			fmt.Fprintln(stderr, "usage: ?<function_name>")
-			return false, 0
 		}
-		printFunctionHelp(stdout, stderr, name)
 		return false, 0
 	}
 
@@ -281,24 +285,45 @@ func handleCommand(
 	return false, 0
 }
 
-func parseQuestionHelp(line string) (string, bool, bool) {
+type questionHelpKind int
+
+const (
+	questionHelpNone questionHelpKind = iota
+	questionHelpList
+	questionHelpFunction
+	questionHelpInvalid
+)
+
+type questionHelpCommand struct {
+	kind questionHelpKind
+	name string
+}
+
+func parseQuestionHelp(line string) questionHelpCommand {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, "?") {
-		return "", false, true
+		return questionHelpCommand{kind: questionHelpNone}
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "?"))
+	if rest == "" {
+		return questionHelpCommand{kind: questionHelpList}
+	}
 	fields := strings.Fields(rest)
 	if len(fields) != 1 {
-		return "", true, false
+		return questionHelpCommand{kind: questionHelpInvalid}
 	}
-	return fields[0], true, true
+	return questionHelpCommand{kind: questionHelpFunction, name: fields[0]}
+}
+
+func printAvailableFunctions(w io.Writer) {
+	fmt.Fprintf(w, "available internal functions: %s\n", helpdocs.FunctionNamesText())
 }
 
 func printFunctionHelp(stdout io.Writer, stderr io.Writer, name string) {
 	page, err := helpdocs.FunctionPage(name)
 	if err != nil {
 		fmt.Fprintf(stderr, "unknown internal function: %s\n", name)
-		fmt.Fprintf(stderr, "available internal functions: %s\n", helpdocs.FunctionNamesText())
+		printAvailableFunctions(stderr)
 		return
 	}
 	_, _ = io.WriteString(stdout, page)

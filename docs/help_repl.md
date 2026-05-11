@@ -67,6 +67,8 @@ Control-flow bodies can contain assignments and expressions, but declarations re
 
 ```text
 :help             show REPL help
+?                 list internal functions with focused help
+?<function_name>  show help for an internal function
 :show             print accepted source
 :reset            clear accepted source
 :save <filename>  write accepted source to a file
