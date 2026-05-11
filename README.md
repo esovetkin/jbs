@@ -59,8 +59,10 @@ Or `jbs` can be run directly with `go run`:
 
 ```bash
 # module load Go
-go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@<tag> taster.jbs
+go run gitlab.jsc.fz-juelich.de/sdlaml/jbs@latest taster.jbs
 ```
+
+Or you can grab the [compiled binary](https://gitlab.jsc.fz-juelich.de/sdlaml/jbs/-/jobs/artifacts/main/raw/jbs?job=build).
 
 ## Usage
 
