@@ -8,9 +8,9 @@ import (
 )
 
 type Spec struct {
-	Name     string
-	DirName  string
-	Analyses []string
+	Name    string
+	DirName string
+	Targets []string
 }
 
 type Config struct {
@@ -79,12 +79,12 @@ func FromValue(value eval.Value, sanitize func(string) string) (Config, []Proble
 			continue
 		}
 		value := value.D.Entries[key]
-		analyses, itemProblems := analyseNamesFromValue(rawName, value)
+		targets, itemProblems := targetNamesFromValue(rawName, value)
 		if len(itemProblems) > 0 {
 			problems = append(problems, itemProblems...)
 			continue
 		}
-		spec := Spec{Name: rawName, DirName: dirName, Analyses: analyses}
+		spec := Spec{Name: rawName, DirName: dirName, Targets: targets}
 		cfg.Specs = append(cfg.Specs, spec)
 		cfg.ByName[rawName] = spec
 		usedDirs[dirName] = rawName
@@ -95,29 +95,29 @@ func FromValue(value eval.Value, sanitize func(string) string) (Config, []Proble
 	return cfg, nil
 }
 
-func analyseNamesFromValue(benchmarkName string, value eval.Value) ([]string, []Problem) {
+func targetNamesFromValue(benchmarkName string, value eval.Value) ([]string, []Problem) {
 	switch value.Kind {
 	case eval.KindString:
 		name := strings.TrimSpace(value.S)
 		if name == "" {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty analyse name", benchmarkName)}}
+			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty target name", benchmarkName)}}
 		}
 		return []string{name}, nil
 	case eval.KindList, eval.KindTuple:
 		if len(value.L) == 0 {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one analyse block", benchmarkName)}}
+			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
 		}
 		names := make([]string, 0, len(value.L))
 		seen := make(map[string]struct{}, len(value.L))
 		problems := make([]Problem, 0)
 		for _, item := range value.L {
 			if item.Kind != eval.KindString {
-				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] analyse names must be strings", benchmarkName)})
+				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] target names must be strings", benchmarkName)})
 				continue
 			}
 			name := strings.TrimSpace(item.S)
 			if name == "" {
-				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty analyse name", benchmarkName)})
+				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty target name", benchmarkName)})
 				continue
 			}
 			if _, ok := seen[name]; ok {
@@ -130,7 +130,7 @@ func analyseNamesFromValue(benchmarkName string, value eval.Value) ([]string, []
 			return nil, problems
 		}
 		if len(names) == 0 {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one analyse block", benchmarkName)}}
+			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
 		}
 		return names, nil
 	default:

@@ -81,6 +81,110 @@ analyse run_large {
 	}
 }
 
+func TestBuildRuntimeSuitePlanConfiguredBenchmarkDoOnlyTarget(t *testing.T) {
+	suite := buildSuiteFromSource(t, `
+jbs_name = "bench"
+jbs_benchmarks = {"smoke": "prepare"}
+
+do prepare {
+        echo prepare
+}
+do run after prepare {
+        echo run
+}
+analyse run {
+        value = "value: %d" in "out.log"
+        (value)
+}
+`, "smoke")
+	if len(suite.Plans) != 1 || suite.Plans[0].ComponentName != "smoke" {
+		t.Fatalf("unexpected suite: %#v", suite)
+	}
+	plan := suite.Plans[0]
+	if len(plan.Analyses) != 0 {
+		t.Fatalf("do-only target should not select analyses: %#v", plan.Analyses)
+	}
+	if got := manifestStepNames(plan.Manifest); strings.Join(got, ",") != "prepare" {
+		t.Fatalf("unexpected steps: %#v", got)
+	}
+	if plan.Manifest.Steps[0].HasAnalyse() {
+		t.Fatalf("do-only target should not have analyse metadata: %#v", plan.Manifest.Steps[0])
+	}
+}
+
+func TestBuildRuntimeSuitePlanConfiguredBenchmarkMixedTargets(t *testing.T) {
+	suite := buildSuiteFromSource(t, `
+jbs_name = "bench"
+jbs_benchmarks = {"small": ["prepare", "run"]}
+
+do prepare {
+        echo prepare
+}
+do run after prepare {
+        echo run
+}
+do unused {
+        echo unused
+}
+analyse prepare {
+        value = "prepare: %d" in "out.log"
+        (value)
+}
+analyse run {
+        value = "run: %d" in "out.log"
+        (value)
+}
+`, "small")
+	plan := suite.Plans[0]
+	if got := manifestStepNames(plan.Manifest); strings.Join(got, ",") != "prepare,run" {
+		t.Fatalf("unexpected steps: %#v", got)
+	}
+	if len(plan.Analyses) != 2 {
+		t.Fatalf("mixed targets should select both targeted analyses: %#v", plan.Analyses)
+	}
+	if !plan.Manifest.Steps[0].HasAnalyse() || !plan.Manifest.Steps[1].HasAnalyse() {
+		t.Fatalf("targeted analyse metadata missing: %#v", plan.Manifest.Steps)
+	}
+}
+
+func TestBuildRuntimeSuitePlanConfiguredBenchmarkDoesNotAnalyseDependenciesImplicitly(t *testing.T) {
+	suite := buildSuiteFromSource(t, `
+jbs_name = "bench"
+jbs_benchmarks = {"small": "run"}
+
+do prepare {
+        echo prepare
+}
+do run after prepare {
+        echo run
+}
+analyse prepare {
+        value = "prepare: %d" in "out.log"
+        (value)
+}
+analyse run {
+        value = "run: %d" in "out.log"
+        (value)
+}
+`, "small")
+	plan := suite.Plans[0]
+	if got := manifestStepNames(plan.Manifest); strings.Join(got, ",") != "prepare,run" {
+		t.Fatalf("unexpected steps: %#v", got)
+	}
+	if len(plan.Analyses) != 1 {
+		t.Fatalf("dependency analysis should not be selected implicitly: %#v", plan.Analyses)
+	}
+	if _, ok := plan.Analyses["run"]; !ok {
+		t.Fatalf("missing targeted run analysis: %#v", plan.Analyses)
+	}
+	if plan.Manifest.Steps[0].HasAnalyse() {
+		t.Fatalf("dependency analyse metadata should not be selected: %#v", plan.Manifest.Steps[0])
+	}
+	if !plan.Manifest.Steps[1].HasAnalyse() {
+		t.Fatalf("target analyse metadata should be selected: %#v", plan.Manifest.Steps[1])
+	}
+}
+
 func TestBuildRuntimeSuitePlanRejectsBenchmarkWithoutConfig(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	cwd := t.TempDir()
@@ -133,4 +237,12 @@ func buildSuiteFromSource(t *testing.T, source, benchmark string) runtimeSuitePl
 		t.Fatal(err)
 	}
 	return suite
+}
+
+func manifestStepNames(manifest Manifest) []string {
+	names := make([]string, 0, len(manifest.Steps))
+	for _, step := range manifest.Steps {
+		names = append(names, step.Name)
+	}
+	return names
 }

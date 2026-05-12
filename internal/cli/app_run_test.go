@@ -142,6 +142,37 @@ func TestRunCommandSelectsConfiguredBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandSelectsConfiguredDoOnlyBenchmark(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeDoOnlyBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-b", "smoke", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("selected do-only run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	status := readRootStatus(t, filepath.Join(cwd, "bench", "smoke", "000000", "status"))
+	if status.Status != jbsrun.StatusFinished {
+		t.Fatalf("unexpected do-only root status: %#v", status)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "smoke", "000000", "prepare")); err != nil {
+		t.Fatalf("expected prepare step: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "smoke", "000000", "run")); !os.IsNotExist(err) {
+		t.Fatalf("do-only benchmark should not run dependent child step, stat error: %v", err)
+	}
+	if strings.Contains(stdout.String(), "analyse.csv") {
+		t.Fatalf("do-only benchmark should not print analyse outputs: %q", stdout.String())
+	}
+}
+
 func TestRunCommandBenchmarkSelectionErrors(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -184,6 +215,26 @@ func TestRunCommandBenchmarkSelectionErrors(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), `unknown benchmark "missing"`) {
 		t.Fatalf("unexpected missing benchmark error: %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	badTarget := filepath.Join(cwd, "bad_target.jbs")
+	if err := os.WriteFile(badTarget, []byte(strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"small": "missing"}`,
+		`do run {`,
+		`echo run`,
+		`}`,
+		``,
+	}, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"run", badTarget}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected unknown target failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `unknown benchmark target "missing"`) {
+		t.Fatalf("unexpected unknown target error: %s", stderr.String())
 	}
 }
 
@@ -1071,6 +1122,31 @@ func TestTreeCommandSupportsBenchmarkSelection(t *testing.T) {
 	}
 }
 
+func TestTreeCommandSupportsDoOnlyBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeDoOnlyBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"tree", "-b", "smoke", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tree failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "prepare") || strings.Contains(out, "run") {
+		t.Fatalf("do-only tree output should include only prepare:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench")); !os.IsNotExist(err) {
+		t.Fatalf("tree should not create benchmark directory, stat error: %v", err)
+	}
+}
+
 func TestLsAnalyseCommandListsCSVOutputs(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1187,6 +1263,32 @@ func TestLsAnalyseCommandSupportsBenchmarkSelection(t *testing.T) {
 	}
 	if !strings.Contains(out, filepath.Join("bench", "small", "000000", "run_small", "analyse.csv")) {
 		t.Fatalf("selected ls-analyse output missing small analyse path:\n%s", out)
+	}
+}
+
+func TestLsAnalyseCommandDoOnlyBenchmarkHasNoOutput(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeDoOnlyBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-b", "smoke", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", "-b", "smoke", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("do-only ls-analyse should be silent, got:\n%s", stdout.String())
 	}
 }
 
@@ -2534,6 +2636,30 @@ func writeMultiBenchmarkInput(t *testing.T, cwd string, extra ...string) string 
 		``,
 	)
 	input := filepath.Join(cwd, "multi.jbs")
+	if err := os.WriteFile(input, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+func writeDoOnlyBenchmarkInput(t *testing.T, cwd string) string {
+	t.Helper()
+	lines := []string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"smoke": "prepare", "results": "run"}`,
+		`do prepare {`,
+		`echo prepare`,
+		`}`,
+		`do run after prepare {`,
+		`echo "value: 1" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}
+	input := filepath.Join(cwd, "do_only.jbs")
 	if err := os.WriteFile(input, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}

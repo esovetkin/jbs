@@ -223,7 +223,7 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 	wp := inputs.WorkPlan
 	analyses := inputs.Analyses
 	if sel.Configured {
-		keep, err := workplan.RequiredStepsForAnalyses(wp, sel.Spec.Analyses)
+		keep, err := workplan.RequiredStepsForTargets(wp, sel.Spec.Targets)
 		if err != nil {
 			return runtimePlan{}, err
 		}
@@ -231,11 +231,11 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		if err != nil {
 			return runtimePlan{}, err
 		}
-		analyses = make(map[string]AnalysePlan, len(sel.Spec.Analyses))
-		for _, name := range sel.Spec.Analyses {
+		analyses = make(map[string]AnalysePlan)
+		for _, name := range sel.Spec.Targets {
 			plan, ok := inputs.Analyses[name]
 			if !ok {
-				return runtimePlan{}, fmt.Errorf("benchmark %q references unknown analyse block %q", sel.Spec.Name, name)
+				continue
 			}
 			analyses[name] = plan
 		}

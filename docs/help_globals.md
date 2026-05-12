@@ -8,16 +8,17 @@
 
 `jbs_benchmarks` optionally splits one JBS script into named benchmark components. It must be a dictionary and defaults to `{}`. When it is empty, JBS uses the single-directory layout and executes all `do` and `analyse` blocks.
 
-When `jbs_benchmarks` is non-empty, it must be a dictionary whose keys are component names and whose values are `analyse` block names:
+When `jbs_benchmarks` is non-empty, it must be a dictionary whose keys are component names and whose values are benchmark targets. A target is the name of a `do` step or an `analyse` target:
 
 ```jbs
 jbs_benchmarks = {
-        "small": ["run_small", "summary"],
+        "setup-only": "prepare",
+        "small": ["prepare", "run_small", "summary"],
         "large": "run_large",
 }
 ```
 
-Calling `jbs run -b small` executes all dependency steps needed for the `run_small` and `summary` analyse blocks and saves results in `<jbs_name>/<component>/` directories. You can also run `jbs continue -b small` for an individual benchmark. Without `--benchmark`, `jbs run` runs every configured component.
+Calling `jbs run -b small` executes all dependency steps needed for the `prepare`, `run_small`, and `summary` targets and saves results in `<jbs_name>/<component>/` directories. A do-only target runs the selected step and its dependencies without generating analyse output for that target. A target with an `analyse` block runs the analysed step and its dependencies and writes that analyse output. Dependency analyse blocks are not selected implicitly; list a dependency step explicitly if its analyse output should be generated. You can also run `jbs continue -b small` for an individual benchmark. Without `--benchmark`, `jbs run` runs every configured component.
 
 ## `jbs_database`: write results to a SQLite database
 

@@ -19,13 +19,13 @@ func TestFromValueDefaultEmptyConfig(t *testing.T) {
 
 func TestFromValueStringAndListValues(t *testing.T) {
 	value := eval.DictValue([]eval.DictEntry{
-		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "small"}, Value: eval.String("analyse_small")},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "small"}, Value: eval.String("prepare")},
 		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "large"}, Value: eval.List([]eval.Value{
-			eval.String("analyse_large"),
+			eval.String("run_large"),
 			eval.String("summary"),
 			eval.String("summary"),
 		})},
-		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "tuple"}, Value: eval.Tuple([]eval.Value{eval.String("analyse_tuple")})},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "tuple"}, Value: eval.Tuple([]eval.Value{eval.String("run_tuple")})},
 	})
 	cfg, problems := FromValue(value, nil)
 	if len(problems) != 0 {
@@ -34,14 +34,14 @@ func TestFromValueStringAndListValues(t *testing.T) {
 	if !cfg.Configured || len(cfg.Specs) != 3 {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
-	if got := cfg.ByName["small"].Analyses; len(got) != 1 || got[0] != "analyse_small" {
-		t.Fatalf("small analyses = %#v", got)
+	if got := cfg.ByName["small"].Targets; len(got) != 1 || got[0] != "prepare" {
+		t.Fatalf("small targets = %#v", got)
 	}
-	if got := cfg.ByName["large"].Analyses; len(got) != 2 || got[0] != "analyse_large" || got[1] != "summary" {
-		t.Fatalf("large analyses = %#v", got)
+	if got := cfg.ByName["large"].Targets; len(got) != 2 || got[0] != "run_large" || got[1] != "summary" {
+		t.Fatalf("large targets = %#v", got)
 	}
-	if got := cfg.ByName["tuple"].Analyses; len(got) != 1 || got[0] != "analyse_tuple" {
-		t.Fatalf("tuple analyses = %#v", got)
+	if got := cfg.ByName["tuple"].Targets; len(got) != 1 || got[0] != "run_tuple" {
+		t.Fatalf("tuple targets = %#v", got)
 	}
 }
 
@@ -75,21 +75,21 @@ func TestFromValueRejectsInvalidShapes(t *testing.T) {
 			in: eval.DictValue([]eval.DictEntry{
 				{Key: eval.DictKey{Kind: eval.DictKeyString, S: "bench"}, Value: eval.List([]eval.Value{eval.Int(1)})},
 			}),
-			want: "analyse names must be strings",
+			want: "target names must be strings",
 		},
 		{
 			name: "empty_list",
 			in: eval.DictValue([]eval.DictEntry{
 				{Key: eval.DictKey{Kind: eval.DictKeyString, S: "bench"}, Value: eval.List(nil)},
 			}),
-			want: "must list at least one analyse block",
+			want: "must list at least one benchmark target",
 		},
 		{
-			name: "empty_analyse_name",
+			name: "empty_target_name",
 			in: eval.DictValue([]eval.DictEntry{
 				{Key: eval.DictKey{Kind: eval.DictKeyString, S: "bench"}, Value: eval.String(" ")},
 			}),
-			want: "empty analyse name",
+			want: "empty target name",
 		},
 		{
 			name: "invalid_name",

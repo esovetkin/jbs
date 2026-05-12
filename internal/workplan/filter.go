@@ -5,7 +5,7 @@ import (
 	"slices"
 )
 
-func RequiredStepsForAnalyses(plan Plan, analyseSteps []string) (map[string]struct{}, error) {
+func RequiredStepsForTargets(plan Plan, targets []string) (map[string]struct{}, error) {
 	deps := make(map[string][]string, len(plan.Steps))
 	for _, step := range plan.Steps {
 		deps[step.Name] = slices.Clone(step.After)
@@ -19,7 +19,7 @@ func RequiredStepsForAnalyses(plan Plan, analyseSteps []string) (map[string]stru
 		}
 		after, ok := deps[name]
 		if !ok {
-			return fmt.Errorf("unknown analyse target step %q", name)
+			return fmt.Errorf("unknown benchmark target step %q", name)
 		}
 		keep[name] = struct{}{}
 		for _, dep := range after {
@@ -30,7 +30,7 @@ func RequiredStepsForAnalyses(plan Plan, analyseSteps []string) (map[string]stru
 		return nil
 	}
 
-	for _, name := range analyseSteps {
+	for _, name := range targets {
 		if err := visit(name); err != nil {
 			return nil, err
 		}

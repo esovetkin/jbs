@@ -6,16 +6,16 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func TestRequiredStepsForAnalysesIncludesTransitiveDeps(t *testing.T) {
+func TestRequiredStepsForTargetsIncludesTransitiveDeps(t *testing.T) {
 	plan := Plan{Steps: []Step{
 		{Name: "prep"},
 		{Name: "build", After: []string{"prep"}},
 		{Name: "run", After: []string{"build"}},
 		{Name: "unused"},
 	}}
-	keep, err := RequiredStepsForAnalyses(plan, []string{"run"})
+	keep, err := RequiredStepsForTargets(plan, []string{"run"})
 	if err != nil {
-		t.Fatalf("RequiredStepsForAnalyses failed: %v", err)
+		t.Fatalf("RequiredStepsForTargets failed: %v", err)
 	}
 	for _, name := range []string{"prep", "build", "run"} {
 		if _, ok := keep[name]; !ok {
@@ -27,8 +27,8 @@ func TestRequiredStepsForAnalysesIncludesTransitiveDeps(t *testing.T) {
 	}
 }
 
-func TestRequiredStepsForAnalysesRejectsUnknownTarget(t *testing.T) {
-	_, err := RequiredStepsForAnalyses(Plan{Steps: []Step{{Name: "run"}}}, []string{"missing"})
+func TestRequiredStepsForTargetsRejectsUnknownTarget(t *testing.T) {
+	_, err := RequiredStepsForTargets(Plan{Steps: []Step{{Name: "run"}}}, []string{"missing"})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
