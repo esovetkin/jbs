@@ -101,6 +101,12 @@ func (s *Scheduler) Run(ctx context.Context) SchedulerResult {
 	s.progress.Update(s.snapshot())
 	ready := s.initialReady()
 	done := make(chan workDone)
+	flushTicker := s.progressFlushTicker()
+	var flush <-chan time.Time
+	if flushTicker != nil {
+		defer flushTicker.Stop()
+		flush = flushTicker.C
+	}
 	for {
 		started := false
 		for len(ready) > 0 && ctx.Err() == nil {
@@ -128,6 +134,7 @@ func (s *Scheduler) Run(ctx context.Context) SchedulerResult {
 		if !started && len(s.running) == 0 && len(ready) == 0 {
 			return SchedulerResult{Status: s.finalStatus()}
 		}
+		s.progress.Flush()
 		select {
 		case result := <-done:
 			next, err := s.finish(result)
@@ -141,8 +148,17 @@ func (s *Scheduler) Run(ctx context.Context) SchedulerResult {
 				return schedulerError(err)
 			}
 			return SchedulerResult{Status: StatusInterrupted}
+		case <-flush:
+			s.progress.Flush()
 		}
 	}
+}
+
+func (s *Scheduler) progressFlushTicker() *time.Ticker {
+	if s.progress == nil || s.progress.w == nil || s.progress.mode == ProgressSilent || s.progress.throttle <= 0 {
+		return nil
+	}
+	return time.NewTicker(s.progress.throttle)
 }
 
 func schedulerError(err error) SchedulerResult {

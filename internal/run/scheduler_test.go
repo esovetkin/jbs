@@ -1,9 +1,11 @@
 package run
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -378,6 +380,72 @@ func TestSchedulerRetriesBlockedAfterDependencySucceeds(t *testing.T) {
 	}
 }
 
+func TestSchedulerProgressShowsFastParentsBeforeBlockedChildrenFinish(t *testing.T) {
+	write0 := ManifestWork{Step: "write_sbatch", Row: 0, Dir: "000000"}
+	write1 := ManifestWork{Step: "write_sbatch", Row: 1, Dir: "000001"}
+	wait0 := ManifestWork{
+		Step: "ex_sbatch_wait",
+		Row:  0,
+		Dir:  "000000",
+		Deps: []ManifestWorkRef{{Step: "write_sbatch", Row: 0}},
+	}
+	wait1 := ManifestWork{
+		Step: "ex_sbatch_wait",
+		Row:  1,
+		Dir:  "000001",
+		Deps: []ManifestWorkRef{{Step: "write_sbatch", Row: 1}},
+	}
+	store := newFakeSchedulerStore(Manifest{
+		Schema:      1,
+		GlobalNProc: 4,
+		Steps: []ManifestStep{
+			{Name: "write_sbatch", Dir: "write_sbatch", NProc: 4},
+			{Name: "ex_sbatch_wait", Dir: "ex_sbatch_wait", NProc: 2},
+		},
+		Work: []ManifestWork{write0, write1, wait0, wait1},
+	})
+
+	waitStarted := make(chan struct{}, 2)
+	releaseWait := make(chan struct{})
+	withRunWorkProcess(t, func(_ context.Context, dir string) processResult {
+		if strings.HasPrefix(dir, "ex_sbatch_wait/") {
+			waitStarted <- struct{}{}
+			<-releaseWait
+		}
+		code := 0
+		return processResult{Status: StatusFinished, ExitCode: &code}
+	})
+
+	buf := &lockedBuffer{}
+	progress := NewProgressWithOptions(buf, ProgressOptions{
+		Mode:     ProgressBar,
+		Width:    8,
+		Throttle: time.Hour,
+	})
+	resultCh := make(chan SchedulerResult, 1)
+	go func() {
+		resultCh <- NewScheduler(store, progress).Run(context.Background())
+	}()
+
+	waitForStartedWork(t, waitStarted)
+	waitForStartedWork(t, waitStarted)
+	progress.Flush()
+
+	if got := buf.String(); !strings.Contains(got, "50%") || !strings.Contains(got, "2/4") {
+		t.Fatalf("progress before child completion = %q, want first two jobs visible", got)
+	}
+
+	close(releaseWait)
+	select {
+	case result := <-resultCh:
+		if result.Status != StatusFinished {
+			t.Fatalf("status = %s, want %s: %v", result.Status, StatusFinished, result.Err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for scheduler completion")
+	}
+}
+
 func TestSchedulerCancellationInterruptsRunningWork(t *testing.T) {
 	store := newFakeSchedulerStore(schedulerTestManifest(
 		ManifestWork{Step: "s", Row: 0, Dir: "000000"},
@@ -554,4 +622,30 @@ func withRunWorkProcess(t *testing.T, fn func(context.Context, string) processRe
 	t.Cleanup(func() {
 		runWorkProcess = old
 	})
+}
+
+func waitForStartedWork(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for started work")
+	}
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

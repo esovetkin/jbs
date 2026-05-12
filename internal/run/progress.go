@@ -44,9 +44,15 @@ type Progress struct {
 	mode     ProgressMode
 	width    int
 	throttle time.Duration
-	last     ProgressSnapshot
-	seen     bool
-	bar      *progressbar.ProgressBar
+
+	latest       ProgressSnapshot
+	latestSeen   bool
+	rendered     ProgressSnapshot
+	renderedSeen bool
+	pending      bool
+	lastRenderAt time.Time
+
+	bar *progressbar.ProgressBar
 }
 
 func NewProgress(w io.Writer) *Progress {
@@ -79,25 +85,68 @@ func (p *Progress) Update(s ProgressSnapshot) {
 	if p == nil || p.w == nil {
 		return
 	}
-	if p.seen && s == p.last {
+	if p.latestSeen && s == p.latest {
 		return
 	}
-	p.seen = true
-	p.last = s
+	p.latestSeen = true
+	p.latest = s
+	if p.shouldRenderNow(s, false) {
+		p.renderLatest()
+		return
+	}
+	p.pending = true
+}
+
+func (p *Progress) Flush() {
+	if p == nil || p.w == nil || !p.latestSeen || !p.pending {
+		return
+	}
+	p.renderLatest()
+}
+
+func (p *Progress) shouldRenderNow(s ProgressSnapshot, force bool) bool {
+	if force || !p.renderedSeen {
+		return true
+	}
+	if s.Total != p.rendered.Total {
+		return true
+	}
+	if s.Done() != p.rendered.Done() {
+		return true
+	}
+	if s.Total > 0 && s.Done() == s.Total {
+		return true
+	}
+	if p.throttle <= 0 {
+		return true
+	}
+	return time.Since(p.lastRenderAt) >= p.throttle
+}
+
+func (p *Progress) renderLatest() {
+	s := p.latest
 	switch p.mode {
 	case ProgressBar:
 		p.updateBar(s)
 	case ProgressLines:
 		p.updateLine(s)
 	}
+	p.rendered = s
+	p.renderedSeen = true
+	p.pending = false
+	p.lastRenderAt = time.Now()
 }
 
 func (p *Progress) Close(final Status) {
-	if p == nil || p.bar == nil {
+	if p == nil {
 		return
 	}
-	if final == StatusFinished || p.last.Done() == p.last.Total {
-		_ = p.bar.Set(p.last.Total)
+	p.Flush()
+	if p.bar == nil {
+		return
+	}
+	if final == StatusFinished || p.latest.Done() == p.latest.Total {
+		_ = p.bar.Set(p.latest.Total)
 	}
 	_ = p.bar.Exit()
 	fmt.Fprintln(p.w)
@@ -122,7 +171,7 @@ func (p *Progress) ensureBar(total int) {
 		progressbar.OptionSetPredictTime(false),
 		progressbar.OptionSetRenderBlankState(true),
 		progressbar.OptionShowDescriptionAtLineEnd(),
-		progressbar.OptionThrottle(p.throttle),
+		progressbar.OptionThrottle(0),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "█",
 			SaucerHead:    "█",

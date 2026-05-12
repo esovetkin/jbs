@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestProgressSnapshotDone(t *testing.T) {
@@ -67,6 +68,41 @@ func TestProgressBarModeSmoke(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("bar output missing %q in %q", want, got)
 		}
+	}
+}
+
+func TestProgressBarRendersDoneChangeDespiteThrottle(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{
+		Mode:     ProgressBar,
+		Width:    8,
+		Throttle: time.Hour,
+	})
+
+	p.Update(ProgressSnapshot{Total: 4})
+	p.Update(ProgressSnapshot{Total: 4, Finished: 2, Running: 2})
+
+	got := buf.String()
+	if !strings.Contains(got, "50%") || !strings.Contains(got, "2/4") {
+		t.Fatalf("progress did not render completed jobs: %q", got)
+	}
+}
+
+func TestProgressFlushRendersPendingRunningState(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{
+		Mode:     ProgressBar,
+		Width:    8,
+		Throttle: time.Hour,
+	})
+
+	p.Update(ProgressSnapshot{Total: 4})
+	p.Update(ProgressSnapshot{Total: 4, Running: 2})
+	p.Flush()
+
+	got := buf.String()
+	if !strings.Contains(got, "2R|0E") {
+		t.Fatalf("flush did not render latest running state: %q", got)
 	}
 }
 
