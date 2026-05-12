@@ -217,6 +217,6 @@ JBS was inspired by JUBE. For example, it produces a similar directory structure
 
 - Unlike JUBE, JBS analysis captures all groups and all matches in a file and represents them in a table. There is no built-in support for [summary statistics](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#statistic-pattern-values) like in JUBE; users can process analysis tables further as needed.
 
-- JBS does not include submit templates. Users define their own submission scripts, while JBS provides several ways to wait for submitted jobs (XXXlink to examplesXXX).
+- JBS does not include submit templates. Users define their own submission scripts, while JBS provides several ways to wait for submitted jobs (see [examples/do_sbatch.jbs](examples/do_sbatch.jbs)).
 
 - JBS greedily executes workpackages across the DAG while respecting global and local concurrency limits and job dependencies. JUBE executes jobs step by step. By default, JBS uses as many CPUs as are available.

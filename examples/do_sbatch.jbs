@@ -1,3 +1,8 @@
+# `ex_sbatch_wait` and `ex_fwait_sbatch` are be submitted
+# simulateneously, each has limit of `nproc 2`. `jbs_nproc = 2`
+# ensures that the total 2 jobs are running simulateneously.
+jbs_nproc = 2
+
 cases = t(id = (1, 2), label = ("alpha", "beta"))
 
 do write_sbatch
@@ -16,15 +21,42 @@ do write_sbatch
 echo ${id}
 echo ${label}
 
+# simulate error state
+if [[ "${id}" == 1 ]]
+then
+    echo "id == 1"
+    touch error
+    exit 0
+fi
+
 touch done
 
 EOF
 }
 
-do runwait_sbatch
+do ex_sbatch_wait
         after write_sbatch
         # run at most 2 slurm jobs at a time
         nproc 2
 {
-        echo sbatch -W write_sbatch/run.sbatch
+    # sbatch -W will inherit the exit code of the run.sbatch
+    sbatch -W write_sbatch/run.sbatch
+}
+
+do ex_fwait_sbatch
+        after write_sbatch
+        # run at most 2 slurm jobs at a time
+        nproc 2
+{
+    sbatch write_sbatch/run.sbatch
+
+    # sbatch without -W exits immediatly
+    case $(jbs fwait done error) in
+         done)
+            echo "done"
+            ;;
+         error)
+            echo "error"
+            ;;
+    esac
 }
