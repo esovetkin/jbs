@@ -26,6 +26,7 @@ type Options struct {
 	Stderr      io.Writer
 	Cwd         string
 	HistoryFile string
+	BuildInfo   string
 	Check       CheckFunc
 	Commit      CommitFunc
 	NewReader   ReaderFactory

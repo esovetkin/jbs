@@ -20,6 +20,7 @@ import (
 	jbsrun "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/run"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/valuefmt"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/version"
 )
 
 // analysisBundle contains the entire parsed AST, corresponding
@@ -345,11 +346,12 @@ func runRepl(stdout, stderr io.Writer) int {
 		return commitReplChunk(cwd, source, chunk)
 	}
 	return jbsrepl.Run(jbsrepl.Options{
-		Stdout: stdout,
-		Stderr: stderr,
-		Cwd:    cwd,
-		Check:  check,
-		Commit: commit,
+		Stdout:    stdout,
+		Stderr:    stderr,
+		Cwd:       cwd,
+		BuildInfo: version.Full(),
+		Check:     check,
+		Commit:    commit,
 	})
 }
 

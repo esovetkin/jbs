@@ -1,7 +1,15 @@
 .PHONY: build test fmt coverage clean staticcheck all
 
+MODULE := gitlab.jsc.fz-juelich.de/sdlaml/jbs
+VERSION ?= v0.1.0
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS := -X '$(MODULE)/internal/version.Version=$(VERSION)' \
+	-X '$(MODULE)/internal/version.Commit=$(COMMIT)' \
+	-X '$(MODULE)/internal/version.BuildDate=$(BUILD_DATE)'
+
 build:
-	go build -o jbs .
+	go build -ldflags "$(LDFLAGS)" -o jbs .
 
 test:
 	go test ./...

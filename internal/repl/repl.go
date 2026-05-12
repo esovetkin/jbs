@@ -93,6 +93,7 @@ func Run(opts Options) int {
 	}
 	defer func() { _ = reader.Close() }()
 
+	fmt.Fprintf(stdout, "JBS, %s\n\n", welcomeBuildInfo(opts.BuildInfo))
 	fmt.Fprintln(stdout, "Type :help for commands, Ctrl+D to exit")
 
 	state := sessionState{}
@@ -153,6 +154,14 @@ func Run(opts Options) int {
 		}
 		state.pending = ""
 	}
+}
+
+func welcomeBuildInfo(info string) string {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return "version unknown, commit unknown, built unknown"
+	}
+	return info
 }
 
 func defaultReaderFactory(historyPath string) (LineReader, error) {

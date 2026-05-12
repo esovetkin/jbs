@@ -66,15 +66,37 @@ func appendAcceptedForTest(accepted string, chunk string) string {
 	return accepted + "\n" + chunk
 }
 
+const testWelcome = "JBS, version v0.1.0-test, commit testcommit, built 2026-05-12T00:00:00Z\n\nType :help for commands, Ctrl+D to exit\n"
+
 func baseOptions(t *testing.T, reader *fakeReader) Options {
 	t.Helper()
 	return Options{
 		Cwd:       t.TempDir(),
+		BuildInfo: "version v0.1.0-test, commit testcommit, built 2026-05-12T00:00:00Z",
 		NewReader: fakeFactory(reader),
 		Check: func(source string) (string, bool, error) {
 			return "", false, nil
 		},
 		Commit: defaultCommitForTest,
+	}
+}
+
+func TestRunPrintsWelcomeMessage(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if out.String() != testWelcome {
+		t.Fatalf("unexpected welcome output: got=%q want=%q", out.String(), testWelcome)
+	}
+	if err.String() != "" {
+		t.Fatalf("did not expect stderr, got %q", err.String())
 	}
 }
 
@@ -579,7 +601,7 @@ func TestQuestionAndColonCommandsInsidePendingInputAreNotCommands(t *testing.T) 
 			if !commitCalled {
 				t.Fatalf("expected pending input to be committed")
 			}
-			if out.String() != "Type :help for commands, Ctrl+D to exit\n" {
+			if out.String() != testWelcome {
 				t.Fatalf("did not expect command output, got %q", out.String())
 			}
 			if err.String() != "" {

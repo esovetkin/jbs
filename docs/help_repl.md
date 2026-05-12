@@ -9,6 +9,15 @@ jbs
 jbs repl
 ```
 
+It starts with build metadata before the first prompt:
+
+```text
+JBS, version v0.1.0, commit unknown, built unknown
+
+Type :help for commands, Ctrl+D to exit
+jbs>
+```
+
 ## Expressions
 
 Top-level expressions print their values:
