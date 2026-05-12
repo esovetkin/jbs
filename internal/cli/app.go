@@ -60,8 +60,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Fmt {
 		return runFmt(flags.Input, flags.FmtStrict, stdout, stderr)
 	}
-	if flags.PrintParam {
-		return runPrintParam(flags, stdout, stderr)
+	if flags.Param {
+		return runParam(flags, stdout, stderr)
 	}
 	if flags.FWait {
 		return fwaitFiles(flags.FWaitPaths, flags.FWaitExitExisting, stdout, stderr)
@@ -72,8 +72,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Continue {
 		return continueBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
 	}
-	if flags.Stats {
-		return statsBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
+	if flags.Status {
+		return statusBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
+	}
+	if flags.Tree {
+		return treeBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
+	}
+	if flags.LsAnalyse {
+		return listAnalyseBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
 	}
 	if flags.Archive {
 		return archiveBenchmark(flags.Input, stdout, stderr)
@@ -183,20 +189,68 @@ func continueBenchmark(path string, benchmark string, stdout, stderr io.Writer) 
 	return 0
 }
 
-func statsBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+func analyzeCommandInput(path string, stderr io.Writer) (*analysisBundle, bool) {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(path, diags)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
-		return 1
+		return nil, false
 	}
 	if len(diags.Items) > 0 {
 		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
 	if diags.HasErrors() {
+		return nil, false
+	}
+	return bundle, true
+}
+
+func statusBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+	bundle, ok := analyzeCommandInput(path, stderr)
+	if !ok {
 		return 1
 	}
-	if err := jbsrun.Stats(context.Background(), jbsrun.Options{
+	if err := jbsrun.ShowStatus(context.Background(), jbsrun.Options{
+		Input:       path,
+		Result:      bundle.Result,
+		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Benchmark:   benchmark,
+		Stdout:      stdout,
+		Stderr:      stderr,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func treeBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+	bundle, ok := analyzeCommandInput(path, stderr)
+	if !ok {
+		return 1
+	}
+	if err := jbsrun.Tree(context.Background(), jbsrun.Options{
+		Input:       path,
+		Result:      bundle.Result,
+		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Benchmark:   benchmark,
+		Stdout:      stdout,
+		Stderr:      stderr,
+	}); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func listAnalyseBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+	bundle, ok := analyzeCommandInput(path, stderr)
+	if !ok {
+		return 1
+	}
+	if err := jbsrun.LsAnalyse(context.Background(), jbsrun.Options{
 		Input:       path,
 		Result:      bundle.Result,
 		Sources:     bundle.Sources,
@@ -237,7 +291,7 @@ func archiveBenchmark(path string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runPrintParam(flags Flags, stdout, stderr io.Writer) int {
+func runParam(flags Flags, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(flags.Input, diags)
 	if err != nil {
@@ -259,7 +313,7 @@ func runPrintParam(flags Flags, stdout, stderr io.Writer) int {
 
 	out, err := printparam.Render(table, printparam.RenderType(flags.PrintType))
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to render printparam output: %v\n", err)
+		fmt.Fprintf(stderr, "failed to render param output: %v\n", err)
 		return 1
 	}
 

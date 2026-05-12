@@ -830,7 +830,7 @@ func TestContinueRetriesBlockedWorkAfterDependencySucceeds(t *testing.T) {
 	}
 }
 
-func TestStatsCommandPrintsLatestRunStatus(t *testing.T) {
+func TestStatusCommandPrintsLatestRunStatus(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -860,19 +860,19 @@ func TestStatsCommandPrintsLatestRunStatus(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
-		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	if code := Run([]string{"status", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "NOTSTARTED") || !strings.Contains(out, "└── s") || !strings.Contains(out, "|          1 |") {
-		t.Fatalf("stats output missing not-started summary:\n%s", out)
+		t.Fatalf("status output missing not-started summary:\n%s", out)
 	}
 	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "stdout")); got != "" {
-		t.Fatalf("stats should not run workpackage, stdout=%q", got)
+		t.Fatalf("status should not run workpackage, stdout=%q", got)
 	}
 }
 
-func TestStatsCommandSupportsBenchmarkSelection(t *testing.T) {
+func TestStatusCommandSupportsBenchmarkSelection(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -891,19 +891,19 @@ func TestStatsCommandSupportsBenchmarkSelection(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"stats", "-b", "small", input}, &stdout, &stderr); code != 0 {
-		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	if code := Run([]string{"status", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
 	if strings.Contains(out, "[large]") || strings.Contains(out, "run_large") {
-		t.Fatalf("selected stats output included large component:\n%s", out)
+		t.Fatalf("selected status output included large component:\n%s", out)
 	}
 	if !strings.Contains(out, "run_small") {
-		t.Fatalf("selected stats output missing small component:\n%s", out)
+		t.Fatalf("selected status output missing small component:\n%s", out)
 	}
 }
 
-func TestStatsCommandAllowsRunningStatus(t *testing.T) {
+func TestStatusCommandAllowsRunningStatus(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -943,15 +943,15 @@ func TestStatsCommandAllowsRunningStatus(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
-		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	if code := Run([]string{"status", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "RUNNING") || !strings.Contains(stdout.String(), "|       1 |") {
-		t.Fatalf("stats output missing running count:\n%s", stdout.String())
+		t.Fatalf("status output missing running count:\n%s", stdout.String())
 	}
 }
 
-func TestStatsCommandPrintsFailedWorkDirectories(t *testing.T) {
+func TestStatusCommandPrintsFailedWorkDirectories(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -989,15 +989,204 @@ func TestStatsCommandPrintsFailedWorkDirectories(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run([]string{"stats", input}, &stdout, &stderr); code != 0 {
-		t.Fatalf("stats failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	if code := Run([]string{"status", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "failed workpackage directories:") {
-		t.Fatalf("stats output missing failed directory header:\n%s", out)
+		t.Fatalf("status output missing failed directory header:\n%s", out)
 	}
 	if !strings.Contains(out, filepath.Join("bench", "000000", "s", "000000")) {
-		t.Fatalf("stats output missing failed directory path:\n%s", out)
+		t.Fatalf("status output missing failed directory path:\n%s", out)
+	}
+}
+
+func TestTreeCommandPrintsPlannedDependencyTreeWithoutCreatingRunDir(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[1, 2])`,
+		`do prep with cases {`,
+		`echo prep`,
+		`}`,
+		`do run after prep {`,
+		`echo run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"tree", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tree failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"| step", "| #", "└── prep", "└── run", "total:", "4"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("tree output missing %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench")); !os.IsNotExist(err) {
+		t.Fatalf("tree should not create benchmark directory, stat error: %v", err)
+	}
+}
+
+func TestTreeCommandSupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"tree", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tree failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "run_large") || strings.Contains(out, "unrelated") {
+		t.Fatalf("selected tree output included unrelated steps:\n%s", out)
+	}
+	if !strings.Contains(out, "prep") || !strings.Contains(out, "run_small") {
+		t.Fatalf("selected tree output missing required steps:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench")); !os.IsNotExist(err) {
+		t.Fatalf("tree should not create benchmark directory, stat error: %v", err)
+	}
+}
+
+func TestLsAnalyseCommandListsCSVOutputs(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo "value: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{filepath.Join("bench", "000000", "run", "analyse.csv"), "nrows", "ncols", "|     1 |", "|     2 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ls-analyse output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestLsAnalyseCommandListsSQLiteOutputs(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do run {`,
+		`echo "value: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"results.sqlite:bench_000000_run", "nrows", "ncols", "|     1 |", "|     2 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ls-analyse output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestLsAnalyseCommandSupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "run_large") || strings.Contains(out, "[large]") {
+		t.Fatalf("selected ls-analyse output included large component:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join("bench", "small", "000000", "run_small", "analyse.csv")) {
+		t.Fatalf("selected ls-analyse output missing small analyse path:\n%s", out)
 	}
 }
 

@@ -449,7 +449,7 @@ func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	}
 }
 
-func TestRunPrintParamWithImportedModule(t *testing.T) {
+func TestRunParamWithImportedModule(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\n"+
 		"do s\n"+
@@ -460,13 +460,13 @@ func TestRunPrintParamWithImportedModule(t *testing.T) {
 	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\ny = (\"a\", \"b\")\njobs = table(x = x, y = y)\n")
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"printparam", "-t", "pretty", mainPath}, &stdout, &stderr)
+	code := Run([]string{"param", "-t", "pretty", mainPath}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected successful printparam run, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected successful param run, code=%d stderr=%s", code, stderr.String())
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "lib.jobs.x") || !strings.Contains(out, "lib.jobs.y") || !strings.Contains(out, "do: s") {
-		t.Fatalf("expected imported module columns in printparam output, got:\n%s", out)
+		t.Fatalf("expected imported module columns in param output, got:\n%s", out)
 	}
 	errText := stderr.String()
 	if strings.Contains(errText, "ERROR") {
@@ -474,7 +474,7 @@ func TestRunPrintParamWithImportedModule(t *testing.T) {
 	}
 }
 
-func TestRunPrintParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
+func TestRunParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "repro.jbs", ""+
 		"a = table(a=range(6))\n"+
@@ -497,9 +497,9 @@ func TestRunPrintParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 		"}\n")
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"printparam", "-t", "csv", mainPath}, &stdout, &stderr)
+	code := Run([]string{"param", "-t", "csv", mainPath}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected successful printparam run, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected successful param run, code=%d stderr=%s", code, stderr.String())
 	}
 	out := stdout.String()
 	if got := strings.Count(out, ",do: step0"); got != 6 {

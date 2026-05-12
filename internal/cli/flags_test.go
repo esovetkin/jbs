@@ -26,7 +26,9 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 		wantOutput            string
 		wantCheck             bool
 		wantRun               bool
-		wantStats             bool
+		wantStatus            bool
+		wantTree              bool
+		wantLsAnalyse         bool
 		wantArchive           bool
 		wantFWait             bool
 		wantFWaitExitExisting bool
@@ -191,26 +193,56 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			wantBenchmark: "small",
 		},
 		{
-			name:       "stats_command",
-			args:       []string{"stats", "input.jbs"},
+			name:       "status_command",
+			args:       []string{"status", "input.jbs"},
 			wantInput:  "input.jbs",
 			wantOutput: "-",
-			wantStats:  true,
+			wantStatus: true,
 		},
 		{
-			name:          "stats_benchmark_short",
-			args:          []string{"stats", "-b", "small", "input.jbs"},
+			name:          "status_benchmark_short",
+			args:          []string{"status", "-b", "small", "input.jbs"},
 			wantInput:     "input.jbs",
 			wantOutput:    "-",
-			wantStats:     true,
+			wantStatus:    true,
 			wantBenchmark: "small",
 		},
 		{
-			name:          "stats_benchmark_long_equals",
-			args:          []string{"stats", "--benchmark=small", "input.jbs"},
+			name:          "status_benchmark_long_equals",
+			args:          []string{"status", "--benchmark=small", "input.jbs"},
 			wantInput:     "input.jbs",
 			wantOutput:    "-",
-			wantStats:     true,
+			wantStatus:    true,
+			wantBenchmark: "small",
+		},
+		{
+			name:       "tree_command",
+			args:       []string{"tree", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantTree:   true,
+		},
+		{
+			name:          "tree_benchmark_short",
+			args:          []string{"tree", "-b", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantTree:      true,
+			wantBenchmark: "small",
+		},
+		{
+			name:          "ls_analyse_command",
+			args:          []string{"ls-analyse", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantLsAnalyse: true,
+		},
+		{
+			name:          "ls_analyse_benchmark_long_equals",
+			args:          []string{"ls-analyse", "--benchmark=small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantLsAnalyse: true,
 			wantBenchmark: "small",
 		},
 		{
@@ -295,8 +327,14 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
 			}
-			if f.Stats != tc.wantStats {
-				t.Fatalf("unexpected stats flag: got=%v want=%v", f.Stats, tc.wantStats)
+			if f.Status != tc.wantStatus {
+				t.Fatalf("unexpected status flag: got=%v want=%v", f.Status, tc.wantStatus)
+			}
+			if f.Tree != tc.wantTree {
+				t.Fatalf("unexpected tree flag: got=%v want=%v", f.Tree, tc.wantTree)
+			}
+			if f.LsAnalyse != tc.wantLsAnalyse {
+				t.Fatalf("unexpected ls-analyse flag: got=%v want=%v", f.LsAnalyse, tc.wantLsAnalyse)
 			}
 			if f.Archive != tc.wantArchive {
 				t.Fatalf("unexpected archive flag: got=%v want=%v", f.Archive, tc.wantArchive)
@@ -328,7 +366,9 @@ func TestParseFlagsBenchmarkEqualsAllowsDashValue(t *testing.T) {
 		{"run", "--benchmark=-dash", "input.jbs"},
 		{"run", "-b=-dash", "input.jbs"},
 		{"continue", "--benchmark=-dash", "input.jbs"},
-		{"stats", "--benchmark=-dash", "input.jbs"},
+		{"status", "--benchmark=-dash", "input.jbs"},
+		{"tree", "--benchmark=-dash", "input.jbs"},
+		{"ls-analyse", "--benchmark=-dash", "input.jbs"},
 		{"--benchmark=-dash", "input.jbs"},
 	} {
 		args := args
@@ -522,46 +562,46 @@ func TestParseFlagsFmtMode(t *testing.T) {
 	}
 }
 
-func TestParseFlagsPrintParamModes(t *testing.T) {
+func TestParseFlagsParamModes(t *testing.T) {
 	cases := []struct {
 		name          string
 		args          []string
 		wantType      string
 		wantOutput    string
 		wantInput     string
-		wantPrintMode bool
+		wantParamMode bool
 	}{
 		{
 			name:          "defaults",
-			args:          []string{"printparam", "input.jbs"},
+			args:          []string{"param", "input.jbs"},
 			wantType:      "pretty",
 			wantOutput:    "-",
 			wantInput:     "input.jbs",
-			wantPrintMode: true,
+			wantParamMode: true,
 		},
 		{
 			name:          "explicit_pretty",
-			args:          []string{"printparam", "--type", "pretty", "input.jbs"},
+			args:          []string{"param", "--type", "pretty", "input.jbs"},
 			wantType:      "pretty",
 			wantOutput:    "-",
 			wantInput:     "input.jbs",
-			wantPrintMode: true,
+			wantParamMode: true,
 		},
 		{
 			name:          "csv",
-			args:          []string{"printparam", "-t=csv", "input.jbs"},
+			args:          []string{"param", "-t=csv", "input.jbs"},
 			wantType:      "csv",
 			wantOutput:    "-",
 			wantInput:     "input.jbs",
-			wantPrintMode: true,
+			wantParamMode: true,
 		},
 		{
 			name:          "custom_output",
-			args:          []string{"printparam", "--output", "out.txt", "input.jbs"},
+			args:          []string{"param", "--output", "out.txt", "input.jbs"},
 			wantType:      "pretty",
 			wantOutput:    "out.txt",
 			wantInput:     "input.jbs",
-			wantPrintMode: true,
+			wantParamMode: true,
 		},
 	}
 
@@ -569,8 +609,8 @@ func TestParseFlagsPrintParamModes(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			f := mustParseFlags(t, tc.args)
-			if f.PrintParam != tc.wantPrintMode {
-				t.Fatalf("unexpected printparam mode: got=%v want=%v", f.PrintParam, tc.wantPrintMode)
+			if f.Param != tc.wantParamMode {
+				t.Fatalf("unexpected param mode: got=%v want=%v", f.Param, tc.wantParamMode)
 			}
 			if f.PrintType != tc.wantType {
 				t.Fatalf("unexpected print type: got=%q want=%q", f.PrintType, tc.wantType)
@@ -597,9 +637,10 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "fmt_duplicate_long_strict", args: []string{"fmt", "--strict", "--strict", "input.jbs"}},
 		{name: "fmt_duplicate_short_strict", args: []string{"fmt", "-s", "-s", "input.jbs"}},
 		{name: "fmt_duplicate_mixed_strict", args: []string{"fmt", "--strict", "-s", "input.jbs"}},
-		{name: "printparam_rejects_check", args: []string{"printparam", "--check", "input.jbs"}},
-		{name: "printparam_bad_type", args: []string{"printparam", "-t", "json", "input.jbs"}},
-		{name: "printparam_missing_input", args: []string{"printparam", "-t", "pretty"}},
+		{name: "param_rejects_check", args: []string{"param", "--check", "input.jbs"}},
+		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
+		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},
+		{name: "old_printparam_command_removed", args: []string{"printparam", "input.jbs"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
 		{name: "run_duplicate_dry_run", args: []string{"run", "-n", "--dry-run", "input.jbs"}},
 		{name: "run_dry_run_missing_input", args: []string{"run", "--dry-run"}},
@@ -614,11 +655,22 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_duplicate_benchmark", args: []string{"continue", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "continue_benchmark_missing_value", args: []string{"continue", "-b"}},
-		{name: "stats_missing_input", args: []string{"stats"}},
-		{name: "stats_duplicate_benchmark", args: []string{"stats", "-b", "small", "-b", "large", "input.jbs"}},
-		{name: "stats_benchmark_missing_value", args: []string{"stats", "-b"}},
-		{name: "stats_rejects_option", args: []string{"stats", "-o", "out.yaml", "input.jbs"}},
-		{name: "stats_extra_argument", args: []string{"stats", "input.jbs", "extra"}},
+		{name: "status_missing_input", args: []string{"status"}},
+		{name: "status_duplicate_benchmark", args: []string{"status", "-b", "small", "-b", "large", "input.jbs"}},
+		{name: "status_benchmark_missing_value", args: []string{"status", "-b"}},
+		{name: "status_rejects_option", args: []string{"status", "-o", "out.yaml", "input.jbs"}},
+		{name: "status_extra_argument", args: []string{"status", "input.jbs", "extra"}},
+		{name: "tree_missing_input", args: []string{"tree"}},
+		{name: "tree_duplicate_benchmark", args: []string{"tree", "-b", "small", "-b", "large", "input.jbs"}},
+		{name: "tree_benchmark_missing_value", args: []string{"tree", "-b"}},
+		{name: "tree_rejects_option", args: []string{"tree", "-o", "out.yaml", "input.jbs"}},
+		{name: "tree_extra_argument", args: []string{"tree", "input.jbs", "extra"}},
+		{name: "ls_analyse_missing_input", args: []string{"ls-analyse"}},
+		{name: "ls_analyse_duplicate_benchmark", args: []string{"ls-analyse", "-b", "small", "-b", "large", "input.jbs"}},
+		{name: "ls_analyse_benchmark_missing_value", args: []string{"ls-analyse", "-b"}},
+		{name: "ls_analyse_rejects_option", args: []string{"ls-analyse", "-o", "out.yaml", "input.jbs"}},
+		{name: "ls_analyse_extra_argument", args: []string{"ls-analyse", "input.jbs", "extra"}},
+		{name: "old_stats_command_removed", args: []string{"stats", "input.jbs"}},
 		{name: "archive_missing_input", args: []string{"archive"}},
 		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
 		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},

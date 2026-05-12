@@ -1,4 +1,4 @@
-// render `printparam` tables
+// render `jbs param` tables
 //
 // expose `Render` dispatch for pretty-table and CSV output, compute column
 // widths/alignment for pretty rendering

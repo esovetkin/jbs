@@ -9,7 +9,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-func Stats(ctx context.Context, opts Options) error {
+func ShowStatus(ctx context.Context, opts Options) error {
 	_ = ctx
 	diags := &diag.Diagnostics{}
 	suite, err := buildRuntimeSuitePlan(opts, diags)
@@ -19,14 +19,44 @@ func Stats(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	prepared, err := openLatestStoresForStats(suite)
+	prepared, err := openLatestStoresForInspection(suite)
 	if err != nil {
 		return err
 	}
-	return printStatsForStores(opts.Stdout, prepared)
+	return printStatusForStores(opts.Stdout, prepared)
 }
 
-func openLatestStoresForStats(suite runtimeSuitePlan) ([]preparedStore, error) {
+func LsAnalyse(ctx context.Context, opts Options) error {
+	_ = ctx
+	diags := &diag.Diagnostics{}
+	suite, err := buildRuntimeSuitePlan(opts, diags)
+	if err != nil {
+		return err
+	}
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to build runtime workplan")
+	}
+	prepared, err := openLatestStoresForInspection(suite)
+	if err != nil {
+		return err
+	}
+	return printAnalyseOutputsForStores(opts.Stdout, prepared)
+}
+
+func Tree(ctx context.Context, opts Options) error {
+	_ = ctx
+	diags := &diag.Diagnostics{}
+	suite, err := buildRuntimeSuitePlan(opts, diags)
+	if err != nil {
+		return err
+	}
+	if diags.HasErrors() {
+		return fmt.Errorf("failed to build runtime workplan")
+	}
+	return printTreeForPlans(opts.Stdout, suite.Plans)
+}
+
+func openLatestStoresForInspection(suite runtimeSuitePlan) ([]preparedStore, error) {
 	prepared := make([]preparedStore, 0, len(suite.Plans))
 	for _, plan := range suite.Plans {
 		runDir, err := latestRunDir(plan.RootDir)
@@ -48,7 +78,7 @@ func openLatestStoresForStats(suite runtimeSuitePlan) ([]preparedStore, error) {
 	return prepared, nil
 }
 
-func printStatsForStores(w io.Writer, prepared []preparedStore) error {
+func printStatusForStores(w io.Writer, prepared []preparedStore) error {
 	if w == nil {
 		return nil
 	}
@@ -69,6 +99,59 @@ func printStatsForStores(w io.Writer, prepared []preparedStore) error {
 			fmt.Fprintln(w)
 			PrintFailedWorkDirectories(w, summary.FailedWork)
 		}
+	}
+	return nil
+}
+
+type labelledAnalyseSummaries struct {
+	label     string
+	summaries []AnalyseOutputSummary
+}
+
+func printAnalyseOutputsForStores(w io.Writer, prepared []preparedStore) error {
+	if w == nil {
+		return nil
+	}
+	sections := make([]labelledAnalyseSummaries, 0, len(prepared))
+	for _, item := range prepared {
+		summaries, err := BuildAnalyseOutputSummaries(item.Store)
+		if err != nil {
+			return err
+		}
+		if len(summaries) == 0 {
+			continue
+		}
+		sections = append(sections, labelledAnalyseSummaries{
+			label:     item.Plan.ComponentName,
+			summaries: summaries,
+		})
+	}
+	multi := len(prepared) > 1
+	for i, section := range sections {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		if multi {
+			fmt.Fprintf(w, "[%s]\n", section.label)
+		}
+		PrintAnalyseOutputSummaries(w, section.summaries)
+	}
+	return nil
+}
+
+func printTreeForPlans(w io.Writer, plans []runtimePlan) error {
+	if w == nil {
+		return nil
+	}
+	multi := len(plans) > 1
+	for i, plan := range plans {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		if multi {
+			fmt.Fprintf(w, "[%s]\n", plan.ComponentName)
+		}
+		PrintJobTreeSummary(w, BuildJobTreeSummary(plan.Manifest))
 	}
 	return nil
 }

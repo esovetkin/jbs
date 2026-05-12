@@ -23,6 +23,21 @@ type StatusSummaryRow struct {
 	Counts StatusCounts
 }
 
+type StepTreeRow struct {
+	Name  string
+	Label string
+}
+
+type JobTreeRow struct {
+	Label string
+	Count int
+}
+
+type JobTreeSummary struct {
+	Rows  []JobTreeRow
+	Total int
+}
+
 type FailedWorkDirectory struct {
 	Step string
 	Row  int
@@ -103,6 +118,40 @@ func PrintStatusSummary(w io.Writer, summary RunStatusSummary) {
 	writeAlignedTable(w, rows, numericColumns(1, 6))
 }
 
+func BuildJobTreeSummary(manifest Manifest) JobTreeSummary {
+	byStep := make(map[string]int, len(manifest.Steps))
+	for _, step := range manifest.Steps {
+		byStep[step.Name] = 0
+	}
+	for _, work := range manifest.Work {
+		byStep[work.Step]++
+	}
+	treeRows := buildStepTreeRows(manifest)
+	rows := make([]JobTreeRow, 0, len(treeRows))
+	for _, row := range treeRows {
+		rows = append(rows, JobTreeRow{Label: row.Label, Count: byStep[row.Name]})
+	}
+	return JobTreeSummary{Rows: rows, Total: len(manifest.Work)}
+}
+
+func PrintJobTreeSummary(w io.Writer, summary JobTreeSummary) {
+	if w == nil {
+		return
+	}
+	rows := []alignedTableRow{
+		alignedData("step", "#"),
+		alignedSeparator(),
+	}
+	for _, row := range summary.Rows {
+		rows = append(rows, alignedData(row.Label, strconv.Itoa(row.Count)))
+	}
+	rows = append(rows,
+		alignedSeparator(),
+		alignedData("total:", strconv.Itoa(summary.Total)),
+	)
+	writeAlignedTable(w, rows, numericColumns(1, 1))
+}
+
 func PrintFailedWorkDirectories(w io.Writer, failed []FailedWorkDirectory) {
 	if w == nil || len(failed) == 0 {
 		return
@@ -126,6 +175,15 @@ func statusSummaryCells(label string, counts StatusCounts) []string {
 }
 
 func buildStatusSummaryRows(manifest Manifest, counts map[string]StatusCounts) []StatusSummaryRow {
+	treeRows := buildStepTreeRows(manifest)
+	rows := make([]StatusSummaryRow, 0, len(treeRows))
+	for _, row := range treeRows {
+		rows = append(rows, StatusSummaryRow{Label: row.Label, Counts: counts[row.Name]})
+	}
+	return rows
+}
+
+func buildStepTreeRows(manifest Manifest) []StepTreeRow {
 	parents, children := stepDependencyGraph(manifest)
 	roots := make([]string, 0)
 	for _, step := range manifest.Steps {
@@ -138,7 +196,7 @@ func buildStatusSummaryRows(manifest Manifest, counts map[string]StatusCounts) [
 			roots = append(roots, step.Name)
 		}
 	}
-	return renderStepTree(manifest, children, roots, counts)
+	return renderStepTreeRows(manifest, children, roots)
 }
 
 func stepDependencyGraph(manifest Manifest) (map[string][]string, map[string][]string) {
@@ -184,8 +242,8 @@ func stepDependencyGraph(manifest Manifest) (map[string][]string, map[string][]s
 	return parents, children
 }
 
-func renderStepTree(manifest Manifest, children map[string][]string, roots []string, counts map[string]StatusCounts) []StatusSummaryRow {
-	rows := make([]StatusSummaryRow, 0, len(manifest.Steps))
+func renderStepTreeRows(manifest Manifest, children map[string][]string, roots []string) []StepTreeRow {
+	rows := make([]StepTreeRow, 0, len(manifest.Steps))
 	seen := make(map[string]bool, len(manifest.Steps))
 	var walk func(string, string, bool)
 	walk = func(step, prefix string, last bool) {
@@ -198,7 +256,7 @@ func renderStepTree(manifest Manifest, children map[string][]string, roots []str
 			branch = "└── "
 			nextPrefix = prefix + "    "
 		}
-		rows = append(rows, StatusSummaryRow{Label: prefix + branch + step, Counts: counts[step]})
+		rows = append(rows, StepTreeRow{Name: step, Label: prefix + branch + step})
 		seen[step] = true
 
 		visible := make([]string, 0, len(children[step]))

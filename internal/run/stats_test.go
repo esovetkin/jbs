@@ -59,6 +59,45 @@ func TestPrintStatusSummaryRendersTable(t *testing.T) {
 	}
 }
 
+func TestBuildJobTreeSummaryCountsWorkpackages(t *testing.T) {
+	summary := BuildJobTreeSummary(statusSummaryManifest())
+	if summary.Total != 6 {
+		t.Fatalf("total = %d, want 6", summary.Total)
+	}
+	got := make(map[string]int, len(summary.Rows))
+	for _, row := range summary.Rows {
+		got[treeLabelName(row.Label)] = row.Count
+	}
+	if got["step1"] != 2 {
+		t.Fatalf("step1 count = %d, want 2", got["step1"])
+	}
+	if got["step2"] != 2 {
+		t.Fatalf("step2 count = %d, want 2", got["step2"])
+	}
+	if got["step3"] != 1 || got["step4"] != 1 {
+		t.Fatalf("leaf counts = %#v, want step3=1 and step4=1", got)
+	}
+}
+
+func TestPrintJobTreeSummaryRendersTable(t *testing.T) {
+	summary := JobTreeSummary{
+		Rows: []JobTreeRow{
+			{Label: "└── step1", Count: 2},
+			{Label: "    └── step2", Count: 3},
+		},
+		Total: 5,
+	}
+
+	var buf bytes.Buffer
+	PrintJobTreeSummary(&buf, summary)
+	out := buf.String()
+	for _, want := range []string{"| step", "| #", "└── step1", "total:", "| 5 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("job tree output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestBuildStatusSummaryCollectsFailedWorkDirectories(t *testing.T) {
 	runDir := t.TempDir()
 	manifest := statusSummaryManifest()

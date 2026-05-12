@@ -11,7 +11,9 @@ type Flags struct {
 	Input             string
 	Run               bool
 	Continue          bool
-	Stats             bool
+	Status            bool
+	Tree              bool
+	LsAnalyse         bool
 	Archive           bool
 	FWait             bool
 	FWaitExitExisting bool
@@ -24,7 +26,7 @@ type Flags struct {
 	Check             bool
 	Fmt               bool
 	FmtStrict         bool
-	PrintParam        bool
+	Param             bool
 	PrintType         string
 	Help              bool
 	HelpTopic         string
@@ -57,8 +59,14 @@ func ParseFlags(args []string) (Flags, error) {
 	if args[0] == "continue" {
 		return parseContinueArgs(args[1:])
 	}
-	if args[0] == "stats" {
-		return parseStatsArgs(args[1:])
+	if args[0] == "status" {
+		return parseBenchmarkInputArgs(args[1:], "status")
+	}
+	if args[0] == "tree" {
+		return parseBenchmarkInputArgs(args[1:], "tree")
+	}
+	if args[0] == "ls-analyse" {
+		return parseBenchmarkInputArgs(args[1:], "ls-analyse")
 	}
 	if args[0] == "archive" {
 		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
@@ -87,51 +95,8 @@ func ParseFlags(args []string) (Flags, error) {
 	if args[0] == "fmt" {
 		return parseFmtArgs(args[1:])
 	}
-	if args[0] == "printparam" {
-		cfg.PrintParam = true
-		cfg.PrintType = "pretty"
-		for i := 1; i < len(args); i++ {
-			arg := args[i]
-			switch {
-			case arg == "-t" || arg == "--type":
-				if i+1 >= len(args) {
-					return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-				}
-				i++
-				cfg.PrintType = args[i]
-			case strings.HasPrefix(arg, "--type="):
-				cfg.PrintType = strings.TrimPrefix(arg, "--type=")
-			case strings.HasPrefix(arg, "-t="):
-				cfg.PrintType = strings.TrimPrefix(arg, "-t=")
-			case arg == "-o" || arg == "--output":
-				if i+1 >= len(args) {
-					return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-				}
-				i++
-				cfg.Output = args[i]
-			case strings.HasPrefix(arg, "--output="):
-				cfg.Output = strings.TrimPrefix(arg, "--output=")
-			case strings.HasPrefix(arg, "-o="):
-				cfg.Output = strings.TrimPrefix(arg, "-o=")
-			case arg == "-c" || arg == "--check":
-				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-			case strings.HasPrefix(arg, "-"):
-				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-			default:
-				if cfg.Input == "" {
-					cfg.Input = arg
-					continue
-				}
-				return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-			}
-		}
-		if cfg.Input == "" {
-			return Flags{}, UsageError{Message: "usage: jbs printparam [-t pretty|csv] [-o <outputfile>] <file.jbs>"}
-		}
-		if cfg.PrintType != "pretty" && cfg.PrintType != "csv" {
-			return Flags{}, UsageError{Message: fmt.Sprintf("unknown printparam type: %s", cfg.PrintType)}
-		}
-		return cfg, nil
+	if args[0] == "param" {
+		return parseParamArgs(args[1:])
 	}
 	for i := 0; i < len(args); i++ {
 		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, defaultRunUsageMessage())
@@ -181,30 +146,38 @@ func ParseFlags(args []string) (Flags, error) {
 func UsageText() string {
 	return fmt.Sprintf(`Usage:
 
-Run:
-	  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-	  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-	  jbs continue input.jbs [-b|--benchmark <name>]
-	  jbs stats input.jbs [-b|--benchmark <name>]
+Read examples/help:
+  jbs help [%s]
 
-Archive:
+Run:
+  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs continue input.jbs [-b|--benchmark <name>]
+
+Print status of the latest run:
+  jbs status input.jbs [-b|--benchmark <name>]
+
+List generated analyse tables:
+  jbs ls-analyse input.jbs [-b|--benchmark <name>]
+
+Options:
+  -n, --dry-run  Create the run directory without starting workpackages
+  -b, --benchmark <name>
+                 Run, continue, or inspect one configured benchmark component
+  --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse+validate only
+
+Archive benchmark directory:
   jbs archive input.jbs
 
 Wait for files:
   jbs fwait [-e] <path> [path...]
 
-Options:
-  -n, --dry-run  Create the run directory without starting workpackages
-  -b, --benchmark <name>
-                 Run or continue one configured benchmark component
-  --no-strict   Do not add set -euo pipefail to generated run.sh
-  -c, --check   Parse+validate only
-
-Read examples/help:
-  jbs help [%s]
+Inspect job dependencies:
+  jbs tree input.jbs [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+  jbs param [-t pretty|csv] [-o <outputfile>] script.jbs
   defaults: -t pretty, -o -
 
 Format jbs in place:
@@ -213,6 +186,56 @@ Format jbs in place:
 Interactive mode:
   jbs
   jbs repl`, helpUsageTopics())
+}
+
+func parseParamArgs(args []string) (Flags, error) {
+	cfg := Flags{Param: true, Output: "-", PrintType: "pretty"}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-t" || arg == "--type":
+			if i+1 >= len(args) {
+				return Flags{}, UsageError{Message: paramUsageMessage()}
+			}
+			i++
+			cfg.PrintType = args[i]
+		case strings.HasPrefix(arg, "--type="):
+			cfg.PrintType = strings.TrimPrefix(arg, "--type=")
+		case strings.HasPrefix(arg, "-t="):
+			cfg.PrintType = strings.TrimPrefix(arg, "-t=")
+		case arg == "-o" || arg == "--output":
+			if i+1 >= len(args) {
+				return Flags{}, UsageError{Message: paramUsageMessage()}
+			}
+			i++
+			cfg.Output = args[i]
+		case strings.HasPrefix(arg, "--output="):
+			cfg.Output = strings.TrimPrefix(arg, "--output=")
+		case strings.HasPrefix(arg, "-o="):
+			cfg.Output = strings.TrimPrefix(arg, "-o=")
+		case arg == "-c" || arg == "--check":
+			return Flags{}, UsageError{Message: paramUsageMessage()}
+		case strings.HasPrefix(arg, "-"):
+			return Flags{}, UsageError{Message: paramUsageMessage()}
+		default:
+			if cfg.Input == "" {
+				cfg.Input = arg
+				continue
+			}
+			return Flags{}, UsageError{Message: paramUsageMessage()}
+		}
+	}
+	if cfg.Input == "" {
+		return Flags{}, UsageError{Message: paramUsageMessage()}
+	}
+	if cfg.PrintType != "pretty" && cfg.PrintType != "csv" {
+		return Flags{}, UsageError{Message: fmt.Sprintf("unknown param type: %s", cfg.PrintType)}
+	}
+	return cfg, nil
+}
+
+func paramUsageMessage() string {
+	return "usage: jbs param [-t pretty|csv] [-o <outputfile>] <file.jbs>"
 }
 
 func parseFWaitArgs(args []string) (Flags, error) {
@@ -313,10 +336,21 @@ func continueUsageMessage() string {
 	return "usage: jbs continue [-b|--benchmark <name>] <file.jbs>"
 }
 
-func parseStatsArgs(args []string) (Flags, error) {
-	cfg := Flags{Stats: true, Output: "-"}
+func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
+	cfg := Flags{Output: "-"}
+	switch command {
+	case "status":
+		cfg.Status = true
+	case "tree":
+		cfg.Tree = true
+	case "ls-analyse":
+		cfg.LsAnalyse = true
+	default:
+		return Flags{}, UsageError{Message: fmt.Sprintf("unknown command: %s", command)}
+	}
+	usage := benchmarkInputUsageMessage(command)
 	for i := 0; i < len(args); i++ {
-		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, statsUsageMessage())
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, usage)
 		if err != nil {
 			return Flags{}, err
 		}
@@ -328,22 +362,22 @@ func parseStatsArgs(args []string) (Flags, error) {
 		arg := args[i]
 		switch {
 		case strings.HasPrefix(arg, "-"):
-			return Flags{}, UsageError{Message: statsUsageMessage()}
+			return Flags{}, UsageError{Message: usage}
 		default:
 			if cfg.Input != "" {
-				return Flags{}, UsageError{Message: statsUsageMessage()}
+				return Flags{}, UsageError{Message: usage}
 			}
 			cfg.Input = arg
 		}
 	}
 	if cfg.Input == "" {
-		return Flags{}, UsageError{Message: statsUsageMessage()}
+		return Flags{}, UsageError{Message: usage}
 	}
 	return cfg, nil
 }
 
-func statsUsageMessage() string {
-	return "usage: jbs stats [-b|--benchmark <name>] <file.jbs>"
+func benchmarkInputUsageMessage(command string) string {
+	return fmt.Sprintf("usage: jbs %s [-b|--benchmark <name>] <file.jbs>", command)
 }
 
 func consumeBenchmarkOption(cfg *Flags, args []string, i int, usage string) (int, bool, error) {

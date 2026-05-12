@@ -81,29 +81,38 @@ Or you can grab the [compiled binary](https://gitlab.jsc.fz-juelich.de/sdlaml/jb
 % jbs -h
 Usage:
 
+Read examples/help:
+  jbs help [analyse|archive|continue|do|fwait|globals|ls-analyse|param|repl|status|tree|use]
+
 Run:
   jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
   jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
   jbs continue input.jbs [-b|--benchmark <name>]
 
-Archive:
+Print status of the latest run:
+  jbs status input.jbs [-b|--benchmark <name>]
+
+List generated analyse tables:
+  jbs ls-analyse input.jbs [-b|--benchmark <name>]
+
+Options:
+  -n, --dry-run  Create the run directory without starting workpackages
+  -b, --benchmark <name>
+                 Run, continue, or inspect one configured benchmark component
+  --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse+validate only
+
+Archive benchmark directory:
   jbs archive input.jbs
 
 Wait for files:
   jbs fwait [-e] <path> [path...]
 
-Options:
-  -n, --dry-run  Create the run directory without starting workpackages
-  -b, --benchmark <name>
-                 Run or continue one configured benchmark component
-  --no-strict   Do not add set -euo pipefail to generated run.sh
-  -c, --check   Parse+validate only
-
-Read examples/help:
-  jbs help [analyse|archive|continue|do|fwait|globals|repl|use]
+Inspect job dependencies:
+  jbs tree input.jbs [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs printparam [-t pretty|csv] [-o <outputfile>] script.jbs
+  jbs param [-t pretty|csv] [-o <outputfile>] script.jbs
   defaults: -t pretty, -o -
 
 Format jbs in place:
@@ -114,7 +123,7 @@ Interactive mode:
   jbs repl
 ```
 
-`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs printparam` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status, `jbs tree` prints the planned job tree, and `jbs ls-analyse` lists generated analyse outputs. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
 
 ## Variable Types, Tables, and Parameter Spaces
 

@@ -1,4 +1,4 @@
-// construct data needed for `jbs printparam`
+// construct data needed for `jbs param`
 package printparam
 
 import (
