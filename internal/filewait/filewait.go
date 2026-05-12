@@ -13,8 +13,10 @@ import (
 )
 
 type Options struct {
-	Ready        chan<- struct{}
-	ExitIfExists bool
+	Ready           chan<- struct{}
+	ExitIfExists    bool
+	PollInterval    time.Duration
+	DisableFSNotify bool
 }
 
 type Result struct {
@@ -23,6 +25,8 @@ type Result struct {
 }
 
 var afterPrepareTargetsForTest func()
+
+const defaultPollInterval = time.Second
 
 func Wait(ctx context.Context, target string) error {
 	_, err := WaitAnyWithOptions(ctx, []string{target}, Options{})
@@ -56,42 +60,96 @@ func WaitAnyWithOptions(ctx context.Context, targets []string, opts Options) (Re
 		afterPrepareTargetsForTest()
 	}
 
-	watcher, err := fsnotify.NewWatcher()
+	watcher, state, err := startWatcher(states, opts)
 	if err != nil {
-		return Result{}, fmt.Errorf("create file watcher: %w", err)
-	}
-	defer watcher.Close()
-
-	state := waitState{watcher: watcher, watched: map[string]struct{}{}}
-	if err := state.refreshAllWatches(states); err != nil {
 		return Result{}, err
+	}
+	if watcher != nil {
+		defer watcher.Close()
 	}
 	if result, ok, err := firstCompleted(states); err != nil {
 		return Result{}, err
 	} else if ok {
 		return result, nil
 	}
+
+	ticker := time.NewTicker(pollInterval(opts))
+	defer ticker.Stop()
 	signalReady(opts.Ready)
+
+	return waitLoop(ctx, states, state, ticker)
+}
+
+func pollInterval(opts Options) time.Duration {
+	if opts.PollInterval > 0 {
+		return opts.PollInterval
+	}
+	return defaultPollInterval
+}
+
+func startWatcher(states []targetState, opts Options) (*fsnotify.Watcher, *waitState, error) {
+	if opts.DisableFSNotify {
+		return nil, nil, nil
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, nil, nil
+	}
+	state := &waitState{watcher: watcher, watched: map[string]struct{}{}}
+	if err := state.refreshAllWatches(states); err != nil {
+		watcher.Close()
+		return nil, nil, nil
+	}
+	return watcher, state, nil
+}
+
+func waitLoop(ctx context.Context, states []targetState, state *waitState, ticker *time.Ticker) (Result, error) {
+	var events <-chan fsnotify.Event
+	var watcherErrors <-chan error
+	if state != nil && state.watcher != nil {
+		events = state.watcher.Events
+		watcherErrors = state.watcher.Errors
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return Result{}, ctx.Err()
-		case err, ok := <-watcher.Errors:
+		case err, ok := <-watcherErrors:
 			if !ok {
-				return Result{}, nil
+				watcherErrors = nil
+				continue
 			}
 			if err != nil {
-				return Result{}, fmt.Errorf("file watcher error: %w", err)
+				watcherErrors = nil
+				events = nil
 			}
-		case event, ok := <-watcher.Events:
+		case event, ok := <-events:
 			if !ok {
-				return Result{}, nil
+				events = nil
+				continue
 			}
-			if err := state.refreshAllWatches(states); err != nil {
-				return Result{}, err
+			if state != nil {
+				if err := state.refreshAllWatches(states); err != nil {
+					events = nil
+					watcherErrors = nil
+				}
 			}
 			result, ok, err := firstCompletedAfterEvent(states, event)
+			if err != nil {
+				return Result{}, err
+			}
+			if ok {
+				return result, nil
+			}
+		case <-ticker.C:
+			if state != nil && events != nil {
+				if err := state.refreshAllWatches(states); err != nil {
+					events = nil
+					watcherErrors = nil
+				}
+			}
+			result, ok, err := firstCompleted(states)
 			if err != nil {
 				return Result{}, err
 			}

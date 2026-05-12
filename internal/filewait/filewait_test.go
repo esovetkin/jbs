@@ -131,6 +131,117 @@ func TestWaitExistingTargetIsReplaced(t *testing.T) {
 	waitDone(t, done)
 }
 
+func TestWaitAnyPollingDetectsMissingTargetAppears(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "done.flag")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ready := make(chan struct{})
+	done := make(chan waitResult, 1)
+	go func() {
+		result, err := WaitAnyWithOptions(ctx, []string{target}, Options{
+			Ready:           ready,
+			DisableFSNotify: true,
+			PollInterval:    10 * time.Millisecond,
+		})
+		done <- waitResult{result: result, err: err}
+	}()
+	waitReadyResult(t, ready, done)
+
+	if err := os.WriteFile(target, []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := waitDoneResult(t, done)
+	if result.Path != target || result.Index != 0 {
+		t.Fatalf("unexpected result: got=%+v want path=%q index=0", result, target)
+	}
+}
+
+func TestWaitAnyPollingDetectsExistingTargetChange(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(target, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- WaitWithOptions(ctx, target, Options{
+			Ready:           ready,
+			DisableFSNotify: true,
+			PollInterval:    10 * time.Millisecond,
+		})
+	}()
+	waitReady(t, ready, done)
+
+	if err := os.WriteFile(target, []byte("new content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitDone(t, done)
+}
+
+func TestWaitAnyPollingDetectsExistingTargetTouch(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(target, []byte("same\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- WaitWithOptions(ctx, target, Options{
+			Ready:           ready,
+			DisableFSNotify: true,
+			PollInterval:    10 * time.Millisecond,
+		})
+	}()
+	waitReady(t, ready, done)
+
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(target, later, later); err != nil {
+		t.Fatal(err)
+	}
+	waitDone(t, done)
+}
+
+func TestWaitAnyPollingReturnsFirstCompletedInArgumentOrder(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.flag")
+	second := filepath.Join(dir, "second.flag")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ready := make(chan struct{})
+	done := make(chan waitResult, 1)
+	go func() {
+		result, err := WaitAnyWithOptions(ctx, []string{first, second}, Options{
+			Ready:           ready,
+			DisableFSNotify: true,
+			PollInterval:    100 * time.Millisecond,
+		})
+		done <- waitResult{result: result, err: err}
+	}()
+	waitReadyResult(t, ready, done)
+
+	if err := os.WriteFile(second, []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := waitDoneResult(t, done)
+	if result.Path != first || result.Index != 0 {
+		t.Fatalf("unexpected result: got=%+v want path=%q index=0", result, first)
+	}
+}
+
 func TestWaitMissingTargetCreatedDuringSetupReturns(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "done.flag")

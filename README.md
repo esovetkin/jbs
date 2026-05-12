@@ -114,7 +114,7 @@ Interactive mode:
   jbs repl
 ```
 
-`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs fwait` waits for files to appear or change via [fsnotify](https://docs.kernel.org/filesystems/inotify.html), which is useful for barrier jobs (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs printparam` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs printparam` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
 
 ## Variable Types, Tables, and Parameter Spaces
 
