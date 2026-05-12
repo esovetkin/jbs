@@ -14,8 +14,6 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/filewait"
-	jbsformat "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/format"
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/printparam"
 	jbsrepl "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/repl"
@@ -33,8 +31,6 @@ type analysisBundle struct {
 }
 
 var runReplFn = runRepl
-
-var formatWrite = fsutil.AtomicWriteOptions{SyncDir: true, TempSuffix: "jbsfmt"}
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	flags, err := ParseFlags(args)
@@ -56,9 +52,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
-	}
-	if flags.Fmt {
-		return runFmt(flags.Input, flags.FmtStrict, stdout, stderr)
 	}
 	if flags.Param {
 		return runParam(flags, stdout, stderr)
@@ -324,57 +317,6 @@ func runParam(flags Flags, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to write output: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runFmt(path string, strict bool, stdout, stderr io.Writer) int {
-	_ = stdout
-
-	src, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to read input file %q: %v\n", path, err)
-		return 1
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to stat input file %q: %v\n", path, err)
-		return 1
-	}
-
-	if strict {
-		diags := &diag.Diagnostics{}
-		bundle, err := analyzeInput(path, diags)
-		if err != nil {
-			fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
-			return 1
-		}
-		if len(diags.Items) > 0 {
-			fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
-		}
-		if diags.HasErrors() {
-			return 1
-		}
-	}
-
-	formatDiags := &diag.Diagnostics{}
-	formatted, err := jbsformat.JBS(path, string(src), formatDiags)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to format %q: %v\n", path, err)
-		return 1
-	}
-	if len(formatDiags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnostics(*formatDiags, string(src)))
-	}
-	if formatDiags.HasErrors() {
-		return 1
-	}
-	if formatted == string(src) {
-		return 0
-	}
-	if err := fsutil.WriteFileAtomic(path, []byte(formatted), info.Mode().Perm(), formatWrite); err != nil {
-		fmt.Fprintf(stderr, "failed to write formatted file %q: %v\n", path, err)
 		return 1
 	}
 	return 0

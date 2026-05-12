@@ -507,58 +507,9 @@ func TestUsageTextUsesHelpTopicRegistry(t *testing.T) {
 	}
 }
 
-func TestParseFlagsFmtMode(t *testing.T) {
-	cases := []struct {
-		name       string
-		args       []string
-		wantInput  string
-		wantStrict bool
-	}{
-		{
-			name:       "default",
-			args:       []string{"fmt", "input.jbs"},
-			wantInput:  "input.jbs",
-			wantStrict: false,
-		},
-		{
-			name:       "long_before",
-			args:       []string{"fmt", "--strict", "input.jbs"},
-			wantInput:  "input.jbs",
-			wantStrict: true,
-		},
-		{
-			name:       "long_after",
-			args:       []string{"fmt", "input.jbs", "--strict"},
-			wantInput:  "input.jbs",
-			wantStrict: true,
-		},
-		{
-			name:       "short_before",
-			args:       []string{"fmt", "-s", "input.jbs"},
-			wantInput:  "input.jbs",
-			wantStrict: true,
-		},
-		{
-			name:       "short_after",
-			args:       []string{"fmt", "input.jbs", "-s"},
-			wantInput:  "input.jbs",
-			wantStrict: true,
-		},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			f := mustParseFlags(t, tc.args)
-			if !f.Fmt {
-				t.Fatalf("expected fmt mode")
-			}
-			if f.Input != tc.wantInput {
-				t.Fatalf("unexpected input: got=%q want=%q", f.Input, tc.wantInput)
-			}
-			if f.FmtStrict != tc.wantStrict {
-				t.Fatalf("unexpected strict flag: got=%v want=%v", f.FmtStrict, tc.wantStrict)
-			}
-		})
+func TestParseFlagsFmtCommandRemoved(t *testing.T) {
+	if _, err := ParseFlags([]string{"fmt", "input.jbs"}); err == nil {
+		t.Fatalf("expected removed fmt command shape to fail")
 	}
 }
 
@@ -631,12 +582,6 @@ func TestParseFlagsErrors(t *testing.T) {
 		args []string
 	}{
 		{name: "help_unknown_topic", args: []string{"help", "badtopic"}},
-		{name: "fmt_missing_file", args: []string{"fmt"}},
-		{name: "fmt_rejects_option", args: []string{"fmt", "-o", "x.jbs"}},
-		{name: "fmt_rejects_check", args: []string{"fmt", "-c"}},
-		{name: "fmt_duplicate_long_strict", args: []string{"fmt", "--strict", "--strict", "input.jbs"}},
-		{name: "fmt_duplicate_short_strict", args: []string{"fmt", "-s", "-s", "input.jbs"}},
-		{name: "fmt_duplicate_mixed_strict", args: []string{"fmt", "--strict", "-s", "input.jbs"}},
 		{name: "param_rejects_check", args: []string{"param", "--check", "input.jbs"}},
 		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
 		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},

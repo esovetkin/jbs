@@ -115,15 +115,12 @@ Inspect step parameter expansion:
   jbs param [-t pretty|csv] [-o <outputfile>] script.jbs
   defaults: -t pretty, -o -
 
-Format jbs in place:
-  jbs fmt [-s|--strict] script.jbs
-
 Interactive mode:
   jbs
   jbs repl
 ```
 
-`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status, `jbs tree` prints the planned job tree, and `jbs ls-analyse` lists generated analyse outputs. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use. `jbs fmt` applies canonical formatting to `jbs` files in place.
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status, `jbs tree` prints the planned job tree, and `jbs ls-analyse` lists generated analyse outputs. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use.
 
 ## Variable Types, Tables, and Parameter Spaces
 
