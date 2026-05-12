@@ -307,6 +307,10 @@ func printPostRunSummaries(stdout, stderr io.Writer, results []componentResult) 
 			continue
 		}
 		PrintStatusSummary(stdout, summary)
+		if len(summary.FailedWork) > 0 {
+			fmt.Fprintln(stdout)
+			PrintFailedWorkDirectories(stdout, summary.FailedWork)
+		}
 		if result.Final != StatusFinished {
 			continue
 		}

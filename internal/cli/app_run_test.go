@@ -754,10 +754,20 @@ func TestRunCommandMarksDependentsBlockedAndPrintsStatusSummary(t *testing.T) {
 		t.Fatalf("run status = %#v, want BLOCKED", status)
 	}
 	out := stdout.String()
-	for _, want := range []string{"BLOCKED", "└── prep", "└── run", "total:"} {
+	for _, want := range []string{
+		"BLOCKED",
+		"└── prep",
+		"└── run",
+		"total:",
+		"failed workpackage directories:",
+		filepath.Join("bench", "000000", "prep", "000000"),
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status summary missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, filepath.Join("bench", "000000", "run", "000000")) {
+		t.Fatalf("blocked work directory should not be listed as failed:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(runDir, "run", "000000", "exitcode")); !os.IsNotExist(err) {
 		t.Fatalf("blocked work should not have exitcode, stat error: %v", err)
@@ -1799,6 +1809,9 @@ func TestRunCommandAnalysisFailureMarksRootError(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "\nrun/analyse.csv\n") {
 		t.Fatalf("did not expect analysis table after failure: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "failed workpackage directories:") {
+		t.Fatalf("analysis-only failure printed failed work directories:\n%s", stdout.String())
 	}
 }
 
