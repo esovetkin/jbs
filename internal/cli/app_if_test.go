@@ -64,6 +64,38 @@ do run with cases {
 	}
 }
 
+func TestRunCheckAcceptsLogicalOperatorAliases(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := `
+jbs_name = "logical_aliases"
+enabled = true
+threads = 2
+a = enabled && (threads > 1)
+b = enabled and (threads > 1)
+c = false || enabled
+d = false or enabled
+if a & b | c && d {
+	x = 1
+} else {
+	x = 0
+}
+do run with x {
+	echo $x
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no check output, got %q", stdout.String())
+	}
+}
+
 func TestRunRejectsDeclarationInsideIf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

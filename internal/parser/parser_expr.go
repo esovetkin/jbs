@@ -185,6 +185,17 @@ func (p *tokenParser) parseConditional() ast.Expr {
 	return thenExpr
 }
 
+func canonicalLogicalOp(tt lexer.TokenType) (string, bool) {
+	switch tt {
+	case lexer.TokenAmp, lexer.TokenAnd:
+		return "&", true
+	case lexer.TokenPipe, lexer.TokenOr:
+		return "|", true
+	default:
+		return "", false
+	}
+}
+
 func (p *tokenParser) parsePipe() ast.Expr {
 	left := p.parseAmp()
 	for {
@@ -193,11 +204,7 @@ func (p *tokenParser) parsePipe() ast.Expr {
 			break
 		}
 		op := p.next()
-		opText := op.Text
-		if tt == lexer.TokenOr {
-			opText = "|"
-			p.diags.AddError(diag.CodeE058, "keyword logical operator 'or' is not supported", op.Span, "use '|' instead of 'or'")
-		}
+		opText, _ := canonicalLogicalOp(op.Type)
 		right := p.parseAmp()
 		left = ast.BinaryExpr{
 			Left:  left,
@@ -217,11 +224,7 @@ func (p *tokenParser) parseAmp() ast.Expr {
 			break
 		}
 		op := p.next()
-		opText := op.Text
-		if tt == lexer.TokenAnd {
-			opText = "&"
-			p.diags.AddError(diag.CodeE058, "keyword logical operator 'and' is not supported", op.Span, "use '&' instead of 'and'")
-		}
+		opText, _ := canonicalLogicalOp(op.Type)
 		right := p.parseCompare()
 		left = ast.BinaryExpr{
 			Left:  left,

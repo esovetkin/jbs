@@ -8,6 +8,7 @@ import (
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 )
 
 func TestEvalExprWithCtxNilExpr(t *testing.T) {
@@ -2477,6 +2478,71 @@ func TestEvalBinaryLogicalOperators(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLogicalOperatorAliasesParseAndEvaluateAsBooleans(t *testing.T) {
+	tests := []struct {
+		src  string
+		want bool
+	}{
+		{src: "true & false", want: false},
+		{src: "true && false", want: false},
+		{src: "true and false", want: false},
+		{src: "true | false", want: true},
+		{src: "true || false", want: true},
+		{src: "true or false", want: true},
+	}
+	for _, tc := range tests {
+		got := evalParsedExprForTest(t, tc.src)
+		if got.Kind != KindBool || got.B != tc.want {
+			t.Fatalf("unexpected result for %q: %#v", tc.src, got)
+		}
+	}
+}
+
+func TestLogicalOperatorAliasesPreserveVectorBehavior(t *testing.T) {
+	tests := []string{
+		"[true, false] & [false, true]",
+		"[true, false] && [false, true]",
+		"[true, false] and [false, true]",
+	}
+	want := List([]Value{Bool(false), Bool(false)})
+	for _, src := range tests {
+		got := evalParsedExprForTest(t, src)
+		if !Equal(got, want) {
+			t.Fatalf("unexpected result for %q: %#v", src, got)
+		}
+	}
+
+	tests = []string{
+		"[true, false] | [false, true]",
+		"[true, false] || [false, true]",
+		"[true, false] or [false, true]",
+	}
+	want = List([]Value{Bool(true), Bool(true)})
+	for _, src := range tests {
+		got := evalParsedExprForTest(t, src)
+		if !Equal(got, want) {
+			t.Fatalf("unexpected result for %q: %#v", src, got)
+		}
+	}
+}
+
+func evalParsedExprForTest(t *testing.T, src string) Value {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	expr, ok := parser.ParseStandaloneExpr("expr.jbs", src, diag.NewPos(0, 1, 1), diags)
+	if !ok {
+		t.Fatalf("expected standalone expression for %q", src)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("parse failed for %q: %s", src, diags.String())
+	}
+	got := EvalExpr(expr, map[string]Value{}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("eval failed for %q: %s", src, diags.String())
+	}
+	return got
 }
 
 func TestEvalBinaryLogicalOperatorsCastAndBroadcast(t *testing.T) {

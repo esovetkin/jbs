@@ -513,50 +513,52 @@ func TestLexSymbolTokens(t *testing.T) {
 	}
 }
 
-func TestLexDoubleLogicalSymbolsReportE002(t *testing.T) {
+func TestLexDoubleLogicalSymbols(t *testing.T) {
 	tests := []struct {
-		src string
+		src  string
+		tt   TokenType
+		text string
 	}{
-		{src: "&&\n"},
-		{src: "||\n"},
+		{src: "&&\n", tt: TokenAmp, text: "&&"},
+		{src: "||\n", tt: TokenPipe, text: "||"},
 	}
 	for _, tc := range tests {
 		diags := &diag.Diagnostics{}
 		tokens := Lex("in.jbs", tc.src, diags)
-		found := false
-		for _, d := range diags.Items {
-			if d.Code == "E002" {
-				found = true
-				break
-			}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected lexer errors for %q: %s", tc.src, diags.String())
 		}
-		if !found {
-			t.Fatalf("expected E002 for %q, got: %s", tc.src, diags.String())
+		if len(tokens) < 3 {
+			t.Fatalf("unexpected token count for %q: %d", tc.src, len(tokens))
 		}
-		if len(tokens) < 2 || tokens[0].Type != TokenNewline || tokens[1].Type != TokenEOF {
-			t.Fatalf("expected only NEWLINE and EOF tokens after invalid %q, got %#v", tc.src, tokens)
+		if tokens[0].Type != tc.tt || tokens[0].Text != tc.text || tokens[0].Value != tc.text {
+			t.Fatalf("unexpected token for %q: %#v", tc.src, tokens[0])
+		}
+		if tokens[0].Span.Start.Column != 1 || tokens[0].Span.End.Column != 3 {
+			t.Fatalf("expected two-character span for %q, got %#v", tc.src, tokens[0].Span)
+		}
+		if tokens[1].Type != TokenNewline || tokens[2].Type != TokenEOF {
+			t.Fatalf("expected newline and eof after %q, got %#v", tc.src, tokens)
 		}
 	}
 }
 
 func TestLexLogicalSymbolsInExpression(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	tokens := Lex("in.jbs", "!a | b & c\n", diags)
+	tokens := Lex("in.jbs", "!a || b && c or d and e\n", diags)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected lexer errors: %s", diags.String())
 	}
-	got := []TokenType{
-		tokens[0].Type,
-		tokens[1].Type,
-		tokens[2].Type,
-		tokens[3].Type,
-		tokens[4].Type,
-		tokens[5].Type,
+	want := []TokenType{
+		TokenBang, TokenIdent,
+		TokenPipe, TokenIdent,
+		TokenAmp, TokenIdent,
+		TokenOr, TokenIdent,
+		TokenAnd, TokenIdent,
 	}
-	want := []TokenType{TokenBang, TokenIdent, TokenPipe, TokenIdent, TokenAmp, TokenIdent}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("unexpected token sequence at %d: got=%v want=%v", i, got, want)
+		if tokens[i].Type != want[i] {
+			t.Fatalf("unexpected token sequence at %d: got=%v want=%v", i, tokens[i].Type, want[i])
 		}
 	}
 }

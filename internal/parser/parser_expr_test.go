@@ -243,17 +243,51 @@ func TestParseGroupedExpressionSpansIncludeParentheses(t *testing.T) {
 	}
 }
 
-func TestParseKeywordLogicalOperatorsRejected(t *testing.T) {
+func TestParseLogicalOperatorAliasesCanonicalized(t *testing.T) {
+	tests := []struct {
+		src    string
+		wantOp string
+	}{
+		{src: "a & b", wantOp: "&"},
+		{src: "a && b", wantOp: "&"},
+		{src: "a and b", wantOp: "&"},
+		{src: "a | b", wantOp: "|"},
+		{src: "a || b", wantOp: "|"},
+		{src: "a or b", wantOp: "|"},
+	}
+	for _, tc := range tests {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP(tc.src, diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors for %q: %s", tc.src, diags.String())
+		}
+		bin, ok := expr.(ast.BinaryExpr)
+		if !ok || bin.Op != tc.wantOp {
+			t.Fatalf("expected canonical op %q for %q, got %#v", tc.wantOp, tc.src, expr)
+		}
+	}
+}
+
+func TestParseLogicalAliasPrecedence(t *testing.T) {
 	tests := []string{
-		"a and b",
-		"a or b",
+		"a || b && c",
+		"a or b and c",
 	}
 	for _, src := range tests {
 		diags := &diag.Diagnostics{}
 		tp := parseExprTP(src, diags)
-		_ = tp.parseExpr()
-		if !hasCode(diags, "E058") {
-			t.Fatalf("expected E058 for %q, got: %s", src, diags.String())
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors for %q: %s", src, diags.String())
+		}
+		top, ok := expr.(ast.BinaryExpr)
+		if !ok || top.Op != "|" {
+			t.Fatalf("expected top-level disjunction for %q, got %#v", src, expr)
+		}
+		right, ok := top.Right.(ast.BinaryExpr)
+		if !ok || right.Op != "&" {
+			t.Fatalf("expected conjunction on right side for %q, got %#v", src, top.Right)
 		}
 	}
 }

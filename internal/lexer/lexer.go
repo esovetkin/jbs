@@ -273,17 +273,19 @@ func (l *Lexer) lexSymbol() {
 	case '&':
 		if l.peek() == '&' {
 			l.advance()
-			l.diags.AddError(diag.CodeE002, "unexpected '&&'", diag.NewSpan(l.file, start, l.pos()), "use '&' for logical conjunction")
-			return
+			tt = TokenAmp
+			text = "&&"
+		} else {
+			tt = TokenAmp
 		}
-		tt = TokenAmp
 	case '|':
 		if l.peek() == '|' {
 			l.advance()
-			l.diags.AddError(diag.CodeE002, "unexpected '||'", diag.NewSpan(l.file, start, l.pos()), "use '|' for logical disjunction")
-			return
+			tt = TokenPipe
+			text = "||"
+		} else {
+			tt = TokenPipe
 		}
-		tt = TokenPipe
 	case '<':
 		if l.peek() == '=' {
 			l.advance()

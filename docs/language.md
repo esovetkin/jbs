@@ -64,7 +64,9 @@ Scalar values are the atomic values that can be used as workpackage shell variab
 
 - Booleans can be written as `true`, `True`, `TRUE`, `false`, ...
 
-  Booleans work with logical operators and comparisons: `true & (threads > 1) & !enabled`.
+  Booleans work with logical operators and comparisons: `true && (threads > 1) and !enabled`.
+  Conjunction can be written as `&`, `&&`, or `and`. Disjunction can be written as `|`, `||`, or `or`.
+  All spellings use JBS's eager, vector-aware logical semantics; they are not short-circuit operators.
 
 ### Lists / tuples
 
@@ -114,7 +116,7 @@ jbs> ("a", "b") * 2
 ("a", "b", "a", "b")
 ```
 
-List vector arithmetic operations: `+`, `-`, `*`, `/`, `%`, `&`, `|`, `!`.
+List vector arithmetic operations: `+`, `-`, `*`, `/`, `%`, `&`/`&&`/`and`, `|`/`||`/`or`, `!`.
 Comparison operations: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 
 Useful functions:
