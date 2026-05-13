@@ -44,11 +44,11 @@ func TestWalkExprPreOrder(t *testing.T) {
 	var got []string
 	WalkExpr(expr, WalkCallbacks{
 		Expr: func(expr Expr) WalkAction {
-			switch expr.(type) {
+			switch expr := expr.(type) {
 			case BinaryExpr:
 				got = append(got, "binary")
 			case IdentExpr:
-				got = append(got, expr.(IdentExpr).Name)
+				got = append(got, expr.Name)
 			}
 			return WalkContinue
 		},
@@ -175,12 +175,12 @@ func TestWalkSkipChildren(t *testing.T) {
 	var got []string
 	WalkExpr(expr, WalkCallbacks{
 		Expr: func(expr Expr) WalkAction {
-			switch expr.(type) {
+			switch expr := expr.(type) {
 			case ListExpr:
 				got = append(got, "list")
 				return WalkSkipChildren
 			case IdentExpr:
-				got = append(got, expr.(IdentExpr).Name)
+				got = append(got, expr.Name)
 			}
 			return WalkContinue
 		},

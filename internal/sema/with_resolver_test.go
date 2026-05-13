@@ -9,16 +9,6 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func testBinding(name string, shape BindingShape, order []string, vars map[string][]eval.Value) *GlobalBinding {
-	return &GlobalBinding{
-		Name:  name,
-		Value: eval.CombValue(&eval.Comb{Order: order}),
-		Shape: shape,
-		Order: order,
-		Vars:  vars,
-	}
-}
-
 func TestBindingResolverResolveDoWithItems(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	table := eval.CombValue(&eval.Comb{

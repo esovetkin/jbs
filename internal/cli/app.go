@@ -492,15 +492,6 @@ func analyzeSourceWithOptions(file string, source string, cwd string, opts sema.
 	}, nil
 }
 
-func formatDiagnostics(diags diag.Diagnostics, source string) string {
-	defaultFile := "<input>"
-	if len(diags.Items) > 0 && diags.Items[0].Span.File != "" {
-		defaultFile = diags.Items[0].Span.File
-	}
-	sourceByFile := map[string]string{defaultFile: source}
-	return formatDiagnosticsWithSources(diags, sourceByFile, defaultFile)
-}
-
 func formatDiagnosticsWithSources(diags diag.Diagnostics, sources map[string]string, defaultFile string) string {
 	if len(diags.Items) == 0 {
 		return ""
