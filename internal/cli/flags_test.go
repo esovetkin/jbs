@@ -35,6 +35,7 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 		wantDryRun            bool
 		wantNoStrict          bool
 		wantBenchmark         string
+		wantCheck             bool
 	}{
 		{
 			name:       "defaults",
@@ -86,6 +87,27 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantFWait:             true,
 			wantFWaitExitExisting: true,
 			wantFWaitPaths:        []string{"a", "b"},
+		},
+		{
+			name:       "check_long",
+			args:       []string{"--check", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantCheck:  true,
+		},
+		{
+			name:       "check_short",
+			args:       []string{"-c", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantCheck:  true,
+		},
+		{
+			name:       "check_after_input",
+			args:       []string{"input.jbs", "-c"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantCheck:  true,
 		},
 		{
 			name:       "run_command_dry_run_long",
@@ -337,6 +359,9 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			if f.Benchmark != tc.wantBenchmark {
 				t.Fatalf("unexpected benchmark flag: got=%q want=%q", f.Benchmark, tc.wantBenchmark)
 			}
+			if f.Check != tc.wantCheck {
+				t.Fatalf("unexpected check flag: got=%v want=%v", f.Check, tc.wantCheck)
+			}
 		})
 	}
 }
@@ -562,8 +587,12 @@ func TestParseFlagsErrors(t *testing.T) {
 		args []string
 	}{
 		{name: "help_unknown_topic", args: []string{"help", "badtopic"}},
-		{name: "check_option_removed", args: []string{"--check", "input.jbs"}},
-		{name: "short_check_option_removed", args: []string{"-c", "input.jbs"}},
+		{name: "check_missing_input", args: []string{"--check"}},
+		{name: "check_duplicate", args: []string{"--check", "-c", "input.jbs"}},
+		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
+		{name: "check_rejects_no_strict", args: []string{"--check", "--no-strict", "input.jbs"}},
+		{name: "check_rejects_benchmark", args: []string{"--check", "-b", "small", "input.jbs"}},
+		{name: "check_rejects_help", args: []string{"--check", "--help", "input.jbs"}},
 		{name: "param_rejects_unknown_check_option", args: []string{"param", "--check", "input.jbs"}},
 		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
 		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},
@@ -577,6 +606,7 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "run_benchmark_missing_value", args: []string{"run", "-b"}},
 		{name: "run_benchmark_empty_value", args: []string{"run", "--benchmark=", "input.jbs"}},
 		{name: "run_rejects_option", args: []string{"run", "-o", "out.yaml", "input.jbs"}},
+		{name: "run_rejects_check_option", args: []string{"run", "-c", "input.jbs"}},
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},

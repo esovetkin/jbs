@@ -376,26 +376,6 @@ func TestRunCommandSupportsShellCompileTimeFunction(t *testing.T) {
 	}
 }
 
-func TestRunRejectsRemovedCheckOption(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", "input.jbs"}, &stdout, &stderr); code != 2 {
-		t.Fatalf("expected usage error, got %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "unknown option: --check") {
-		t.Fatalf("expected unknown check option, got %q", stderr.String())
-	}
-}
-
-func TestRunRejectsRemovedShortCheckOption(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"-c", "input.jbs"}, &stdout, &stderr); code != 2 {
-		t.Fatalf("expected usage error, got %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "unknown option: -c") {
-		t.Fatalf("expected unknown check option, got %q", stderr.String())
-	}
-}
-
 func TestRunShellNonScalarWarningDoesNotAbort(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

@@ -23,6 +23,7 @@ type Flags struct {
 	Benchmark         string
 	Output            string
 	Repl              bool
+	Check             bool
 	Param             bool
 	PrintType         string
 	Help              bool
@@ -106,6 +107,11 @@ func ParseFlags(args []string) (Flags, error) {
 		switch {
 		case arg == "-h" || arg == "--help":
 			cfg.Help = true
+		case arg == "-c" || arg == "--check":
+			if cfg.Check {
+				return Flags{}, UsageError{Message: checkUsageMessage()}
+			}
+			cfg.Check = true
 		case arg == "-n" || arg == "--dry-run":
 			if cfg.DryRun {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
@@ -125,6 +131,12 @@ func ParseFlags(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: fmt.Sprintf("unexpected extra arguments: [%s]", arg)}
 			}
 		}
+	}
+	if cfg.Check {
+		if cfg.Input == "" || cfg.Help || cfg.DryRun || cfg.NoStrict || cfg.Benchmark != "" {
+			return Flags{}, UsageError{Message: checkUsageMessage()}
+		}
+		return cfg, nil
 	}
 	if (cfg.NoStrict || cfg.DryRun || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
@@ -146,6 +158,9 @@ Run:
   jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
   jbs continue input.jbs [-b|--benchmark <name>]
 
+Check syntax:
+  jbs -c|--check input.jbs
+
 Print status of the latest run:
   jbs status input.jbs [-b|--benchmark <name>]
 
@@ -157,6 +172,7 @@ Options:
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse syntax only; do not evaluate expressions or imports
 
 Archive benchmark directory:
   jbs archive input.jbs
@@ -287,6 +303,10 @@ func runUsageMessage() string {
 
 func defaultRunUsageMessage() string {
 	return "usage: jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+}
+
+func checkUsageMessage() string {
+	return "usage: jbs -c|--check <file.jbs>"
 }
 
 func parseContinueArgs(args []string) (Flags, error) {

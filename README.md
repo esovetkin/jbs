@@ -89,6 +89,9 @@ Run:
   jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
   jbs continue input.jbs [-b|--benchmark <name>]
 
+Check syntax:
+  jbs -c|--check input.jbs
+
 Print status of the latest run:
   jbs status input.jbs [-b|--benchmark <name>]
 
@@ -100,6 +103,7 @@ Options:
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
+  -c, --check   Parse syntax only; do not evaluate expressions or imports
 
 Archive benchmark directory:
   jbs archive input.jbs
