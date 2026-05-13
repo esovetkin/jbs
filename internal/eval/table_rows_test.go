@@ -55,6 +55,46 @@ func TestRowsFromZeroRowTable(t *testing.T) {
 	}
 }
 
+func TestRowsFromZeroRowTableCanRoundTripThroughTable(t *testing.T) {
+	cases := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
+	diags := &diag.Diagnostics{}
+
+	rows := EvalExprWithOptions(callExpr(ident("rows"), posArg(ident("cases"))), map[string]Value{"cases": cases}, diags, ExprOptions{})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected rows diagnostics: %s", diags.String())
+	}
+	rows = CloneValue(rows)
+	got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": rows}, diags, ExprOptions{})
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected table diagnostics: %s", diags.String())
+	}
+	if !Equal(got, cases) {
+		t.Fatalf("unexpected zero-row table round-trip: got=%#v want=%#v", got, cases)
+	}
+}
+
+func TestRowsSchemaIsHiddenFromVisibleListBehavior(t *testing.T) {
+	cases := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
+	diags := &diag.Diagnostics{}
+
+	got := EvalExprWithOptions(callExpr(ident("rows"), posArg(ident("cases"))), map[string]Value{"cases": cases}, diags, ExprOptions{})
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	plain := List(nil)
+	if got.String() != plain.String() {
+		t.Fatalf("row schema changed visible string: got=%q want=%q", got.String(), plain.String())
+	}
+	if !Equal(got, plain) {
+		t.Fatalf("row schema changed equality: got=%#v want=%#v", got, plain)
+	}
+	if StableValueKey(got) != StableValueKey(plain) {
+		t.Fatalf("row schema changed stable key: got=%q want=%q", StableValueKey(got), StableValueKey(plain))
+	}
+}
+
 func TestRowsFromTableClonesNestedValues(t *testing.T) {
 	nested := List([]Value{Int(1)})
 	cases := CombValue(&Comb{

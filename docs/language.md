@@ -243,6 +243,15 @@ The main constructor is `table(...)`, also available as `t(...)`.
 # column values can be: scalars, lists, tuples
 cases = table(x = [1, 2], y = ["a", "b"])
 
+# tables can also be built from row dictionaries
+row_cases = table([
+    dict(x = 1, y = "a"),
+    dict(x = 2, y = "b"),
+])
+
+# rows(table) converts a table to row dictionaries, and table(rows(...)) converts it back
+same_cases = table(rows(cases))
+
 # when columns have different non-empty lengths, JBS broadcasts shorter columns cyclically to the longest column
 table(x = [1, 2], y = "a")
 #  x  y
@@ -303,6 +312,7 @@ Useful functions:
 - `names(table)`        # column names
 - `dict(table)`         # table -> dictionary
 - `table(dict)`         # dictionary -> table
+- `table(rows)`         # list of row dictionaries -> table
 - `rows(table)`         # table rows as list of dictionaries
 
 ### Functions

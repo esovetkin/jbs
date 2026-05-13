@@ -112,6 +112,111 @@ r
 	}
 }
 
+func TestAnalyzeSupportsTableFromRowDictListConversion(t *testing.T) {
+	src := `
+cases = table([dict(x = 1, y = "a"), dict(y = "b", x = 2)])
+names(cases)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	binding := res.BindingsByName["cases"]
+	if binding == nil || binding.Shape != BindingTable {
+		t.Fatalf("expected table binding, got %#v", binding)
+	}
+	if len(binding.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %#v", binding.Rows)
+	}
+	if !reflect.DeepEqual(binding.Order, []string{"x", "y"}) {
+		t.Fatalf("unexpected column order: %#v", binding.Order)
+	}
+	wantNames := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
+		t.Fatalf("unexpected names(cases) result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeSupportsTableRowsRoundTrip(t *testing.T) {
+	src := `
+cases = table(x = [1, 2], y = ["a", "b"])
+roundtrip = table(rows(cases))
+names(roundtrip)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	binding := res.BindingsByName["roundtrip"]
+	if binding == nil || binding.Shape != BindingTable {
+		t.Fatalf("expected table binding, got %#v", binding)
+	}
+	if len(binding.Rows) != 2 || !reflect.DeepEqual(binding.Order, []string{"x", "y"}) {
+		t.Fatalf("unexpected roundtrip binding: %#v", binding)
+	}
+	if !eval.Equal(binding.Rows[0].Values["x"].Value, eval.Int(1)) || !eval.Equal(binding.Rows[1].Values["y"].Value, eval.String("b")) {
+		t.Fatalf("unexpected roundtrip rows: %#v", binding.Rows)
+	}
+}
+
+func TestAnalyzeSupportsZeroRowTableRowsRoundTrip(t *testing.T) {
+	src := `
+cases = table(x = [], y = [])
+roundtrip = table(rows(cases))
+names(roundtrip)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	binding := res.BindingsByName["roundtrip"]
+	if binding == nil || binding.Shape != BindingTable {
+		t.Fatalf("expected table binding, got %#v", binding)
+	}
+	if len(binding.Rows) != 0 || !reflect.DeepEqual(binding.Order, []string{"x", "y"}) {
+		t.Fatalf("unexpected zero-row roundtrip binding: %#v", binding)
+	}
+	wantNames := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
+		t.Fatalf("unexpected names(roundtrip) result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeRejectsInvalidTableFromRowDictList(t *testing.T) {
+	src := `cases = table([dict(x = [1])])`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if countDiagCode(diags, "E106") == 0 {
+		t.Fatalf("expected invalid row-list diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestAnalyzeDoWithListOfDictsKeepsListImportSemantics(t *testing.T) {
+	src := `
+rows = [dict(x = 1), dict(x = 2)]
+
+do run with rows {
+        echo "${rows}"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if got := countDiagCode(diags, "W314"); got == 0 {
+		t.Fatalf("expected W314 list-import warning, got %d: %s", got, diags.String())
+	}
+}
+
 func TestAnalyzeTableBroadcastWarning(t *testing.T) {
 	src := `cases = table(x = range(3), y = range(10))`
 	diags := &diag.Diagnostics{}

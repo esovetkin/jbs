@@ -96,6 +96,199 @@ func TestTableFromDictConversion(t *testing.T) {
 	}
 }
 
+func TestTableFromRowDictListConversion(t *testing.T) {
+	rows := List([]Value{
+		DictValue([]DictEntry{
+			{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+			{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: String("a")},
+		}),
+		DictValue([]DictEntry{
+			{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: String("b")},
+			{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(2)},
+		}),
+	})
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": rows}, diags, ExprOptions{})
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected table(list<dict>) diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x", "y"}) {
+		t.Fatalf("unexpected table(list<dict>) columns: %#v", got)
+	}
+	if len(got.C.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %#v", got.C.Rows)
+	}
+	if !Equal(got.C.Rows[0].Values["x"].Value, Int(1)) ||
+		!Equal(got.C.Rows[0].Values["y"].Value, String("a")) ||
+		!Equal(got.C.Rows[1].Values["x"].Value, Int(2)) ||
+		!Equal(got.C.Rows[1].Values["y"].Value, String("b")) {
+		t.Fatalf("unexpected table(list<dict>) rows: %#v", got.C.Rows)
+	}
+}
+
+func TestTableRowsRoundTrip(t *testing.T) {
+	original := CombValue(&Comb{
+		Order: []string{"x", "y"},
+		Rows: []Row{
+			{Values: map[string]Cell{"x": {Value: Int(1)}, "y": {Value: String("a")}}},
+			{Values: map[string]Cell{"x": {Value: Int(2)}, "y": {Value: String("b")}}},
+		},
+	})
+	diags := &diag.Diagnostics{}
+
+	got := EvalExprWithOptions(
+		callExpr(ident("table"), posArg(callExpr(ident("rows"), posArg(ident("cases"))))),
+		map[string]Value{"cases": original},
+		diags,
+		ExprOptions{},
+	)
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected table(rows(table)) diagnostics: %s", diags.String())
+	}
+	if !Equal(got, original) {
+		t.Fatalf("unexpected round-trip table: got=%#v want=%#v", got, original)
+	}
+}
+
+func TestTableRowsRoundTripPreservesZeroRowSchema(t *testing.T) {
+	original := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
+	diags := &diag.Diagnostics{}
+	rows := rowsFromTable(original, spanAt(601, 1), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected rows diagnostics: %s", diags.String())
+	}
+	clonedRows := CloneValue(rows)
+
+	got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": clonedRows}, diags, ExprOptions{})
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected zero-row round-trip diagnostics: %s", diags.String())
+	}
+	if !Equal(got, original) {
+		t.Fatalf("unexpected zero-row round-trip table: got=%#v want=%#v", got, original)
+	}
+}
+
+func TestTableFromEmptyRowDictLists(t *testing.T) {
+	tests := []struct {
+		name      string
+		rows      Value
+		wantRows  int
+		wantOrder []string
+	}{
+		{
+			name:      "empty list",
+			rows:      List(nil),
+			wantRows:  0,
+			wantOrder: nil,
+		},
+		{
+			name:      "empty row dictionaries",
+			rows:      List([]Value{DictValue(nil), DictValue(nil)}),
+			wantRows:  2,
+			wantOrder: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": tc.rows}, diags, ExprOptions{})
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if !IsComb(got) || len(got.C.Rows) != tc.wantRows || !slices.Equal(got.C.Order, tc.wantOrder) {
+				t.Fatalf("unexpected table: %#v", got)
+			}
+		})
+	}
+}
+
+func TestTableFromRowDictListViaBuiltinFunctionValue(t *testing.T) {
+	tableFn, ok := BuiltinFunctionValue("table")
+	if !ok {
+		t.Fatalf("missing table built-in function value")
+	}
+	rows := List([]Value{
+		DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)}}),
+		DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(2)}}),
+	})
+	diags := &diag.Diagnostics{}
+
+	got := EvalExprWithOptions(
+		callExpr(ident("make_table"), posArg(ident("rows"))),
+		map[string]Value{"make_table": tableFn, "rows": rows},
+		diags,
+		ExprOptions{},
+	)
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected built-in function diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x"}) || len(got.C.Rows) != 2 {
+		t.Fatalf("unexpected built-in function table result: %#v", got)
+	}
+}
+
+func TestTableFromRowDictListDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		rows Value
+	}{
+		{
+			name: "non-dictionary row",
+			rows: List([]Value{Int(1)}),
+		},
+		{
+			name: "non-string key",
+			rows: List([]Value{DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyInt, I: 1}, Value: Int(1)}})}),
+		},
+		{
+			name: "invalid key",
+			rows: List([]Value{DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "1x"}, Value: Int(1)}})}),
+		},
+		{
+			name: "mismatched keys",
+			rows: List([]Value{
+				DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)}}),
+				DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: Int(2)}}),
+			}),
+		},
+		{
+			name: "non-scalar value",
+			rows: List([]Value{DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: List([]Value{Int(1)})}})}),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": tc.rows}, diags, ExprOptions{})
+			if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+				t.Fatalf("expected table(list<dict>) diagnostic, got value=%#v diags=%s", got, diags.String())
+			}
+		})
+	}
+}
+
+func TestTableFromRowDictListClonesValues(t *testing.T) {
+	row := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)}})
+	rows := List([]Value{row})
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("table"), posArg(ident("rows"))), map[string]Value{"rows": rows}, diags, ExprOptions{})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+
+	row.D.Set(DictKey{Kind: DictKeyString, S: "x"}, Int(99))
+
+	if !IsComb(got) || !Equal(got.C.Rows[0].Values["x"].Value, Int(1)) {
+		t.Fatalf("table row did not retain original value: %#v", got)
+	}
+}
+
 func TestTableFromDictDiagnostics(t *testing.T) {
 	tableValue := CombValue(&Comb{Order: []string{"y"}, Rows: []Row{{Values: map[string]Cell{"y": {Value: Int(1)}}}}})
 	tests := []struct {

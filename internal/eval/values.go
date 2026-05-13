@@ -68,6 +68,8 @@ type Value struct {
 	C    *Comb
 	Fn   *FunctionValue
 	D    *Dict
+
+	RowSchema []string
 }
 
 func Null() Value           { return Value{Kind: KindNull} }
@@ -76,6 +78,9 @@ func Float(v float64) Value { return Value{Kind: KindFloat, F: v} }
 func String(v string) Value { return Value{Kind: KindString, S: v} }
 func Bool(v bool) Value     { return Value{Kind: KindBool, B: v} }
 func List(v []Value) Value  { return Value{Kind: KindList, L: v} }
+func RowList(values []Value, schema []string) Value {
+	return Value{Kind: KindList, L: values, RowSchema: append([]string(nil), schema...)}
+}
 func Tuple(v []Value) Value { return Value{Kind: KindTuple, L: v} }
 func DictValue(entries []DictEntry) Value {
 	d := &Dict{Entries: make(map[DictKey]Value)}
@@ -134,7 +139,7 @@ func ValueFromDictKey(key DictKey) Value {
 func CloneValue(v Value) Value {
 	switch v.Kind {
 	case KindList:
-		return List(CloneValues(v.L))
+		return RowList(CloneValues(v.L), v.RowSchema)
 	case KindTuple:
 		return Tuple(CloneValues(v.L))
 	case KindDict:

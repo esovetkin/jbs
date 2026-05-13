@@ -15,14 +15,14 @@ type tableColumnInput struct {
 
 func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) == 0 {
-		diags.AddError(diag.CodeE106, "table() expects named column arguments or one dictionary argument", at, "use table(id = ids) or table(dict_value)")
+		diags.AddError(diag.CodeE106, "table() expects named column arguments, one dictionary argument, or one list of dictionaries", at, "use table(id = ids), table(dict_value), or table(rows(table_value))")
 		return Null()
 	}
 	if len(rawArgs) == 1 && rawArgs[0].Name == "" {
-		return evalTableFromDictArg(rawArgs[0], env, at, diags, opts, ctx)
+		return evalTableFromPositionalArg(rawArgs[0], env, at, diags, opts, ctx)
 	}
 	if hasPositionalArg(rawArgs) {
-		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", firstPositionalSpan(rawArgs), "use table(dict_value) or named columns such as table(id = ids)")
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary or list of dictionaries", firstPositionalSpan(rawArgs), "use table(dict_value), table(rows(table_value)), or named columns such as table(id = ids)")
 		return Null()
 	}
 	return evalNamedTableColumns(rawArgs, env, at, diags, opts, ctx)
@@ -30,14 +30,14 @@ func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 
 func evalTableValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(args) == 0 {
-		diags.AddError(diag.CodeE106, "table() expects named column arguments or one dictionary argument", at, "use table(id = ids) or table(dict_value)")
+		diags.AddError(diag.CodeE106, "table() expects named column arguments, one dictionary argument, or one list of dictionaries", at, "use table(id = ids), table(dict_value), or table(rows(table_value))")
 		return Null()
 	}
 	if len(args) == 1 && args[0].Name == "" {
-		return evalTableFromDictValueArg(args[0], at, diags)
+		return evalTableFromPositionalValueArg(args[0], at, diags)
 	}
 	if hasPositionalValueArg(args) {
-		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", firstPositionalValueSpan(args), "use table(dict_value) or named columns such as table(id = ids)")
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary or list of dictionaries", firstPositionalValueSpan(args), "use table(dict_value), table(rows(table_value)), or named columns such as table(id = ids)")
 		return Null()
 	}
 	return evalNamedTableValueColumns(args, at, diags)
@@ -91,24 +91,16 @@ func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.D
 	return buildTableFromColumns(columns, at, diags)
 }
 
-func evalTableFromDictArg(arg ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+func evalTableFromPositionalArg(arg ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return Null()
 	}
-	if value.Kind != KindDict || value.D == nil {
-		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", arg.Span, "use table(dict_value) or named columns such as table(id = ids)")
-		return Null()
-	}
-	return tableFromDict(value, arg.Span, diags)
+	return tableFromPositionalValue(value, arg.Span, diags)
 }
 
-func evalTableFromDictValueArg(arg CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
-	if arg.Value.Kind != KindDict || arg.Value.D == nil {
-		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", arg.Span, "use table(dict_value) or named columns such as table(id = ids)")
-		return Null()
-	}
-	return tableFromDict(arg.Value, nonZeroSpan(arg.Span, at), diags)
+func evalTableFromPositionalValueArg(arg CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	return tableFromPositionalValue(arg.Value, nonZeroSpan(arg.Span, at), diags)
 }
 
 func TableFromDictValue(value Value, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
@@ -126,6 +118,18 @@ func TableFromDictValue(value Value, at diag.Span, diags *diag.Diagnostics) (Val
 	return out, true
 }
 
+func tableFromPositionalValue(value Value, at diag.Span, diags *diag.Diagnostics) Value {
+	switch {
+	case value.Kind == KindDict && value.D != nil:
+		return tableFromDict(value, at, diags)
+	case value.Kind == KindList:
+		return tableFromRowDictList(value, at, diags)
+	default:
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary or list of dictionaries", at, "use table(dict_value), table(rows(table_value)), or named columns such as table(id = ids)")
+		return Null()
+	}
+}
+
 func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if value.D == nil || len(value.D.Order) == 0 {
 		return CombValue(&Comb{})
@@ -137,30 +141,151 @@ func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 		if !ok {
 			continue
 		}
-		if key.Kind != DictKeyString {
-			diags.AddError(diag.CodeE106, "table() dictionary keys must be strings", at, "use string keys that are valid table column names")
+		name, ok := tableColumnNameFromDictKey(key, at, diags)
+		if !ok {
 			return Null()
 		}
-		if !isValidCombColumnName(key.S) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid dictionary key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
-			return Null()
-		}
-		if _, exists := seen[key.S]; exists {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", key.S), at, "use each column name at most once")
+		if _, exists := seen[name]; exists {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", name), at, "use each column name at most once")
 			return Null()
 		}
 		if IsComb(colValue) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", key.S), at, "pass a scalar, tuple, or list column value")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", name), at, "pass a scalar, tuple, or list column value")
 			return Null()
 		}
-		seen[key.S] = struct{}{}
+		seen[name] = struct{}{}
 		columns = append(columns, tableColumnInput{
-			Name:   key.S,
+			Name:   name,
 			Values: ToSeries(colValue),
 			Span:   at,
 		})
 	}
 	return buildTableFromColumns(columns, at, diags)
+}
+
+func tableColumnNameFromDictKey(key DictKey, at diag.Span, diags *diag.Diagnostics) (string, bool) {
+	if key.Kind != DictKeyString {
+		diags.AddError(diag.CodeE106, "table() dictionary keys must be strings", at, "use string keys that are valid table column names")
+		return "", false
+	}
+	if !isValidCombColumnName(key.S) {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid dictionary key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
+		return "", false
+	}
+	return key.S, true
+}
+
+func tableFromRowDictList(value Value, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(value.L) == 0 {
+		return CombValue(&Comb{
+			Order: append([]string(nil), value.RowSchema...),
+			Rows:  nil,
+		})
+	}
+
+	order, expected, ok := rowDictSchema(value.L[0], 0, at, diags)
+	if !ok {
+		return Null()
+	}
+
+	rows := make([]Row, 0, len(value.L))
+	for rowIndex, rowValue := range value.L {
+		row, ok := tableRowFromDictValue(rowValue, rowIndex, order, expected, at, diags)
+		if !ok {
+			return Null()
+		}
+		rows = append(rows, row)
+	}
+
+	return CombValue(&Comb{Order: order, Rows: rows})
+}
+
+func rowDictSchema(value Value, rowIndex int, at diag.Span, diags *diag.Diagnostics) ([]string, map[string]struct{}, bool) {
+	if value.Kind != KindDict || value.D == nil {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d must be a dictionary", rowIndex+1), at, "use a list whose elements are dictionaries")
+		return nil, nil, false
+	}
+
+	order := make([]string, 0, len(value.D.Order))
+	seen := make(map[string]struct{}, len(value.D.Order))
+	for _, key := range value.D.Order {
+		name, ok := rowTableColumnName(key, rowIndex, at, diags)
+		if !ok {
+			return nil, nil, false
+		}
+		if _, exists := seen[name]; exists {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d duplicate column name '%s'", rowIndex+1, name), at, "use each row key at most once")
+			return nil, nil, false
+		}
+		seen[name] = struct{}{}
+		order = append(order, name)
+	}
+
+	return order, seen, true
+}
+
+func tableRowFromDictValue(value Value, rowIndex int, order []string, expected map[string]struct{}, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
+	if value.Kind != KindDict || value.D == nil {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d must be a dictionary", rowIndex+1), at, "use a list whose elements are dictionaries")
+		return Row{}, false
+	}
+
+	values := make(map[string]Cell, len(order))
+	seen := make(map[string]struct{}, len(order))
+	for _, key := range value.D.Order {
+		name, ok := rowTableColumnName(key, rowIndex, at, diags)
+		if !ok {
+			return Row{}, false
+		}
+		if _, want := expected[name]; !want {
+			addRowKeyMismatchDiag(rowIndex, at, diags)
+			return Row{}, false
+		}
+		if _, exists := seen[name]; exists {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d duplicate column name '%s'", rowIndex+1, name), at, "use each row key at most once")
+			return Row{}, false
+		}
+		cellValue, ok := value.D.Entries[key]
+		if !ok {
+			addRowKeyMismatchDiag(rowIndex, at, diags)
+			return Row{}, false
+		}
+		if !cellValue.IsScalar() {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d column '%s' must be scalar", rowIndex+1, name), at, "use int, float, string, or bool row values")
+			return Row{}, false
+		}
+		seen[name] = struct{}{}
+		values[name] = Cell{Value: CloneValue(cellValue), Origin: at}
+	}
+
+	if len(seen) != len(expected) {
+		addRowKeyMismatchDiag(rowIndex, at, diags)
+		return Row{}, false
+	}
+	for _, name := range order {
+		if _, ok := values[name]; !ok {
+			addRowKeyMismatchDiag(rowIndex, at, diags)
+			return Row{}, false
+		}
+	}
+
+	return Row{Values: values}, true
+}
+
+func rowTableColumnName(key DictKey, rowIndex int, at diag.Span, diags *diag.Diagnostics) (string, bool) {
+	if key.Kind != DictKeyString {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d keys must be strings", rowIndex+1), at, "use string keys that are valid table column names")
+		return "", false
+	}
+	if !isValidCombColumnName(key.S) {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid row key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
+		return "", false
+	}
+	return key.S, true
+}
+
+func addRowKeyMismatchDiag(rowIndex int, at diag.Span, diags *diag.Diagnostics) {
+	diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d has keys that do not match row 1", rowIndex+1), at, "make every row dictionary use the same key set")
 }
 
 func buildTableFromColumns(columns []tableColumnInput, at diag.Span, diags *diag.Diagnostics) Value {
@@ -508,7 +633,7 @@ func rowsFromTable(tableValue Value, at diag.Span, diags *diag.Diagnostics) Valu
 		out = append(out, rowDict)
 	}
 
-	return List(out)
+	return RowList(out, names)
 }
 
 func dictFromTableRow(caller string, names []string, row Row, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
