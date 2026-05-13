@@ -2,6 +2,7 @@ package sema
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -185,6 +186,93 @@ names(roundtrip)
 	wantNames := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
 	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
 		t.Fatalf("unexpected names(roundtrip) result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeRenameBuiltin(t *testing.T) {
+	src := `
+cases = rename(table(x = [1, 2], y = ["a", "b"]), {"x": "id"})
+names(cases)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	binding := res.BindingsByName["cases"]
+	if binding == nil || binding.Shape != BindingTable {
+		t.Fatalf("expected table binding, got %#v", binding)
+	}
+	if len(binding.Rows) != 2 || !reflect.DeepEqual(binding.Order, []string{"id", "y"}) {
+		t.Fatalf("unexpected renamed binding: %#v", binding)
+	}
+	if !eval.Equal(binding.Rows[0].Values["id"].Value, eval.Int(1)) || !eval.Equal(binding.Rows[1].Values["y"].Value, eval.String("b")) {
+		t.Fatalf("unexpected renamed rows: %#v", binding.Rows)
+	}
+	wantNames := eval.List([]eval.Value{eval.String("id"), eval.String("y")})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
+		t.Fatalf("unexpected names(cases) result: %#v", res.TopLevelExprs)
+	}
+}
+
+func TestAnalyzeRenameMissingColumn(t *testing.T) {
+	src := `cases = rename(table(x = [1]), {"missing": "id"})`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if countDiagCode(diags, "E106") == 0 {
+		t.Fatalf("expected missing-column diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestAnalyzeRenameBuiltinDependency(t *testing.T) {
+	src := `
+cases = rename(table(x = [1]), {"x": "id"})
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	cases := res.GlobalVarByName["cases"]
+	if cases == nil {
+		t.Fatalf("missing cases global")
+	}
+	if slices.Contains(cases.DependsOn, "rename") {
+		t.Fatalf("unshadowed rename should not be recorded as dependency: %#v", cases.DependsOn)
+	}
+	for _, key := range cases.DependsOnKeys {
+		if key.Public == "rename" {
+			t.Fatalf("unshadowed rename dependency key recorded: %#v", cases.DependsOnKeys)
+		}
+	}
+}
+
+func TestAnalyzeShadowedRenameDependency(t *testing.T) {
+	src := `
+rename = function(value, mapping) { value }
+cases = rename(table(x = [1]), {"x": "id"})
+names(cases)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	cases := res.GlobalVarByName["cases"]
+	if cases == nil || !slices.Contains(cases.DependsOn, "rename") {
+		t.Fatalf("expected dependency on shadowed rename, got %#v", cases)
+	}
+	binding := res.BindingsByName["cases"]
+	if binding == nil || !reflect.DeepEqual(binding.Order, []string{"x"}) {
+		t.Fatalf("expected shadowed function to return original table, got %#v", binding)
+	}
+	wantNames := eval.List([]eval.Value{eval.String("x")})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
+		t.Fatalf("unexpected names(cases) result: %#v", res.TopLevelExprs)
 	}
 }
 

@@ -303,6 +303,7 @@ Useful functions:
 - `read_csv(...)`       # import CSV/TSV as a table
 - `select(table, cols)` # project columns
 - `table["col", ...]`   # projection syntax
+- `rename(table, {"old": "new"})` # rename columns
 - `zip(a, b, ...)`      # row-wise merge
 - `a + b`               # row-wise merge in table context
 - `product(a, b, ...)`  # Cartesian product
