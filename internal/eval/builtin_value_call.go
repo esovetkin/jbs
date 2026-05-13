@@ -30,6 +30,10 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalMapValueCall(args, env, at, diags, opts, ctx)
 	case "reduce":
 		return evalReduceValueCall(args, env, at, diags, opts, ctx)
+	case "sum":
+		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
+	case "prod":
+		return evalFoldOperatorValueCall("prod", "*", args, at, diags, opts, ctx)
 	case "rows":
 		return evalRowsValueCall(args, at, diags)
 	case "shell":

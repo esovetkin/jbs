@@ -366,12 +366,15 @@ Use `?<function_name>` in the REPL for focused help on a specific built-in funct
 
 Built-in functions are function values too: they can be assigned to variables,
 passed to `map()` or `reduce()`, stored in containers, returned from functions,
-and imported from modules. For example:
+and imported from modules. Sequence folds such as `sum()` and `prod()` are
+ordinary built-ins as well. For example:
 
 ```jbs
 values = map(int, ["1", "2"])
 to_text = str
 labels = map(to_text, (1, 2))
+total = sum([1, 2, 3])
+scaled = prod((2, 3, 4))
 ```
 
 ## Built-In Globals

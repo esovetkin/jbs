@@ -26,13 +26,17 @@ func evalStrictPositionalCallValueArgs(name string, rawArgs []ast.CallArg, env m
 }
 
 func sequenceItems(kind string, v Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool, bool) {
+	return sequenceItemsForArg(kind, "second", v, at, diags)
+}
+
+func sequenceItemsForArg(kind, ordinal string, v Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool, bool) {
 	switch v.Kind {
 	case KindList:
 		return slicesCloneValues(v.L), false, true
 	case KindTuple:
 		return slicesCloneValues(v.L), true, true
 	default:
-		diags.AddError(diag.CodeE106, kind+"() expects list or tuple as second argument", at, "pass a list or tuple value")
+		diags.AddError(diag.CodeE106, kind+"() expects list or tuple as "+ordinal+" argument", at, "pass a list or tuple value")
 		return nil, false, false
 	}
 }
@@ -134,6 +138,58 @@ func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span
 		if ctx.recursionLimitHit() {
 			return Null()
 		}
+		if diagErrorCount(diags) > beforeErrors {
+			return Null()
+		}
+	}
+	return acc
+}
+
+func evalFoldOperatorCall(name, op string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) != 1 {
+		diags.AddError(diag.CodeE106, name+"() expects exactly one argument", at, "use "+name+"(values)")
+		return Null()
+	}
+	arg := rawArgs[0]
+	if arg.Name != "" {
+		diags.AddError(diag.CodeE106, name+"() does not accept named arguments", arg.Span, "pass positional arguments only")
+		return Null()
+	}
+	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
+	return evalFoldOperator(name, op, value, arg.Span, at, diags, opts, ctx)
+}
+
+func evalFoldOperatorValueCall(name, op string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, name+"() expects exactly one argument", at, "use "+name+"(values)")
+		return Null()
+	}
+	if args[0].Name != "" {
+		diags.AddError(diag.CodeE106, name+"() does not accept named arguments", args[0].Span, "pass positional arguments only")
+		return Null()
+	}
+	return evalFoldOperator(name, op, args[0].Value, args[0].Span, at, diags, opts, ctx)
+}
+
+func evalFoldOperator(name, op string, value Value, valueSpan diag.Span, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	items, _, ok := sequenceItemsForArg(name, "first", value, valueSpan, diags)
+	if !ok {
+		return Null()
+	}
+	if len(items) == 0 {
+		diags.AddError(diag.CodeE106, name+"() cannot operate on an empty list/tuple", at, "use a non-empty list/tuple")
+		return Null()
+	}
+	if len(items) == 1 {
+		return items[0]
+	}
+	acc := items[0]
+	for _, item := range items[1:] {
+		beforeErrors := diagErrorCount(diags)
+		acc = evalBinary(op, acc, item, at, diags, opts, ctx)
 		if diagErrorCount(diags) > beforeErrors {
 			return Null()
 		}

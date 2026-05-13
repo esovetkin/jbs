@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
@@ -13,6 +14,10 @@ func listExpr(items ...ast.Expr) ast.ListExpr {
 
 func tupleExpr(items ...ast.Expr) ast.TupleExpr {
 	return ast.TupleExpr{Items: items}
+}
+
+func floatExpr(v float64) ast.NumberExpr {
+	return ast.NumberExpr{FloatValue: v}
 }
 
 func TestMapCallSupportsListsTuplesDefaultsClosuresAndComposition(t *testing.T) {
@@ -168,6 +173,303 @@ func TestMapCallSupportsListsTuplesDefaultsClosuresAndComposition(t *testing.T) 
 		), nil, diags, ExprOptions{})
 		if !Equal(got, Int(9)) {
 			t.Fatalf("unexpected composed reduce(map(...)) result: %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestSumProdBuiltins(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     ast.Expr
+		want     Value
+		wantKind Kind
+	}{
+		{
+			name: "sum int list",
+			expr: callExpr(ident("sum"), posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))),
+			want: Int(6),
+		},
+		{
+			name: "sum int tuple",
+			expr: callExpr(ident("sum"), posArg(tupleExpr(intExpr(1), intExpr(2), intExpr(3)))),
+			want: Int(6),
+		},
+		{
+			name:     "sum mixed numeric list",
+			expr:     callExpr(ident("sum"), posArg(listExpr(intExpr(1), floatExpr(2.5)))),
+			want:     Float(3.5),
+			wantKind: KindFloat,
+		},
+		{
+			name: "sum string tuple",
+			expr: callExpr(ident("sum"), posArg(tupleExpr(ast.StringExpr{Value: "a"}, ast.StringExpr{Value: "b"}, ast.StringExpr{Value: "c"}))),
+			want: String("abc"),
+		},
+		{
+			name: "sum singleton",
+			expr: callExpr(ident("sum"), posArg(listExpr(ast.StringExpr{Value: "x"}))),
+			want: String("x"),
+		},
+		{
+			name: "prod int list",
+			expr: callExpr(ident("prod"), posArg(listExpr(intExpr(2), intExpr(3), intExpr(4)))),
+			want: Int(24),
+		},
+		{
+			name: "prod int tuple",
+			expr: callExpr(ident("prod"), posArg(tupleExpr(intExpr(2), intExpr(3), intExpr(4)))),
+			want: Int(24),
+		},
+		{
+			name:     "prod mixed numeric list",
+			expr:     callExpr(ident("prod"), posArg(listExpr(intExpr(2), floatExpr(1.5)))),
+			want:     Float(3.0),
+			wantKind: KindFloat,
+		},
+		{
+			name: "prod string repeat",
+			expr: callExpr(ident("prod"), posArg(listExpr(ast.StringExpr{Value: "a"}, intExpr(3)))),
+			want: String("aaa"),
+		},
+		{
+			name: "prod singleton tuple",
+			expr: callExpr(ident("prod"), posArg(tupleExpr(ast.StringExpr{Value: "x"}))),
+			want: String("x"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, nil, diags, ExprOptions{})
+			if !Equal(got, tc.want) {
+				t.Fatalf("unexpected result: got=%#v want=%#v", got, tc.want)
+			}
+			if tc.wantKind != "" && got.Kind != tc.wantKind {
+				t.Fatalf("unexpected result kind: got=%s want=%s", got.Kind, tc.wantKind)
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestSumProdBuiltinFunctionValues(t *testing.T) {
+	t.Run("builtin function values exist", func(t *testing.T) {
+		for _, name := range []string{"sum", "prod"} {
+			value, ok := BuiltinFunctionValue(name)
+			if !ok || value.Kind != KindFunction || value.Fn == nil || value.Fn.BuiltinName != name {
+				t.Fatalf("expected builtin function value for %q, got ok=%v value=%#v", name, ok, value)
+			}
+		}
+	})
+
+	t.Run("assigned function values can be called", func(t *testing.T) {
+		frame := NewRootFrame(nil)
+		sumValue, _ := BuiltinFunctionValue("sum")
+		prodValue, _ := BuiltinFunctionValue("prod")
+		frame.AssignLocal("sum_fn", sumValue, diag.Span{})
+		frame.AssignLocal("prod_fn", prodValue, diag.Span{})
+		diags := &diag.Diagnostics{}
+		sumGot := EvalExprWithOptions(callExpr(ident("sum_fn"), posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))), nil, diags, ExprOptions{Frame: frame})
+		prodGot := EvalExprWithOptions(callExpr(ident("prod_fn"), posArg(listExpr(intExpr(2), intExpr(3), intExpr(4)))), nil, diags, ExprOptions{Frame: frame})
+		if !Equal(sumGot, Int(6)) || !Equal(prodGot, Int(24)) {
+			t.Fatalf("unexpected assigned builtin results: sum=%#v prod=%#v", sumGot, prodGot)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("map can use fold builtins", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		sumGot := EvalExprWithOptions(callExpr(ident("map"),
+			posArg(ident("sum")),
+			posArg(listExpr(
+				listExpr(intExpr(1), intExpr(2)),
+				listExpr(intExpr(3), intExpr(4)),
+			)),
+		), nil, diags, ExprOptions{})
+		prodGot := EvalExprWithOptions(callExpr(ident("map"),
+			posArg(ident("prod")),
+			posArg(listExpr(
+				tupleExpr(intExpr(2), intExpr(3)),
+				tupleExpr(intExpr(4), intExpr(5)),
+			)),
+		), nil, diags, ExprOptions{})
+		if !Equal(sumGot, List([]Value{Int(3), Int(7)})) {
+			t.Fatalf("unexpected map(sum, ...) result: %#v", sumGot)
+		}
+		if !Equal(prodGot, List([]Value{Int(6), Int(20)})) {
+			t.Fatalf("unexpected map(prod, ...) result: %#v", prodGot)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("containers and str preserve function values", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		listValue := EvalExprWithOptions(listExpr(ident("sum"), ident("prod")), nil, diags, ExprOptions{})
+		if listValue.Kind != KindList || len(listValue.L) != 2 || listValue.L[0].Kind != KindFunction || listValue.L[1].Kind != KindFunction {
+			t.Fatalf("expected list of function values, got %#v", listValue)
+		}
+		strValue := EvalExprWithOptions(callExpr(ident("str"), posArg(ident("sum"))), nil, diags, ExprOptions{})
+		if !Equal(strValue, String("<function>")) {
+			t.Fatalf("unexpected str(sum) result: %#v", strValue)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestSumProdBuiltinsReportErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     ast.Expr
+		wantCode string
+		wantText string
+	}{
+		{
+			name:     "sum wrong arity zero",
+			expr:     callExpr(ident("sum")),
+			wantCode: "E106",
+			wantText: "sum() expects exactly one argument",
+		},
+		{
+			name:     "sum wrong arity two",
+			expr:     callExpr(ident("sum"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
+			wantCode: "E106",
+			wantText: "sum() expects exactly one argument",
+		},
+		{
+			name: "sum rejects named argument",
+			expr: ast.CallExpr{
+				Callee: ident("sum"),
+				Args:   []ast.CallArg{namedArg("values", listExpr(intExpr(1), intExpr(2)))},
+			},
+			wantCode: "E106",
+			wantText: "sum() does not accept named arguments",
+		},
+		{
+			name:     "sum rejects scalar",
+			expr:     callExpr(ident("sum"), posArg(intExpr(1))),
+			wantCode: "E106",
+			wantText: "sum() expects list or tuple as first argument",
+		},
+		{
+			name:     "sum rejects empty",
+			expr:     callExpr(ident("sum"), posArg(listExpr())),
+			wantCode: "E106",
+			wantText: "sum() cannot operate on an empty list/tuple",
+		},
+		{
+			name:     "sum impossible operator",
+			expr:     callExpr(ident("sum"), posArg(listExpr(fnExpr(nil, exprStmt(intExpr(1))), intExpr(2)))),
+			wantCode: "E106",
+			wantText: "operator '+' does not accept function values",
+		},
+		{
+			name:     "prod wrong arity zero",
+			expr:     callExpr(ident("prod")),
+			wantCode: "E106",
+			wantText: "prod() expects exactly one argument",
+		},
+		{
+			name:     "prod wrong arity two",
+			expr:     callExpr(ident("prod"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
+			wantCode: "E106",
+			wantText: "prod() expects exactly one argument",
+		},
+		{
+			name: "prod rejects named argument",
+			expr: ast.CallExpr{
+				Callee: ident("prod"),
+				Args:   []ast.CallArg{namedArg("values", listExpr(intExpr(1), intExpr(2)))},
+			},
+			wantCode: "E106",
+			wantText: "prod() does not accept named arguments",
+		},
+		{
+			name:     "prod rejects scalar",
+			expr:     callExpr(ident("prod"), posArg(intExpr(1))),
+			wantCode: "E106",
+			wantText: "prod() expects list or tuple as first argument",
+		},
+		{
+			name:     "prod rejects empty",
+			expr:     callExpr(ident("prod"), posArg(tupleExpr())),
+			wantCode: "E106",
+			wantText: "prod() cannot operate on an empty list/tuple",
+		},
+		{
+			name:     "prod impossible operator",
+			expr:     callExpr(ident("prod"), posArg(listExpr(ast.StringExpr{Value: "a"}, ast.StringExpr{Value: "b"}))),
+			wantCode: "E105",
+			wantText: "string '*' requires integer repeat count",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, nil, diags, ExprOptions{})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result on error, got %#v", got)
+			}
+			if diagCount(diags, tc.wantCode) == 0 || !strings.Contains(diags.String(), tc.wantText) {
+				t.Fatalf("expected %s containing %q, got: %s", tc.wantCode, tc.wantText, diags.String())
+			}
+		})
+	}
+}
+
+func TestSumProdBuiltinsFailFastOnOperatorErrors(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("prod"),
+		posArg(listExpr(ast.StringExpr{Value: "a"}, ast.StringExpr{Value: "b"}, ast.StringExpr{Value: "c"})),
+	), nil, diags, ExprOptions{})
+	if got.Kind != KindNull {
+		t.Fatalf("expected null result on error, got %#v", got)
+	}
+	if count := diagCount(diags, "E105"); count != 1 {
+		t.Fatalf("expected exactly one E105, got %d: %s", count, diags.String())
+	}
+}
+
+func TestSumProdBuiltinsCanBeShadowed(t *testing.T) {
+	t.Run("user functions shadow builtins", func(t *testing.T) {
+		frame := NewRootFrame(nil)
+		defineFunctionInFrame(t, frame, "sum", fnExpr(
+			[]ast.FuncParam{{Name: "values"}},
+			exprStmt(intExpr(42)),
+		))
+		defineFunctionInFrame(t, frame, "prod", fnExpr(
+			[]ast.FuncParam{{Name: "values"}},
+			exprStmt(intExpr(99)),
+		))
+
+		diags := &diag.Diagnostics{}
+		sumGot := EvalExprWithOptions(callExpr(ident("sum"), posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))), nil, diags, ExprOptions{Frame: frame})
+		prodGot := EvalExprWithOptions(callExpr(ident("prod"), posArg(listExpr(intExpr(2), intExpr(3), intExpr(4)))), nil, diags, ExprOptions{Frame: frame})
+		if !Equal(sumGot, Int(42)) || !Equal(prodGot, Int(99)) {
+			t.Fatalf("expected shadowing functions to win, got sum=%#v prod=%#v", sumGot, prodGot)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("data globals shadow builtin names", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(ident("sum"), map[string]Value{"sum": Int(12)}, diags, ExprOptions{})
+		if !Equal(got, Int(12)) {
+			t.Fatalf("expected data global named sum to shadow builtin, got %#v", got)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())

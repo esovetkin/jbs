@@ -62,6 +62,67 @@ values = map(int, ["1"])
 	}
 }
 
+func TestAnalyzeSumProdBuiltins(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+values = sum([1, 2, 3])
+product_value = prod((2, 3, 4))
+mapped = map(sum, [[1, 2], [3, 4]])
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.Int(6)) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	productValue := res.GlobalVarByName["product_value"]
+	if productValue == nil || !eval.Equal(productValue.Value, eval.Int(24)) {
+		t.Fatalf("unexpected product_value global: %#v", productValue)
+	}
+	mapped := res.GlobalVarByName["mapped"]
+	if mapped == nil || !eval.Equal(mapped.Value, eval.List([]eval.Value{eval.Int(3), eval.Int(7)})) {
+		t.Fatalf("unexpected mapped global: %#v", mapped)
+	}
+	for _, gv := range []*GlobalVar{values, productValue, mapped} {
+		for _, dep := range []string{"sum", "prod"} {
+			if slices.Contains(gv.DependsOn, dep) {
+				t.Fatalf("unshadowed builtin %q should not be recorded as dependency for %s: %#v", dep, gv.Name, gv.DependsOn)
+			}
+		}
+		for _, key := range gv.DependsOnKeys {
+			if key.Public == "sum" || key.Public == "prod" {
+				t.Fatalf("unshadowed builtin dependency key recorded for %s: %#v", gv.Name, gv.DependsOnKeys)
+			}
+		}
+	}
+}
+
+func TestAnalyzeShadowedSumProdDependencies(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+sum = function(values) { 42 }
+prod = function(values) { 99 }
+values = sum([1, 2, 3])
+product_value = prod((2, 3, 4))
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.Int(42)) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	if !slices.Contains(values.DependsOn, "sum") {
+		t.Fatalf("expected shadowed sum dependency, got %#v", values.DependsOn)
+	}
+	productValue := res.GlobalVarByName["product_value"]
+	if productValue == nil || !eval.Equal(productValue.Value, eval.Int(99)) {
+		t.Fatalf("unexpected product_value global: %#v", productValue)
+	}
+	if !slices.Contains(productValue.DependsOn, "prod") {
+		t.Fatalf("expected shadowed prod dependency, got %#v", productValue.DependsOn)
+	}
+}
+
 func TestBuiltinFunctionWithSourcesAreRejectedAsData(t *testing.T) {
 	_, diags := analyzeBuiltinFunctionSource(t, `
 to_int = int
