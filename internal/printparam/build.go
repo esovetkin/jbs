@@ -14,7 +14,7 @@ import (
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	plan := workplan.Build(res, diags)
-	candidateColumns := collectQualifiedColumns(res.BindingsByName)
+	candidateColumns := collectQualifiedColumns(res.Bindings)
 
 	rows := make([]Row, 0)
 	usedCols := make(map[string]struct{})
@@ -33,7 +33,15 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 			if origin.SourceVar != "" {
 				sourceVar = origin.SourceVar
 			}
-			key := displayColumnKey(res.BindingsByName, origin.Source, sourceVar)
+			binding := res.BindingsByKey[origin.SourceKey]
+			if binding == nil {
+				binding = res.BindingsByName[origin.Source]
+			}
+			sourceDisplay := origin.SourceKey.Display()
+			if sourceDisplay == "" {
+				sourceDisplay = origin.Source
+			}
+			key := displayColumnKey(binding, sourceDisplay, sourceVar)
 			vals[key] = value.String()
 			usedCols[key] = struct{}{}
 		}
@@ -91,16 +99,19 @@ func pruneHeaderOnlyColumns(cols []string, rows []Row) []string {
 	return out
 }
 
-func collectQualifiedColumns(bindings map[string]*sema.GlobalBinding) []string {
+func collectQualifiedColumns(bindings []*sema.GlobalBinding) []string {
 	out := make([]string, 0)
 	seen := make(map[string]struct{})
-	for _, sourceName := range slices.Sorted(maps.Keys(bindings)) {
-		src := bindings[sourceName]
+	for _, src := range bindings {
 		if src == nil {
 			continue
 		}
+		sourceDisplay := src.PublicName
+		if sourceDisplay == "" {
+			sourceDisplay = src.Name
+		}
 		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-			key := displayColumnKey(bindings, src.Name, name)
+			key := displayColumnKey(src, sourceDisplay, name)
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -111,16 +122,8 @@ func collectQualifiedColumns(bindings map[string]*sema.GlobalBinding) []string {
 	return out
 }
 
-func displaySourceName(bindings map[string]*sema.GlobalBinding, source string) string {
-	if binding := bindings[source]; binding != nil && binding.PublicName != "" {
-		return binding.PublicName
-	}
-	return source
-}
-
-func displayColumnKey(bindings map[string]*sema.GlobalBinding, source, sourceVar string) string {
-	sourceDisplay := displaySourceName(bindings, source)
-	if scalarIdentityColumn(bindings[source], sourceDisplay, sourceVar) {
+func displayColumnKey(binding *sema.GlobalBinding, sourceDisplay, sourceVar string) string {
+	if scalarIdentityColumn(binding, sourceDisplay, sourceVar) {
 		return sourceDisplay
 	}
 	return sourceDisplay + "." + sourceVar

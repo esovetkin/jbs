@@ -224,13 +224,13 @@ do step1
 	res := analyzePrintParamSource(t, src)
 	first := res.StepScopeByName["step0"].Effective["x"]
 	second := res.StepScopeByName["step1"].Effective["a"]
-	firstBinding := res.BindingsByName[first.Source]
-	secondBinding := res.BindingsByName[second.Source]
+	firstBinding := res.BindingsByKey[first.SourceKey]
+	secondBinding := res.BindingsByKey[second.SourceKey]
 	if firstBinding == nil || secondBinding == nil {
 		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
 	}
-	if firstBinding.Name == secondBinding.Name || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
-		t.Fatalf("expected distinct snapshot bindings for public cases, first=%#v second=%#v", firstBinding, secondBinding)
+	if first.SourceKey == second.SourceKey || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
+		t.Fatalf("expected distinct source keys for public cases, first=%#v second=%#v", first.SourceKey, second.SourceKey)
 	}
 	if firstBinding.VersionID == "" || secondBinding.VersionID == "" || firstBinding.VersionID == secondBinding.VersionID {
 		t.Fatalf("expected rebound cases bindings to have different versions, first=%#v second=%#v", firstBinding, secondBinding)

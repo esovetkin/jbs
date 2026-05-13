@@ -46,7 +46,6 @@ type globalSeqEngine struct {
 	currentBindingOrder []string
 	currentBindingSeen  map[string]struct{}
 	namespaces          map[string]*Namespace
-	snapshotNames       map[string]struct{}
 	collectPrints       bool
 	shellRunner         eval.ShellRunner
 	environ             func() []string
@@ -93,7 +92,6 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		currentBindingOrder: make([]string, 0),
 		currentBindingSeen:  make(map[string]struct{}),
 		namespaces:          make(map[string]*Namespace),
-		snapshotNames:       make(map[string]struct{}),
 		collectPrints:       opts.CollectPrints,
 		shellRunner:         opts.ShellRunner,
 		environ:             opts.Environ,

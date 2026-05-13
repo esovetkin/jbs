@@ -107,6 +107,7 @@ type ScopeSnapshot struct {
 	GlobalVarOrder  []string
 	Bindings        []*GlobalBinding
 	BindingsByName  map[string]*GlobalBinding
+	BindingsByKey   map[BindingVersionKey]*GlobalBinding
 	Namespaces      map[string]*Namespace
 }
 
@@ -120,6 +121,7 @@ type Result struct {
 	PrintEvents           []PrintEvent
 	Bindings              []*GlobalBinding
 	BindingsByName        map[string]*GlobalBinding
+	BindingsByKey         map[BindingVersionKey]*GlobalBinding
 	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
 	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 	Namespaces            map[string]*Namespace

@@ -14,6 +14,12 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 	if dst == nil || src == nil {
 		return
 	}
+	if dst.BindingsByKey == nil {
+		dst.BindingsByKey = make(map[BindingVersionKey]*GlobalBinding)
+	}
+	for _, binding := range dst.Bindings {
+		indexBindingByKey(dst.BindingsByKey, binding, binding.Name)
+	}
 	for file, baseDir := range src.BaseDirByFile {
 		if strings.TrimSpace(file) == "" || strings.TrimSpace(baseDir) == "" {
 			continue
@@ -37,13 +43,16 @@ func mergeModuleScope(dst *moduleScope, src *moduleScope) {
 		if binding == nil {
 			continue
 		}
-		if _, exists := dst.BindingsByName[binding.Name]; exists {
-			continue
-		}
 		next := cloneBinding(binding)
-		dst.Bindings = append(dst.Bindings, next)
-		dst.BindingsByName[next.Name] = next
-		dst.Env[next.Name] = next.Value
+		key := BindingVersionKeyForBinding(next, next.Name)
+		if _, exists := dst.BindingsByKey[key]; !exists {
+			dst.Bindings = append(dst.Bindings, next)
+			indexBindingByKey(dst.BindingsByKey, next, next.Name)
+		}
+		if _, exists := dst.BindingsByName[next.Name]; !exists {
+			dst.BindingsByName[next.Name] = next
+			dst.Env[next.Name] = next.Value
+		}
 	}
 	for _, block := range src.DoBlocks {
 		if containsStepName(dst.DoBlocks, block.Name) {
@@ -89,6 +98,7 @@ func emptyModuleScope() *moduleScope {
 		LocalBindingsByName:   make(map[string]*GlobalBinding),
 		Bindings:              make([]*GlobalBinding, 0),
 		BindingsByName:        make(map[string]*GlobalBinding),
+		BindingsByKey:         make(map[BindingVersionKey]*GlobalBinding),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
 		BaseDirByFile:         make(map[string]string),
@@ -133,7 +143,10 @@ func cloneModuleScope(scope *moduleScope) *moduleScope {
 	for _, binding := range scope.Bindings {
 		next := cloneBinding(binding)
 		out.Bindings = append(out.Bindings, next)
-		out.BindingsByName[next.Name] = next
+		if _, exists := out.BindingsByName[next.Name]; !exists || !next.SyntheticGlobal {
+			out.BindingsByName[next.Name] = next
+		}
+		indexBindingByKey(out.BindingsByKey, next, next.Name)
 	}
 	out.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(scope.ScopeSnapshotsByIndex)
 	out.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(scope.ScopeSnapshotsByBlock)
@@ -193,26 +206,29 @@ func cloneScopeSnapshot(snap *ScopeSnapshot) *ScopeSnapshot {
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(snap.Bindings)),
 		BindingsByName: make(map[string]*GlobalBinding, len(snap.BindingsByName)),
+		BindingsByKey:  make(map[BindingVersionKey]*GlobalBinding, len(snap.Bindings)),
 		Namespaces:     make(map[string]*Namespace, len(snap.Namespaces)),
 	}
 	out.GlobalVarByName, out.GlobalVarOrder = cloneGlobalVars(snap.GlobalVarByName, snap.GlobalVarOrder)
 	for _, binding := range snap.Bindings {
 		next := cloneBinding(binding)
 		out.Bindings = append(out.Bindings, next)
-		out.BindingsByName[next.Name] = next
-		if next.PublicName != "" {
-			out.BindingsByName[next.PublicName] = next
+		if next.Name != "" {
+			out.BindingsByName[next.Name] = next
 		}
+		indexBindingByKey(out.BindingsByKey, next, next.Name)
 	}
 	for name, binding := range snap.BindingsByName {
 		if binding == nil {
 			continue
 		}
-		if existing := out.BindingsByName[binding.Name]; existing != nil {
+		if existing := bindingByKey(out.BindingsByKey, BindingVersionKeyForBinding(binding, name)); existing != nil {
 			out.BindingsByName[name] = existing
 			continue
 		}
-		out.BindingsByName[name] = cloneBinding(binding)
+		next := cloneBinding(binding)
+		out.BindingsByName[name] = next
+		indexBindingByKey(out.BindingsByKey, next, name)
 	}
 	for name, ns := range snap.Namespaces {
 		if ns == nil {
@@ -320,15 +336,20 @@ func registerModuleBinding(scope *moduleScope, binding *GlobalBinding, local boo
 		return
 	}
 	next := cloneBinding(binding)
+	if next.PublicName == "" {
+		next.PublicName = next.Name
+	}
 	if local {
 		scope.LocalBindings = append(scope.LocalBindings, next)
 		scope.LocalBindingsByName[next.Name] = next
 	}
 	if _, exists := scope.BindingsByName[next.Name]; exists {
+		indexBindingByKey(scope.BindingsByKey, next, next.Name)
 		return
 	}
 	scope.Bindings = append(scope.Bindings, next)
 	scope.BindingsByName[next.Name] = next
+	indexBindingByKey(scope.BindingsByKey, next, next.Name)
 }
 
 func registerSnapshotBindings(scope *moduleScope, bindings []*GlobalBinding) {
@@ -342,7 +363,10 @@ func registerSnapshotBindings(scope *moduleScope, bindings []*GlobalBinding) {
 		next := cloneBinding(binding)
 		next.SyntheticGlobal = true
 		scope.Bindings = append(scope.Bindings, next)
-		scope.BindingsByName[next.Name] = next
+		indexBindingByKey(scope.BindingsByKey, next, next.Name)
+		if _, exists := scope.BindingsByName[next.Name]; !exists {
+			scope.BindingsByName[next.Name] = next
+		}
 	}
 }
 

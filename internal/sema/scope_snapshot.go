@@ -45,6 +45,16 @@ func snapshotBindings(res *Result, snap *ScopeSnapshot) map[string]*GlobalBindin
 	return res.BindingsByName
 }
 
+func snapshotBindingsByKey(res *Result, snap *ScopeSnapshot) map[BindingVersionKey]*GlobalBinding {
+	if snap != nil && snap.BindingsByKey != nil {
+		return snap.BindingsByKey
+	}
+	if res == nil {
+		return nil
+	}
+	return res.BindingsByKey
+}
+
 func snapshotBindingsWithResult(res *Result, snap *ScopeSnapshot) map[string]*GlobalBinding {
 	if res == nil {
 		return snapshotBindings(res, snap)

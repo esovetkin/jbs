@@ -59,7 +59,7 @@ func TestExplicitImportsAndVisibleSpansFromStepPlan(t *testing.T) {
 		},
 	}
 
-	explicit := explicitImportsFromStepPlan(plan, bindings)
+	explicit := explicitImportsFromStepPlan(plan, nil, bindings)
 	if !reflect.DeepEqual(explicit["a"], []importedVar{{Name: "a", SourceVar: "a", Source: "srcA", Span: fallback}}) {
 		t.Fatalf("unexpected full explicit import for a: %#v", explicit["a"])
 	}
@@ -70,7 +70,7 @@ func TestExplicitImportsAndVisibleSpansFromStepPlan(t *testing.T) {
 		t.Fatalf("unexpected explicit alias import: %#v", explicit["alias_c"])
 	}
 
-	spans := visibleSpansFromStepPlan(plan, bindings)
+	spans := visibleSpansFromStepPlan(plan, nil, bindings)
 	if spans["a"] != span0 {
 		t.Fatalf("expected source origin span for a, got %#v", spans["a"])
 	}
@@ -84,7 +84,7 @@ func TestExplicitImportsAndVisibleSpansFromStepPlan(t *testing.T) {
 
 func TestAddEnvFromStepPlan(t *testing.T) {
 	env := map[string]eval.Value{"pre": eval.String("keep")}
-	addEnvFromStepPlan(env, nil, nil)
+	addEnvFromStepPlan(env, nil, nil, nil)
 	if !eval.Equal(env["pre"], eval.String("keep")) {
 		t.Fatalf("nil plan should not mutate env, got %#v", env)
 	}
@@ -104,7 +104,7 @@ func TestAddEnvFromStepPlan(t *testing.T) {
 		}, nil),
 	}
 
-	addEnvFromStepPlan(env, plan, bindings)
+	addEnvFromStepPlan(env, plan, nil, bindings)
 	if !eval.Equal(env["a"], eval.List([]eval.Value{eval.Int(1), eval.Int(2)})) {
 		t.Fatalf("expected list value for a, got %#v", env["a"])
 	}

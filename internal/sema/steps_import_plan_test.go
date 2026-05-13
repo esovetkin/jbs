@@ -190,6 +190,33 @@ do step2
 	}
 }
 
+func TestReboundWithAfterConflictUsesPublicSourceName(t *testing.T) {
+	src := `
+x = 1
+
+do s with x {
+    echo $x
+}
+
+x = 2
+
+do t after s with x {
+    echo $x
+}
+`
+	_, diags := analyzeRefValidationSource(t, "rebound_with_after.jbs", src)
+	if countDiagCode(diags, string(diag.CodeE214)) != 1 {
+		t.Fatalf("expected one E214 conflict, got: %s", diags.String())
+	}
+	text := diags.String()
+	if !strings.Contains(text, "`with` import from 'x' collides with name inherited via `after s`") {
+		t.Fatalf("expected public source name in conflict, got: %s", text)
+	}
+	if strings.Contains(text, "_js"+"__") {
+		t.Fatalf("legacy snapshot name leaked into diagnostic: %s", text)
+	}
+}
+
 func TestAnalyzeAllowsDifferentInheritedVisibleNamesAcrossReboundPublicSource(t *testing.T) {
 	src := `
 cases = table(x = (1,2))

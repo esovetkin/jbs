@@ -102,7 +102,7 @@ func TestGlobalBindingSupports(t *testing.T) {
 
 func TestBindingVersionKeyForBinding(t *testing.T) {
 	binding := &GlobalBinding{
-		Name:       "_js__1__cases",
+		Name:       "cases",
 		PublicName: "cases",
 		VersionID:  "v1",
 	}

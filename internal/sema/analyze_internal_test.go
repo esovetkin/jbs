@@ -521,13 +521,16 @@ do second
 
 	first := res.StepScopeByName["first"].Effective["x"]
 	second := res.StepScopeByName["second"].Effective["x"]
-	firstBinding := res.BindingsByName[first.Source]
-	secondBinding := res.BindingsByName[second.Source]
+	firstBinding := res.BindingsByKey[first.SourceKey]
+	secondBinding := res.BindingsByKey[second.SourceKey]
 	if firstBinding == nil || secondBinding == nil {
 		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
 	}
-	if firstBinding.Name == secondBinding.Name || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
-		t.Fatalf("expected distinct snapshot bindings for public cases, first=%#v second=%#v", firstBinding, secondBinding)
+	if first.SourceKey == second.SourceKey {
+		t.Fatalf("expected rebound imports to have distinct source keys, first=%#v second=%#v", first.SourceKey, second.SourceKey)
+	}
+	if firstBinding.Name != "cases" || secondBinding.Name != "cases" || firstBinding.PublicName != "cases" || secondBinding.PublicName != "cases" {
+		t.Fatalf("expected public snapshot binding names for cases, first=%#v second=%#v", firstBinding, secondBinding)
 	}
 	if firstBinding.VersionID == "" || secondBinding.VersionID == "" || firstBinding.VersionID == secondBinding.VersionID {
 		t.Fatalf("expected rebound snapshot bindings to have different versions, first=%#v second=%#v", firstBinding, secondBinding)
@@ -563,13 +566,16 @@ do second
 
 	first := res.StepScopeByName["first"].Effective["x"]
 	second := res.StepScopeByName["second"].Effective["x"]
-	firstBinding := res.BindingsByName[first.Source]
-	secondBinding := res.BindingsByName[second.Source]
+	firstBinding := res.BindingsByKey[first.SourceKey]
+	secondBinding := res.BindingsByKey[second.SourceKey]
 	if firstBinding == nil || secondBinding == nil {
 		t.Fatalf("expected snapshot bindings, first=%#v second=%#v", firstBinding, secondBinding)
 	}
-	if firstBinding.Name == secondBinding.Name {
-		t.Fatalf("expected distinct snapshot parameter-set names, got %#v and %#v", firstBinding, secondBinding)
+	if first.SourceKey != second.SourceKey {
+		t.Fatalf("expected unchanged snapshots to share a source key, got %#v and %#v", first.SourceKey, second.SourceKey)
+	}
+	if firstBinding.Name != "cases" || secondBinding.Name != "cases" {
+		t.Fatalf("expected public snapshot parameter-set names, got %#v and %#v", firstBinding, secondBinding)
 	}
 	if firstBinding.VersionID == "" || firstBinding.VersionID != secondBinding.VersionID {
 		t.Fatalf("expected unchanged binding snapshots to share a version, first=%#v second=%#v", firstBinding, secondBinding)

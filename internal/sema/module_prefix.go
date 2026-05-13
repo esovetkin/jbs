@@ -49,7 +49,10 @@ func prefixModuleScope(scope *moduleScope, prefix string) *moduleScope {
 		next.DependsOn = prefixNames(prefix, binding.DependsOn)
 		next.DependsOnKeys = prefixBindingVersionKeys(prefix, binding.DependsOnKeys)
 		out.Bindings = append(out.Bindings, next)
-		out.BindingsByName[prefixedName] = next
+		if _, exists := out.BindingsByName[prefixedName]; !exists || !next.SyntheticGlobal {
+			out.BindingsByName[prefixedName] = next
+		}
+		indexBindingByKey(out.BindingsByKey, next, prefixedName)
 	}
 	for _, block := range scope.DoBlocks {
 		out.DoBlocks = append(out.DoBlocks, prefixDoBlock(block, prefix))
@@ -195,6 +198,7 @@ func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 	}
 	out.Bindings = make([]*GlobalBinding, 0, len(snap.Bindings))
 	out.BindingsByName = make(map[string]*GlobalBinding, len(snap.BindingsByName))
+	out.BindingsByKey = make(map[BindingVersionKey]*GlobalBinding, len(snap.Bindings))
 	for _, binding := range snap.Bindings {
 		next := cloneBinding(binding)
 		if next == nil {
@@ -206,7 +210,7 @@ func prefixScopeSnapshot(snap *ScopeSnapshot, prefix string) *ScopeSnapshot {
 		next.DependsOnKeys = prefixBindingVersionKeys(prefix, next.DependsOnKeys)
 		out.Bindings = append(out.Bindings, next)
 		out.BindingsByName[next.Name] = next
-		out.BindingsByName[next.PublicName] = next
+		indexBindingByKey(out.BindingsByKey, next, next.Name)
 	}
 	out.Namespaces = make(map[string]*Namespace, len(snap.Namespaces)+1)
 	for name, ns := range snap.Namespaces {

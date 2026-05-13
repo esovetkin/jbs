@@ -50,6 +50,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 		PrintEvents:           make([]PrintEvent, 0),
 		Bindings:              make([]*GlobalBinding, 0),
 		BindingsByName:        make(map[string]*GlobalBinding),
+		BindingsByKey:         make(map[BindingVersionKey]*GlobalBinding),
 		ScopeSnapshotsByIndex: make(map[int]*ScopeSnapshot),
 		ScopeSnapshotsByBlock: make(map[string]*ScopeSnapshot),
 		Namespaces:            make(map[string]*Namespace),
@@ -122,7 +123,10 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	for _, binding := range scope.Bindings {
 		next := cloneBinding(binding)
 		res.Bindings = append(res.Bindings, next)
-		res.BindingsByName[next.Name] = next
+		if _, exists := res.BindingsByName[next.Name]; !exists || !next.SyntheticGlobal {
+			res.BindingsByName[next.Name] = next
+		}
+		indexBindingByKey(res.BindingsByKey, next, next.Name)
 	}
 	res.ScopeSnapshotsByIndex = cloneScopeSnapshotsByIndex(scope.ScopeSnapshotsByIndex)
 	res.ScopeSnapshotsByBlock = cloneScopeSnapshotsByBlock(scope.ScopeSnapshotsByBlock)

@@ -279,11 +279,15 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 		vars = append(vars, ExpandedWithVar{Visible: name, SourceVar: name})
 	}
 	sourceKey := BindingVersionKeyForBinding(binding, ref.Source)
+	displaySource := sourceKey.Display()
+	if displaySource == "" {
+		displaySource = ref.Source
+	}
 	return WithExpansion{
 		ItemID:        itemID,
-		Source:        binding.Name,
+		Source:        displaySource,
 		SourceKey:     sourceKey,
-		DisplaySource: sourceKey.Display(),
+		DisplaySource: displaySource,
 		Vars:          vars,
 		VarsByName:    cloneSeriesMap(norm.Vars),
 		RowCount:      norm.RowCount,

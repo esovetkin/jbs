@@ -65,8 +65,8 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Plan {
 		step := defs[stepName]
 		plan := res.StepScopeByName[stepName]
 		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
-		groups := groupExplicitDeltaByItem(plan, res.BindingsByName)
-		states := expandStep(parents, groups, res.BindingsByName, step.Span, diags)
+		groups := groupExplicitDeltaByItem(plan, res.BindingsByName, res.BindingsByKey)
+		states := expandStep(parents, groups, res.BindingsByName, res.BindingsByKey, step.Span, diags)
 		for i := range states {
 			states[i].ID = WorkID{Step: step.Name, Row: i}
 		}
@@ -152,7 +152,7 @@ func inheritParentStates(after []string, byStep map[string][]state, at diag.Span
 	return combined
 }
 
-func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema.GlobalBinding) []sourceGroup {
+func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) []sourceGroup {
 	if plan == nil {
 		return nil
 	}
@@ -214,7 +214,7 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 		}
 		if item.Full {
 			g.Full = true
-			if src := sources[source]; src != nil {
+			if src := bindingForGroup(*g, sources, sourcesByKey); src != nil {
 				for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 					if slices.ContainsFunc(g.Vars, func(v sourceVar) bool { return v.Visible == name }) {
 						continue
@@ -243,7 +243,7 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 	for _, key := range order {
 		if g := byItem[key]; g != nil {
 			if g.ValuesByName == nil {
-				g.ValuesByName = valuesByNameForGroup(*g, sources)
+				g.ValuesByName = valuesByNameForGroup(*g, sources, sourcesByKey)
 				g.RowCount = sourceRowCountFromVars(g.ValuesByName)
 			}
 			out = append(out, *g)
@@ -252,7 +252,7 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 	return out
 }
 
-func expandStep(parents []state, groups []sourceGroup, sources map[string]*sema.GlobalBinding, at diag.Span, diags *diag.Diagnostics) []state {
+func expandStep(parents []state, groups []sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding, at diag.Span, diags *diag.Diagnostics) []state {
 	if len(parents) == 0 {
 		return nil
 	}
@@ -260,7 +260,7 @@ func expandStep(parents []state, groups []sourceGroup, sources map[string]*sema.
 	for _, group := range groups {
 		next := make([]state, 0)
 		for _, st := range states {
-			choices := buildChoices(st, group, sources)
+			choices := buildChoices(st, group, sources, sourcesByKey)
 			for _, choice := range choices {
 				merged, ok := mergeWithChoice(st, group, choice, at, diags)
 				if !ok {
@@ -277,10 +277,10 @@ func expandStep(parents []state, groups []sourceGroup, sources map[string]*sema.
 	return states
 }
 
-func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBinding) []sourceChoice {
+func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) []sourceChoice {
 	vars := group.Vars
 	if group.Full && len(vars) == 0 {
-		if src := sources[group.Source]; src != nil {
+		if src := bindingForGroup(group, sources, sourcesByKey); src != nil {
 			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
 				vars = append(vars, sourceVar{Visible: name, SourceVar: name})
 			}
@@ -292,7 +292,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 	}
 	group.Vars = vars
 	if group.ValuesByName == nil {
-		group.ValuesByName = valuesByNameForGroup(group, sources)
+		group.ValuesByName = valuesByNameForGroup(group, sources, sourcesByKey)
 	}
 	rowCount := group.RowCount
 	if rowCount == 0 {
@@ -511,8 +511,8 @@ func cloneSeriesMap(in map[string][]eval.Value) map[string][]eval.Value {
 	return out
 }
 
-func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding) map[string][]eval.Value {
-	src := sources[group.Source]
+func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) map[string][]eval.Value {
+	src := bindingForGroup(group, sources, sourcesByKey)
 	if src == nil {
 		return nil
 	}
@@ -527,6 +527,18 @@ func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBind
 		}
 	}
 	return out
+}
+
+func bindingForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) *sema.GlobalBinding {
+	if group.SourceKey != (sema.BindingVersionKey{}) {
+		if src := sourcesByKey[group.SourceKey]; src != nil {
+			return src
+		}
+	}
+	if sources == nil {
+		return nil
+	}
+	return sources[group.Source]
 }
 
 func sourceRowCountFromVars(vars map[string][]eval.Value) int {

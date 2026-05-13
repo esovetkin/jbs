@@ -130,7 +130,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		return versionImports(importsFromStepPlan(res.StepScopeByName[stepName]), catalog, bindings)
 	}
 	resolveExplicitImports := func(stepName string, bindings map[string]*GlobalBinding) map[string][]importedVar {
-		return versionImports(explicitImportsFromStepPlan(res.StepScopeByName[stepName], bindings), catalog, bindings)
+		return versionImports(explicitImportsFromStepPlan(res.StepScopeByName[stepName], res.BindingsByKey, bindings), catalog, bindings)
 	}
 	collectStepUnusedImports := func(stepName string, imports map[string][]importedVar, refs []varRef) {
 		if len(imports) == 0 {

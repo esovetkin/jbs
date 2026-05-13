@@ -21,6 +21,7 @@ type moduleScope struct {
 	LocalBindingsByName   map[string]*GlobalBinding
 	Bindings              []*GlobalBinding
 	BindingsByName        map[string]*GlobalBinding
+	BindingsByKey         map[BindingVersionKey]*GlobalBinding
 	ScopeSnapshotsByIndex map[int]*ScopeSnapshot
 	ScopeSnapshotsByBlock map[string]*ScopeSnapshot
 	DoBlocks              []ast.DoBlock

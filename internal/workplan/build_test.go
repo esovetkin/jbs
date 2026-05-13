@@ -112,7 +112,7 @@ func TestGroupExplicitDeltaByItem(t *testing.T) {
 		},
 	}
 
-	got := groupExplicitDeltaByItem(plan, sources)
+	got := groupExplicitDeltaByItem(plan, sources, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected two source groups, got %#v", got)
 	}
@@ -282,13 +282,13 @@ func TestBuildChoicesBranches(t *testing.T) {
 		"empty": {Name: "empty", Shape: sema.BindingTable, Vars: map[string][]eval.Value{}},
 	}
 
-	if got := buildChoices(emptyState(), sourceGroup{Source: "missing"}, sources); got != nil {
+	if got := buildChoices(emptyState(), sourceGroup{Source: "missing"}, sources, nil); got != nil {
 		t.Fatalf("expected nil choices for missing source, got %#v", got)
 	}
 
 	st := emptyState()
 	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p")] = inheritedSourceRows(1, 5)
-	choices := buildChoices(st, sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
+	choices := buildChoices(st, sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources, nil)
 	if len(choices) != 1 {
 		t.Fatalf("expected invalid row indices to be skipped, got %#v", choices)
 	}
@@ -296,7 +296,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 		t.Fatalf("unexpected constrained choice: %#v", choices[0])
 	}
 
-	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Full: true}, sources)
+	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Full: true}, sources, nil)
 	if len(choices) != 3 {
 		t.Fatalf("expected full-import choices per row, got %#v", choices)
 	}
@@ -304,7 +304,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 		t.Fatalf("unexpected full-import row values: %#v", choices[2].Values)
 	}
 
-	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
+	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources, nil)
 	if len(choices) != 2 {
 		t.Fatalf("expected grouped choices for a=[1,1,2], got %#v", choices)
 	}
@@ -315,7 +315,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 		t.Fatalf("unexpected second grouped choice: %#v", choices[1])
 	}
 
-	choices = buildChoices(emptyState(), sourceGroup{Source: "empty", Full: true}, sources)
+	choices = buildChoices(emptyState(), sourceGroup{Source: "empty", Full: true}, sources, nil)
 	if len(choices) != 1 {
 		t.Fatalf("expected rowCount fallback of 1 for empty source, got %#v", choices)
 	}
@@ -332,7 +332,7 @@ func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
 			{Visible: "b", SourceVar: "b"},
 			{Visible: "c", SourceVar: "c"},
 		},
-	}, sources)
+	}, sources, nil)
 	want := []sourceChoice{
 		{
 			Rows: []int{0, 1},
@@ -365,13 +365,13 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 	}
 	diags := &diag.Diagnostics{}
 
-	if got := expandStep(nil, nil, sources, span, diags); got != nil {
+	if got := expandStep(nil, nil, sources, nil, span, diags); got != nil {
 		t.Fatalf("expected nil expansion for empty parent states, got %#v", got)
 	}
 
 	parent := state{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{}}
 	groups := []sourceGroup{{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}}
-	got := expandStep([]state{parent}, groups, sources, span, diags)
+	got := expandStep([]state{parent}, groups, sources, nil, span, diags)
 	if len(got) != 1 {
 		t.Fatalf("expected one expanded state after conflict filtering, got %#v", got)
 	}

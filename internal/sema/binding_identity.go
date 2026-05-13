@@ -45,6 +45,26 @@ func BindingVersionKeyForBinding(binding *GlobalBinding, fallback string) Bindin
 	return BindingVersionKey{Public: public, Version: version}
 }
 
+func indexBindingByKey(dst map[BindingVersionKey]*GlobalBinding, binding *GlobalBinding, fallback string) {
+	if dst == nil || binding == nil {
+		return
+	}
+	key := BindingVersionKeyForBinding(binding, fallback)
+	if key == (BindingVersionKey{}) {
+		return
+	}
+	if _, exists := dst[key]; !exists {
+		dst[key] = binding
+	}
+}
+
+func bindingByKey(bindings map[BindingVersionKey]*GlobalBinding, key BindingVersionKey) *GlobalBinding {
+	if key == (BindingVersionKey{}) {
+		return nil
+	}
+	return bindings[key]
+}
+
 func BindingVersionKeyForGlobalVar(gv *GlobalVar, fallback string) BindingVersionKey {
 	if gv == nil {
 		return BindingVersionKey{Public: fallback, Version: fallback}

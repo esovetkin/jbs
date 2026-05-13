@@ -92,13 +92,13 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	spec.StepKind = stepKind
 
 	plan := res.StepScopeByName[block.StepName]
-	spec.StepVars = visibleSpansFromStepPlan(plan, res.BindingsByName)
+	spec.StepVars = visibleSpansFromStepPlan(plan, res.BindingsByKey, res.BindingsByName)
 
 	env := make(map[string]eval.Value, len(analyseGlobals)+32)
 	for k, v := range analyseGlobals {
 		env[k] = eval.CloneValue(v)
 	}
-	addEnvFromStepPlan(env, plan, res.BindingsByName)
+	addEnvFromStepPlan(env, plan, res.BindingsByKey, res.BindingsByName)
 	analyseImports := resolveAnalyseWithImports(block.WithItems, analyseBindings, analyseGlobals, analyseNamespaces, diags)
 	for visible, imported := range analyseImports {
 		binding := analyseBindings[imported.Source]

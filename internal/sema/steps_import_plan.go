@@ -91,7 +91,17 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 		keptExpansions := make([]WithExpansion, 0, len(expandedWith))
 		for _, expanded := range expandedWith {
 			kept := make([]ExpandedWithVar, 0, len(expanded.Vars))
-			sourceObj := snapshotBindings(res, def.Snapshot)[expanded.Source]
+			sourceObj := bindingByKey(snapshotBindingsByKey(res, def.Snapshot), expanded.SourceKey)
+			if sourceObj == nil {
+				sourceObj = snapshotBindings(res, def.Snapshot)[expanded.Source]
+			}
+			sourceDisplay := expanded.DisplaySource
+			if sourceDisplay == "" {
+				sourceDisplay = expanded.SourceKey.Display()
+			}
+			if sourceDisplay == "" {
+				sourceDisplay = expanded.Source
+			}
 			full := expanded.Full
 			for _, v := range expanded.Vars {
 				name := v.Visible
@@ -108,7 +118,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 				current := VisibleBinding{
 					Name:      name,
 					SourceVar: v.SourceVar,
-					Source:    expanded.Source,
+					Source:    sourceDisplay,
 					SourceKey: expanded.SourceKey,
 					Span:      originSpan,
 				}
@@ -141,6 +151,8 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 				continue
 			}
 			nextExpansion := expanded
+			nextExpansion.Source = sourceDisplay
+			nextExpansion.DisplaySource = sourceDisplay
 			nextExpansion.Vars = kept
 			if len(kept) != len(expanded.Vars) {
 				full = false
@@ -151,7 +163,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			if full && len(kept) == len(expanded.Vars) {
 				explicitDelta = append(explicitDelta, ScopeImport{
 					ItemID:    expanded.ItemID,
-					Source:    expanded.Source,
+					Source:    sourceDisplay,
 					SourceKey: expanded.SourceKey,
 					Full:      true,
 					Span:      expanded.Span,
@@ -161,7 +173,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			for _, keptVar := range kept {
 				explicitDelta = append(explicitDelta, ScopeImport{
 					ItemID:    expanded.ItemID,
-					Source:    expanded.Source,
+					Source:    sourceDisplay,
 					SourceKey: expanded.SourceKey,
 					Visible:   keptVar.Visible,
 					SourceVar: keptVar.SourceVar,
@@ -225,17 +237,31 @@ func filterExpansionVars(vars map[string][]eval.Value, kept []ExpandedWithVar) m
 }
 
 func stepScopeConflictKey(binding VisibleBinding) string {
-	if binding.ViaStep != "" {
-		return "after:" + binding.ViaStep + ":" + binding.Source
+	source := binding.SourceKey.Display()
+	if binding.SourceKey.Version != "" {
+		source += "@" + binding.SourceKey.Version
 	}
-	return "with:" + binding.Source
+	if source == "" {
+		source = binding.Source
+	}
+	if binding.ViaStep != "" {
+		return "after:" + binding.ViaStep + ":" + source
+	}
+	return "with:" + source
 }
 
 func stepScopeConflictRelated(binding VisibleBinding) string {
 	if binding.ViaStep != "" {
 		return fmt.Sprintf("visible via `after %s`", binding.ViaStep)
 	}
-	return fmt.Sprintf("imported via `with %s`", binding.Source)
+	return fmt.Sprintf("imported via `with %s`", visibleSourceDisplay(binding))
+}
+
+func visibleSourceDisplay(binding VisibleBinding) string {
+	if display := binding.SourceKey.Display(); display != "" {
+		return display
+	}
+	return binding.Source
 }
 
 func stepScopeConflictMessage(stepName, variable string, left VisibleBinding, right VisibleBinding) (string, string) {
@@ -254,7 +280,7 @@ func stepScopeConflictMessage(stepName, variable string, left VisibleBinding, ri
 				"conflicting variable '%s' for step '%s': `with` import from '%s' collides with name inherited via `after %s`",
 				variable,
 				stepName,
-				right.Source,
+				visibleSourceDisplay(right),
 				left.ViaStep,
 			),
 			"rename the imported variable at the source or avoid importing the same visible name twice"
@@ -263,7 +289,7 @@ func stepScopeConflictMessage(stepName, variable string, left VisibleBinding, ri
 				"conflicting variable '%s' for step '%s': `with` import from '%s' collides with name inherited via `after %s`",
 				variable,
 				stepName,
-				left.Source,
+				visibleSourceDisplay(left),
 				right.ViaStep,
 			),
 			"rename the imported variable at the source or avoid importing the same visible name twice"
@@ -272,8 +298,8 @@ func stepScopeConflictMessage(stepName, variable string, left VisibleBinding, ri
 				"conflicting variable '%s' for step '%s': imported via `with` from '%s' and '%s'",
 				variable,
 				stepName,
-				left.Source,
-				right.Source,
+				visibleSourceDisplay(left),
+				visibleSourceDisplay(right),
 			),
 			"import each variable name from only one source"
 	}

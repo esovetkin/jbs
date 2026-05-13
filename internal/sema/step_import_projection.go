@@ -36,7 +36,7 @@ func importsFromStepPlan(plan *StepScopePlan) map[string][]importedVar {
 	return out
 }
 
-func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*GlobalBinding) map[string][]importedVar {
+func explicitImportsFromStepPlan(plan *StepScopePlan, bindingsByKey map[BindingVersionKey]*GlobalBinding, bindings map[string]*GlobalBinding) map[string][]importedVar {
 	if plan == nil {
 		return map[string][]importedVar{}
 	}
@@ -60,7 +60,10 @@ func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*Globa
 				}
 				continue
 			}
-			src := bindings[imp.Source]
+			src := bindingByKey(bindingsByKey, imp.SourceKey)
+			if src == nil {
+				src = bindings[imp.Source]
+			}
 			if src == nil {
 				continue
 			}
@@ -90,13 +93,17 @@ func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*Globa
 	return out
 }
 
-func visibleSpansFromStepPlan(plan *StepScopePlan, bindings map[string]*GlobalBinding) map[string]diag.Span {
+func visibleSpansFromStepPlan(plan *StepScopePlan, bindingsByKey map[BindingVersionKey]*GlobalBinding, bindings map[string]*GlobalBinding) map[string]diag.Span {
 	if plan == nil {
 		return map[string]diag.Span{}
 	}
 	out := make(map[string]diag.Span, len(plan.Effective))
 	for name, origin := range plan.Effective {
-		if src := bindings[origin.Source]; src != nil {
+		src := bindingByKey(bindingsByKey, origin.SourceKey)
+		if src == nil {
+			src = bindings[origin.Source]
+		}
+		if src != nil {
 			sourceVar := origin.SourceVar
 			if sourceVar == "" {
 				sourceVar = name
@@ -111,7 +118,7 @@ func visibleSpansFromStepPlan(plan *StepScopePlan, bindings map[string]*GlobalBi
 	return out
 }
 
-func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindings map[string]*GlobalBinding) {
+func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindingsByKey map[BindingVersionKey]*GlobalBinding, bindings map[string]*GlobalBinding) {
 	if plan == nil {
 		return
 	}
@@ -122,7 +129,10 @@ func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindings
 		if _, exists := env[name]; exists {
 			continue
 		}
-		src := bindings[origin.Source]
+		src := bindingByKey(bindingsByKey, origin.SourceKey)
+		if src == nil {
+			src = bindings[origin.Source]
+		}
 		if src == nil {
 			continue
 		}

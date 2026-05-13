@@ -154,6 +154,10 @@ func stepWarningCandidates(res *Result, catalog *warningCatalog, stepName string
 		if plan := res.StepScopeByName[stepName]; plan != nil {
 			for _, name := range slices.Sorted(maps.Keys(plan.Inherited)) {
 				origin := plan.Inherited[name]
+				if origin.SourceKey != (BindingVersionKey{}) {
+					addKey(origin.SourceKey)
+					continue
+				}
 				addSource(res.BindingsByName, origin.Source)
 			}
 		}

@@ -65,7 +65,7 @@ func TestWarningCatalogDedupesSameVersionSnapshots(t *testing.T) {
 		Vars:       map[string][]eval.Value{"x": {eval.Int(1)}},
 	}
 	snap := &GlobalBinding{
-		Name:       "_js__1__cases",
+		Name:       "cases",
 		PublicName: "cases",
 		VersionID:  "v1",
 		Order:      []string{"x"},
@@ -74,7 +74,7 @@ func TestWarningCatalogDedupesSameVersionSnapshots(t *testing.T) {
 	catalog := buildWarningCatalog(&Result{
 		Bindings: []*GlobalBinding{base},
 		ScopeSnapshotsByIndex: map[int]*ScopeSnapshot{
-			1: {Bindings: []*GlobalBinding{snap}, BindingsByName: map[string]*GlobalBinding{"cases": snap, snap.Name: snap}},
+			1: {Bindings: []*GlobalBinding{snap}, BindingsByName: map[string]*GlobalBinding{"cases": snap}},
 		},
 	})
 
@@ -85,7 +85,7 @@ func TestWarningCatalogDedupesSameVersionSnapshots(t *testing.T) {
 
 func TestWarningCatalogKeepsReboundPublicNameVersions(t *testing.T) {
 	first := &GlobalBinding{
-		Name:       "_js__1__cases",
+		Name:       "cases",
 		PublicName: "cases",
 		VersionID:  "v1",
 		Order:      []string{"x"},
@@ -113,7 +113,7 @@ func TestWarningCatalogKeepsReboundPublicNameVersions(t *testing.T) {
 
 func TestWarningCatalogResolvesPublicNamesThroughSnapshotBindings(t *testing.T) {
 	first := &GlobalBinding{
-		Name:       "_js__1__cases",
+		Name:       "cases",
 		PublicName: "cases",
 		VersionID:  "v1",
 		Order:      []string{"x"},
@@ -138,9 +138,6 @@ func TestWarningCatalogResolvesPublicNamesThroughSnapshotBindings(t *testing.T) 
 
 	if got, want := catalog.keyForSource(snapshotBindings, "cases"), (BindingVersionKey{Public: "cases", Version: "v1"}); got != want {
 		t.Fatalf("expected snapshot public name to resolve to old version, got %#v want %#v", got, want)
-	}
-	if got, want := catalog.keyForSource(nil, "_js__1__cases"), (BindingVersionKey{Public: "cases", Version: "v1"}); got != want {
-		t.Fatalf("expected exact synthetic name to resolve through catalog, got %#v want %#v", got, want)
 	}
 }
 

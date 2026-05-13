@@ -41,6 +41,9 @@ func buildWarningCatalog(res *Result) *warningCatalog {
 	for _, binding := range res.Bindings {
 		catalog.addBinding(binding, "")
 	}
+	for _, key := range slices.SortedFunc(maps.Keys(res.BindingsByKey), compareBindingVersionKey) {
+		catalog.addBinding(res.BindingsByKey[key], key.Display())
+	}
 	for _, name := range slices.Sorted(maps.Keys(res.BindingsByName)) {
 		catalog.addBinding(res.BindingsByName[name], name)
 	}
@@ -82,7 +85,9 @@ func (c *warningCatalog) addBinding(binding *GlobalBinding, fallback string) {
 		exact = fallback
 	}
 	if exact != "" {
-		c.keyByExact[exact] = key
+		if _, exists := c.keyByExact[exact]; !exists {
+			c.keyByExact[exact] = key
+		}
 	}
 	if _, exists := c.byKey[key]; exists {
 		return

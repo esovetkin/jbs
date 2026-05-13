@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
-	"unicode"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
@@ -33,7 +31,8 @@ func (e *globalSeqEngine) cloneSnapshot(index int) *ScopeSnapshot {
 			Spans:  maps.Clone(e.spans),
 		},
 		Bindings:       make([]*GlobalBinding, 0, len(e.currentBindings)),
-		BindingsByName: make(map[string]*GlobalBinding, len(e.currentBindings)*2),
+		BindingsByName: make(map[string]*GlobalBinding, len(e.currentBindings)),
+		BindingsByKey:  make(map[BindingVersionKey]*GlobalBinding, len(e.currentBindings)),
 		Namespaces:     cloneVisibleNamespaces(e.namespaces),
 	}
 	snap.GlobalVarByName, snap.GlobalVarOrder = cloneGlobalVars(e.globalVars, e.globalOrder)
@@ -43,30 +42,17 @@ func (e *globalSeqEngine) cloneSnapshot(index int) *ScopeSnapshot {
 			continue
 		}
 		next := cloneBinding(binding)
-		next.PublicName = bindingDisplayName(next)
-		next.Name = e.snapshotBindingName(next.PublicName, index)
+		display := bindingDisplayName(binding)
+		next.PublicName = display
+		next.Name = display
 		next.SyntheticGlobal = true
 		snap.Bindings = append(snap.Bindings, next)
-		snap.BindingsByName[next.Name] = next
-		if next.PublicName != "" {
-			snap.BindingsByName[next.PublicName] = next
+		if next.Name != "" {
+			snap.BindingsByName[next.Name] = next
 		}
+		indexBindingByKey(snap.BindingsByKey, next, next.Name)
 	}
 	return snap
-}
-
-func (e *globalSeqEngine) snapshotBindingName(public string, index int) string {
-	base := "_js__" + fmt.Sprint(index) + "__" + sanitizeSnapshotName(public)
-	name := base
-	for i := 1; ; i++ {
-		if _, exists := e.snapshotNames[name]; !exists {
-			if _, collides := e.currentBindings[name]; !collides {
-				e.snapshotNames[name] = struct{}{}
-				return name
-			}
-		}
-		name = fmt.Sprintf("%s_%d", base, i)
-	}
 }
 
 func bindingVersionID(step globalInputStep) string {
@@ -75,25 +61,6 @@ func bindingVersionID(step globalInputStep) string {
 		return fmt.Sprintf("%s:%d:%d", span.File, span.Start.Offset, span.End.Offset)
 	}
 	return fmt.Sprintf("%s:%d:%s", step.Kind, step.ID, step.Name)
-}
-
-func sanitizeSnapshotName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "binding"
-	}
-	var b strings.Builder
-	for _, r := range name {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	if b.Len() == 0 {
-		return "binding"
-	}
-	return b.String()
 }
 
 func (e *globalSeqEngine) acceptGlobalVar(gv *GlobalVar) bool {
