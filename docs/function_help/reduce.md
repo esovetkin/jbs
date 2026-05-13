@@ -4,7 +4,7 @@
 
 ## Arguments
 
-- `function`: a function value called as `function(acc, item)`.
+- `function`: a user-defined or built-in function value called as `function(acc, item)`.
 - `values`: a non-empty list or tuple.
 - reduction uses left-fold semantics:
 - first accumulator is the first sequence element

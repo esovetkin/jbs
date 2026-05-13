@@ -68,6 +68,25 @@ func evalDictCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, dia
 	return DictValue(entries)
 }
 
+func evalDictValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) == 1 && args[0].Name == "" {
+		if !IsComb(args[0].Value) {
+			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", args[0].Span, "use dict(table_value) or named keys such as dict(name = value)")
+			return Null()
+		}
+		return dictFromTable(args[0].Value, args[0].Span, diags)
+	}
+	entries := make([]DictEntry, 0, len(args))
+	for _, arg := range args {
+		if arg.Name == "" {
+			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", arg.Span, "use dict(table_value) or named keys such as dict(name = value)")
+			return Null()
+		}
+		entries = append(entries, DictEntry{Key: DictKey{Kind: DictKeyString, S: arg.Name}, Value: arg.Value})
+	}
+	return DictValue(entries)
+}
+
 func dictFromTable(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	names := CombNames(value)
 	entries := make([]DictEntry, 0, len(names))
@@ -117,6 +136,33 @@ func evalDictGetCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, 
 	return CloneValue(value)
 }
 
+func evalDictGetValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 3 {
+		diags.AddError(diag.CodeE106, "get() expects exactly three arguments", at, "use get(dict_value, key, default_value)")
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "get() does not accept named arguments", arg.Span, "use get(dict_value, key, default_value)")
+			return Null()
+		}
+	}
+	base := args[0].Value
+	if base.Kind != KindDict || base.D == nil {
+		diags.AddError(diag.CodeE106, "get() first argument must be a dictionary", args[0].Span, "use get(dict_value, key, default_value)")
+		return Null()
+	}
+	key, ok := dictKeyFromValue(args[1].Value, args[1].Span, diags)
+	if !ok {
+		return Null()
+	}
+	value, exists := base.D.Entries[key]
+	if !exists {
+		return CloneValue(args[2].Value)
+	}
+	return CloneValue(value)
+}
+
 func evalUpdateCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) == 0 || rawArgs[0].Name != "" {
 		diags.AddError(diag.CodeE106, "update() expects dictionary first argument", at, "use update(dict_value, key = value)")
@@ -141,6 +187,27 @@ func evalUpdateCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 			return Null()
 		}
 		out.D.Set(DictKey{Kind: DictKeyString, S: arg.Name}, value)
+	}
+	return out
+}
+
+func evalUpdateValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) == 0 || args[0].Name != "" {
+		diags.AddError(diag.CodeE106, "update() expects dictionary first argument", at, "use update(dict_value, key = value)")
+		return Null()
+	}
+	base := args[0].Value
+	if base.Kind != KindDict || base.D == nil {
+		diags.AddError(diag.CodeE106, "update() first argument must be a dictionary", args[0].Span, "use update(dict_value, key = value)")
+		return Null()
+	}
+	out := CloneValue(base)
+	for _, arg := range args[1:] {
+		if arg.Name == "" {
+			diags.AddError(diag.CodeE106, "update() updates must be named arguments", arg.Span, "use update(dict_value, key = value)")
+			return Null()
+		}
+		out.D.Set(DictKey{Kind: DictKeyString, S: arg.Name}, arg.Value)
 	}
 	return out
 }

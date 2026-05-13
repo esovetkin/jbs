@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"slices"
+	"sync"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -34,6 +35,24 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"t":        {},
 	"update":   {},
 	"zip":      {},
+}
+
+var builtinFunctionValues struct {
+	once   sync.Once
+	values map[string]Value
+}
+
+func initBuiltinFunctionValues() {
+	builtinFunctionValues.values = make(map[string]Value)
+	for _, name := range BuiltinCallNames() {
+		builtinFunctionValues.values[name] = Function(&FunctionValue{BuiltinName: name})
+	}
+}
+
+func BuiltinFunctionValue(name string) (Value, bool) {
+	builtinFunctionValues.once.Do(initBuiltinFunctionValues)
+	value, ok := builtinFunctionValues.values[name]
+	return value, ok
 }
 
 func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -134,6 +153,9 @@ func lookupValue(name string, env map[string]Value, at diag.Span, diags *diag.Di
 		}
 		diags.AddError(diag.CodeE100, fmt.Sprintf("local variable '%s' is used before assignment", name), at, "assign the local before reading it")
 		return Null(), false
+	}
+	if value, ok := BuiltinFunctionValue(name); ok {
+		return value, true
 	}
 	diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "import or define the variable before use")
 	return Null(), false

@@ -5,28 +5,24 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-type builtinArgValues struct {
-	Values []Value
-	Ok     bool
-}
-
-func evalStrictPositionalBuiltinArgs(name string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx, want int) builtinArgValues {
+func evalStrictPositionalCallValueArgs(name string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx, want int) ([]CallValueArg, bool) {
 	if len(rawArgs) != want {
 		diags.AddError(diag.CodeE106, name+"() expects exactly two arguments", at, "use "+name+"(function, values)")
-		return builtinArgValues{}
+		return nil, false
 	}
-	values := make([]Value, 0, len(rawArgs))
+	args := make([]CallValueArg, 0, len(rawArgs))
 	for _, arg := range rawArgs {
 		if arg.Name != "" {
 			diags.AddError(diag.CodeE106, name+"() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return builtinArgValues{}
+			return nil, false
 		}
-		values = append(values, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
+		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
-			return builtinArgValues{}
+			return nil, false
 		}
+		args = append(args, CallValueArg{Value: value, Span: arg.Span})
 	}
-	return builtinArgValues{Values: values, Ok: true}
+	return args, true
 }
 
 func sequenceItems(kind string, v Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool, bool) {
@@ -42,16 +38,30 @@ func sequenceItems(kind string, v Value, at diag.Span, diags *diag.Diagnostics) 
 }
 
 func evalMapCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	args := evalStrictPositionalBuiltinArgs("map", rawArgs, env, at, diags, opts, ctx, 2)
-	if !args.Ok {
+	args, ok := evalStrictPositionalCallValueArgs("map", rawArgs, env, at, diags, opts, ctx, 2)
+	if !ok {
 		return Null()
 	}
-	fnValue := args.Values[0]
+	return evalMapValueCall(args, env, at, diags, opts, ctx)
+}
+
+func evalMapValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(args) != 2 {
+		diags.AddError(diag.CodeE106, "map() expects exactly two arguments", at, "use map(function, values)")
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "map() does not accept named arguments", arg.Span, "pass positional arguments only")
+			return Null()
+		}
+	}
+	fnValue := args[0].Value
 	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
-		diags.AddError(diag.CodeE106, "map() expects function value as first argument", rawArgs[0].Span, "pass a function literal or function-valued variable")
+		diags.AddError(diag.CodeE106, "map() expects function value as first argument", args[0].Span, "pass a function literal, built-in function, or function-valued variable")
 		return Null()
 	}
-	items, isTuple, ok := sequenceItems("map", args.Values[1], rawArgs[1].Span, diags)
+	items, isTuple, ok := sequenceItems("map", args[1].Value, args[1].Span, diags)
 	if !ok {
 		return Null()
 	}
@@ -77,16 +87,30 @@ func evalMapCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diag
 }
 
 func evalReduceCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	args := evalStrictPositionalBuiltinArgs("reduce", rawArgs, env, at, diags, opts, ctx, 2)
-	if !args.Ok {
+	args, ok := evalStrictPositionalCallValueArgs("reduce", rawArgs, env, at, diags, opts, ctx, 2)
+	if !ok {
 		return Null()
 	}
-	fnValue := args.Values[0]
+	return evalReduceValueCall(args, env, at, diags, opts, ctx)
+}
+
+func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(args) != 2 {
+		diags.AddError(diag.CodeE106, "reduce() expects exactly two arguments", at, "use reduce(function, values)")
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "reduce() does not accept named arguments", arg.Span, "pass positional arguments only")
+			return Null()
+		}
+	}
+	fnValue := args[0].Value
 	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
-		diags.AddError(diag.CodeE106, "reduce() expects function value as first argument", rawArgs[0].Span, "pass a function literal or function-valued variable")
+		diags.AddError(diag.CodeE106, "reduce() expects function value as first argument", args[0].Span, "pass a function literal, built-in function, or function-valued variable")
 		return Null()
 	}
-	items, _, ok := sequenceItems("reduce", args.Values[1], rawArgs[1].Span, diags)
+	items, _, ok := sequenceItems("reduce", args[1].Value, args[1].Span, diags)
 	if !ok {
 		return Null()
 	}

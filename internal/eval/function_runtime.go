@@ -15,6 +15,8 @@ type FunctionValue struct {
 	Names    *NameCatalog
 	Span     diag.Span
 	Defaults map[int]FunctionDefault
+
+	BuiltinName string
 }
 
 type FunctionDefault struct {
@@ -34,6 +36,10 @@ type functionResult struct {
 	Break    bool
 	Continue bool
 	Span     diag.Span
+}
+
+func (fn *FunctionValue) isBuiltin() bool {
+	return fn != nil && fn.BuiltinName != ""
 }
 
 func newFunctionValue(expr ast.FunctionExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -293,6 +299,9 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 	}
 	if ctx == nil {
 		ctx = newEvalCtx(nil)
+	}
+	if fn.isBuiltin() {
+		return evalBuiltinValueCall(fn.BuiltinName, args, env, at, diags, opts, ctx)
 	}
 	if !checkFunctionCallDepth(ctx, opts, at, diags) {
 		return Null()

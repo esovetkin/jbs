@@ -74,6 +74,11 @@ func appendStableValueKey(b *strings.Builder, v Value) {
 	case KindComb:
 		appendStableCombKey(b, v.C)
 	case KindFunction:
+		if v.Fn != nil && v.Fn.BuiltinName != "" {
+			b.WriteByte('X')
+			appendKeyPart(b, "builtin:"+v.Fn.BuiltinName)
+			return
+		}
 		b.WriteByte('X')
 		appendKeyPart(b, fmt.Sprintf("%p", v.Fn))
 	default:

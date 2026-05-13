@@ -184,6 +184,29 @@ func (e *globalSeqEngine) takeShellUses() []string {
 	return uses
 }
 
+func (e *globalSeqEngine) exprDependencies(expr ast.Expr, self string) []string {
+	return e.filterExprDependencies(globalExprDependencies(expr, self), self)
+}
+
+func (e *globalSeqEngine) filterExprDependencies(deps []string, self string) []string {
+	if len(deps) == 0 {
+		return nil
+	}
+	out := deps[:0]
+	for _, name := range deps {
+		if name == "" || name == self {
+			continue
+		}
+		if eval.IsBuiltinCallName(name) {
+			if _, shadowed := e.values[name]; !shadowed {
+				continue
+			}
+		}
+		out = append(out, name)
+	}
+	return uniqueSortedNamesExcept(out, self)
+}
+
 func (e *globalSeqEngine) executeSteps(steps []globalInputStep, guardDeps []string) globalStepResult {
 	for _, step := range steps {
 		var result globalStepResult
@@ -246,10 +269,10 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 		return
 	}
 
-	directDeps := globalExprDependencies(effective, assign.Name)
+	directDeps := e.exprDependencies(effective, assign.Name)
 	directDeps = append(directDeps, shellDeps...)
 	directDeps = append(directDeps, guardDeps...)
-	directDeps = uniqueSortedNamesExcept(directDeps, assign.Name)
+	directDeps = e.filterExprDependencies(directDeps, assign.Name)
 	depNames := e.expandGlobalDeps(directDeps, assign.Name)
 	depKeys := e.expandGlobalDepKeys(directDeps, assign.Name)
 	if exprReadsSelf || slices.Contains(shellDeps, assign.Name) || slices.Contains(guardDeps, assign.Name) {
@@ -283,9 +306,9 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) g
 		return globalStepResult{}
 	}
 	checkedDeps := append([]string(nil), guardDeps...)
-	checkedDeps = append(checkedDeps, globalExprDependencies(step.IfStmt.Cond, "")...)
+	checkedDeps = append(checkedDeps, e.exprDependencies(step.IfStmt.Cond, "")...)
 	checkedDeps = append(checkedDeps, shellDeps...)
-	checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
+	checkedDeps = e.filterExprDependencies(checkedDeps, "")
 	if cond {
 		return e.executeSteps(step.Then, checkedDeps)
 	}
@@ -295,9 +318,9 @@ func (e *globalSeqEngine) evalIfStep(step globalInputStep, guardDeps []string) g
 		if !ok {
 			return globalStepResult{}
 		}
-		checkedDeps = append(checkedDeps, globalExprDependencies(branch.Cond, "")...)
+		checkedDeps = append(checkedDeps, e.exprDependencies(branch.Cond, "")...)
 		checkedDeps = append(checkedDeps, branchShellDeps...)
-		checkedDeps = uniqueSortedNamesExcept(checkedDeps, "")
+		checkedDeps = e.filterExprDependencies(checkedDeps, "")
 		if branchCond {
 			return e.executeSteps(branch.Body, checkedDeps)
 		}
@@ -316,9 +339,9 @@ func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) 
 		return globalStepResult{}
 	}
 	loopDeps := append([]string(nil), guardDeps...)
-	loopDeps = append(loopDeps, globalExprDependencies(step.ForStmt.Iterable, "")...)
+	loopDeps = append(loopDeps, e.exprDependencies(step.ForStmt.Iterable, "")...)
 	loopDeps = append(loopDeps, shellDeps...)
-	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	loopDeps = e.filterExprDependencies(loopDeps, "")
 	for i, item := range items {
 		if i >= eval.MaxLoopIterations {
 			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.ForStmt.Span, "check the iterable size")
@@ -347,8 +370,8 @@ func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string
 		return globalStepResult{}
 	}
 	loopDeps := append([]string(nil), guardDeps...)
-	loopDeps = append(loopDeps, globalExprDependencies(step.WhileStmt.Cond, "")...)
-	loopDeps = uniqueSortedNamesExcept(loopDeps, "")
+	loopDeps = append(loopDeps, e.exprDependencies(step.WhileStmt.Cond, "")...)
+	loopDeps = e.filterExprDependencies(loopDeps, "")
 	for i := 0; ; i++ {
 		if i >= eval.MaxLoopIterations {
 			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.WhileStmt.Span, "check the while condition")
@@ -361,7 +384,7 @@ func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string
 		}
 		iterDeps := append([]string(nil), loopDeps...)
 		iterDeps = append(iterDeps, shellDeps...)
-		iterDeps = uniqueSortedNamesExcept(iterDeps, "")
+		iterDeps = e.filterExprDependencies(iterDeps, "")
 		result := e.executeSteps(step.Body, iterDeps)
 		switch result.Signal {
 		case globalLoopBreak:
@@ -389,7 +412,7 @@ func (e *globalSeqEngine) publishLoopVariable(name string, value eval.Value, spa
 		)
 		return false
 	}
-	directDeps := uniqueSortedNamesExcept(deps, name)
+	directDeps := e.filterExprDependencies(deps, name)
 	orderNames, vars := globalVarSeries(name, value)
 	gv := &GlobalVar{
 		Name:          name,

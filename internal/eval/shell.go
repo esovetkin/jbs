@@ -57,7 +57,18 @@ func evalShellCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 	if !ok {
 		return Null()
 	}
+	return evalParsedShellCall(args, env, at, diags, opts, ctx)
+}
 
+func evalShellValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	parsed, ok := parseShellValueArgs(args, at, diags)
+	if !ok {
+		return Null()
+	}
+	return evalParsedShellCall(parsed, env, at, diags, opts, ctx)
+}
+
+func evalParsedShellCall(args shellArgs, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	shellEnv := buildShellEnv(args.Command, args.Span, env, diags, opts, ctx)
 	if diags.HasErrors() {
 		return Null()
@@ -125,6 +136,49 @@ func parseShellArgs(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 				return parsed, false
 			}
 			parsed.Strip = value.B
+		default:
+			diags.AddError(diag.CodeE106, "unknown named argument '"+arg.Name+"' for shell()", arg.Span, "supported named argument: strip")
+			return parsed, false
+		}
+	}
+
+	if positional != 1 {
+		diags.AddError(diag.CodeE106, "shell() expects exactly one command argument", at, `use shell("command")`)
+		return parsed, false
+	}
+	return parsed, true
+}
+
+func parseShellValueArgs(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) (shellArgs, bool) {
+	parsed := shellArgs{Strip: true, Span: at}
+	positional := 0
+	stripSet := false
+
+	for _, arg := range args {
+		switch arg.Name {
+		case "":
+			positional++
+			if positional > 1 {
+				diags.AddError(diag.CodeE106, "shell() expects exactly one command argument", arg.Span, `use shell("command")`)
+				return parsed, false
+			}
+			if arg.Value.Kind != KindString {
+				diags.AddError(diag.CodeE106, "shell() command must be a string", arg.Span, `use shell("command")`)
+				return parsed, false
+			}
+			parsed.Command = arg.Value.S
+			parsed.Span = arg.Span
+		case "strip":
+			if stripSet {
+				diags.AddError(diag.CodeE106, "shell() received strip more than once", arg.Span, "pass strip at most once")
+				return parsed, false
+			}
+			stripSet = true
+			if arg.Value.Kind != KindBool {
+				diags.AddError(diag.CodeE106, "shell() strip argument must be boolean", arg.Span, "use strip=true or strip=false")
+				return parsed, false
+			}
+			parsed.Strip = arg.Value.B
 		default:
 			diags.AddError(diag.CodeE106, "unknown named argument '"+arg.Name+"' for shell()", arg.Span, "supported named argument: strip")
 			return parsed, false

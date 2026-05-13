@@ -4,7 +4,7 @@
 
 ## Arguments
 
-- `function`: a function value.
+- `function`: a user-defined or built-in function value.
 - `values`: a list or tuple.
 - empty input returns an empty list or tuple of the same outer kind
 
@@ -21,4 +21,5 @@ inc = function(x) {
 
 map(inc, [1,2,3]) == [2,3,4]
 map(inc, (1,2,3)) == (2,3,4)
+map(int, ["1","2"]) == [1,2]
 ```

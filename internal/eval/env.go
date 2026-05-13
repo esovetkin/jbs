@@ -84,3 +84,33 @@ func evalEnvCall(rawArgs []ast.CallArg, scopeEnv map[string]Value, at diag.Span,
 	}
 	return CloneValue(fallback)
 }
+
+func evalEnvValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
+	if len(args) > 2 {
+		diags.AddError(diag.CodeE106, "env() expects zero, one, or two positional arguments", at, `use env(), env("NAME"), or env("NAME", default_value)`)
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "env() does not accept named arguments", arg.Span, `use env("NAME", default_value)`)
+			return Null()
+		}
+	}
+	if len(args) == 0 {
+		return environmentDict(opts)
+	}
+	if args[0].Value.Kind != KindString {
+		diags.AddError(diag.CodeE106, "env() variable name must be a string", args[0].Span, `use env("NAME")`)
+		return Null()
+	}
+
+	fallback := String("")
+	if len(args) == 2 {
+		fallback = args[1].Value
+	}
+	values := environmentMap(opts)
+	if value, ok := values[args[0].Value.S]; ok {
+		return String(value)
+	}
+	return CloneValue(fallback)
+}

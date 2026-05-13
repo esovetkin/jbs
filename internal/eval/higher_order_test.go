@@ -56,6 +56,56 @@ func TestMapCallSupportsListsTuplesDefaultsClosuresAndComposition(t *testing.T) 
 		}
 	})
 
+	t.Run("built-in callback converts list values", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("map"),
+			posArg(ident("int")),
+			posArg(listExpr(ast.StringExpr{Value: "1"}, ast.StringExpr{Value: "2"})),
+		), nil, diags, ExprOptions{})
+		want := List([]Value{Int(1), Int(2)})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected map(int, ...) result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("built-in callback preserves tuple kind", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("map"),
+			posArg(ident("str")),
+			posArg(tupleExpr(intExpr(1), intExpr(2))),
+		), nil, diags, ExprOptions{})
+		want := Tuple([]Value{String("1"), String("2")})
+		if !Equal(got, want) || got.Kind != KindTuple {
+			t.Fatalf("unexpected map(str, tuple) result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("shadowed built-in callback uses user function", func(t *testing.T) {
+		frame := NewRootFrame(nil)
+		defineFunctionInFrame(t, frame, "int", fnExpr(
+			[]ast.FuncParam{{Name: "x"}},
+			exprStmt(intExpr(42)),
+		))
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("map"),
+			posArg(ident("int")),
+			posArg(listExpr(ast.StringExpr{Value: "1"})),
+		), nil, diags, ExprOptions{Frame: frame})
+		want := List([]Value{Int(42)})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected shadowed map result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
 	t.Run("callback defaults work", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		addDefault := fnExpr(
@@ -255,14 +305,6 @@ func TestHigherOrderBuiltinsReportErrors(t *testing.T) {
 				posArg(listExpr()),
 			),
 			wantCode: "E106",
-		},
-		{
-			name: "builtins are not first class callback values",
-			expr: callExpr(ident("map"),
-				posArg(ident("int")),
-				posArg(listExpr(ast.StringExpr{Value: "1"})),
-			),
-			wantCode: "E100",
 		},
 	}
 

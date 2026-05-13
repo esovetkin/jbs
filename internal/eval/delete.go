@@ -39,6 +39,38 @@ func evalDeleteCall(rawArgs []ast.CallArg, at diag.Span, diags *diag.Diagnostics
 	return Null()
 }
 
+func evalDeleteValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(args) == 0 {
+		diags.AddError(diag.CodeE106, "delete() expects at least one variable", at, `use delete("name")`)
+		return Null()
+	}
+	seen := make(map[string]diag.Span, len(args))
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "delete() does not accept named arguments", arg.Span, "pass variable names as strings")
+			continue
+		}
+		if arg.Value.Kind != KindString || arg.Value.S == "" {
+			diags.AddError(diag.CodeE106, "delete() function value targets must be strings", arg.Span, `use delete("name")`)
+			continue
+		}
+		name := arg.Value.S
+		if prev, duplicate := seen[name]; duplicate {
+			diags.AddError(
+				diag.CodeE106,
+				fmt.Sprintf("delete() target '%s' is listed more than once", name),
+				arg.Span,
+				"delete each variable at most once",
+				diag.RelatedSpan{Message: "previous target", Span: prev},
+			)
+			continue
+		}
+		seen[name] = arg.Span
+		deleteOneName(name, arg.Span, diags, opts, ctx)
+	}
+	return Null()
+}
+
 func deleteOneName(name string, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) {
 	if canDeleteTopLevel(opts, ctx) {
 		opts.DeleteName(name, at, diags)

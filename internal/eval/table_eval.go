@@ -28,6 +28,21 @@ func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 	return evalNamedTableColumns(rawArgs, env, at, diags, opts, ctx)
 }
 
+func evalTableValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) == 0 {
+		diags.AddError(diag.CodeE106, "table() expects named column arguments or one dictionary argument", at, "use table(id = ids) or table(dict_value)")
+		return Null()
+	}
+	if len(args) == 1 && args[0].Name == "" {
+		return evalTableFromDictValueArg(args[0], at, diags)
+	}
+	if hasPositionalValueArg(args) {
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", firstPositionalValueSpan(args), "use table(dict_value) or named columns such as table(id = ids)")
+		return Null()
+	}
+	return evalNamedTableValueColumns(args, at, diags)
+}
+
 func evalNamedTableColumns(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	seen := make(map[string]struct{}, len(rawArgs))
 	columns := make([]tableColumnInput, 0, len(rawArgs))
@@ -54,6 +69,28 @@ func evalNamedTableColumns(rawArgs []ast.CallArg, env map[string]Value, at diag.
 	return buildTableFromColumns(columns, at, diags)
 }
 
+func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	seen := make(map[string]struct{}, len(args))
+	columns := make([]tableColumnInput, 0, len(args))
+	for _, arg := range args {
+		if _, exists := seen[arg.Name]; exists {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", arg.Name), arg.Span, "use each column name at most once")
+			return Null()
+		}
+		seen[arg.Name] = struct{}{}
+		if IsComb(arg.Value) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", arg.Name), arg.Span, "pass a scalar, tuple, or list column value")
+			return Null()
+		}
+		columns = append(columns, tableColumnInput{
+			Name:   arg.Name,
+			Values: ToSeries(arg.Value),
+			Span:   arg.Span,
+		})
+	}
+	return buildTableFromColumns(columns, at, diags)
+}
+
 func evalTableFromDictArg(arg ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
@@ -64,6 +101,14 @@ func evalTableFromDictArg(arg ast.CallArg, env map[string]Value, at diag.Span, d
 		return Null()
 	}
 	return tableFromDict(value, arg.Span, diags)
+}
+
+func evalTableFromDictValueArg(arg CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if arg.Value.Kind != KindDict || arg.Value.D == nil {
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", arg.Span, "use table(dict_value) or named columns such as table(id = ids)")
+		return Null()
+	}
+	return tableFromDict(arg.Value, nonZeroSpan(arg.Span, at), diags)
 }
 
 func TableFromDictValue(value Value, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
@@ -175,7 +220,25 @@ func hasPositionalArg(args []ast.CallArg) bool {
 	return false
 }
 
+func hasPositionalValueArg(args []CallValueArg) bool {
+	for _, arg := range args {
+		if arg.Name == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func firstPositionalSpan(args []ast.CallArg) diag.Span {
+	for _, arg := range args {
+		if arg.Name == "" {
+			return arg.Span
+		}
+	}
+	return diag.Span{}
+}
+
+func firstPositionalValueSpan(args []CallValueArg) diag.Span {
 	for _, arg := range args {
 		if arg.Name == "" {
 			return arg.Span
@@ -233,6 +296,48 @@ func evalZipCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diag
 	return tableValueFromOrderedRows(order, rows)
 }
 
+func evalZipValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	tables, ok := evalPositionalTableValueArgs("zip", args, at, diags)
+	if !ok {
+		return Null()
+	}
+	if len(tables) == 1 {
+		return cloneTableValue(tables[0])
+	}
+
+	refCount := CombRowCount(tables[0])
+	for i := 1; i < len(tables); i++ {
+		if got := CombRowCount(tables[i]); got != refCount {
+			diags.AddError(
+				diag.CodeE106,
+				fmt.Sprintf("zip() row count mismatch: argument 1 has %d rows, argument %d has %d", refCount, i+1, got),
+				args[i].Span,
+				"use equal-length tables in zip(); zip() does not broadcast rows",
+			)
+			return Null()
+		}
+	}
+
+	order, ok := combineTableValueOrders("zip", args, tables, diags)
+	if !ok {
+		return Null()
+	}
+
+	rows := make([]Row, 0, refCount)
+	for rowIdx := 0; rowIdx < refCount; rowIdx++ {
+		merged := Row{Values: map[string]Cell{}}
+		for _, table := range tables {
+			next, mergedOK := mergeRows(merged, table.C.Rows[rowIdx], at, diags)
+			if !mergedOK {
+				return Null()
+			}
+			merged = next
+		}
+		rows = append(rows, merged)
+	}
+	return tableValueFromOrderedRows(order, rows)
+}
+
 func evalProductCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	tables, ok := evalPositionalTableArgs("product", rawArgs, env, at, diags, opts, ctx)
 	if !ok {
@@ -243,6 +348,31 @@ func evalProductCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, 
 	}
 
 	order, ok := combineTableOrders("product", rawArgs, tables, diags)
+	if !ok {
+		return Null()
+	}
+
+	rows := cloneRows(tables[0].C.Rows)
+	opNode := ast.CombBinary{Op: "*", OpSpan: at, Span: at}
+	for _, table := range tables[1:] {
+		rows = productRows(rows, table.C.Rows, opNode, diags)
+		if diags.HasErrors() {
+			return Null()
+		}
+	}
+	return tableValueFromOrderedRows(order, rows)
+}
+
+func evalProductValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	tables, ok := evalPositionalTableValueArgs("product", args, at, diags)
+	if !ok {
+		return Null()
+	}
+	if len(tables) == 1 {
+		return cloneTableValue(tables[0])
+	}
+
+	order, ok := combineTableValueOrders("product", args, tables, diags)
 	if !ok {
 		return Null()
 	}
@@ -297,6 +427,38 @@ func evalSelectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, d
 	return projected
 }
 
+func evalSelectValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) < 2 {
+		diags.AddError(diag.CodeE106, "select() expects a table and one or more column selectors", at, `use select(table_value, "id", "replica")`)
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "select() does not accept named arguments", arg.Span, "pass the table first, then one or more selector strings")
+			return Null()
+		}
+	}
+	tableValue := args[0].Value
+	if !IsComb(tableValue) {
+		diags.AddError(diag.CodeE106, "select() first argument must be a table value", args[0].Span, "pass a table built by table(), zip(), product(), select(), or read_csv()")
+		return Null()
+	}
+	selectors := make([]string, 0, len(args)-1)
+	for _, arg := range args[1:] {
+		if arg.Value.Kind != KindString || arg.Value.S == "" {
+			diags.AddError(diag.CodeE106, "select() function value selectors must be strings", arg.Span, `use select(table_value, "column")`)
+			return Null()
+		}
+		selectors = append(selectors, arg.Value.S)
+	}
+	projected, ok := CombProject(tableValue, selectors)
+	if !ok {
+		diags.AddError(diag.CodeE106, "select() selectors must name existing table columns", at, "select existing columns only")
+		return Null()
+	}
+	return projected
+}
+
 func evalRowsCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) != 1 {
 		diags.AddError(diag.CodeE106, "rows() expects exactly one table argument", at, "use rows(table_value)")
@@ -316,6 +478,22 @@ func evalRowsCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, dia
 		return Null()
 	}
 	return rowsFromTable(tableValue, rawArgs[0].Span, diags)
+}
+
+func evalRowsValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) != 1 {
+		diags.AddError(diag.CodeE106, "rows() expects exactly one table argument", at, "use rows(table_value)")
+		return Null()
+	}
+	if args[0].Name != "" {
+		diags.AddError(diag.CodeE106, "rows() does not accept named arguments", args[0].Span, "pass the table as a positional argument")
+		return Null()
+	}
+	if !IsComb(args[0].Value) {
+		diags.AddError(diag.CodeE106, "rows() argument must be a table value", args[0].Span, "pass a table built by table(), zip(), product(), select(), or read_csv()")
+		return Null()
+	}
+	return rowsFromTable(args[0].Value, args[0].Span, diags)
 }
 
 func rowsFromTable(tableValue Value, at diag.Span, diags *diag.Diagnostics) Value {
@@ -365,6 +543,26 @@ func evalPositionalTableArgs(name string, rawArgs []ast.CallArg, env map[string]
 	return values, true
 }
 
+func evalPositionalTableValueArgs(name string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+	if len(args) == 0 {
+		diags.AddError(diag.CodeE106, name+"() expects at least one table argument", at, "pass one or more table values")
+		return nil, false
+	}
+	values := make([]Value, 0, len(args))
+	for i, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, name+"() does not accept named arguments", arg.Span, "pass positional table arguments only")
+			return nil, false
+		}
+		if !IsComb(arg.Value) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("%s() argument %d must be a table value", name, i+1), arg.Span, "pass table values only")
+			return nil, false
+		}
+		values = append(values, arg.Value)
+	}
+	return values, true
+}
+
 func combineTableOrders(name string, rawArgs []ast.CallArg, tables []Value, diags *diag.Diagnostics) ([]string, bool) {
 	order := make([]string, 0)
 	seen := make(map[string]struct{})
@@ -372,6 +570,26 @@ func combineTableOrders(name string, rawArgs []ast.CallArg, tables []Value, diag
 		for _, col := range CombNames(table) {
 			if _, exists := seen[col]; exists {
 				diags.AddError(diag.CodeE106, fmt.Sprintf("%s() duplicate column name '%s'", name, col), rawArgs[i].Span, "rename columns so every table column name is unique")
+				return nil, false
+			}
+			seen[col] = struct{}{}
+			order = append(order, col)
+		}
+	}
+	return order, true
+}
+
+func combineTableValueOrders(name string, args []CallValueArg, tables []Value, diags *diag.Diagnostics) ([]string, bool) {
+	order := make([]string, 0)
+	seen := make(map[string]struct{})
+	for i, table := range tables {
+		for _, col := range CombNames(table) {
+			if _, exists := seen[col]; exists {
+				span := diag.Span{}
+				if i < len(args) {
+					span = args[i].Span
+				}
+				diags.AddError(diag.CodeE106, fmt.Sprintf("%s() duplicate column name '%s'", name, col), span, "rename columns so every table column name is unique")
 				return nil, false
 			}
 			seen[col] = struct{}{}

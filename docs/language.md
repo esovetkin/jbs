@@ -364,6 +364,16 @@ There are several built-in functions. Use `?` for a full list.
 
 Use `?<function_name>` in the REPL for focused help on a specific built-in function.
 
+Built-in functions are function values too: they can be assigned to variables,
+passed to `map()` or `reduce()`, stored in containers, returned from functions,
+and imported from modules. For example:
+
+```jbs
+values = map(int, ["1", "2"])
+to_text = str
+labels = map(to_text, (1, 2))
+```
+
 ## Built-In Globals
 
 - `jbs_name="jbs_benchmark"` defines the name of the benchmark directory.

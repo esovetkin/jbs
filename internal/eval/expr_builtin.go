@@ -84,6 +84,29 @@ func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags
 	return stringListValue(CombNames(value))
 }
 
+func evalNamesValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
+	if len(args) > 1 {
+		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names() or names(table)")
+		return Null()
+	}
+	if opts.Names == nil {
+		diags.AddError(diag.CodeE106, "names() requires scope metadata in this evaluation context", at, "call names() only in normal compiled expression contexts")
+		return Null()
+	}
+	if len(args) == 0 {
+		return stringListValue(opts.Names.Visible)
+	}
+	if args[0].Name != "" {
+		diags.AddError(diag.CodeE106, "names() does not accept named arguments", args[0].Span, "pass the table as a positional argument")
+		return Null()
+	}
+	if !IsComb(args[0].Value) {
+		diags.AddError(diag.CodeE106, "names() function value expects a table value", args[0].Span, "use names() or names(table)")
+		return Null()
+	}
+	return stringListValue(CombNames(args[0].Value))
+}
+
 func namespaceArgName(expr ast.Expr, catalog *NameCatalog) (string, bool) {
 	if catalog == nil {
 		return "", false

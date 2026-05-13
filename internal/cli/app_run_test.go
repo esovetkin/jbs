@@ -416,6 +416,44 @@ func TestRunCheckDoesNotExecuteShell(t *testing.T) {
 	}
 }
 
+func TestRunCheckDoesNotExecuteShellThroughBuiltinFunctionValue(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	marker := filepath.Join(cwd, "marker")
+	input := filepath.Join(cwd, "bench.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`sh = shell`,
+		`value = sh("touch marker; printf hi; exit 7")`,
+		`do s with value {`,
+		`  echo "$value"`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "shell() command failed") {
+		t.Fatalf("check mode reported shell failure:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("expected marker not to exist, stat err=%v", err)
+	}
+}
+
 func TestRunCheckDoesNotExecuteShellInImportedModule(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
