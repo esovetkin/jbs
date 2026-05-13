@@ -234,6 +234,10 @@ func (e *globalSeqEngine) deleteGlobalName(name string, at diag.Span, diags *dia
 			diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete built-in function '%s'", name), at, "built-in functions are always available")
 			return false
 		}
+		if eval.IsBuiltinConstantName(name) {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete built-in value '%s'", name), at, "built-in values are always available")
+			return false
+		}
 		diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "delete only variables that exist in the current scope")
 		return false
 	}

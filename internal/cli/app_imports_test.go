@@ -383,8 +383,8 @@ func TestAnalyzeInputMapReduceWithImportedFunctions(t *testing.T) {
 func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
 	cwd := t.TempDir()
 	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
-		"p0 = product(table(x = range(10)), table(y = rev(range(5))))",
-		"p1 = product(table(x = range(5)), table(y = rev(range(10))))",
+		"p0 = table(x = range(10)) * table(y = rev(range(5)))",
+		"p1 = table(x = range(5)) * table(y = rev(range(10)))",
 		"",
 		`p0["x"] + p1["y"]`,
 		`p0["x"].x`,

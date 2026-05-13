@@ -492,7 +492,7 @@ func TestValidateStepVarReferencesRealProgramsTrackTransitiveUsage(t *testing.T)
 x = (1, 2)
 a = ("a", "b", "c")
 
-params = product(table(a = a), table(x = x))
+params = table(a = a) * table(x = x)
 
 do ex_step with params {
         echo "Number: ${x}"  > ex_ofile
@@ -506,7 +506,7 @@ do ex_step with params {
 			src: `
 x = (1,2)
 m = table(x = x)
-p = select(m, x)
+p = m["x"]
 
 do s with p { echo ${x} }
 `,
@@ -517,8 +517,8 @@ do s with p { echo ${x} }
 			src: `
 x = (1,2)
 a = ("a","b")
-params = product(table(a = a), table(x = x))
-only_a = params[a]
+params = table(a = a) * table(x = x)
+only_a = params["a"]
 
 do s with only_a { echo ${a} }
 `,
@@ -542,7 +542,7 @@ func TestValidateStepVarReferencesRealProgramWarnsForUnusedGlobal(t *testing.T) 
 	src := `
 x = (1,2)
 a = ("a","b")
-params = product(table(a = a), table(x = x))
+params = table(a = a) * table(x = x)
 unused = (10,20)
 
 do s with params { echo ${a} ${x} }

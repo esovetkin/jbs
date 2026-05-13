@@ -87,12 +87,27 @@ func TestTableFromDictConversion(t *testing.T) {
 	}
 
 	diags = &diag.Diagnostics{}
-	got = EvalExprWithOptions(callExpr(ident("table"), posArg(callExpr(ident("dict")))), nil, diags, ExprOptions{})
+	got = EvalExprWithOptions(callExpr(ident("table"), posArg(ident("empty_dict"))), map[string]Value{"empty_dict": DictValue(nil)}, diags, ExprOptions{})
 	if diags.HasErrors() {
-		t.Fatalf("unexpected table(dict()) diagnostics: %s", diags.String())
+		t.Fatalf("unexpected table(empty dict) diagnostics: %s", diags.String())
 	}
 	if !IsComb(got) || len(got.C.Order) != 0 || len(got.C.Rows) != 0 {
-		t.Fatalf("expected empty table from dict(), got %#v", got)
+		t.Fatalf("expected empty table from empty dict, got %#v", got)
+	}
+}
+
+func TestTableKeywordSpreadColumns(t *testing.T) {
+	cols := DictValue([]DictEntry{
+		{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: List([]Value{Int(1), Int(2)})},
+		{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: List([]Value{String("a"), String("b")})},
+	})
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("table"), kwSpreadArg(ident("cols"))), map[string]Value{"cols": cols}, diags, ExprOptions{})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected table(**cols) diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x", "y"}) || len(got.C.Rows) != 2 {
+		t.Fatalf("unexpected table(**cols) result: %#v", got)
 	}
 }
 

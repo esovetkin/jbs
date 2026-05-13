@@ -36,7 +36,7 @@ func collectExprIdentRefs(expr ast.Expr) []varRef {
 				})
 			}
 		case ast.CallExpr:
-			if isDeleteCallExpr(n) {
+			if isDeleteCallExpr(n) && deleteCallHasOnlyBareTargets(n) {
 				ast.WalkExpr(n.Callee, callbacks)
 				return ast.WalkSkipChildren
 			}

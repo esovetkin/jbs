@@ -275,7 +275,7 @@ cases = read_csv("cases.csv")
 `+` and `*` operations, column access, and parameter-space slices:
 
 ```jbs
-jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # zip-like merge
+jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # row-wise merge
   x  y
   1  a
   2  b
@@ -301,12 +301,9 @@ Useful functions:
 - `table(...)`          # construct a table
 - `t(...)`              # alias for table(...)
 - `read_csv(...)`       # import CSV/TSV as a table
-- `select(table, cols)` # project columns
 - `table["col", ...]`   # projection syntax
-- `rename(table, {"old": "new"})` # rename columns
-- `zip(a, b, ...)`      # row-wise merge
+- `rename(table, old = "new")` # rename columns
 - `a + b`               # row-wise merge in table context
-- `product(a, b, ...)`  # Cartesian product
 - `a * b`               # Cartesian product in table context
 - `filter(table, function)` # keep selected rows
 - `len(table)`          # row count
@@ -337,6 +334,11 @@ jbs> add(2)
 jbs> # positional and named arguments are allowed; positional arguments must come first
 jbs> add(2, b = 3)
 5
+jbs> collect = function(prefix, *args, **kwargs) {
+        [prefix, args, kwargs]
+}
+jbs> collect("run", *[1, 2], mode = "fast", **{"queue": "debug"})
+["run", [1, 2], {"mode": "fast", "queue": "debug"}]
 jbs> # top-level globals are captured live, so a function sees later reassignment of a global it reads
 jbs> x = 1
 jbs> f = function() {
@@ -389,6 +391,7 @@ scaled = prod((2, 3, 4))
 
 ## Built-In Globals
 
+- `None` is the null value used by built-ins such as `env(name)` when no value is available.
 - `jbs_name="jbs_benchmark"` defines the name of the benchmark directory.
 - `jbs_benchmarks={}` splits one script into named benchmarks. Use `jbs --benchmark ...` to run individual benchmarks.
 - `jbs_nproc=0` sets the global concurrency limit. The default `0` uses all available CPUs.

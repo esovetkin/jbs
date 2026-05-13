@@ -319,7 +319,11 @@ func (l *Lexer) lexSymbol() {
 			tt = TokenMinus
 		}
 	case '*':
-		if l.peek() == '=' {
+		if l.peek() == '*' {
+			l.advance()
+			tt = TokenStarStar
+			text = "**"
+		} else if l.peek() == '=' {
 			l.advance()
 			tt = TokenStarEqual
 			text = "*="

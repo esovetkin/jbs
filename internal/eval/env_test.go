@@ -16,11 +16,20 @@ func TestEvalEnvLookupAndFallback(t *testing.T) {
 	if !Equal(got, String("one")) {
 		t.Fatalf("unexpected env lookup: %#v", got)
 	}
-	if got := EvalExprWithOptions(envCall(stringExpr("MISSING")), nil, diags, opts); !Equal(got, String("")) {
-		t.Fatalf("expected missing env to be empty string, got %#v", got)
+	if got := EvalExprWithOptions(envCall(stringExpr("MISSING")), nil, diags, opts); !Equal(got, Null()) {
+		t.Fatalf("expected missing env without fallback to be None, got %#v", got)
+	}
+	if got := EvalExprWithOptions(envCall(stringExpr("MISSING"), stringExpr("")), nil, diags, opts); !Equal(got, String("")) {
+		t.Fatalf("expected explicit empty-string fallback, got %#v", got)
 	}
 	if got := EvalExprWithOptions(envCall(stringExpr("MISSING"), stringExpr("fallback")), nil, diags, opts); !Equal(got, String("fallback")) {
 		t.Fatalf("unexpected env string fallback: %#v", got)
+	}
+	if got := EvalExprWithOptions(callExpr(ident("env"), namedArg("name", stringExpr("A"))), nil, diags, opts); !Equal(got, String("one")) {
+		t.Fatalf("unexpected named env lookup: %#v", got)
+	}
+	if got := EvalExprWithOptions(callExpr(ident("env"), namedArg("name", stringExpr("MISSING")), namedArg("default", stringExpr("named-fallback"))), nil, diags, opts); !Equal(got, String("named-fallback")) {
+		t.Fatalf("unexpected named env fallback: %#v", got)
 	}
 	if got := EvalExprWithOptions(envCall(stringExpr("MISSING"), intExpr(7)), nil, diags, opts); !Equal(got, Int(7)) {
 		t.Fatalf("unexpected env non-string fallback: %#v", got)
@@ -59,7 +68,7 @@ func TestEvalEnvDiagnostics(t *testing.T) {
 	cases := []ast.Expr{
 		envCall(intExpr(1)),
 		envCall(stringExpr("HOME"), stringExpr("fallback"), stringExpr("extra")),
-		callExpr(ident("env"), namedArg("name", stringExpr("HOME"))),
+		callExpr(ident("env"), namedArg("unknown", stringExpr("HOME"))),
 	}
 	for _, expr := range cases {
 		diags := &diag.Diagnostics{}

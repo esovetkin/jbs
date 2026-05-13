@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +33,17 @@ func TestBuiltinIdentifierEvaluatesToFunctionValue(t *testing.T) {
 	got := EvalExprWithOptions(callExpr(ident("f"), posArg(ast.StringExpr{Value: "7"})), nil, diags, ExprOptions{Frame: frame})
 	if !Equal(got, Int(7)) {
 		t.Fatalf("expected f(\"7\") to return 7, got %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestBuiltinNoneEvaluatesToNull(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(ident("None"), nil, diags, ExprOptions{})
+	if !Equal(got, Null()) {
+		t.Fatalf("expected None to evaluate to null, got %#v", got)
 	}
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -125,9 +135,8 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 		}
 	})
 
-	t.Run("select and names", func(t *testing.T) {
+	t.Run("names", func(t *testing.T) {
 		frame := NewRootFrame(nil)
-		assignBuiltinFunction(t, frame, "project", "select")
 		assignBuiltinFunction(t, frame, "name_fn", "names")
 		grid := CombValue(&Comb{
 			Order: []string{"x", "y"},
@@ -139,20 +148,12 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 		frame.AssignLocal("grid", grid, diag.Span{})
 		opts := ExprOptions{
 			Frame: frame,
-			Names: NewNameCatalog([]string{"grid", "name_fn", "project"}, nil),
+			Names: NewNameCatalog([]string{"grid", "name_fn"}, nil),
 		}
 
 		diags := &diag.Diagnostics{}
-		projected := EvalExprWithOptions(callExpr(ident("project"),
-			posArg(ident("grid")),
-			posArg(ast.StringExpr{Value: "x"}),
-		), nil, diags, opts)
-		if !IsComb(projected) || !slices.Equal(CombNames(projected), []string{"x"}) {
-			t.Fatalf("expected selected x column, got %#v", projected)
-		}
-
 		scopeNames := EvalExprWithOptions(callExpr(ident("name_fn")), nil, diags, opts)
-		if !listValueContains(scopeNames, "grid") || !listValueContains(scopeNames, "project") {
+		if !listValueContains(scopeNames, "grid") || !listValueContains(scopeNames, "name_fn") {
 			t.Fatalf("expected scope names from names function value, got %#v", scopeNames)
 		}
 		tableNames := EvalExprWithOptions(callExpr(ident("name_fn"), posArg(ident("grid"))), nil, diags, opts)

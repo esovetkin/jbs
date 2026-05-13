@@ -120,6 +120,61 @@ values = filter([0, 1, 2], bool)
 	}
 }
 
+func TestAnalyzeNamedBuiltinArgumentsAndNone(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+raw = ["1", "2"]
+values = map(fn = int, values = raw)
+missing = None
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.List([]eval.Value{eval.Int(1), eval.Int(2)})) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	if !slices.Contains(values.DependsOn, "raw") {
+		t.Fatalf("expected dependency on raw, got %#v", values.DependsOn)
+	}
+	for _, dep := range []string{"map", "int", "None"} {
+		if slices.Contains(values.DependsOn, dep) {
+			t.Fatalf("unshadowed builtin %q should not be a dependency: %#v", dep, values.DependsOn)
+		}
+	}
+	missing := res.GlobalVarByName["missing"]
+	if missing == nil || !eval.Equal(missing.Value, eval.Null()) {
+		t.Fatalf("unexpected missing global: %#v", missing)
+	}
+	if slices.Contains(missing.DependsOn, "None") {
+		t.Fatalf("None should not be recorded as a dependency: %#v", missing.DependsOn)
+	}
+}
+
+func TestAnalyzeCallSpreadsAndFunctionRestDependencies(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+x = 1
+vals = [2, 3]
+kw = dict(extra = 4)
+f = function(*x, **kwargs) { x }
+out = f(*vals, **kw)
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	out := res.GlobalVarByName["out"]
+	if out == nil || !eval.Equal(out.Value, eval.List([]eval.Value{eval.Int(2), eval.Int(3)})) {
+		t.Fatalf("unexpected out global: %#v", out)
+	}
+	for _, dep := range []string{"f", "vals", "kw"} {
+		if !slices.Contains(out.DependsOn, dep) {
+			t.Fatalf("expected dependency on %s, got %#v", dep, out.DependsOn)
+		}
+	}
+	if slices.Contains(res.GlobalVarByName["f"].DependsOn, "x") {
+		t.Fatalf("rest parameter x should shadow global x inside function body: %#v", res.GlobalVarByName["f"].DependsOn)
+	}
+}
+
 func TestAnalyzeFilterUserPredicateDependency(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 keep = function(x) { x > 1 }

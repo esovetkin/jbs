@@ -390,7 +390,7 @@ func TestAnalyzeWithImportsNamesNamespaceRespectsVisibilityOrder(t *testing.T) {
 }
 
 func TestAnalyzeReturnsTableNamesResults(t *testing.T) {
-	src := "x = range(2)\ny = range(3)\nparams = product(table(x = x), table(y = y))\nnames(select(params, x))\n"
+	src := "x = range(2)\ny = range(3)\nparams = table(x = x) * table(y = y)\nnames(params[\"x\"])\n"
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
@@ -409,7 +409,7 @@ func TestAnalyzeReturnsTableNamesResults(t *testing.T) {
 }
 
 func TestAnalyzeSupportsTableShortcut(t *testing.T) {
-	src := "x = range(2)\ny = range(3)\nparams = product(t(x = x), t(y = y))\nnames(select(params, x))\n"
+	src := "x = range(2)\ny = range(3)\nparams = t(x = x) * t(y = y)\nnames(params[\"x\"])\n"
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{

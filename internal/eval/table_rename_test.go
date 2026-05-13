@@ -10,12 +10,11 @@ import (
 
 func TestRenameTableColumns(t *testing.T) {
 	cases := renameTestTable()
-	mapping := renameMapping("x", "id")
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": cases, "mapping": mapping},
+		renameCall(ident("cases"), "x", "id"),
+		map[string]Value{"cases": cases},
 		diags,
 		ExprOptions{},
 	)
@@ -37,12 +36,11 @@ func TestRenameTableColumns(t *testing.T) {
 
 func TestRenameMultipleTableColumns(t *testing.T) {
 	cases := renameTestTable()
-	mapping := renameMapping("x", "id", "y", "label")
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": cases, "mapping": mapping},
+		renameCall(ident("cases"), "x", "id", "y", "label"),
+		map[string]Value{"cases": cases},
 		diags,
 		ExprOptions{},
 	)
@@ -58,6 +56,29 @@ func TestRenameMultipleTableColumns(t *testing.T) {
 	}
 }
 
+func TestRenameDottedColumnViaKeywordSpread(t *testing.T) {
+	cases := CombValue(&Comb{
+		Order: []string{"old.col"},
+		Rows:  []Row{{Values: map[string]Cell{"old.col": {Value: Int(1)}}}},
+	})
+	mapping := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "old.col"}, Value: String("new.col")}})
+	diags := &diag.Diagnostics{}
+
+	got := EvalExprWithOptions(
+		callExpr(ident("rename"), posArg(ident("cases")), kwSpreadArg(ident("mapping"))),
+		map[string]Value{"cases": cases, "mapping": mapping},
+		diags,
+		ExprOptions{},
+	)
+
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"new.col"}) || !Equal(got.C.Rows[0].Values["new.col"].Value, Int(1)) {
+		t.Fatalf("unexpected dotted rename result: %#v", got)
+	}
+}
+
 func TestRenameTableColumnsSwap(t *testing.T) {
 	cases := CombValue(&Comb{
 		Order: []string{"a", "b"},
@@ -66,12 +87,11 @@ func TestRenameTableColumnsSwap(t *testing.T) {
 			"b": {Value: Int(2)},
 		}}},
 	})
-	mapping := renameMapping("a", "b", "b", "a")
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": cases, "mapping": mapping},
+		renameCall(ident("cases"), "a", "b", "b", "a"),
+		map[string]Value{"cases": cases},
 		diags,
 		ExprOptions{},
 	)
@@ -90,19 +110,20 @@ func TestRenameTableColumnsSwap(t *testing.T) {
 func TestRenameTableNoopAndEmptyMapping(t *testing.T) {
 	cases := renameTestTable()
 	tests := []struct {
-		name    string
-		mapping Value
+		name string
+		expr ast.Expr
+		env  map[string]Value
 	}{
-		{name: "empty mapping", mapping: DictValue(nil)},
-		{name: "noop mapping", mapping: renameMapping("x", "x")},
+		{name: "empty mapping", expr: callExpr(ident("rename"), posArg(ident("cases"))), env: map[string]Value{"cases": cases}},
+		{name: "noop mapping", expr: renameCall(ident("cases"), "x", "x"), env: map[string]Value{"cases": cases}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			diags := &diag.Diagnostics{}
 			got := EvalExprWithOptions(
-				callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-				map[string]Value{"cases": cases, "mapping": tc.mapping},
+				tc.expr,
+				tc.env,
 				diags,
 				ExprOptions{},
 			)
@@ -122,8 +143,8 @@ func TestRenameZeroRowTable(t *testing.T) {
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": cases, "mapping": renameMapping("x", "id")},
+		renameCall(ident("cases"), "x", "id"),
+		map[string]Value{"cases": cases},
 		diags,
 		ExprOptions{},
 	)
@@ -146,8 +167,8 @@ func TestRenameBuiltinFunctionValue(t *testing.T) {
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("r"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": renameTestTable(), "mapping": renameMapping("x", "id")},
+		callExpr(ident("r"), posArg(ident("cases")), namedArg("x", stringExpr("id"))),
+		map[string]Value{"cases": renameTestTable()},
 		diags,
 		ExprOptions{Frame: frame},
 	)
@@ -171,8 +192,8 @@ func TestRenameDoesNotMutateInputAndPreservesCellMetadata(t *testing.T) {
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
-		callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping"))),
-		map[string]Value{"cases": cases, "mapping": renameMapping("x", "id")},
+		renameCall(ident("cases"), "x", "id"),
+		map[string]Value{"cases": cases},
 		diags,
 		ExprOptions{},
 	)
@@ -207,31 +228,7 @@ func TestRenameDiagnostics(t *testing.T) {
 		wantE106 int
 	}{
 		{
-			name: "wrong arity",
-			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")))
-			},
-			env:      map[string]Value{"cases": base},
-			wantE106: 1,
-		},
-		{
-			name: "named arg",
-			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), namedArg("mapping", ident("mapping")))
-			},
-			env:      map[string]Value{"cases": base, "mapping": renameMapping("x", "id")},
-			wantE106: 1,
-		},
-		{
-			name: "first arg not table",
-			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(intExpr(1)), posArg(ident("mapping")))
-			},
-			env:      map[string]Value{"mapping": renameMapping("x", "id")},
-			wantE106: 1,
-		},
-		{
-			name: "second arg not dict",
+			name: "too many positional args",
 			expr: func() ast.Expr {
 				return callExpr(ident("rename"), posArg(ident("cases")), posArg(intExpr(1)))
 			},
@@ -239,9 +236,25 @@ func TestRenameDiagnostics(t *testing.T) {
 			wantE106: 1,
 		},
 		{
-			name: "non-string old key",
+			name: "reserved mapping positional form",
 			expr: func() ast.Expr {
 				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+			},
+			env:      map[string]Value{"cases": base, "mapping": renameMapping("x", "id")},
+			wantE106: 1,
+		},
+		{
+			name: "first arg not table",
+			expr: func() ast.Expr {
+				return renameCall(intExpr(1), "x", "id")
+			},
+			env:      map[string]Value{},
+			wantE106: 1,
+		},
+		{
+			name: "non-string old key",
+			expr: func() ast.Expr {
+				return callExpr(ident("rename"), posArg(ident("cases")), kwSpreadArg(ident("mapping")))
 			},
 			env: map[string]Value{
 				"cases":   base,
@@ -252,57 +265,53 @@ func TestRenameDiagnostics(t *testing.T) {
 		{
 			name: "missing old column",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return renameCall(ident("cases"), "missing", "id")
 			},
-			env:      map[string]Value{"cases": base, "mapping": renameMapping("missing", "id")},
+			env:      map[string]Value{"cases": base},
 			wantE106: 1,
 		},
 		{
 			name: "non-string new value",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return callExpr(ident("rename"), posArg(ident("cases")), namedArg("x", intExpr(1)))
 			},
-			env: map[string]Value{
-				"cases":   base,
-				"mapping": DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)}}),
-			},
+			env:      map[string]Value{"cases": base},
 			wantE106: 1,
 		},
 		{
 			name: "invalid new name",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return renameCall(ident("cases"), "x", "1id")
 			},
-			env:      map[string]Value{"cases": base, "mapping": renameMapping("x", "1id")},
+			env:      map[string]Value{"cases": base},
 			wantE106: 1,
 		},
 		{
 			name: "collision with unchanged column",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return renameCall(ident("cases"), "x", "y")
 			},
-			env:      map[string]Value{"cases": base, "mapping": renameMapping("x", "y")},
+			env:      map[string]Value{"cases": base},
 			wantE106: 1,
 		},
 		{
 			name: "collision between renamed columns",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return renameCall(ident("cases"), "x", "z", "y", "z")
 			},
-			env:      map[string]Value{"cases": base, "mapping": renameMapping("x", "z", "y", "z")},
+			env:      map[string]Value{"cases": base},
 			wantE106: 1,
 		},
 		{
 			name: "malformed table missing cell",
 			expr: func() ast.Expr {
-				return callExpr(ident("rename"), posArg(ident("cases")), posArg(ident("mapping")))
+				return renameCall(ident("cases"), "x", "id")
 			},
 			env: map[string]Value{
 				"cases": CombValue(&Comb{
 					Order: []string{"x", "y"},
 					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
 				}),
-				"mapping": renameMapping("x", "id"),
 			},
 			wantE106: 1,
 		},
@@ -320,6 +329,14 @@ func TestRenameDiagnostics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func renameCall(table ast.Expr, pairs ...string) ast.CallExpr {
+	args := []ast.CallArg{posArg(table)}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		args = append(args, namedArg(pairs[i], stringExpr(pairs[i+1])))
+	}
+	return callExpr(ident("rename"), args...)
 }
 
 func renameTestTable() Value {

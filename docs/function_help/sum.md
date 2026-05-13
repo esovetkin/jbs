@@ -17,5 +17,6 @@ One reduced value.
 
 ```jbs
 sum([1,2,3,4]) == 10
+sum(values = [1,2,3,4]) == 10
 sum(("a","b","c")) == "abc"
 ```

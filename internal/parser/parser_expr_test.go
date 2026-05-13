@@ -1047,6 +1047,54 @@ func TestParseFunctionLiteral(t *testing.T) {
 	}
 }
 
+func TestParseFunctionRestParameters(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function(a, b = 1, *args, **kwargs) { args }", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression, got %#v", expr)
+	}
+	if len(fn.Params) != 4 {
+		t.Fatalf("expected 4 params, got %#v", fn.Params)
+	}
+	if fn.Params[0].Kind != ast.FuncParamValue || fn.Params[0].Name != "a" {
+		t.Fatalf("unexpected first param: %#v", fn.Params[0])
+	}
+	if fn.Params[1].Kind != ast.FuncParamValue || fn.Params[1].Name != "b" || fn.Params[1].Default == nil {
+		t.Fatalf("unexpected second param: %#v", fn.Params[1])
+	}
+	if fn.Params[2].Kind != ast.FuncParamArgs || fn.Params[2].Name != "args" {
+		t.Fatalf("unexpected *args param: %#v", fn.Params[2])
+	}
+	if fn.Params[3].Kind != ast.FuncParamKwargs || fn.Params[3].Name != "kwargs" {
+		t.Fatalf("unexpected **kwargs param: %#v", fn.Params[3])
+	}
+}
+
+func TestParseFunctionRestParameterDiagnostics(t *testing.T) {
+	tests := []string{
+		"function(*args, x) { x }",
+		"function(**kwargs, x) { x }",
+		"function(*args, *more) { args }",
+		"function(**a, **b) { a }",
+		"function(*args = []) { args }",
+	}
+	for _, src := range tests {
+		t.Run(src, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(src, diags)
+			_ = tp.parseExpr()
+			if !hasCode(diags, "E058") {
+				t.Fatalf("expected E058 for %q, got: %s", src, diags.String())
+			}
+		})
+	}
+}
+
 func TestParseFunctionIfConditionWithDictionaryLiteral(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseExprTP(`function(d) { if d == {"a": 1} { return true } else { return false } }`, diags)
@@ -1136,8 +1184,41 @@ func TestParseNamedCallArguments(t *testing.T) {
 	if call.Args[0].Name != "" {
 		t.Fatalf("expected first arg to be positional, got %#v", call.Args[0])
 	}
+	if call.Args[0].EffectiveKind() != ast.CallArgPositional {
+		t.Fatalf("expected first arg kind positional, got %#v", call.Args[0])
+	}
 	if call.Args[1].Name != "b" {
 		t.Fatalf("expected second arg to be named b, got %#v", call.Args[1])
+	}
+	if call.Args[1].EffectiveKind() != ast.CallArgNamed {
+		t.Fatalf("expected second arg kind named, got %#v", call.Args[1])
+	}
+}
+
+func TestParseCallArgumentSpreads(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("f(1, *args, x = 2, **kwargs)", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	call, ok := expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", expr)
+	}
+	if len(call.Args) != 4 {
+		t.Fatalf("expected four call args, got %#v", call.Args)
+	}
+	want := []ast.CallArgKind{
+		ast.CallArgPositional,
+		ast.CallArgPositionalSpread,
+		ast.CallArgNamed,
+		ast.CallArgKeywordSpread,
+	}
+	for i, kind := range want {
+		if call.Args[i].EffectiveKind() != kind {
+			t.Fatalf("arg %d kind=%v want %v: %#v", i, call.Args[i].EffectiveKind(), kind, call.Args[i])
+		}
 	}
 }
 

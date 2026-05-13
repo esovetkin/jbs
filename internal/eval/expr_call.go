@@ -24,20 +24,17 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"map":      {},
 	"names":    {},
 	"prod":     {},
-	"product":  {},
 	"print":    {},
 	"read_csv": {},
 	"reduce":   {},
 	"rename":   {},
 	"rows":     {},
-	"select":   {},
 	"shell":    {},
 	"str":      {},
 	"sum":      {},
 	"table":    {},
 	"t":        {},
 	"update":   {},
-	"zip":      {},
 }
 
 var builtinFunctionValues struct {
@@ -71,75 +68,93 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 	}
 	switch name {
 	case "table", "t":
-		return evalTableCall(rawArgs, env, at, diags, opts, ctx)
-	case "zip":
-		return evalZipCall(rawArgs, env, at, diags, opts, ctx)
-	case "product":
-		return evalProductCall(rawArgs, env, at, diags, opts, ctx)
-	case "select":
-		return evalSelectCall(rawArgs, env, at, diags, opts, ctx)
-	case "dict":
-		return evalDictCall(rawArgs, env, at, diags, opts, ctx)
-	case "delete":
-		return evalDeleteCall(rawArgs, at, diags, opts, ctx)
-	case "env":
-		return evalEnvCall(rawArgs, env, at, diags, opts, ctx)
-	case "get":
-		return evalDictGetCall(rawArgs, env, at, diags, opts, ctx)
-	case "names":
-		return evalNamesCall(callArgExprs(rawArgs), env, at, diags, opts, ctx)
-	case "map":
-		return evalMapCall(rawArgs, env, at, diags, opts, ctx)
-	case "reduce":
-		return evalReduceCall(rawArgs, env, at, diags, opts, ctx)
-	case "rename":
-		return evalRenameCall(rawArgs, env, at, diags, opts, ctx)
-	case "filter":
-		return evalFilterCall(rawArgs, env, at, diags, opts, ctx)
-	case "sum":
-		return evalFoldOperatorCall("sum", "+", rawArgs, env, at, diags, opts, ctx)
-	case "prod":
-		return evalFoldOperatorCall("prod", "*", rawArgs, env, at, diags, opts, ctx)
-	case "rows":
-		return evalRowsCall(rawArgs, env, at, diags, opts, ctx)
-	case "shell":
-		return evalShellCall(rawArgs, env, at, diags, opts, ctx)
-	case "update":
-		return evalUpdateCall(rawArgs, env, at, diags, opts, ctx)
-	}
-	args := make([]Value, 0, len(rawArgs))
-	for _, arg := range rawArgs {
-		args = append(args, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
-		if ctx.recursionLimitHit() {
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
 			return Null()
 		}
+		return evalTableValueCall(args, at, diags)
+	case "dict":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalDictValueCall(args, at, diags)
+	case "delete":
+		return evalDeleteCall(rawArgs, env, at, diags, opts, ctx)
+	case "env":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalEnvValueCall(args, at, diags, opts)
+	case "get":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalDictGetValueCall(args, at, diags)
+	case "names":
+		return evalNamesDirectCall(rawArgs, env, at, diags, opts, ctx)
+	case "map":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalMapValueCall(args, env, at, diags, opts, ctx)
+	case "reduce":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalReduceValueCall(args, env, at, diags, opts, ctx)
+	case "rename":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalRenameValueCall(args, at, diags)
+	case "filter":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalFilterValueCall(args, env, at, diags, opts, ctx)
+	case "sum":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
+	case "prod":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalFoldOperatorValueCall("prod", "*", args, at, diags, opts, ctx)
+	case "rows":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalRowsValueCall(args, at, diags)
+	case "shell":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalShellValueCall(args, env, at, diags, opts, ctx)
+	case "update":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalUpdateValueCall(args, at, diags)
 	}
-	switch name {
-	case "read_csv":
-		return evalReadCSVCall(args, at, diags, opts)
-	case "bool", "int", "float", "str":
-		return evalUnaryConvertCall(name, args, at, diags)
-	case "len":
-		return evalLenCall(args, at, diags)
-	case "all":
-		return evalAllAnyCall("all", args, at, diags)
-	case "any":
-		return evalAllAnyCall("any", args, at, diags)
-	case "print":
-		return evalPrintCall(args, at, opts)
+	args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+	if !ok {
+		return Null()
 	}
-	return evalKernelCall(name, args, at, diags, opts)
-}
-
-func callArgExprs(args []ast.CallArg) []ast.Expr {
-	if len(args) == 0 {
-		return nil
-	}
-	out := make([]ast.Expr, 0, len(args))
-	for _, arg := range args {
-		out = append(out, arg.Expr)
-	}
-	return out
+	return evalBuiltinValueCall(name, args, env, at, diags, opts, ctx)
 }
 
 func lookupLocalOrCapturedValue(name string, env map[string]Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) (Value, bool, bool) {
@@ -166,8 +181,23 @@ func lookupValue(name string, env map[string]Value, at diag.Span, diags *diag.Di
 	if value, ok := BuiltinFunctionValue(name); ok {
 		return value, true
 	}
+	if value, ok := BuiltinConstantValue(name); ok {
+		return value, true
+	}
 	diags.AddError(diag.CodeE100, fmt.Sprintf("unknown variable '%s'", name), at, "import or define the variable before use")
 	return Null(), false
+}
+
+func BuiltinConstantValue(name string) (Value, bool) {
+	if name == "None" {
+		return Null(), true
+	}
+	return Null(), false
+}
+
+func IsBuiltinConstantName(name string) bool {
+	_, ok := BuiltinConstantValue(name)
+	return ok
 }
 
 func resolveCallable(callee ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (*FunctionValue, bool, bool) {

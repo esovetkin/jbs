@@ -110,6 +110,18 @@ func TestEvalReadCSVCallCSVInferenceAndQuotedFields(t *testing.T) {
 	if cell := got.C.Rows[0].Values["comment"].Value; cell.Kind != KindString || cell.S != "hello, world" {
 		t.Fatalf("unexpected first comment cell: %#v", cell)
 	}
+
+	diags = &diag.Diagnostics{}
+	named := EvalExprWithOptions(callExpr(ident("read_csv"), namedArg("path", ast.StringExpr{Value: "./cases.csv", Span: span})), nil, diags, ExprOptions{
+		Context: EvalCtxBindingAssign,
+		Files:   &FileAccess{BaseDir: cwd},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected named read_csv diagnostics: %s", diags.String())
+	}
+	if !Equal(named, got) {
+		t.Fatalf("named read_csv result differs: got=%#v want=%#v", named, got)
+	}
 }
 
 func TestEvalReadCSVCallTSVAndEmptyFieldStringFallback(t *testing.T) {

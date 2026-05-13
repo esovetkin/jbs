@@ -115,6 +115,19 @@ func TestEvalNamesCall(t *testing.T) {
 			want: List([]Value{String("x"), String("y")}),
 		},
 		{
+			name: "named values argument",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "names", Span: span},
+				Args: []ast.CallArg{
+					namedArg("values", ast.ListExpr{Items: []ast.Expr{ast.IdentExpr{Name: "params", Span: span}}, Span: span}),
+				},
+				Span: span,
+			},
+			env:  map[string]Value{"params": comb},
+			opts: opts,
+			want: List([]Value{String("x"), String("y")}),
+		},
+		{
 			name: "projected comb argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},

@@ -400,14 +400,14 @@ func TestCloneRows(t *testing.T) {
 	}
 }
 
-func TestZipRowsEdgeCases(t *testing.T) {
+func TestRowWiseMergeRowsEdgeCases(t *testing.T) {
 	op := ast.CombBinary{Op: "+", OpSpan: diag.NewSpan("in.jbs", diag.NewPos(3, 1, 3), diag.NewPos(4, 1, 4))}
 	diags := &diag.Diagnostics{}
-	if got := zipRows(nil, []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, op, diags); got != nil {
-		t.Fatalf("expected nil for empty left zip input, got %#v", got)
+	if got := rowWiseMergeRows(nil, []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, op, diags); got != nil {
+		t.Fatalf("expected nil for empty left merge input, got %#v", got)
 	}
-	if got := zipRows([]Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, nil, op, diags); got != nil {
-		t.Fatalf("expected nil for empty right zip input, got %#v", got)
+	if got := rowWiseMergeRows([]Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}, nil, op, diags); got != nil {
+		t.Fatalf("expected nil for empty right merge input, got %#v", got)
 	}
 
 	diags = &diag.Diagnostics{}
@@ -420,9 +420,9 @@ func TestZipRowsEdgeCases(t *testing.T) {
 		{Values: map[string]Cell{"b": {Value: String("x")}}},
 		{Values: map[string]Cell{"b": {Value: String("y")}}},
 	}
-	rows := zipRows(left, right, op, diags)
+	rows := rowWiseMergeRows(left, right, op, diags)
 	if len(rows) != 3 {
-		t.Fatalf("expected 3 zipped rows, got %d", len(rows))
+		t.Fatalf("expected 3 merged rows, got %d", len(rows))
 	}
 	hasW101 := false
 	for _, d := range diags.Items {
@@ -436,7 +436,7 @@ func TestZipRowsEdgeCases(t *testing.T) {
 	}
 }
 
-func TestZipRowsMergeConflictsAreSkipped(t *testing.T) {
+func TestRowWiseMergeRowsMergeConflictsAreSkipped(t *testing.T) {
 	op := ast.CombBinary{Op: "+", OpSpan: diag.NewSpan("in.jbs", diag.NewPos(5, 1, 5), diag.NewPos(6, 1, 6))}
 	left := []Row{
 		{Values: map[string]Cell{"x": {Value: Int(1), Origin: diag.NewSpan("l.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))}}},
@@ -448,7 +448,7 @@ func TestZipRowsMergeConflictsAreSkipped(t *testing.T) {
 	}
 	diags := &diag.Diagnostics{}
 
-	rows := zipRows(left, right, op, diags)
+	rows := rowWiseMergeRows(left, right, op, diags)
 	if len(rows) != 1 {
 		t.Fatalf("expected exactly 1 merged row after skipping one conflict, got %d", len(rows))
 	}

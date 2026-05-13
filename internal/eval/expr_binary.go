@@ -129,11 +129,11 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 			rightRows := combRowsFromValue(r, at)
 			opNode := ast.CombBinary{Op: op, OpSpan: at, Span: at}
 			if op == "+" {
-				return combValueFromRows(zipRows(leftRows, rightRows, opNode, diags))
+				return combValueFromRows(rowWiseMergeRows(leftRows, rightRows, opNode, diags))
 			}
 			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
 		default:
-			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for table values", op), at, "use zip(), product(), select(), or filter() with table values")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for table values", op), at, "use '+', '*', or filter() with table values")
 			return Null()
 		}
 	}

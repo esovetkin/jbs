@@ -84,27 +84,48 @@ func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags
 	return stringListValue(CombNames(value))
 }
 
-func evalNamesValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
-	if len(args) > 1 {
-		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names() or names(table)")
+func evalNamesDirectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	direct := true
+	exprs := make([]ast.Expr, 0, len(rawArgs))
+	for _, arg := range rawArgs {
+		if arg.EffectiveKind() != ast.CallArgPositional {
+			direct = false
+			break
+		}
+		exprs = append(exprs, arg.Expr)
+	}
+	if direct {
+		return evalNamesCall(exprs, env, at, diags, opts, ctx)
+	}
+	args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+	if !ok {
 		return Null()
 	}
+	return evalNamesValueCall(args, at, diags, opts)
+}
+
+func evalNamesValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
 	if opts.Names == nil {
 		diags.AddError(diag.CodeE106, "names() requires scope metadata in this evaluation context", at, "call names() only in normal compiled expression contexts")
 		return Null()
 	}
-	if len(args) == 0 {
+	bound, ok := bindBuiltinArgs("names", args, builtinSignature{Name: "names", Varargs: "values", NamedVarargs: true, AllowNoArgs: true}, at, diags)
+	if !ok {
+		return Null()
+	}
+	if len(bound.Varargs) > 1 {
+		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names() or names(table)")
+		return Null()
+	}
+	if len(bound.Varargs) == 0 {
 		return stringListValue(opts.Names.Visible)
 	}
-	if args[0].Name != "" {
-		diags.AddError(diag.CodeE106, "names() does not accept named arguments", args[0].Span, "pass the table as a positional argument")
+	arg := bound.Varargs[0]
+	if !IsComb(arg.Value) {
+		diags.AddError(diag.CodeE106, "names() function value expects a table value", arg.Span, "use names() or names(table)")
 		return Null()
 	}
-	if !IsComb(args[0].Value) {
-		diags.AddError(diag.CodeE106, "names() function value expects a table value", args[0].Span, "use names() or names(table)")
-		return Null()
-	}
-	return stringListValue(CombNames(args[0].Value))
+	return stringListValue(CombNames(arg.Value))
 }
 
 func namespaceArgName(expr ast.Expr, catalog *NameCatalog) (string, bool) {

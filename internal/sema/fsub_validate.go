@@ -63,7 +63,7 @@ func visibleNamesForStep(plan *StepScopePlan) map[string]struct{} {
 
 func validateFSubExprRefs(stepName string, visible map[string]struct{}, expr ast.Expr, diags *diag.Diagnostics) {
 	for _, ref := range collectExprIdentRefs(expr) {
-		if eval.IsBuiltinCallName(ref.Name) {
+		if eval.IsBuiltinCallName(ref.Name) || eval.IsBuiltinConstantName(ref.Name) {
 			continue
 		}
 		if _, ok := visible[ref.Name]; ok {

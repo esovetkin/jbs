@@ -1707,6 +1707,17 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	if last.Kind != KindFloat || !(last.F < 1.5) {
 		t.Fatalf("expected last float value < 1.5, got %#v", last)
 	}
+	rangeNamed := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args: []ast.CallArg{
+			namedArg("start", ast.NumberExpr{Int: true, IntValue: 1}),
+			namedArg("stop", ast.NumberExpr{Int: true, IntValue: 5}),
+			namedArg("step", ast.NumberExpr{Int: true, IntValue: 2}),
+		},
+	}, map[string]Value{}, diags, opts)
+	if !Equal(rangeNamed, List([]Value{Int(1), Int(3)})) {
+		t.Fatalf("unexpected named range result: %#v", rangeNamed)
+	}
 
 	revList := EvalExprWithOptions(ast.CallExpr{
 		Callee: ast.IdentExpr{Name: "rev"},
@@ -1777,6 +1788,10 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	}, map[string]Value{}, diags, ExprOptions{})
 	if listVal.Kind != KindList || len(listVal.L) != 2 {
 		t.Fatalf("expected list conversion via call, got %#v", listVal)
+	}
+	lenNamed := EvalExprWithOptions(callExpr(ident("len"), namedArg("value", listExpr(intExpr(1), intExpr(2)))), nil, diags, ExprOptions{})
+	if !Equal(lenNamed, Int(2)) {
+		t.Fatalf("unexpected named len result: %#v", lenNamed)
 	}
 
 	if diags.HasErrors() {
@@ -1999,7 +2014,7 @@ func TestBindingAssignTableBinaryRejectsAliasOnTableOperand(t *testing.T) {
 	}
 }
 
-func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
+func TestTableBuiltinsConstructMergeProductAndIndexProjection(t *testing.T) {
 	span := spanAt(88, 1)
 	env := map[string]Value{
 		"ids":      Tuple([]Value{Int(1), Int(2)}),
@@ -2024,23 +2039,21 @@ func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
 		},
 		Span: span,
 	}
-	zipExpr := ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "zip", Span: span},
-		Args: []ast.CallArg{
-			{Expr: ast.CallExpr{
-				Callee: ast.IdentExpr{Name: "table", Span: span},
-				Args: []ast.CallArg{
-					{Name: "host", Expr: ast.IdentExpr{Name: "hosts", Span: span}, Span: span},
-				},
-				Span: span,
-			}, Span: span},
-			{Expr: ast.CallExpr{
-				Callee: ast.IdentExpr{Name: "table", Span: span},
-				Args: []ast.CallArg{
-					{Name: "port", Expr: ast.IdentExpr{Name: "ports", Span: span}, Span: span},
-				},
-				Span: span,
-			}, Span: span},
+	mergeExpr := ast.BinaryExpr{
+		Left: ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "table", Span: span},
+			Args: []ast.CallArg{
+				{Name: "host", Expr: ast.IdentExpr{Name: "hosts", Span: span}, Span: span},
+			},
+			Span: span,
+		},
+		Op: "+",
+		Right: ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "table", Span: span},
+			Args: []ast.CallArg{
+				{Name: "port", Expr: ast.IdentExpr{Name: "ports", Span: span}, Span: span},
+			},
+			Span: span,
 		},
 		Span: span,
 	}
@@ -2061,54 +2074,48 @@ func TestTableBuiltinsConstructZipProductAndSelect(t *testing.T) {
 	}
 
 	diags = &diag.Diagnostics{}
-	grid := EvalExprWithOptions(ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "product", Span: span},
-		Args: []ast.CallArg{
-			{Expr: ast.IdentExpr{Name: "cases", Span: span}, Span: span},
-			{Expr: replicasExpr, Span: span},
-		},
-		Span: span,
+	grid := EvalExprWithOptions(ast.BinaryExpr{
+		Left:  ast.IdentExpr{Name: "cases", Span: span},
+		Op:    "*",
+		Right: replicasExpr,
+		Span:  span,
 	}, map[string]Value{"cases": cases, "replicas": env["replicas"]}, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
-		t.Fatalf("unexpected product() diagnostics: %s", diags.String())
+		t.Fatalf("unexpected table product diagnostics: %s", diags.String())
 	}
 	if !IsComb(grid) || len(grid.C.Rows) != 4 {
 		t.Fatalf("expected 4-row product table, got %#v", grid)
 	}
 	if !slices.Equal(grid.C.Order, []string{"id", "label", "replica"}) {
-		t.Fatalf("unexpected product() column order: %#v", grid.C.Order)
+		t.Fatalf("unexpected product column order: %#v", grid.C.Order)
 	}
 
 	diags = &diag.Diagnostics{}
-	view := EvalExprWithOptions(ast.CallExpr{
-		Callee: ast.IdentExpr{Name: "select", Span: span},
-		Args: []ast.CallArg{
-			{Expr: ast.IdentExpr{Name: "grid", Span: span}, Span: span},
-			{Expr: ast.IdentExpr{Name: "id", Span: span}, Span: span},
-			{Expr: ast.IdentExpr{Name: "replica", Span: span}, Span: span},
-		},
-		Span: span,
+	view := EvalExprWithOptions(ast.IndexExpr{
+		Base:  ast.IdentExpr{Name: "grid", Span: span},
+		Items: []ast.Expr{stringExpr("id"), stringExpr("replica")},
+		Span:  span,
 	}, map[string]Value{"grid": grid}, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
-		t.Fatalf("unexpected select() diagnostics: %s", diags.String())
+		t.Fatalf("unexpected table projection diagnostics: %s", diags.String())
 	}
 	if !IsComb(view) || !slices.Equal(view.C.Order, []string{"id", "replica"}) {
-		t.Fatalf("unexpected select() result: %#v", view)
+		t.Fatalf("unexpected projection result: %#v", view)
 	}
 	if len(view.C.Rows) != 4 {
 		t.Fatalf("expected 4 selected rows, got %#v", view.C.Rows)
 	}
 
 	diags = &diag.Diagnostics{}
-	zipped := EvalExprWithOptions(zipExpr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	merged := EvalExprWithOptions(mergeExpr, env, diags, ExprOptions{Context: EvalCtxBindingAssign})
 	if diags.HasErrors() {
-		t.Fatalf("unexpected zip() diagnostics: %s", diags.String())
+		t.Fatalf("unexpected row-wise merge diagnostics: %s", diags.String())
 	}
-	if !IsComb(zipped) || !slices.Equal(zipped.C.Order, []string{"host", "port"}) {
-		t.Fatalf("unexpected zip() result: %#v", zipped)
+	if !IsComb(merged) || !slices.Equal(merged.C.Order, []string{"host", "port"}) {
+		t.Fatalf("unexpected row-wise merge result: %#v", merged)
 	}
-	if len(zipped.C.Rows) != 2 {
-		t.Fatalf("expected 2 zipped rows, got %#v", zipped.C.Rows)
+	if len(merged.C.Rows) != 2 {
+		t.Fatalf("expected 2 merged rows, got %#v", merged.C.Rows)
 	}
 }
 

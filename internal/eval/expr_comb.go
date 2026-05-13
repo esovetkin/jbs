@@ -82,7 +82,7 @@ func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *dia
 	}
 	opNode := ast.CombBinary{Op: expr.Op, OpSpan: expr.Span, Span: expr.Span}
 	if expr.Op == "+" {
-		return combValueFromRows(zipRows(left, right, opNode, diags))
+		return combValueFromRows(rowWiseMergeRows(left, right, opNode, diags))
 	}
 	return combValueFromRows(productRows(left, right, opNode, diags))
 }

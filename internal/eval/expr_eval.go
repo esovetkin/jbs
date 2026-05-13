@@ -288,7 +288,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 				return Null()
 			}
 			if e.Op == "+" {
-				return combValueFromRows(zipRows(leftRows, rightRows, opNode, diags))
+				return combValueFromRows(rowWiseMergeRows(leftRows, rightRows, opNode, diags))
 			}
 			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
 		}

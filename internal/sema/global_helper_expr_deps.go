@@ -36,7 +36,7 @@ func collectExprLocalIdentDeps(expr ast.Expr, out map[string]struct{}) {
 				out[n.Namespace] = struct{}{}
 			}
 		case ast.CallExpr:
-			if isDeleteCallExpr(n) {
+			if isDeleteCallExpr(n) && deleteCallHasOnlyBareTargets(n) {
 				ast.WalkExpr(n.Callee, callbacks)
 				return ast.WalkSkipChildren
 			}

@@ -8,7 +8,7 @@
 // ```
 // implement only the last row logic
 //
-// + zip, * product
+// + row-wise merge, * product
 //
 // where combinations are "rows" carrying variable values and their
 // names. This implements cyclic-broadcast logic, inspired by vector
@@ -114,7 +114,7 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 		left := evalComb(e.Left, series, origins, opts, diags)
 		right := evalComb(e.Right, series, origins, opts, diags)
 		if e.Op == "+" {
-			return zipRows(left, right, e, diags)
+			return rowWiseMergeRows(left, right, e, diags)
 		}
 		if e.Op == "*" {
 			return productRows(left, right, e, diags)
@@ -138,7 +138,7 @@ func cloneRows(in []Row) []Row {
 	return out
 }
 
-func zipRows(left, right []Row, op ast.CombBinary, diags *diag.Diagnostics) []Row {
+func rowWiseMergeRows(left, right []Row, op ast.CombBinary, diags *diag.Diagnostics) []Row {
 	if len(left) == 0 || len(right) == 0 {
 		return nil
 	}

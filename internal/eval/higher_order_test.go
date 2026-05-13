@@ -277,6 +277,21 @@ func TestFilterFunctionOnListTupleAndBuiltins(t *testing.T) {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
 		}
 	})
+
+	t.Run("named arguments", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			namedArg("values", listExpr(intExpr(0), intExpr(1), intExpr(2))),
+			namedArg("fn", ident("bool")),
+		), nil, diags, ExprOptions{})
+		want := List([]Value{Int(1), Int(2)})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected named filter result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
 }
 
 func TestFilterFunctionOnTable(t *testing.T) {
@@ -403,20 +418,20 @@ func TestFilterFunctionDiagnosticsAndShadowing(t *testing.T) {
 		{
 			name:     "wrong arity zero",
 			expr:     callExpr(ident("filter")),
-			wantText: "filter() expects exactly two arguments",
+			wantText: "filter() expects arguments",
 		},
 		{
 			name:     "wrong arity one",
 			expr:     callExpr(ident("filter"), posArg(listExpr(intExpr(1)))),
-			wantText: "filter() expects exactly two arguments",
+			wantText: "filter() missing required argument 'fn'",
 		},
 		{
-			name: "named argument",
+			name: "unknown named argument",
 			expr: callExpr(ident("filter"),
-				namedArg("values", listExpr(intExpr(1))),
-				posArg(ident("bool")),
+				namedArg("valuez", listExpr(intExpr(1))),
+				namedArg("fn", ident("bool")),
 			),
-			wantText: "filter() does not accept named arguments",
+			wantText: "unknown named argument 'valuez' for filter()",
 		},
 		{
 			name: "bad target",
@@ -527,6 +542,11 @@ func TestSumProdBuiltins(t *testing.T) {
 			want: String("x"),
 		},
 		{
+			name: "sum named values",
+			expr: callExpr(ident("sum"), namedArg("values", listExpr(intExpr(1), intExpr(2)))),
+			want: Int(3),
+		},
+		{
 			name: "prod int list",
 			expr: callExpr(ident("prod"), posArg(listExpr(intExpr(2), intExpr(3), intExpr(4)))),
 			want: Int(24),
@@ -551,6 +571,11 @@ func TestSumProdBuiltins(t *testing.T) {
 			name: "prod singleton tuple",
 			expr: callExpr(ident("prod"), posArg(tupleExpr(ast.StringExpr{Value: "x"}))),
 			want: String("x"),
+		},
+		{
+			name: "prod named values",
+			expr: callExpr(ident("prod"), namedArg("values", tupleExpr(intExpr(2), intExpr(3)))),
+			want: Int(6),
 		},
 	}
 
@@ -652,22 +677,13 @@ func TestSumProdBuiltinsReportErrors(t *testing.T) {
 			name:     "sum wrong arity zero",
 			expr:     callExpr(ident("sum")),
 			wantCode: "E106",
-			wantText: "sum() expects exactly one argument",
+			wantText: "sum() expects arguments",
 		},
 		{
 			name:     "sum wrong arity two",
 			expr:     callExpr(ident("sum"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
 			wantCode: "E106",
-			wantText: "sum() expects exactly one argument",
-		},
-		{
-			name: "sum rejects named argument",
-			expr: ast.CallExpr{
-				Callee: ident("sum"),
-				Args:   []ast.CallArg{namedArg("values", listExpr(intExpr(1), intExpr(2)))},
-			},
-			wantCode: "E106",
-			wantText: "sum() does not accept named arguments",
+			wantText: "sum() received too many positional arguments",
 		},
 		{
 			name:     "sum rejects scalar",
@@ -691,22 +707,13 @@ func TestSumProdBuiltinsReportErrors(t *testing.T) {
 			name:     "prod wrong arity zero",
 			expr:     callExpr(ident("prod")),
 			wantCode: "E106",
-			wantText: "prod() expects exactly one argument",
+			wantText: "prod() expects arguments",
 		},
 		{
 			name:     "prod wrong arity two",
 			expr:     callExpr(ident("prod"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
 			wantCode: "E106",
-			wantText: "prod() expects exactly one argument",
-		},
-		{
-			name: "prod rejects named argument",
-			expr: ast.CallExpr{
-				Callee: ident("prod"),
-				Args:   []ast.CallArg{namedArg("values", listExpr(intExpr(1), intExpr(2)))},
-			},
-			wantCode: "E106",
-			wantText: "prod() does not accept named arguments",
+			wantText: "prod() received too many positional arguments",
 		},
 		{
 			name:     "prod rejects scalar",
@@ -847,6 +854,34 @@ func TestReduceCallSupportsListsTuplesAndSingletons(t *testing.T) {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
 		}
 	})
+
+	t.Run("map and reduce accept named arguments", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		inc := fnExpr([]ast.FuncParam{{Name: "x"}}, exprStmt(ast.BinaryExpr{
+			Left:  ident("x"),
+			Op:    "+",
+			Right: intExpr(1),
+		}))
+		sum2 := fnExpr([]ast.FuncParam{{Name: "acc"}, {Name: "x"}}, exprStmt(ast.BinaryExpr{
+			Left:  ident("acc"),
+			Op:    "+",
+			Right: ident("x"),
+		}))
+		mapped := EvalExprWithOptions(callExpr(ident("map"),
+			namedArg("fn", inc),
+			namedArg("values", listExpr(intExpr(1), intExpr(2))),
+		), nil, diags, ExprOptions{})
+		reduced := EvalExprWithOptions(callExpr(ident("reduce"),
+			namedArg("fn", sum2),
+			namedArg("values", listExpr(intExpr(1), intExpr(2), intExpr(3))),
+		), nil, diags, ExprOptions{})
+		if !Equal(mapped, List([]Value{Int(2), Int(3)})) || !Equal(reduced, Int(6)) {
+			t.Fatalf("unexpected named higher-order results: map=%#v reduce=%#v", mapped, reduced)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
 }
 
 func TestHigherOrderBuiltinsReportErrors(t *testing.T) {
@@ -866,7 +901,7 @@ func TestHigherOrderBuiltinsReportErrors(t *testing.T) {
 			wantCode: "E106",
 		},
 		{
-			name: "map rejects named builtin args",
+			name: "map rejects positional after named",
 			expr: ast.CallExpr{
 				Callee: ident("map"),
 				Args: []ast.CallArg{
@@ -877,12 +912,13 @@ func TestHigherOrderBuiltinsReportErrors(t *testing.T) {
 			wantCode: "E106",
 		},
 		{
-			name: "reduce rejects named builtin args",
+			name: "reduce rejects unknown named arg",
 			expr: ast.CallExpr{
 				Callee: ident("reduce"),
 				Args: []ast.CallArg{
-					posArg(fnExpr([]ast.FuncParam{{Name: "acc"}, {Name: "x"}}, exprStmt(ident("acc")))),
+					namedArg("fn", fnExpr([]ast.FuncParam{{Name: "acc"}, {Name: "x"}}, exprStmt(ident("acc")))),
 					namedArg("values", listExpr(intExpr(1))),
+					namedArg("unknown", intExpr(1)),
 				},
 			},
 			wantCode: "E106",

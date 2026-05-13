@@ -5,6 +5,7 @@
 - `range(stop)`: integer exclusive upper bound.
 - `range(start, stop)`: integer lower bound and exclusive upper bound.
 - `range(start, stop, step)`: numeric bounds and positive numeric step.
+- Named forms: `range(stop = n)`, `range(start = a, stop = b)`, and `range(start = a, stop = b, step = s)`.
 - One-argument and two-argument forms require integers.
 - `range(...)` is only allowed in top-level global assignment expressions.
 
@@ -18,5 +19,6 @@ A list of numbers from `start` inclusive to `stop` exclusive.
 range(3) == [0,1,2]
 range(1,3) == [1,2]
 range(0,10,2) == [0,2,4,6,8]
+range(start = 0, stop = 10, step = 2) == [0,2,4,6,8]
 range(0,1,0.02) == [0,0.02,0.04,0.06,0.08]
 ```

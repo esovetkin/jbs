@@ -358,9 +358,20 @@ type DictExpr struct {
 func (e DictExpr) exprNode()          {}
 func (e DictExpr) GetSpan() diag.Span { return e.Span }
 
-// CallArg represents either a positional call argument (`Name == ""`)
-// or a named argument placeholder for later parser/evaluator phases.
+type CallArgKind uint8
+
+const (
+	CallArgPositional CallArgKind = iota
+	CallArgNamed
+	CallArgPositionalSpread
+	CallArgKeywordSpread
+)
+
+// CallArg represents a positional, named, `*` spread, or `**` spread call
+// argument. A zero Kind with a non-empty Name is treated as named for
+// compatibility with tests and older AST construction helpers.
 type CallArg struct {
+	Kind CallArgKind
 	Name string
 	Expr Expr
 	Span diag.Span
@@ -368,12 +379,22 @@ type CallArg struct {
 
 func (a CallArg) GetSpan() diag.Span { return a.Span }
 
+func (a CallArg) EffectiveKind() CallArgKind {
+	if a.Kind != CallArgPositional {
+		return a.Kind
+	}
+	if a.Name != "" {
+		return CallArgNamed
+	}
+	return CallArgPositional
+}
+
 func PosCallArg(expr Expr) CallArg {
 	span := diag.Span{}
 	if expr != nil {
 		span = expr.GetSpan()
 	}
-	return CallArg{Expr: expr, Span: span}
+	return CallArg{Kind: CallArgPositional, Expr: expr, Span: span}
 }
 
 func PosCallArgs(exprs ...Expr) []CallArg {
@@ -409,12 +430,21 @@ func (e FunctionExpr) exprNode()          {}
 func (e FunctionExpr) GetSpan() diag.Span { return e.Span }
 
 type FuncParam struct {
+	Kind    FuncParamKind
 	Name    string
 	Default Expr
 	Span    diag.Span
 }
 
 func (p FuncParam) GetSpan() diag.Span { return p.Span }
+
+type FuncParamKind uint8
+
+const (
+	FuncParamValue FuncParamKind = iota
+	FuncParamArgs
+	FuncParamKwargs
+)
 
 type LocalAssignStmt struct {
 	Name string

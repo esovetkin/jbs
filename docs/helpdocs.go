@@ -52,7 +52,6 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "map", File: "function_help/map.md"},
 	{Name: "names", File: "function_help/names.md"},
 	{Name: "prod", File: "function_help/prod.md"},
-	{Name: "product", File: "function_help/product.md"},
 	{Name: "print", File: "function_help/print.md"},
 	{Name: "range", File: "function_help/range.md"},
 	{Name: "read_csv", File: "function_help/read_csv.md"},
@@ -60,7 +59,6 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "rename", File: "function_help/rename.md"},
 	{Name: "rev", File: "function_help/rev.md"},
 	{Name: "rows", File: "function_help/rows.md"},
-	{Name: "select", File: "function_help/select.md"},
 	{Name: "shell", File: "function_help/shell.md"},
 	{Name: "str", File: "function_help/str.md"},
 	{Name: "sum", File: "function_help/sum.md"},
@@ -68,7 +66,6 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "t", File: "function_help/table.md", AliasOf: "table"},
 	{Name: "tuple", File: "function_help/tuple.md"},
 	{Name: "update", File: "function_help/update.md"},
-	{Name: "zip", File: "function_help/zip.md"},
 }
 
 var functionHelpByName = buildFunctionHelpByName()

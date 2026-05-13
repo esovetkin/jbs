@@ -2,8 +2,9 @@
 
 ## Arguments
 
-- `dict_value`: dictionary to copy.
+- `dict`: dictionary to copy.
 - `key = value, ...`: zero or more named updates.
+- Named base form: `update(dict = d, key = value)`.
 
 Positional update arguments are not accepted.
 
@@ -16,6 +17,7 @@ A new dictionary with the named keys replaced or added.
 ```jbs
 base = dict(a = 1, b = 2)
 next = update(base, b = 3, c = 4)
+same = update(dict = base, b = 3, c = 4)
 next == dict(a = 1, b = 3, c = 4)
 base == dict(a = 1, b = 2)
 ```

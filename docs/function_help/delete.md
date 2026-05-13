@@ -5,9 +5,9 @@
 ## Arguments
 
 - One or more bare variable names.
+- Evaluated forms: `delete(*names)` or `delete(names = ["x", "y"])`, where names are strings.
 
-Named arguments, string arguments, qualified names, and other expressions are
-not accepted.
+Direct string arguments, qualified names, and other expressions are not accepted.
 
 ## Returns
 
@@ -19,6 +19,7 @@ not accepted.
 x = 1
 y = 2
 delete(x, y)
+delete(names = ["x", "y"])
 ```
 
 At top level, `delete(...)` can remove user-defined globals. It cannot remove

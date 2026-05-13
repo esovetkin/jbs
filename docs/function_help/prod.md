@@ -17,5 +17,6 @@ One reduced value.
 
 ```jbs
 prod([2,3,4]) == 24
+prod(values = [2,3,4]) == 24
 prod(("a",3)) == "aaa"
 ```

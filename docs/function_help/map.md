@@ -1,10 +1,10 @@
-# `map(<function>, <list/tuple>)`
+# `map(fn, values)`
 
 `map` one function to each element of a list or tuple.
 
 ## Arguments
 
-- `function`: a user-defined or built-in function value.
+- `fn`: a user-defined or built-in function value.
 - `values`: a list or tuple.
 - empty input returns an empty list or tuple of the same outer kind
 
@@ -20,6 +20,7 @@ inc = function(x) {
 }
 
 map(inc, [1,2,3]) == [2,3,4]
+map(fn = inc, values = [1,2,3]) == [2,3,4]
 map(inc, (1,2,3)) == (2,3,4)
 map(int, ["1","2"]) == [1,2]
 ```

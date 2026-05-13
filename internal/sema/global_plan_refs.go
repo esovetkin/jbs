@@ -52,7 +52,7 @@ func globalExprReadRefs(expr ast.Expr) []globalReadRef {
 				appendRef(globalReadRef{Name: n.Namespace, SeedAlt: seedAlt})
 			}
 		case ast.CallExpr:
-			if isDeleteCallExpr(n) {
+			if isDeleteCallExpr(n) && deleteCallHasOnlyBareTargets(n) {
 				ast.WalkExpr(n.Callee, callbacks)
 				return ast.WalkSkipChildren
 			}

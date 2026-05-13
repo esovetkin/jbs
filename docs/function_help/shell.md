@@ -21,7 +21,8 @@ A string containing stdout. By default, one trailing newline is removed. Use `st
 
 ```jbs
 hostname = shell("hostname")
+hostname = shell(command = "hostname")
 x = 1
 y = shell("echo $x")
-raw = shell("printf 'a\n'", strip=false)
+raw = shell("printf 'a\n'", strip = false)
 ```

@@ -3,7 +3,6 @@ package eval
 import (
 	"fmt"
 
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
@@ -12,47 +11,22 @@ type tableRenameEntry struct {
 	New string
 }
 
-func evalRenameCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) != 2 {
-		diags.AddError(diag.CodeE106, "rename() expects exactly two positional arguments", at, `use rename(table_value, {"old": "new"})`)
-		return Null()
-	}
-	for _, arg := range rawArgs {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "rename() does not accept named arguments", arg.Span, `use rename(table_value, {"old": "new"})`)
-			return Null()
-		}
-	}
-
-	tableValue := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	mapping := evalExprWithCtx(rawArgs[1].Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-
-	return renameTableValue(tableValue, mapping, rawArgs[0].Span, rawArgs[1].Span, at, diags)
-}
-
 func evalRenameValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
-	if len(args) != 2 {
-		diags.AddError(diag.CodeE106, "rename() expects exactly two positional arguments", at, `use rename(table_value, {"old": "new"})`)
+	bound, ok := bindBuiltinArgs("rename", args, builtinSignature{
+		Name:   "rename",
+		Params: []builtinParam{{Name: "table", Required: true}},
+		Kwargs: "mapping",
+	}, at, diags)
+	if !ok {
 		return Null()
 	}
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "rename() does not accept named arguments", arg.Span, `use rename(table_value, {"old": "new"})`)
-			return Null()
-		}
-	}
-	return renameTableValue(args[0].Value, args[1].Value, args[0].Span, args[1].Span, at, diags)
+	tableArg := bound.ByName["table"]
+	return renameTableValue(tableArg.Value, kwargsDict(bound.Kwargs), tableArg.Span, at, at, diags)
 }
 
 func renameTableValue(tableValue Value, mapping Value, tableSpan, mapSpan, at diag.Span, diags *diag.Diagnostics) Value {
 	if !IsComb(tableValue) {
-		diags.AddError(diag.CodeE106, "rename() first argument must be a table value", tableSpan, "pass a table built by table(), zip(), product(), select(), rename(), or read_csv()")
+		diags.AddError(diag.CodeE106, "rename() first argument must be a table value", tableSpan, "pass a table built by table(), rename(), or read_csv()")
 		return Null()
 	}
 

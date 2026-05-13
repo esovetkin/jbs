@@ -137,7 +137,7 @@ func TestEvalExprWithCtxCombBinaryPaths(t *testing.T) {
 		"b": makeComb("b", 10, 20),
 	}
 
-	t.Run("comb zip via +", func(t *testing.T) {
+	t.Run("comb row-wise merge via +", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := EvalExpr(
 			ast.BinaryExpr{
@@ -150,7 +150,7 @@ func TestEvalExprWithCtxCombBinaryPaths(t *testing.T) {
 			diags,
 		)
 		if !IsComb(got) || CombRowCount(got) != 2 {
-			t.Fatalf("expected zipped comb with 2 rows, got %#v", got)
+			t.Fatalf("expected merged comb with 2 rows, got %#v", got)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())
@@ -325,49 +325,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 		}
 	})
 
-	t.Run("zip validates argument shape and row counts", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalZipCall(
-			[]ast.CallArg{{Name: "bad", Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span}},
-			map[string]Value{"a": CombValue(&Comb{})},
-			span,
-			diags,
-			ExprOptions{},
-			ctx,
-		)
-		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
-			t.Fatalf("expected zip() named-arg error, got value=%#v diags=%s", got, diags.String())
-		}
-
-		a := CombValue(&Comb{
-			Order: []string{"x"},
-			Rows: []Row{
-				{Values: map[string]Cell{"x": {Value: Int(1)}}},
-				{Values: map[string]Cell{"x": {Value: Int(2)}}},
-			},
-		})
-		b := CombValue(&Comb{
-			Order: []string{"y"},
-			Rows:  []Row{{Values: map[string]Cell{"y": {Value: Int(3)}}}},
-		})
-		diags = &diag.Diagnostics{}
-		got = evalZipCall(
-			[]ast.CallArg{
-				{Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span},
-				{Expr: ast.IdentExpr{Name: "b", Span: span}, Span: span},
-			},
-			map[string]Value{"a": a, "b": b},
-			span,
-			diags,
-			ExprOptions{},
-			ctx,
-		)
-		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
-			t.Fatalf("expected zip() row mismatch error, got value=%#v diags=%s", got, diags.String())
-		}
-	})
-
-	t.Run("zip and product reject duplicate columns", func(t *testing.T) {
+	t.Run("row-wise merge and product reject duplicate columns", func(t *testing.T) {
 		dupA := CombValue(&Comb{
 			Order: []string{"x"},
 			Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
@@ -378,19 +336,13 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 		})
 
 		diags := &diag.Diagnostics{}
-		got := evalZipCall(
-			[]ast.CallArg{
-				{Expr: ast.IdentExpr{Name: "a", Span: span}, Span: span},
-				{Expr: ast.IdentExpr{Name: "b", Span: span}, Span: span},
-			},
+		got := EvalExpr(
+			ast.BinaryExpr{Left: ast.IdentExpr{Name: "a", Span: span}, Op: "+", Right: ast.IdentExpr{Name: "b", Span: span}, Span: span},
 			map[string]Value{"a": dupA, "b": dupB},
-			span,
 			diags,
-			ExprOptions{},
-			ctx,
 		)
-		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
-			t.Fatalf("expected zip() duplicate-column error, got value=%#v diags=%s", got, diags.String())
+		if !IsComb(got) || diagCount(diags, "E042") == 0 {
+			t.Fatalf("expected row-wise merge duplicate-column conflict, got value=%#v diags=%s", got, diags.String())
 		}
 
 		diags = &diag.Diagnostics{}

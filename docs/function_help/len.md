@@ -21,6 +21,7 @@ One int value.
 1 == len("😛")
 2 == len({1:1, 2:2})
 
-grid = product(table(x = (1,2,3)), table(y = ("a","b","c","d")))
+grid = table(x = (1,2,3)) * table(y = ("a","b","c","d"))
 12 == len(grid)
+len(value = grid) == 12
 ```

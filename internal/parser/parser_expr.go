@@ -587,7 +587,8 @@ func (p *tokenParser) parseCallArgs() []ast.CallArg {
 	sawNamed := false
 	for {
 		arg := p.parseCallArg()
-		if arg.Name != "" {
+		switch arg.EffectiveKind() {
+		case ast.CallArgNamed:
 			sawNamed = true
 			if prev, exists := seenNamed[arg.Name]; exists {
 				p.diags.AddError(
@@ -599,13 +600,18 @@ func (p *tokenParser) parseCallArgs() []ast.CallArg {
 			} else {
 				seenNamed[arg.Name] = arg.Span
 			}
-		} else if sawNamed {
-			p.diags.AddError(
-				diag.CodeE058,
-				"positional argument cannot appear after named arguments",
-				arg.Span,
-				"move positional arguments before the first named argument",
-			)
+		case ast.CallArgPositional:
+			if sawNamed {
+				p.diags.AddError(
+					diag.CodeE058,
+					"positional argument cannot appear after named arguments",
+					arg.Span,
+					"move positional arguments before the first named argument",
+				)
+			}
+		}
+		if arg.EffectiveKind() == ast.CallArgKeywordSpread {
+			sawNamed = true
 		}
 		args = append(args, arg)
 		p.skipNewlines()
@@ -622,6 +628,24 @@ func (p *tokenParser) parseCallArgs() []ast.CallArg {
 }
 
 func (p *tokenParser) parseCallArg() ast.CallArg {
+	if p.peek().Type == lexer.TokenStarStar {
+		start := p.next()
+		expr := p.parseExpr()
+		span := start.Span
+		if expr != nil {
+			span = diag.Merge(start.Span, expr.GetSpan())
+		}
+		return ast.CallArg{Kind: ast.CallArgKeywordSpread, Expr: expr, Span: span}
+	}
+	if p.peek().Type == lexer.TokenStar {
+		start := p.next()
+		expr := p.parseExpr()
+		span := start.Span
+		if expr != nil {
+			span = diag.Merge(start.Span, expr.GetSpan())
+		}
+		return ast.CallArg{Kind: ast.CallArgPositionalSpread, Expr: expr, Span: span}
+	}
 	if p.peek().Type == lexer.TokenIdent && p.peekN(1).Type == lexer.TokenEqual {
 		nameTok := p.next()
 		eqTok := p.next()
@@ -632,6 +656,7 @@ func (p *tokenParser) parseCallArg() ast.CallArg {
 			span = diag.Merge(nameTok.Span, expr.GetSpan())
 		}
 		return ast.CallArg{
+			Kind: ast.CallArgNamed,
 			Name: nameTok.Value,
 			Expr: expr,
 			Span: span,
@@ -642,7 +667,7 @@ func (p *tokenParser) parseCallArg() ast.CallArg {
 	if expr != nil {
 		span = expr.GetSpan()
 	}
-	return ast.CallArg{Expr: expr, Span: span}
+	return ast.CallArg{Kind: ast.CallArgPositional, Expr: expr, Span: span}
 }
 
 func (p *tokenParser) parseFunctionExpr() ast.Expr {
@@ -681,49 +706,100 @@ func (p *tokenParser) parseFunctionParams() []ast.FuncParam {
 	params := make([]ast.FuncParam, 0, 2)
 	seen := make(map[string]diag.Span)
 	sawDefault := false
+	sawRest := false
+	seenArgs := false
+	seenKwargs := false
 	for {
-		nameTok := p.peek()
-		if nameTok.Type != lexer.TokenIdent {
+		tok := p.peek()
+		var param ast.FuncParam
+		if tok.Type == lexer.TokenStar || tok.Type == lexer.TokenStarStar {
+			starTok := p.next()
+			nameTok := p.expect(lexer.TokenIdent, diag.CodeE050, "expected parameter name after rest marker")
+			kind := ast.FuncParamArgs
+			if starTok.Type == lexer.TokenStarStar {
+				kind = ast.FuncParamKwargs
+			}
+			param = ast.FuncParam{
+				Kind: kind,
+				Name: nameTok.Value,
+				Span: diag.Merge(starTok.Span, nameTok.Span),
+			}
+			if kind == ast.FuncParamArgs {
+				if seenArgs {
+					p.diags.AddError(diag.CodeE058, "duplicate *args parameter", starTok.Span, "declare at most one *args parameter")
+				}
+				if seenKwargs {
+					p.diags.AddError(diag.CodeE058, "*args parameter cannot follow **kwargs", starTok.Span, "place *args before **kwargs")
+				}
+				seenArgs = true
+			} else {
+				if seenKwargs {
+					p.diags.AddError(diag.CodeE058, "duplicate **kwargs parameter", starTok.Span, "declare at most one **kwargs parameter")
+				}
+				seenKwargs = true
+			}
+			sawRest = true
+			p.skipNewlines()
+			if p.peek().Type == lexer.TokenEqual {
+				p.diags.AddError(diag.CodeE058, "rest parameters cannot have defaults", p.peek().Span, "remove the default value from the rest parameter")
+				p.next()
+				p.skipNewlines()
+				defaultExpr := p.parseExpr()
+				if defaultExpr != nil {
+					param.Span = diag.Merge(param.Span, defaultExpr.GetSpan())
+				}
+			}
+		} else if tok.Type == lexer.TokenIdent {
+			nameTok := p.next()
+			param = ast.FuncParam{Kind: ast.FuncParamValue, Name: nameTok.Value, Span: nameTok.Span}
+			if sawRest {
+				p.diags.AddError(
+					diag.CodeE058,
+					fmt.Sprintf("parameter '%s' cannot follow *args or **kwargs", param.Name),
+					nameTok.Span,
+					"place ordinary parameters before rest parameters",
+				)
+			}
+			p.skipNewlines()
+			if p.peek().Type == lexer.TokenEqual {
+				p.next()
+				p.skipNewlines()
+				param.Default = p.parseExpr()
+				if param.Default != nil {
+					param.Span = diag.Merge(nameTok.Span, param.Default.GetSpan())
+				}
+				sawDefault = true
+			} else if sawDefault {
+				p.diags.AddError(
+					diag.CodeE058,
+					fmt.Sprintf("parameter '%s' without default follows a defaulted parameter", param.Name),
+					nameTok.Span,
+					"move required parameters before defaulted parameters",
+				)
+			}
+		} else {
 			p.diags.AddError(
 				diag.CodeE050,
 				"expected parameter name in function parameter list",
-				nameTok.Span,
-				"use syntax: function(arg, other = expr) { ... }",
+				tok.Span,
+				"use syntax: function(arg, other = expr, *args, **kwargs) { ... }",
 			)
-			if nameTok.Type != lexer.TokenRParen && nameTok.Type != lexer.TokenEOF {
+			if tok.Type != lexer.TokenRParen && tok.Type != lexer.TokenEOF {
 				p.next()
 			}
 			break
 		}
-		nameTok = p.next()
-		param := ast.FuncParam{Name: nameTok.Value, Span: nameTok.Span}
 		if prev, exists := seen[param.Name]; exists {
 			p.diags.AddError(
 				diag.CodeE058,
 				fmt.Sprintf("duplicate parameter '%s'", param.Name),
-				nameTok.Span,
+				param.Span,
 				fmt.Sprintf("remove the duplicate parameter; first declaration was at %d:%d", prev.Start.Line, prev.Start.Column),
 			)
 		} else {
-			seen[param.Name] = nameTok.Span
-		}
-
-		p.skipNewlines()
-		if p.peek().Type == lexer.TokenEqual {
-			p.next()
-			p.skipNewlines()
-			param.Default = p.parseExpr()
-			if param.Default != nil {
-				param.Span = diag.Merge(nameTok.Span, param.Default.GetSpan())
+			if param.Name != "" {
+				seen[param.Name] = param.Span
 			}
-			sawDefault = true
-		} else if sawDefault {
-			p.diags.AddError(
-				diag.CodeE058,
-				fmt.Sprintf("parameter '%s' without default follows a defaulted parameter", param.Name),
-				nameTok.Span,
-				"move required parameters before defaulted parameters",
-			)
 		}
 		params = append(params, param)
 

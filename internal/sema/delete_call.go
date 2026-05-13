@@ -10,3 +10,15 @@ func isDeleteCallExpr(expr ast.Expr) bool {
 	ident, ok := call.Callee.(ast.IdentExpr)
 	return ok && ident.Name == "delete"
 }
+
+func deleteCallHasOnlyBareTargets(call ast.CallExpr) bool {
+	for _, arg := range call.Args {
+		if arg.EffectiveKind() != ast.CallArgPositional {
+			return false
+		}
+		if _, ok := arg.Expr.(ast.IdentExpr); !ok {
+			return false
+		}
+	}
+	return true
+}

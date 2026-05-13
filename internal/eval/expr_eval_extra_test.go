@@ -182,7 +182,7 @@ func TestBuiltinCallNames(t *testing.T) {
 			t.Fatalf("expected %q to be a builtin call name", name)
 		}
 	}
-	for _, name := range []string{"python", "missing"} {
+	for _, name := range []string{"python", "missing", "product", "select", "zip"} {
 		if IsBuiltinCallName(name) {
 			t.Fatalf("did not expect %q to be a builtin call name", name)
 		}

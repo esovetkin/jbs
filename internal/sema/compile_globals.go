@@ -46,7 +46,7 @@ func collectGlobalExprDepsBound(expr ast.Expr, out map[string]struct{}, bound ma
 					out[n.Namespace] = struct{}{}
 				}
 			case ast.CallExpr:
-				if isDeleteCallExpr(n) {
+				if isDeleteCallExpr(n) && deleteCallHasOnlyBareTargets(n) {
 					walkExprBound(n.Callee, bound)
 					return ast.WalkSkipChildren
 				}

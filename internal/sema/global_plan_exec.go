@@ -193,7 +193,7 @@ func (e *globalSeqEngine) filterExprDependencies(deps []string, self string) []s
 		if name == "" || name == self {
 			continue
 		}
-		if eval.IsBuiltinCallName(name) {
+		if eval.IsBuiltinCallName(name) || eval.IsBuiltinConstantName(name) {
 			if _, shadowed := e.values[name]; !shadowed {
 				continue
 			}

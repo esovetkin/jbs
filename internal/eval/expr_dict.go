@@ -41,34 +41,11 @@ func evalDictExpr(expr ast.DictExpr, env map[string]Value, diags *diag.Diagnosti
 	return DictValue(entries)
 }
 
-func evalDictCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) == 1 && rawArgs[0].Name == "" {
-		value := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return Null()
-		}
-		if !IsComb(value) {
-			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", rawArgs[0].Span, "use dict(table_value) or named keys such as dict(name = value)")
-			return Null()
-		}
-		return dictFromTable(value, rawArgs[0].Span, diags)
-	}
-	entries := make([]DictEntry, 0, len(rawArgs))
-	for _, arg := range rawArgs {
-		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", arg.Span, "use dict(table_value) or named keys such as dict(name = value)")
-			return Null()
-		}
-		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return Null()
-		}
-		entries = append(entries, DictEntry{Key: DictKey{Kind: DictKeyString, S: arg.Name}, Value: value})
-	}
-	return DictValue(entries)
-}
-
 func evalDictValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
+	if len(args) == 0 {
+		diags.AddError(diag.CodeE106, "dict() expects one source argument or named entries", at, "use dict(table_value) or named keys such as dict(name = value)")
+		return Null()
+	}
 	if len(args) == 1 && args[0].Name == "" {
 		if !IsComb(args[0].Value) {
 			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", args[0].Span, "use dict(table_value) or named keys such as dict(name = value)")
@@ -76,12 +53,12 @@ func evalDictValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostic
 		}
 		return dictFromTable(args[0].Value, args[0].Span, diags)
 	}
+	if hasPositionalValueArg(args) {
+		diags.AddError(diag.CodeE106, "dict() accepts either one source argument or named entries", firstPositionalValueSpan(args), "use dict(table_value) or dict(name = value), not both")
+		return Null()
+	}
 	entries := make([]DictEntry, 0, len(args))
 	for _, arg := range args {
-		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "dict() positional argument must be a table", arg.Span, "use dict(table_value) or named keys such as dict(name = value)")
-			return Null()
-		}
 		entries = append(entries, DictEntry{Key: DictKey{Kind: DictKeyString, S: arg.Name}, Value: arg.Value})
 	}
 	return DictValue(entries)
@@ -104,109 +81,54 @@ func dictFromTable(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	return DictValue(entries)
 }
 
-func evalDictGetCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) != 3 {
-		diags.AddError(diag.CodeE106, "get() expects exactly three arguments", at, "use get(dict_value, key, default_value)")
-		return Null()
-	}
-	args := make([]Value, 0, len(rawArgs))
-	for _, arg := range rawArgs {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "get() does not accept named arguments", arg.Span, "use get(dict_value, key, default_value)")
-			return Null()
-		}
-		args = append(args, evalExprWithCtx(arg.Expr, env, diags, opts, ctx))
-		if ctx.recursionLimitHit() {
-			return Null()
-		}
-	}
-	base := args[0]
-	if base.Kind != KindDict || base.D == nil {
-		diags.AddError(diag.CodeE106, "get() first argument must be a dictionary", rawArgs[0].Span, "use get(dict_value, key, default_value)")
-		return Null()
-	}
-	key, ok := dictKeyFromValue(args[1], rawArgs[1].Span, diags)
-	if !ok {
-		return Null()
-	}
-	value, exists := base.D.Entries[key]
-	if !exists {
-		return CloneValue(args[2])
-	}
-	return CloneValue(value)
-}
-
 func evalDictGetValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
-	if len(args) != 3 {
-		diags.AddError(diag.CodeE106, "get() expects exactly three arguments", at, "use get(dict_value, key, default_value)")
+	bound, ok := bindBuiltinArgs("get", args, builtinSignature{
+		Name: "get",
+		Params: []builtinParam{
+			{Name: "dict", Required: true},
+			{Name: "key", Required: true},
+			{Name: "default", Required: true},
+		},
+	}, at, diags)
+	if !ok {
 		return Null()
 	}
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "get() does not accept named arguments", arg.Span, "use get(dict_value, key, default_value)")
-			return Null()
-		}
-	}
-	base := args[0].Value
+	dictArg := bound.ByName["dict"]
+	keyArg := bound.ByName["key"]
+	defaultArg := bound.ByName["default"]
+	base := dictArg.Value
 	if base.Kind != KindDict || base.D == nil {
-		diags.AddError(diag.CodeE106, "get() first argument must be a dictionary", args[0].Span, "use get(dict_value, key, default_value)")
+		diags.AddError(diag.CodeE106, "get() first argument must be a dictionary", dictArg.Span, "use get(dict_value, key, default_value)")
 		return Null()
 	}
-	key, ok := dictKeyFromValue(args[1].Value, args[1].Span, diags)
+	key, ok := dictKeyFromValue(keyArg.Value, keyArg.Span, diags)
 	if !ok {
 		return Null()
 	}
 	value, exists := base.D.Entries[key]
 	if !exists {
-		return CloneValue(args[2].Value)
+		return CloneValue(defaultArg.Value)
 	}
 	return CloneValue(value)
-}
-
-func evalUpdateCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) == 0 || rawArgs[0].Name != "" {
-		diags.AddError(diag.CodeE106, "update() expects dictionary first argument", at, "use update(dict_value, key = value)")
-		return Null()
-	}
-	base := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	if base.Kind != KindDict || base.D == nil {
-		diags.AddError(diag.CodeE106, "update() first argument must be a dictionary", rawArgs[0].Span, "use update(dict_value, key = value)")
-		return Null()
-	}
-	out := CloneValue(base)
-	for _, arg := range rawArgs[1:] {
-		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "update() updates must be named arguments", arg.Span, "use update(dict_value, key = value)")
-			return Null()
-		}
-		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return Null()
-		}
-		out.D.Set(DictKey{Kind: DictKeyString, S: arg.Name}, value)
-	}
-	return out
 }
 
 func evalUpdateValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
-	if len(args) == 0 || args[0].Name != "" {
-		diags.AddError(diag.CodeE106, "update() expects dictionary first argument", at, "use update(dict_value, key = value)")
+	bound, ok := bindBuiltinArgs("update", args, builtinSignature{
+		Name:   "update",
+		Params: []builtinParam{{Name: "dict", Required: true}},
+		Kwargs: "updates",
+	}, at, diags)
+	if !ok {
 		return Null()
 	}
-	base := args[0].Value
+	baseArg := bound.ByName["dict"]
+	base := baseArg.Value
 	if base.Kind != KindDict || base.D == nil {
-		diags.AddError(diag.CodeE106, "update() first argument must be a dictionary", args[0].Span, "use update(dict_value, key = value)")
+		diags.AddError(diag.CodeE106, "update() first argument must be a dictionary", baseArg.Span, "use update(dict_value, key = value)")
 		return Null()
 	}
 	out := CloneValue(base)
-	for _, arg := range args[1:] {
-		if arg.Name == "" {
-			diags.AddError(diag.CodeE106, "update() updates must be named arguments", arg.Span, "use update(dict_value, key = value)")
-			return Null()
-		}
+	for _, arg := range bound.Kwargs {
 		out.D.Set(DictKey{Kind: DictKeyString, S: arg.Name}, arg.Value)
 	}
 	return out

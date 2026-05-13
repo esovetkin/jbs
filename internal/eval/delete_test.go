@@ -90,7 +90,7 @@ func TestEvalDeleteInvalidTargets(t *testing.T) {
 			name:     "named target",
 			expr:     callExpr(ident("delete"), namedArg("x", intExpr(1))),
 			wantCode: "E106",
-			wantText: "does not accept named arguments",
+			wantText: "unknown named argument 'x' for delete()",
 		},
 		{
 			name:     "duplicate target",
@@ -126,6 +126,26 @@ func TestEvalDeleteInvalidTargets(t *testing.T) {
 				t.Fatalf("expected diagnostic containing %q, got: %s", tc.wantText, diags.String())
 			}
 		})
+	}
+}
+
+func TestEvalDeleteNamesArgument(t *testing.T) {
+	frame := NewRootFrame(map[string]Value{"x": Int(1), "y": Int(2)})
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(
+		callExpr(ident("delete"), namedArg("names", listExpr(stringExpr("x"), stringExpr("y")))),
+		nil,
+		diags,
+		ExprOptions{Frame: frame},
+	)
+	if got.Kind != KindNull {
+		t.Fatalf("delete() should return null, got %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if frame.HasLocal("x") || frame.HasLocal("y") {
+		t.Fatalf("delete(names=[...]) did not remove local variables")
 	}
 }
 

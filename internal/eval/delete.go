@@ -7,17 +7,27 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-func evalDeleteCall(rawArgs []ast.CallArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+func evalDeleteCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) == 0 {
 		diags.AddError(diag.CodeE106, "delete() expects at least one variable", at, "use delete(name)")
 		return Null()
 	}
+	direct := true
+	for _, arg := range rawArgs {
+		if arg.EffectiveKind() != ast.CallArgPositional {
+			direct = false
+			break
+		}
+	}
+	if !direct {
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalDeleteValueCall(args, at, diags, opts, ctx)
+	}
 	seen := make(map[string]diag.Span, len(rawArgs))
 	for _, arg := range rawArgs {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "delete() does not accept named arguments", arg.Span, "pass bare variable names")
-			continue
-		}
 		ident, ok := arg.Expr.(ast.IdentExpr)
 		if !ok || ident.Name == "" {
 			diags.AddError(diag.CodeE106, "delete() targets must be bare identifiers", arg.Span, "use delete(name)")
@@ -40,16 +50,16 @@ func evalDeleteCall(rawArgs []ast.CallArg, at diag.Span, diags *diag.Diagnostics
 }
 
 func evalDeleteValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(args) == 0 {
+	bound, ok := bindBuiltinArgs("delete", args, builtinSignature{Name: "delete", Varargs: "names", NamedVarargs: true}, at, diags)
+	if !ok {
+		return Null()
+	}
+	if len(bound.Varargs) == 0 {
 		diags.AddError(diag.CodeE106, "delete() expects at least one variable", at, `use delete("name")`)
 		return Null()
 	}
-	seen := make(map[string]diag.Span, len(args))
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "delete() does not accept named arguments", arg.Span, "pass variable names as strings")
-			continue
-		}
+	seen := make(map[string]diag.Span, len(bound.Varargs))
+	for _, arg := range bound.Varargs {
 		if arg.Value.Kind != KindString || arg.Value.S == "" {
 			diags.AddError(diag.CodeE106, "delete() function value targets must be strings", arg.Span, `use delete("name")`)
 			continue
@@ -81,6 +91,10 @@ func deleteOneName(name string, at diag.Span, diags *diag.Diagnostics, opts Expr
 	}
 	if IsBuiltinCallName(name) {
 		diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete built-in function '%s'", name), at, "built-in functions are always available")
+		return
+	}
+	if IsBuiltinConstantName(name) {
+		diags.AddError(diag.CodeE106, fmt.Sprintf("cannot delete built-in value '%s'", name), at, "built-in values are always available")
 		return
 	}
 	diags.AddError(diag.CodeE100, fmt.Sprintf("unknown local variable '%s'", name), at, "delete only variables declared in the current scope")

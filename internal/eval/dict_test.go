@@ -89,6 +89,12 @@ func TestEvalDictLiteralCallGetUpdateMergeAndIndex(t *testing.T) {
 		diags,
 		ExprOptions{},
 	)
+	updatedNamedBase := EvalExprWithOptions(
+		callExpr(ident("update"), namedArg("dict", ident("d")), namedArg("c", intExpr(3))),
+		map[string]Value{"d": base},
+		diags,
+		ExprOptions{},
+	)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected update diagnostics: %s", diags.String())
 	}
@@ -97,6 +103,19 @@ func TestEvalDictLiteralCallGetUpdateMergeAndIndex(t *testing.T) {
 	}
 	if updated.D.Entries[DictKey{Kind: DictKeyString, S: "b"}].I != 2 {
 		t.Fatalf("update did not replace b: %#v", updated)
+	}
+	if updatedNamedBase.D.Entries[DictKey{Kind: DictKeyString, S: "c"}].I != 3 {
+		t.Fatalf("update(dict=...) did not set c: %#v", updatedNamedBase)
+	}
+
+	spread := EvalExprWithOptions(
+		callExpr(ident("dict"), kwSpreadArg(ident("entries"))),
+		map[string]Value{"entries": DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "c"}, Value: Int(3)}})},
+		diags,
+		ExprOptions{},
+	)
+	if spread.Kind != KindDict || spread.D.Entries[DictKey{Kind: DictKeyString, S: "c"}].I != 3 {
+		t.Fatalf("unexpected dict(**entries) result: %#v", spread)
 	}
 
 	merged := EvalExprWithOptions(
@@ -132,7 +151,7 @@ func TestEvalDictLiteralCallGetUpdateMergeAndIndex(t *testing.T) {
 	if got := EvalExprWithOptions(callExpr(ident("len"), posArg(ident("d"))), map[string]Value{"d": updated}, diags, ExprOptions{}); !Equal(got, Int(3)) {
 		t.Fatalf("unexpected len(dict): %#v", got)
 	}
-	if got := EvalExprWithOptions(callExpr(ident("bool"), posArg(callExpr(ident("dict")))), nil, diags, ExprOptions{}); !Equal(got, Bool(false)) {
+	if got := EvalExprWithOptions(callExpr(ident("bool"), posArg(ast.DictExpr{})), nil, diags, ExprOptions{}); !Equal(got, Bool(false)) {
 		t.Fatalf("empty dictionary should be false, got %#v", got)
 	}
 	if diags.HasErrors() {
@@ -143,12 +162,13 @@ func TestEvalDictLiteralCallGetUpdateMergeAndIndex(t *testing.T) {
 func TestDictDiagnostics(t *testing.T) {
 	span := spanAt(1302, 1)
 	cases := []ast.Expr{
+		callExpr(ident("dict")),
 		callExpr(ident("dict"), posArg(intExpr(1))),
-		callExpr(ident("get"), posArg(callExpr(ident("dict"))), namedArg("key", stringExpr("x")), posArg(intExpr(0))),
-		callExpr(ident("update"), posArg(callExpr(ident("dict"))), posArg(intExpr(1))),
+		callExpr(ident("get"), posArg(ast.DictExpr{}), namedArg("key", stringExpr("x")), posArg(intExpr(0))),
+		callExpr(ident("update"), posArg(ast.DictExpr{}), posArg(intExpr(1))),
 		ast.DictExpr{Entries: []ast.DictEntryExpr{{Key: ast.ListExpr{Items: []ast.Expr{intExpr(1)}, Span: span}, Value: intExpr(1), Span: span}}, Span: span},
-		ast.BinaryExpr{Left: callExpr(ident("dict")), Op: "+", Right: intExpr(1), Span: span},
-		ast.IndexExpr{Base: callExpr(ident("dict")), Items: []ast.Expr{stringExpr("missing")}, Span: span},
+		ast.BinaryExpr{Left: ast.DictExpr{}, Op: "+", Right: intExpr(1), Span: span},
+		ast.IndexExpr{Base: ast.DictExpr{}, Items: []ast.Expr{stringExpr("missing")}, Span: span},
 	}
 	for _, expr := range cases {
 		diags := &diag.Diagnostics{}

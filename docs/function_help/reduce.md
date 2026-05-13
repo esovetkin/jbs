@@ -1,10 +1,10 @@
-# `reduce(<function>, <list/tuple>)`
+# `reduce(fn, values)`
 
 `reduce` folds a list or tuple from left to right.
 
 ## Arguments
 
-- `function`: a user-defined or built-in function value called as `function(acc, item)`.
+- `fn`: a user-defined or built-in function value called as `fn(acc, item)`.
 - `values`: a non-empty list or tuple.
 - reduction uses left-fold semantics:
 - first accumulator is the first sequence element
@@ -25,5 +25,6 @@ sum2 = function(acc, x) {
 }
 
 reduce(sum2, [1,2,3,4]) == 10
+reduce(fn = sum2, values = [1,2,3,4]) == 10
 reduce(sum2, (1,2,3,4)) == 10
 ```

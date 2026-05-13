@@ -5,6 +5,7 @@
 - One or more named column arguments such as `id = values`.
 - Or one positional dictionary argument: `table(dict_value)`.
 - Or one positional list of row dictionaries: `table(rows_value)`.
+- `table(**columns)` expands a dictionary into named columns.
 - Column values may be scalar, list, or tuple values.
 - Scalar values are treated as one-row columns and broadcast when needed.
 - Shorter non-empty columns are cyclically broadcast to the longest column.
@@ -28,6 +29,7 @@ A table value with columns in argument order.
 cases = table(id = (1,2), label = ("a","b"))
 short = t(id = (1,2), label = ("a","b"))
 from_dict = table(dict(id = range(5), label = range(10)))
+from_kwargs = table(**dict(id = range(5), label = range(10)))
 from_rows = table([dict(id = 1, label = "a"), dict(id = 2, label = "b")])
 roundtrip = table(rows(cases))
 ```

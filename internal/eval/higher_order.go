@@ -1,29 +1,6 @@
 package eval
 
-import (
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
-)
-
-func evalStrictPositionalCallValueArgs(name string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx, want int) ([]CallValueArg, bool) {
-	if len(rawArgs) != want {
-		diags.AddError(diag.CodeE106, name+"() expects exactly two arguments", at, "use "+name+"(function, values)")
-		return nil, false
-	}
-	args := make([]CallValueArg, 0, len(rawArgs))
-	for _, arg := range rawArgs {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, name+"() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return nil, false
-		}
-		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return nil, false
-		}
-		args = append(args, CallValueArg{Value: value, Span: arg.Span})
-	}
-	return args, true
-}
+import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 
 func sequenceItems(kind string, v Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool, bool) {
 	return sequenceItemsForArg(kind, "second", v, at, diags)
@@ -41,31 +18,25 @@ func sequenceItemsForArg(kind, ordinal string, v Value, at diag.Span, diags *dia
 	}
 }
 
-func evalMapCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	args, ok := evalStrictPositionalCallValueArgs("map", rawArgs, env, at, diags, opts, ctx, 2)
+func evalMapValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	bound, ok := bindBuiltinArgs("map", args, builtinSignature{
+		Name: "map",
+		Params: []builtinParam{
+			{Name: "fn", Required: true},
+			{Name: "values", Required: true},
+		},
+	}, at, diags)
 	if !ok {
 		return Null()
 	}
-	return evalMapValueCall(args, env, at, diags, opts, ctx)
-}
-
-func evalMapValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(args) != 2 {
-		diags.AddError(diag.CodeE106, "map() expects exactly two arguments", at, "use map(function, values)")
-		return Null()
-	}
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "map() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return Null()
-		}
-	}
-	fnValue := args[0].Value
+	fnArg := bound.ByName["fn"]
+	valuesArg := bound.ByName["values"]
+	fnValue := fnArg.Value
 	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
-		diags.AddError(diag.CodeE106, "map() expects function value as first argument", args[0].Span, "pass a function literal, built-in function, or function-valued variable")
+		diags.AddError(diag.CodeE106, "map() expects function value as first argument", fnArg.Span, "pass a function literal, built-in function, or function-valued variable")
 		return Null()
 	}
-	items, isTuple, ok := sequenceItems("map", args[1].Value, args[1].Span, diags)
+	items, isTuple, ok := sequenceItems("map", valuesArg.Value, valuesArg.Span, diags)
 	if !ok {
 		return Null()
 	}
@@ -90,31 +61,25 @@ func evalMapValueCall(args []CallValueArg, env map[string]Value, at diag.Span, d
 	return List(out)
 }
 
-func evalReduceCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	args, ok := evalStrictPositionalCallValueArgs("reduce", rawArgs, env, at, diags, opts, ctx, 2)
+func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	bound, ok := bindBuiltinArgs("reduce", args, builtinSignature{
+		Name: "reduce",
+		Params: []builtinParam{
+			{Name: "fn", Required: true},
+			{Name: "values", Required: true},
+		},
+	}, at, diags)
 	if !ok {
 		return Null()
 	}
-	return evalReduceValueCall(args, env, at, diags, opts, ctx)
-}
-
-func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(args) != 2 {
-		diags.AddError(diag.CodeE106, "reduce() expects exactly two arguments", at, "use reduce(function, values)")
-		return Null()
-	}
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "reduce() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return Null()
-		}
-	}
-	fnValue := args[0].Value
+	fnArg := bound.ByName["fn"]
+	valuesArg := bound.ByName["values"]
+	fnValue := fnArg.Value
 	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
-		diags.AddError(diag.CodeE106, "reduce() expects function value as first argument", args[0].Span, "pass a function literal, built-in function, or function-valued variable")
+		diags.AddError(diag.CodeE106, "reduce() expects function value as first argument", fnArg.Span, "pass a function literal, built-in function, or function-valued variable")
 		return Null()
 	}
-	items, _, ok := sequenceItems("reduce", args[1].Value, args[1].Span, diags)
+	items, _, ok := sequenceItems("reduce", valuesArg.Value, valuesArg.Span, diags)
 	if !ok {
 		return Null()
 	}
@@ -145,55 +110,32 @@ func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span
 	return acc
 }
 
-func evalFilterCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) != 2 {
-		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, function)")
-		return Null()
-	}
-	for _, arg := range rawArgs {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "filter() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return Null()
-		}
-	}
-	values := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	predicate := evalExprWithCtx(rawArgs[1].Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	return evalFilterValueCall([]CallValueArg{
-		{Value: values, Span: rawArgs[0].Span},
-		{Value: predicate, Span: rawArgs[1].Span},
-	}, env, at, diags, opts, ctx)
-}
-
 func evalFilterValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(args) != 2 {
-		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, function)")
+	bound, ok := bindBuiltinArgs("filter", args, builtinSignature{
+		Name: "filter",
+		Params: []builtinParam{
+			{Name: "values", Required: true},
+			{Name: "fn", Required: true},
+		},
+	}, at, diags)
+	if !ok {
 		return Null()
 	}
-	for _, arg := range args {
-		if arg.Name != "" {
-			diags.AddError(diag.CodeE106, "filter() does not accept named arguments", arg.Span, "pass positional arguments only")
-			return Null()
-		}
-	}
-	target := args[0].Value
-	fnValue := args[1].Value
+	valuesArg := bound.ByName["values"]
+	fnArg := bound.ByName["fn"]
+	target := valuesArg.Value
+	fnValue := fnArg.Value
 	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
-		diags.AddError(diag.CodeE106, "filter() expects function value as second argument", args[1].Span, "pass a function literal, built-in function, or function-valued variable")
+		diags.AddError(diag.CodeE106, "filter() expects function value as second argument", fnArg.Span, "pass a function literal, built-in function, or function-valued variable")
 		return Null()
 	}
 	switch target.Kind {
 	case KindList, KindTuple:
 		return evalFilterSequence(target, fnValue.Fn, env, at, diags, opts, ctx)
 	case KindComb:
-		return evalFilterTable(target, fnValue.Fn, env, args[0].Span, at, diags, opts, ctx)
+		return evalFilterTable(target, fnValue.Fn, env, valuesArg.Span, at, diags, opts, ctx)
 	default:
-		diags.AddError(diag.CodeE106, "filter() expects list/tuple/table as first argument", args[0].Span, "pass a list, tuple, or table value")
+		diags.AddError(diag.CodeE106, "filter() expects list/tuple/table as first argument", valuesArg.Span, "pass a list, tuple, or table value")
 		return Null()
 	}
 }
@@ -262,33 +204,16 @@ func evalFilterPredicate(fn *FunctionValue, arg Value, argSpan diag.Span, env ma
 	return keep, true
 }
 
-func evalFoldOperatorCall(name, op string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) != 1 {
-		diags.AddError(diag.CodeE106, name+"() expects exactly one argument", at, "use "+name+"(values)")
-		return Null()
-	}
-	arg := rawArgs[0]
-	if arg.Name != "" {
-		diags.AddError(diag.CodeE106, name+"() does not accept named arguments", arg.Span, "pass positional arguments only")
-		return Null()
-	}
-	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	return evalFoldOperator(name, op, value, arg.Span, at, diags, opts, ctx)
-}
-
 func evalFoldOperatorValueCall(name, op string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(args) != 1 {
-		diags.AddError(diag.CodeE106, name+"() expects exactly one argument", at, "use "+name+"(values)")
+	bound, ok := bindBuiltinArgs(name, args, builtinSignature{
+		Name:   name,
+		Params: []builtinParam{{Name: "values", Required: true}},
+	}, at, diags)
+	if !ok {
 		return Null()
 	}
-	if args[0].Name != "" {
-		diags.AddError(diag.CodeE106, name+"() does not accept named arguments", args[0].Span, "pass positional arguments only")
-		return Null()
-	}
-	return evalFoldOperator(name, op, args[0].Value, args[0].Span, at, diags, opts, ctx)
+	valueArg := bound.ByName["values"]
+	return evalFoldOperator(name, op, valueArg.Value, valueArg.Span, at, diags, opts, ctx)
 }
 
 func evalFoldOperator(name, op string, value Value, valueSpan diag.Span, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {

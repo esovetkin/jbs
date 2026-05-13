@@ -10,12 +10,6 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 	switch name {
 	case "table", "t":
 		return evalTableValueCall(args, at, diags)
-	case "zip":
-		return evalZipValueCall(args, at, diags)
-	case "product":
-		return evalProductValueCall(args, at, diags)
-	case "select":
-		return evalSelectValueCall(args, at, diags)
 	case "dict":
 		return evalDictValueCall(args, at, diags)
 	case "delete":
@@ -46,7 +40,7 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalUpdateValueCall(args, at, diags)
 	}
 
-	values, ok := positionalBuiltinValues(name, args, at, diags)
+	values, ok := simpleBuiltinValues(name, args, at, diags)
 	if !ok {
 		return Null()
 	}
@@ -67,7 +61,37 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 	return evalKernelCall(name, values, at, diags, opts)
 }
 
-func positionalBuiltinValues(name string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+func simpleBuiltinValues(name string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+	if !IsBuiltinCallName(name) {
+		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), at, "use a supported builtin or define a function value before calling it")
+		return nil, false
+	}
+	switch name {
+	case "read_csv":
+		bound, ok := bindBuiltinArgs(name, args, builtinSignature{Name: name, Params: []builtinParam{{Name: "path", Required: true}}}, at, diags)
+		if !ok {
+			return nil, false
+		}
+		return []Value{bound.ByName["path"].Value}, true
+	case "bool", "int", "float", "str", "len", "all", "any", "rev", "tuple", "list":
+		param := "value"
+		if name == "all" || name == "any" || name == "rev" {
+			param = "values"
+		}
+		bound, ok := bindBuiltinArgs(name, args, builtinSignature{Name: name, Params: []builtinParam{{Name: param, Required: true}}}, at, diags)
+		if !ok {
+			return nil, false
+		}
+		return []Value{bound.ByName[param].Value}, true
+	case "print":
+		bound, ok := bindBuiltinArgs(name, args, builtinSignature{Name: name, Varargs: "values", NamedVarargs: true, AllowNoArgs: true}, at, diags)
+		if !ok {
+			return nil, false
+		}
+		return callArgsToValues(bound.Varargs), true
+	case "range":
+		return bindRangeBuiltinValues(args, at, diags)
+	}
 	values := make([]Value, 0, len(args))
 	for _, arg := range args {
 		if arg.Name != "" {
@@ -76,9 +100,45 @@ func positionalBuiltinValues(name string, args []CallValueArg, at diag.Span, dia
 		}
 		values = append(values, arg.Value)
 	}
-	if !IsBuiltinCallName(name) {
-		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), at, "use a supported builtin or define a function value before calling it")
+	return values, true
+}
+
+func bindRangeBuiltinValues(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+	hasNamed := false
+	for _, arg := range args {
+		if arg.Name != "" {
+			hasNamed = true
+			break
+		}
+	}
+	if !hasNamed {
+		values := callArgsToValues(args)
+		if len(values) < 1 || len(values) > 3 {
+			diags.AddError(diag.CodeE106, "range() expects 1, 2, or 3 arguments", at, "use range(stop), range(start, stop), or range(start, stop, step)")
+			return nil, false
+		}
+		return values, true
+	}
+	bound, ok := bindBuiltinArgs("range", args, builtinSignature{
+		Name: "range",
+		Params: []builtinParam{
+			{Name: "start"},
+			{Name: "stop", Required: true},
+			{Name: "step"},
+		},
+	}, at, diags)
+	if !ok {
 		return nil, false
 	}
-	return values, true
+	if _, ok := bound.ByName["start"]; !ok {
+		bound.ByName["start"] = CallValueArg{Value: Int(0), Span: at}
+	}
+	if _, ok := bound.ByName["step"]; !ok {
+		bound.ByName["step"] = CallValueArg{Value: Int(1), Span: at}
+	}
+	return []Value{
+		bound.ByName["start"].Value,
+		bound.ByName["stop"].Value,
+		bound.ByName["step"].Value,
+	}, true
 }

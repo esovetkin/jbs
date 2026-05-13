@@ -283,13 +283,58 @@ func evalCallValueArgs(rawArgs []ast.CallArg, env map[string]Value, diags *diag.
 		if ctx.recursionLimitHit() {
 			return nil, false
 		}
-		args = append(args, CallValueArg{
-			Name:  arg.Name,
-			Value: value,
-			Span:  arg.Span,
-		})
+		switch arg.EffectiveKind() {
+		case ast.CallArgPositionalSpread:
+			items, ok := callSpreadItems(value, arg.Span, diags)
+			if !ok {
+				return nil, false
+			}
+			for _, item := range items {
+				args = append(args, CallValueArg{Value: item, Span: arg.Span})
+			}
+		case ast.CallArgKeywordSpread:
+			entries, ok := callKeywordEntries(value, arg.Span, diags)
+			if !ok {
+				return nil, false
+			}
+			args = append(args, entries...)
+		case ast.CallArgNamed:
+			args = append(args, CallValueArg{Name: arg.Name, Value: value, Span: arg.Span})
+		default:
+			args = append(args, CallValueArg{Value: value, Span: arg.Span})
+		}
 	}
 	return args, true
+}
+
+func callSpreadItems(value Value, at diag.Span, diags *diag.Diagnostics) ([]Value, bool) {
+	switch value.Kind {
+	case KindList, KindTuple:
+		return CloneValues(value.L), true
+	default:
+		diags.AddError(diag.CodeE106, "* call expansion expects a list or tuple", at, "use *list_value or *tuple_value")
+		return nil, false
+	}
+}
+
+func callKeywordEntries(value Value, at diag.Span, diags *diag.Diagnostics) ([]CallValueArg, bool) {
+	if value.Kind != KindDict || value.D == nil {
+		diags.AddError(diag.CodeE106, "** call expansion expects a dictionary", at, "use **dict_value")
+		return nil, false
+	}
+	out := make([]CallValueArg, 0, len(value.D.Order))
+	for _, key := range value.D.Order {
+		if key.Kind != DictKeyString || key.S == "" {
+			diags.AddError(diag.CodeE106, "** call expansion keys must be non-empty strings", at, "use string keys such as name or mode")
+			return nil, false
+		}
+		value, ok := value.D.Entries[key]
+		if !ok {
+			continue
+		}
+		out = append(out, CallValueArg{Name: key.S, Value: CloneValue(value), Span: at})
+	}
+	return out, true
 }
 
 func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -314,12 +359,20 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 	}
 	callOpts.Names = callNameCatalog(fn.Names, callFrame)
 
-	boundValues, ok := bindFunctionArguments(fn, args, at, diags)
+	binding, ok := bindFunctionArguments(fn, args, at, diags)
 	if !ok {
 		return Null()
 	}
 	for i, param := range fn.Params {
-		if bound, exists := boundValues[i]; exists {
+		switch param.Kind {
+		case ast.FuncParamArgs:
+			callFrame.AssignLocal(param.Name, List(CloneValues(binding.Args)), param.Span)
+			continue
+		case ast.FuncParamKwargs:
+			callFrame.AssignLocal(param.Name, DictValue(binding.Kwargs), param.Span)
+			continue
+		}
+		if bound, exists := binding.Fixed[i]; exists {
 			callFrame.AssignLocal(param.Name, bound, param.Span)
 			continue
 		}
@@ -352,44 +405,87 @@ func executeFunctionCallValues(fn *FunctionValue, args []CallValueArg, env map[s
 	return result.Value
 }
 
-func bindFunctionArguments(fn *FunctionValue, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) (map[int]Value, bool) {
-	bound := make(map[int]Value, len(args))
+type functionArgBinding struct {
+	Fixed  map[int]Value
+	Args   []Value
+	Kwargs []DictEntry
+}
+
+func bindFunctionArguments(fn *FunctionValue, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) (functionArgBinding, bool) {
+	binding := functionArgBinding{Fixed: make(map[int]Value, len(args))}
 	paramIndex := make(map[string]int, len(fn.Params))
+	normalOrder := make([]int, 0, len(fn.Params))
+	hasArgs := false
+	hasKwargs := false
 	for i, param := range fn.Params {
 		if param.Name == "" {
 			continue
 		}
-		paramIndex[param.Name] = i
+		switch param.Kind {
+		case ast.FuncParamArgs:
+			hasArgs = true
+		case ast.FuncParamKwargs:
+			hasKwargs = true
+		default:
+			paramIndex[param.Name] = i
+			normalOrder = append(normalOrder, i)
+		}
 	}
 	namedSeen := false
 	nextPositional := 0
+	seenNamedArgs := make(map[string]diag.Span)
 	for _, arg := range args {
 		if arg.Name == "" {
 			if namedSeen {
 				diags.AddError(diag.CodeE106, "positional arguments cannot follow named arguments", arg.Span, "pass positional arguments before any named arguments")
-				return nil, false
+				return binding, false
 			}
-			if nextPositional >= len(fn.Params) {
+			if nextPositional < len(normalOrder) {
+				binding.Fixed[normalOrder[nextPositional]] = arg.Value
+				nextPositional++
+				continue
+			}
+			if hasArgs {
+				binding.Args = append(binding.Args, CloneValue(arg.Value))
+				continue
+			}
+			if nextPositional >= len(normalOrder) {
 				diags.AddError(diag.CodeE106, "too many positional arguments", arg.Span, "remove extra arguments or add parameters")
-				return nil, false
+				return binding, false
 			}
-			bound[nextPositional] = arg.Value
-			nextPositional++
 			continue
 		}
 		namedSeen = true
+		if prev, exists := seenNamedArgs[arg.Name]; exists {
+			diags.AddError(
+				diag.CodeE106,
+				fmt.Sprintf("argument '%s' received multiple values", arg.Name),
+				arg.Span,
+				"pass each argument at most once",
+				diag.RelatedSpan{Message: "previous value", Span: prev},
+			)
+			return binding, false
+		}
+		seenNamedArgs[arg.Name] = arg.Span
 		idx, ok := paramIndex[arg.Name]
 		if !ok {
+			if hasKwargs {
+				binding.Kwargs = append(binding.Kwargs, DictEntry{
+					Key:   DictKey{Kind: DictKeyString, S: arg.Name},
+					Value: CloneValue(arg.Value),
+				})
+				continue
+			}
 			diags.AddError(diag.CodeE106, fmt.Sprintf("unknown named argument '%s'", arg.Name), arg.Span, "use one of the declared parameter names")
-			return nil, false
+			return binding, false
 		}
-		if _, exists := bound[idx]; exists {
+		if _, exists := binding.Fixed[idx]; exists {
 			diags.AddError(diag.CodeE106, fmt.Sprintf("parameter '%s' received multiple values", arg.Name), arg.Span, "pass each parameter at most once")
-			return nil, false
+			return binding, false
 		}
-		bound[idx] = arg.Value
+		binding.Fixed[idx] = arg.Value
 	}
-	return bound, true
+	return binding, true
 }
 
 func predeclareFunctionLocals(body []ast.FuncBodyStmt, frame *Frame) {

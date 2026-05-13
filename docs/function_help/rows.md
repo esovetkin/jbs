@@ -2,8 +2,7 @@
 
 ## Arguments
 
-- One table value.
-- Named arguments are not accepted.
+- `table`: one table value.
 
 ## Returns
 
@@ -20,6 +19,7 @@ zero-row table shape.
 ```jbs
 cases = table(x = [1, 2], y = ["a", "b"])
 rows(cases)
+rows(table = cases)
 # [dict(x = 1, y = "a"), dict(x = 2, y = "b")]
 
 table(rows(cases))

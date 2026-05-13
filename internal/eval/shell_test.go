@@ -54,6 +54,28 @@ func TestEvalShellCallStripFalse(t *testing.T) {
 	}
 }
 
+func TestEvalShellCallNamedCommand(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "shell", Span: spanAt(701, 40)},
+		Args: []ast.CallArg{
+			namedArg("command", ast.StringExpr{Value: "printf value"}),
+			namedArg("strip", ast.BoolExpr{Value: true}),
+		},
+		Span: spanAt(701, 40),
+	}, nil, diags, ExprOptions{
+		ShellRunner: func(ShellCommand) ([]byte, error) {
+			return []byte("value\n"), nil
+		},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got.Kind != KindString || got.S != "value" {
+		t.Fatalf("unexpected named shell result: %#v", got)
+	}
+}
+
 func TestEvalShellCallArgumentErrors(t *testing.T) {
 	tests := []struct {
 		name string

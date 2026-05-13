@@ -30,7 +30,15 @@ func posArg(expr ast.Expr) ast.CallArg {
 }
 
 func namedArg(name string, expr ast.Expr) ast.CallArg {
-	return ast.CallArg{Name: name, Expr: expr, Span: expr.GetSpan()}
+	return ast.CallArg{Kind: ast.CallArgNamed, Name: name, Expr: expr, Span: expr.GetSpan()}
+}
+
+func posSpreadArg(expr ast.Expr) ast.CallArg {
+	return ast.CallArg{Kind: ast.CallArgPositionalSpread, Expr: expr, Span: expr.GetSpan()}
+}
+
+func kwSpreadArg(expr ast.Expr) ast.CallArg {
+	return ast.CallArg{Kind: ast.CallArgKeywordSpread, Expr: expr, Span: expr.GetSpan()}
 }
 
 func callExpr(callee ast.Expr, args ...ast.CallArg) ast.CallExpr {
@@ -505,6 +513,137 @@ func TestFunctionNamedArgsDefaultsAndBindingErrors(t *testing.T) {
 			t.Fatalf("expected E106, got: %s", diags.String())
 		}
 	})
+}
+
+func TestFunctionRestArgumentsAndCallExpansion(t *testing.T) {
+	t.Run("args rest captures extra positionals", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(
+			[]ast.FuncParam{{Kind: ast.FuncParamArgs, Name: "args"}},
+			exprStmt(ident("args")),
+		)
+		got := EvalExprWithOptions(callExpr(fn, posArg(intExpr(1)), posArg(intExpr(2))), nil, diags, ExprOptions{})
+		if !Equal(got, List([]Value{Int(1), Int(2)})) {
+			t.Fatalf("unexpected args rest value: %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("kwargs rest captures unknown named", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(
+			[]ast.FuncParam{{Kind: ast.FuncParamKwargs, Name: "kwargs"}},
+			exprStmt(ident("kwargs")),
+		)
+		got := EvalExprWithOptions(callExpr(fn, namedArg("x", intExpr(1)), namedArg("y", intExpr(2))), nil, diags, ExprOptions{})
+		want := DictValue([]DictEntry{
+			{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+			{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: Int(2)},
+		})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected kwargs rest value: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("fixed args and kwargs combine", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(
+			[]ast.FuncParam{
+				{Kind: ast.FuncParamValue, Name: "a"},
+				{Kind: ast.FuncParamArgs, Name: "args"},
+				{Kind: ast.FuncParamKwargs, Name: "kwargs"},
+			},
+			exprStmt(listExpr(ident("a"), ident("args"), ident("kwargs"))),
+		)
+		got := EvalExprWithOptions(callExpr(fn, posArg(intExpr(1)), posArg(intExpr(2)), namedArg("x", intExpr(3))), nil, diags, ExprOptions{})
+		want := List([]Value{
+			Int(1),
+			List([]Value{Int(2)}),
+			DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(3)}}),
+		})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected mixed rest value: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("call site expansion succeeds", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		fn := fnExpr(
+			[]ast.FuncParam{
+				{Kind: ast.FuncParamValue, Name: "a"},
+				{Kind: ast.FuncParamValue, Name: "b"},
+				{Kind: ast.FuncParamKwargs, Name: "kwargs"},
+			},
+			exprStmt(listExpr(ident("a"), ident("b"), ident("kwargs"))),
+		)
+		kwargs := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(3)}})
+		got := EvalExprWithOptions(callExpr(fn,
+			posSpreadArg(listExpr(intExpr(1), intExpr(2))),
+			kwSpreadArg(ident("kwargs")),
+		), map[string]Value{"kwargs": kwargs}, diags, ExprOptions{})
+		want := List([]Value{
+			Int(1),
+			Int(2),
+			DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(3)}}),
+		})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected spread call value: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestFunctionCallExpansionDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		args []ast.CallArg
+		env  map[string]Value
+	}{
+		{
+			name: "star requires sequence",
+			args: []ast.CallArg{posSpreadArg(intExpr(1))},
+		},
+		{
+			name: "starstar requires dict",
+			args: []ast.CallArg{kwSpreadArg(intExpr(1))},
+		},
+		{
+			name: "starstar requires string keys",
+			args: []ast.CallArg{kwSpreadArg(ident("kwargs"))},
+			env:  map[string]Value{"kwargs": DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyInt, I: 1}, Value: Int(1)}})},
+		},
+		{
+			name: "duplicate named after starstar",
+			args: []ast.CallArg{namedArg("x", intExpr(1)), kwSpreadArg(ident("kwargs"))},
+			env:  map[string]Value{"kwargs": DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(2)}})},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			fn := fnExpr(
+				[]ast.FuncParam{{Kind: ast.FuncParamValue, Name: "x"}, {Kind: ast.FuncParamKwargs, Name: "kwargs"}},
+				exprStmt(ident("x")),
+			)
+			got := EvalExprWithOptions(callExpr(fn, tc.args...), tc.env, diags, ExprOptions{})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null on bad expansion, got %#v", got)
+			}
+			if diagCount(diags, "E106") == 0 {
+				t.Fatalf("expected E106, got: %s", diags.String())
+			}
+		})
+	}
 }
 
 func TestFunctionDefaultIndexItemReferenceUsesCallArgument(t *testing.T) {

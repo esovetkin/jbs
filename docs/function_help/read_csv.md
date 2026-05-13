@@ -4,7 +4,7 @@
 
 ## Arguments
 
-- `path`: a string path to a CSV or TSV file.
+- `path`: a string path to a CSV or TSV file. Named form: `read_csv(path = "./cases.csv")`.
 - The first row must be a header row.
 - Header names must be unique valid table column names.
 - Relative paths resolve from the source file that contains the call. In REPL they resolve from the REPL working directory.
@@ -24,5 +24,6 @@ A table value. Column types are inferred as bool, int, float, or string across t
 
 ```jbs
 cases = read_csv("./cases.csv")
+same = read_csv(path = "./cases.csv")
 names(cases)
 ```

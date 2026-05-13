@@ -191,7 +191,7 @@ names(roundtrip)
 
 func TestAnalyzeRenameBuiltin(t *testing.T) {
 	src := `
-cases = rename(table(x = [1, 2], y = ["a", "b"]), {"x": "id"})
+cases = rename(table(x = [1, 2], y = ["a", "b"]), x = "id")
 names(cases)
 `
 	diags := &diag.Diagnostics{}
@@ -217,7 +217,7 @@ names(cases)
 }
 
 func TestAnalyzeRenameMissingColumn(t *testing.T) {
-	src := `cases = rename(table(x = [1]), {"missing": "id"})`
+	src := `cases = rename(table(x = [1]), missing = "id")`
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
@@ -228,7 +228,7 @@ func TestAnalyzeRenameMissingColumn(t *testing.T) {
 
 func TestAnalyzeRenameBuiltinDependency(t *testing.T) {
 	src := `
-cases = rename(table(x = [1]), {"x": "id"})
+cases = rename(table(x = [1]), x = "id")
 `
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
@@ -252,8 +252,8 @@ cases = rename(table(x = [1]), {"x": "id"})
 
 func TestAnalyzeShadowedRenameDependency(t *testing.T) {
 	src := `
-rename = function(value, mapping) { value }
-cases = rename(table(x = [1]), {"x": "id"})
+rename = function(value, **mapping) { value }
+cases = rename(table(x = [1]), x = "id")
 names(cases)
 `
 	diags := &diag.Diagnostics{}
