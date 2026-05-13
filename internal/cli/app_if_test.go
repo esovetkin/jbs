@@ -96,6 +96,39 @@ do run with x {
 	}
 }
 
+func TestRunCheckDoesNotWarnUnusedForSelfRebindDependency(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.jbs")
+	src := `
+jbs_name = "self_rebind_deps"
+common_args = "bla"
+f = function(x) {x}
+
+testcases = t(
+          main_args = (f(common_args) + " bla",
+                       f(common_args) + " blu"))
+testcases = f(testcases)
+testcases *= t(nodes = (1, 2))
+
+do s with testcases {
+   echo $main_args $nodes
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "common_args") {
+		t.Fatalf("did not expect common_args warning, got %s", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no check output, got %q", stdout.String())
+	}
+}
+
 func TestRunRejectsDeclarationInsideIf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.jbs")

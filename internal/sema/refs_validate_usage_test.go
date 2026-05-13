@@ -293,6 +293,117 @@ do s
 	}
 }
 
+func TestValidateStepVarReferencesCompoundTableRebindKeepsPreviousDepsForW310(t *testing.T) {
+	src := `
+common_args = "bla"
+
+testcases = t(
+          main_args = (common_args + " bla",
+                       common_args + " blu"))
+testcases *= t(nodes = (1, 2))
+
+do s with testcases {
+   echo $main_args $nodes
+}
+`
+	_, diags := analyzeRefValidationSource(t, "compound_rebind_deps.jbs", src)
+	if hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("did not expect W310 for common_args through compound table rebind, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesExplicitTableSelfRebindKeepsPreviousDepsForW310(t *testing.T) {
+	src := `
+common_args = "bla"
+testcases = t(main_args = (common_args + " bla", common_args + " blu"))
+testcases = testcases * t(nodes = (1, 2))
+
+do s with testcases {
+   echo $main_args $nodes
+}
+`
+	_, diags := analyzeRefValidationSource(t, "explicit_rebind_deps.jbs", src)
+	if hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("did not expect W310 for common_args through explicit table self-rebind, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesFunctionWrappedSelfRebindKeepsPreviousDepsForW310(t *testing.T) {
+	src := `
+common_args = "bla"
+
+f = function(x) {x}
+
+testcases = t(
+          main_args = (f(common_args) + " bla",
+                       f(common_args) + " blu"))
+testcases = f(testcases)
+
+do s with testcases {
+   echo $main_args $nodes
+}
+`
+	_, diags := analyzeRefValidationSource(t, "function_rebind_deps.jbs", src)
+	if hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("did not expect W310 for common_args through function-wrapped self-rebind, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesFunctionCallDependencyWithoutSelfRebind(t *testing.T) {
+	src := `
+common_args = "bla"
+
+f = function(x) {x}
+
+testcases = t(
+          main_args = (f(common_args) + " bla",
+                       f(common_args) + " blu"))
+
+do s with testcases {
+   echo $main_args $nodes
+}
+`
+	_, diags := analyzeRefValidationSource(t, "function_dependency_baseline.jbs", src)
+	if hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("did not expect W310 for common_args through f(common_args), got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesPlainOverwriteDoesNotKeepPreviousDepsForW310(t *testing.T) {
+	src := `
+common_args = "bla"
+testcases = t(main_args = common_args)
+testcases = t(nodes = (1, 2))
+
+do s with testcases {
+   echo $nodes
+}
+`
+	_, diags := analyzeRefValidationSource(t, "overwrite_unused_deps.jbs", src)
+	if !hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("expected W310 for common_args after plain overwrite, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesCommentedCompoundRebindIsIgnored(t *testing.T) {
+	src := `
+common_args = "bla"
+
+testcases = t(
+          main_args = (common_args + " bla",
+                       common_args + " blu"))
+#testcases *= t(nodes = (1, 2))
+
+do s with testcases {
+   echo $main_args
+}
+`
+	_, diags := analyzeRefValidationSource(t, "commented_rebind_ignored.jbs", src)
+	if hasW310ForGlobal(diags, "common_args", "common_args") {
+		t.Fatalf("did not expect W310 for common_args with commented rebind, got: %s", diags.String())
+	}
+}
+
 func TestValidateStepVarReferencesDoesNotSuppressW313AcrossReboundVersions(t *testing.T) {
 	src := `
 cases = table(x = (1, 2))

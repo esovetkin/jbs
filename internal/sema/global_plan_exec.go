@@ -2,6 +2,7 @@ package sema
 
 import (
 	"maps"
+	"slices"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -217,6 +218,8 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	}
 	assign := *step.Assign
 	effective := assignmentExpr(assign.Name, assign.Op, assign.Expr, assign.Span)
+	prevSelfDeps := e.previousBindingDependencySnapshot(assign.Name)
+	exprReadsSelf := exprEvalTimeReadsName(effective, assign.Name)
 	if assign.Op != "" && assign.Op != ast.AssignEq {
 		if _, ok := e.rootFrame.Read(assign.Name, assign.Span, e.diags); !ok {
 			return
@@ -243,6 +246,12 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 	directDeps = append(directDeps, shellDeps...)
 	directDeps = append(directDeps, guardDeps...)
 	directDeps = uniqueSortedNamesExcept(directDeps, assign.Name)
+	depNames := e.expandGlobalDeps(directDeps, assign.Name)
+	depKeys := e.expandGlobalDepKeys(directDeps, assign.Name)
+	if exprReadsSelf || slices.Contains(shellDeps, assign.Name) || slices.Contains(guardDeps, assign.Name) {
+		depNames = uniqueSortedNamesExcept(append(depNames, prevSelfDeps.Names...), assign.Name)
+		depKeys = uniqueSortedBindingVersionKeys(append(depKeys, prevSelfDeps.Keys...))
+	}
 	orderNames, vars := globalVarSeries(assign.Name, value)
 	gv := &GlobalVar{
 		Name:          assign.Name,
@@ -250,8 +259,8 @@ func (e *globalSeqEngine) evalAssignStep(step globalInputStep, guardDeps []strin
 		Span:          assign.Span,
 		Order:         orderNames,
 		Vars:          vars,
-		DependsOn:     e.expandGlobalDeps(directDeps, assign.Name),
-		DependsOnKeys: e.expandGlobalDepKeys(directDeps, assign.Name),
+		DependsOn:     depNames,
+		DependsOnKeys: depKeys,
 		VersionID:     bindingVersionID(step),
 	}
 	if !e.acceptGlobalVar(gv) {
