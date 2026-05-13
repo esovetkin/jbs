@@ -60,159 +60,6 @@ func TestEvalLenCallBranches(t *testing.T) {
 	})
 }
 
-func TestEvalFilterCallBranches(t *testing.T) {
-	t.Run("arity error", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{List([]Value{Int(1)})}, spanAt(310, 1), diags)
-		if got.Kind != KindNull {
-			t.Fatalf("expected null, got %#v", got)
-		}
-		if diagCount(diags, "E106") != 1 {
-			t.Fatalf("expected E106, got: %s", diags.String())
-		}
-	})
-
-	t.Run("empty mask error", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			List([]Value{Int(1), Int(2)}),
-			List(nil),
-		}, spanAt(311, 1), diags)
-		if got.Kind != KindNull {
-			t.Fatalf("expected null, got %#v", got)
-		}
-		if diagCount(diags, "E106") != 1 {
-			t.Fatalf("expected E106, got: %s", diags.String())
-		}
-	})
-
-	t.Run("list broadcast and cast warning", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			List([]Value{Int(1), Int(2), Int(3)}),
-			List([]Value{Int(1)}),
-		}, spanAt(312, 1), diags)
-		if got.Kind != KindList || len(got.L) != 3 {
-			t.Fatalf("expected full list due truthy broadcast mask, got %#v", got)
-		}
-		if diagCount(diags, "W101") != 1 {
-			t.Fatalf("expected one W101 cast warning for divisible broadcast, got: %s", diags.String())
-		}
-		if hasDiagMessage(diags, "length mismatch in filter mask") {
-			t.Fatalf("did not expect mismatch warning for divisible broadcast, got: %s", diags.String())
-		}
-	})
-
-	t.Run("divisible broadcast has no mismatch warning", func(t *testing.T) {
-		values := make([]Value, 0, 10)
-		for i := int64(0); i < 10; i++ {
-			values = append(values, Int(i))
-		}
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			List(values),
-			List([]Value{Bool(true), Bool(false)}),
-		}, spanAt(312, 20), diags)
-		if got.Kind != KindList || len(got.L) != 5 {
-			t.Fatalf("expected five filtered values, got %#v", got)
-		}
-		want := []int64{0, 2, 4, 6, 8}
-		for i, v := range got.L {
-			if v.Kind != KindInt || v.I != want[i] {
-				t.Fatalf("unexpected filtered value at %d: got=%#v want=%d", i, v, want[i])
-			}
-		}
-		if hasDiagMessage(diags, "length mismatch in filter mask") {
-			t.Fatalf("did not expect mismatch warning for divisible broadcast, got: %s", diags.String())
-		}
-		if diagCount(diags, "W101") != 0 {
-			t.Fatalf("expected no W101 warnings for boolean divisible mask, got: %s", diags.String())
-		}
-	})
-
-	t.Run("non-divisible broadcast emits mismatch warning", func(t *testing.T) {
-		values := make([]Value, 0, 10)
-		for i := int64(0); i < 10; i++ {
-			values = append(values, Int(i))
-		}
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			List(values),
-			List([]Value{Bool(true), Bool(false), Bool(true)}),
-		}, spanAt(312, 40), diags)
-		if got.Kind != KindList || len(got.L) != 7 {
-			t.Fatalf("expected seven filtered values, got %#v", got)
-		}
-		if !hasDiagMessage(diags, "length mismatch in filter mask") {
-			t.Fatalf("expected mismatch warning for non-divisible broadcast, got: %s", diags.String())
-		}
-		if diagCount(diags, "W101") != 1 {
-			t.Fatalf("expected one W101 mismatch warning, got: %s", diags.String())
-		}
-	})
-
-	t.Run("tuple result preserves tuple kind", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			Tuple([]Value{Int(1), Int(2), Int(3)}),
-			List([]Value{Bool(true), Bool(false), Bool(true)}),
-		}, spanAt(313, 1), diags)
-		if got.Kind != KindTuple || len(got.L) != 2 || got.L[0].I != 1 || got.L[1].I != 3 {
-			t.Fatalf("unexpected filtered tuple: %#v", got)
-		}
-		if diags.HasErrors() {
-			t.Fatalf("unexpected errors: %s", diags.String())
-		}
-	})
-
-	t.Run("comb nil payload short branch", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{
-			CombValue(nil),
-			Bool(true),
-		}, spanAt(314, 1), diags)
-		if got.Kind != KindComb || got.C == nil {
-			t.Fatalf("expected comb result, got %#v", got)
-		}
-		if len(got.C.Rows) != 0 || len(got.C.Order) != 0 {
-			t.Fatalf("expected empty comb payload, got %#v", got.C)
-		}
-	})
-
-	t.Run("comb filter clones rows", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		base := CombValue(&Comb{
-			Order: []string{"x"},
-			Rows: []Row{
-				{Values: map[string]Cell{"x": {Value: Int(1)}}},
-				{Values: map[string]Cell{"x": {Value: Int(2)}}},
-			},
-		})
-		got := evalFilterCall([]Value{
-			base,
-			List([]Value{Bool(false), Bool(true)}),
-		}, spanAt(315, 1), diags)
-		if !IsComb(got) || len(got.C.Rows) != 1 {
-			t.Fatalf("expected one filtered comb row, got %#v", got)
-		}
-		got.C.Rows[0].Values["x"] = Cell{Value: Int(99)}
-		if base.C.Rows[1].Values["x"].Value.I != 2 {
-			t.Fatalf("expected filtered rows cloned from source")
-		}
-	})
-
-	t.Run("unsupported target kind", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalFilterCall([]Value{Int(1), Bool(true)}, spanAt(316, 1), diags)
-		if got.Kind != KindNull {
-			t.Fatalf("expected null, got %#v", got)
-		}
-		if diagCount(diags, "E106") != 1 {
-			t.Fatalf("expected E106, got: %s", diags.String())
-		}
-	})
-}
-
 func hasDiagMessage(diags *diag.Diagnostics, needle string) bool {
 	for _, item := range diags.Items {
 		if strings.Contains(item.Message, needle) {
@@ -270,7 +117,7 @@ func TestEvalAllAnyCallBranches(t *testing.T) {
 	})
 }
 
-func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
+func TestExprEvalHelpersTruthyAndSeries(t *testing.T) {
 	comb := CombValue(&Comb{
 		Order: []string{"x"},
 		Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
@@ -311,13 +158,6 @@ func TestExprEvalHelpersTruthyAndMask(t *testing.T) {
 		t.Fatalf("expected series clone independent from original")
 	}
 
-	diags := &diag.Diagnostics{}
-	if got := broadcastMask([]Value{Bool(true)}, 0, spanAt(325, 1), diags); got != nil {
-		t.Fatalf("expected nil mask for n<=0, got %#v", got)
-	}
-	if len(diags.Items) != 0 {
-		t.Fatalf("did not expect diagnostics for n<=0, got: %s", diags.String())
-	}
 }
 
 func TestBuiltinCallNames(t *testing.T) {
@@ -727,13 +567,10 @@ func TestEvalBuiltinCallsIntegration(t *testing.T) {
 				Callee: ast.IdentExpr{Name: "filter"},
 				Args: ast.PosCallArgs(
 					ast.ListExpr{Items: []ast.Expr{
-						ast.NumberExpr{Int: true, IntValue: 1},
+						ast.NumberExpr{Int: true, IntValue: 0},
 						ast.NumberExpr{Int: true, IntValue: 2},
 					}},
-					ast.ListExpr{Items: []ast.Expr{
-						ast.BoolExpr{Value: false},
-						ast.BoolExpr{Value: true},
-					}},
+					ast.IdentExpr{Name: "bool"},
 				),
 			},
 			want: List([]Value{Int(2)}),

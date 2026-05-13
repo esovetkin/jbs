@@ -130,8 +130,8 @@ jbs> tuple([1, 2])
 (1, 2)
 jbs> rev([1, 2, 3])
 [3, 2, 1]
-jbs> filter([1, 2, 3], [true, false, true])
-[1, 3]
+jbs> filter([0, 1, 2, 3], function(x) { x > 1 })
+[2, 3]
 jbs> range(5)
 [0, 1, 2, 3, 4]
 jbs> range(2, 5)
@@ -277,15 +277,14 @@ jbs> cases["x"].x
 [1, 2]
 ```
 
-`filter(table_value, mask)` keeps rows where the mask is true.
+`filter(table_value, function)` keeps rows where the predicate function returns true.
 
 ```jbs
-cases = table(x = [1, 2, 3])
-# the mask is broadcast cyclically to the table row count
-filtered = filter(cases, [true, false, true])
-#  x
-#  1
-#  3
+cases = table(id = [1, 2, 3], group = ["a", "b", "a"])
+filtered = filter(cases, function(row) { row["group"] == "a" })
+# id group
+#  1     a
+#  3     a
 ```
 
 Useful functions:
@@ -299,7 +298,7 @@ Useful functions:
 - `a + b`               # row-wise merge in table context
 - `product(a, b, ...)`  # Cartesian product
 - `a * b`               # Cartesian product in table context
-- `filter(table, mask)` # keep selected rows
+- `filter(table, function)` # keep selected rows
 - `len(table)`          # row count
 - `names(table)`        # column names
 - `dict(table)`         # table -> dictionary

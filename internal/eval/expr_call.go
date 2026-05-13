@@ -91,6 +91,8 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalMapCall(rawArgs, env, at, diags, opts, ctx)
 	case "reduce":
 		return evalReduceCall(rawArgs, env, at, diags, opts, ctx)
+	case "filter":
+		return evalFilterCall(rawArgs, env, at, diags, opts, ctx)
 	case "sum":
 		return evalFoldOperatorCall("sum", "+", rawArgs, env, at, diags, opts, ctx)
 	case "prod":
@@ -116,8 +118,6 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		return evalUnaryConvertCall(name, args, at, diags)
 	case "len":
 		return evalLenCall(args, at, diags)
-	case "filter":
-		return evalFilterCall(args, at, diags)
 	case "all":
 		return evalAllAnyCall("all", args, at, diags)
 	case "any":

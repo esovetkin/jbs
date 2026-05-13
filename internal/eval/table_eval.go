@@ -501,22 +501,30 @@ func rowsFromTable(tableValue Value, at diag.Span, diags *diag.Diagnostics) Valu
 	out := make([]Value, 0, len(tableValue.C.Rows))
 
 	for _, row := range tableValue.C.Rows {
-		entries := make([]DictEntry, 0, len(names))
-		for _, name := range names {
-			cell, ok := row.Values[name]
-			if !ok {
-				diags.AddError(diag.CodeE106, fmt.Sprintf("rows() could not read table column '%s'", name), at, "convert well-formed table values only")
-				return Null()
-			}
-			entries = append(entries, DictEntry{
-				Key:   DictKey{Kind: DictKeyString, S: name},
-				Value: CloneValue(cell.Value),
-			})
+		rowDict, ok := dictFromTableRow("rows", names, row, at, diags)
+		if !ok {
+			return Null()
 		}
-		out = append(out, DictValue(entries))
+		out = append(out, rowDict)
 	}
 
 	return List(out)
+}
+
+func dictFromTableRow(caller string, names []string, row Row, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
+	entries := make([]DictEntry, 0, len(names))
+	for _, name := range names {
+		cell, ok := row.Values[name]
+		if !ok {
+			diags.AddError(diag.CodeE106, fmt.Sprintf("%s() could not read table column '%s'", caller, name), at, "convert well-formed table values only")
+			return Null(), false
+		}
+		entries = append(entries, DictEntry{
+			Key:   DictKey{Kind: DictKeyString, S: name},
+			Value: CloneValue(cell.Value),
+		})
+	}
+	return DictValue(entries), true
 }
 
 func evalPositionalTableArgs(name string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Value, bool) {

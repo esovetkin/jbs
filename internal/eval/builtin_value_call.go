@@ -30,6 +30,8 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalMapValueCall(args, env, at, diags, opts, ctx)
 	case "reduce":
 		return evalReduceValueCall(args, env, at, diags, opts, ctx)
+	case "filter":
+		return evalFilterValueCall(args, env, at, diags, opts, ctx)
 	case "sum":
 		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
 	case "prod":
@@ -53,8 +55,6 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalUnaryConvertCall(name, values, at, diags)
 	case "len":
 		return evalLenCall(values, at, diags)
-	case "filter":
-		return evalFilterCall(values, at, diags)
 	case "all":
 		return evalAllAnyCall("all", values, at, diags)
 	case "any":

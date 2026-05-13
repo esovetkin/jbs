@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -173,6 +174,318 @@ func TestMapCallSupportsListsTuplesDefaultsClosuresAndComposition(t *testing.T) 
 		), nil, diags, ExprOptions{})
 		if !Equal(got, Int(9)) {
 			t.Fatalf("unexpected composed reduce(map(...)) result: %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestFilterFunctionOnListTupleAndBuiltins(t *testing.T) {
+	t.Run("list predicate", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		keepLarge := fnExpr([]ast.FuncParam{{Name: "x"}}, exprStmt(ast.CompareExpr{
+			Left:  ident("x"),
+			Op:    ">",
+			Right: intExpr(2),
+		}))
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr(intExpr(1), intExpr(2), intExpr(3), intExpr(4))),
+			posArg(keepLarge),
+		), nil, diags, ExprOptions{})
+		want := List([]Value{Int(3), Int(4)})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected filter list result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("tuple predicate preserves tuple kind", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		notTwo := fnExpr([]ast.FuncParam{{Name: "x"}}, exprStmt(ast.CompareExpr{
+			Left:  ident("x"),
+			Op:    "!=",
+			Right: intExpr(2),
+		}))
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(tupleExpr(intExpr(1), intExpr(2), intExpr(3))),
+			posArg(notTwo),
+		), nil, diags, ExprOptions{})
+		want := Tuple([]Value{Int(1), Int(3)})
+		if !Equal(got, want) || got.Kind != KindTuple {
+			t.Fatalf("unexpected filter tuple result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("empty inputs do not call predicate", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		failing := fnExpr([]ast.FuncParam{{Name: "x"}}, exprStmt(ident("missing_name")))
+		listGot := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr()),
+			posArg(failing),
+		), nil, diags, ExprOptions{})
+		tupleGot := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(tupleExpr()),
+			posArg(failing),
+		), nil, diags, ExprOptions{})
+		if !Equal(listGot, List(nil)) || !Equal(tupleGot, Tuple(nil)) || tupleGot.Kind != KindTuple {
+			t.Fatalf("unexpected empty filter results: list=%#v tuple=%#v", listGot, tupleGot)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("built-in predicate", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr(intExpr(0), intExpr(1), stringExpr(""), stringExpr("x"))),
+			posArg(ident("bool")),
+		), nil, diags, ExprOptions{})
+		want := List([]Value{Int(1), String("x")})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected filter(bool, ...) result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
+	t.Run("filter as function value", func(t *testing.T) {
+		frame := NewRootFrame(nil)
+		filterValue, ok := BuiltinFunctionValue("filter")
+		if !ok {
+			t.Fatalf("missing filter built-in function value")
+		}
+		frame.AssignLocal("f", filterValue, diag.Span{})
+
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("f"),
+			posArg(listExpr(intExpr(0), intExpr(1), intExpr(2))),
+			posArg(ident("bool")),
+		), nil, diags, ExprOptions{Frame: frame})
+		want := List([]Value{Int(1), Int(2)})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected first-class filter result: got=%#v want=%#v", got, want)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+}
+
+func TestFilterFunctionOnTable(t *testing.T) {
+	cases := CombValue(&Comb{
+		Order: []string{"id", "group"},
+		Rows: []Row{
+			{Values: map[string]Cell{"id": {Value: Int(1)}, "group": {Value: String("a")}}},
+			{Values: map[string]Cell{"id": {Value: Int(2)}, "group": {Value: String("b")}}},
+			{Values: map[string]Cell{"id": {Value: Int(3)}, "group": {Value: String("a")}}},
+		},
+	})
+	rowGroup := ast.IndexExpr{Base: ident("row"), Items: []ast.Expr{stringExpr("group")}}
+	predicate := fnExpr([]ast.FuncParam{{Name: "row"}},
+		exprStmt(callExpr(ident("print"), posArg(ident("row")))),
+		exprStmt(ast.CompareExpr{Left: rowGroup, Op: "==", Right: stringExpr("a")}),
+	)
+	events := make([]PrintEvent, 0)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("filter"),
+		posArg(ident("cases")),
+		posArg(predicate),
+	), map[string]Value{"cases": cases}, diags, ExprOptions{
+		Print: func(event PrintEvent) {
+			events = append(events, event)
+		},
+	})
+
+	want := CombValue(&Comb{
+		Order: []string{"id", "group"},
+		Rows: []Row{
+			{Values: map[string]Cell{"id": {Value: Int(1)}, "group": {Value: String("a")}}},
+			{Values: map[string]Cell{"id": {Value: Int(3)}, "group": {Value: String("a")}}},
+		},
+	})
+	if !Equal(got, want) {
+		t.Fatalf("unexpected filtered table: got=%#v want=%#v", got, want)
+	}
+	if len(events) != 3 {
+		t.Fatalf("expected predicate to see three row dictionaries, got %#v", events)
+	}
+	for _, event := range events {
+		if len(event.Values) != 1 || event.Values[0].Kind != KindDict {
+			t.Fatalf("expected printed row dictionary, got %#v", event.Values)
+		}
+		if !slices.Equal(event.Values[0].D.Order, []DictKey{{Kind: DictKeyString, S: "id"}, {Kind: DictKeyString, S: "group"}}) {
+			t.Fatalf("unexpected row dictionary order: %#v", event.Values[0].D.Order)
+		}
+	}
+	got.C.Rows[0].Values["id"] = Cell{Value: Int(99)}
+	if cases.C.Rows[0].Values["id"].Value.I != 1 {
+		t.Fatalf("expected filtered rows to be cloned")
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFilterFunctionOnZeroRowTable(t *testing.T) {
+	cases := CombValue(&Comb{Order: []string{"id", "group"}, Rows: nil})
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("filter"),
+		posArg(ident("cases")),
+		posArg(fnExpr([]ast.FuncParam{{Name: "row"}}, exprStmt(ident("missing_name")))),
+	), map[string]Value{"cases": cases}, diags, ExprOptions{})
+	if !IsComb(got) || len(got.C.Rows) != 0 || !slices.Equal(got.C.Order, []string{"id", "group"}) {
+		t.Fatalf("unexpected zero-row table result: %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFilterPredicateTruthinessAndFailFast(t *testing.T) {
+	t.Run("truthiness warning", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr(stringExpr(""), stringExpr("x"), stringExpr("y"))),
+			posArg(fnExpr([]ast.FuncParam{{Name: "x"}}, exprStmt(ident("x")))),
+		), nil, diags, ExprOptions{})
+		want := List([]Value{String("x"), String("y")})
+		if !Equal(got, want) {
+			t.Fatalf("unexpected truthy filter result: got=%#v want=%#v", got, want)
+		}
+		if diagCount(diags, "W101") != 1 || !strings.Contains(diags.String(), "filter() cast non-boolean predicate result via truthiness") {
+			t.Fatalf("expected one truthiness warning, got: %s", diags.String())
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected errors: %s", diags.String())
+		}
+	})
+
+	t.Run("predicate errors stop iteration", func(t *testing.T) {
+		events := make([]PrintEvent, 0)
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr(intExpr(1), intExpr(2), intExpr(3))),
+			posArg(fnExpr([]ast.FuncParam{{Name: "x"}},
+				exprStmt(callExpr(ident("print"), posArg(ident("x")))),
+				exprStmt(ident("missing_name")),
+			)),
+		), nil, diags, ExprOptions{
+			Print: func(event PrintEvent) {
+				events = append(events, event)
+			},
+		})
+		if got.Kind != KindNull {
+			t.Fatalf("expected null on predicate error, got %#v", got)
+		}
+		if diagCount(diags, "E100") != 1 {
+			t.Fatalf("expected one E100, got: %s", diags.String())
+		}
+		if len(events) != 1 {
+			t.Fatalf("expected fail-fast after one predicate call, got events=%#v", events)
+		}
+	})
+}
+
+func TestFilterFunctionDiagnosticsAndShadowing(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     ast.Expr
+		wantText string
+	}{
+		{
+			name:     "wrong arity zero",
+			expr:     callExpr(ident("filter")),
+			wantText: "filter() expects exactly two arguments",
+		},
+		{
+			name:     "wrong arity one",
+			expr:     callExpr(ident("filter"), posArg(listExpr(intExpr(1)))),
+			wantText: "filter() expects exactly two arguments",
+		},
+		{
+			name: "named argument",
+			expr: callExpr(ident("filter"),
+				namedArg("values", listExpr(intExpr(1))),
+				posArg(ident("bool")),
+			),
+			wantText: "filter() does not accept named arguments",
+		},
+		{
+			name: "bad target",
+			expr: callExpr(ident("filter"),
+				posArg(intExpr(1)),
+				posArg(ident("bool")),
+			),
+			wantText: "filter() expects list/tuple/table as first argument",
+		},
+		{
+			name: "bad predicate",
+			expr: callExpr(ident("filter"),
+				posArg(listExpr(intExpr(1))),
+				posArg(intExpr(1)),
+			),
+			wantText: "filter() expects function value as second argument",
+		},
+		{
+			name: "old mask form rejected",
+			expr: callExpr(ident("filter"),
+				posArg(listExpr(intExpr(1), intExpr(2))),
+				posArg(listExpr(boolExpr(true), boolExpr(false))),
+			),
+			wantText: "filter() expects function value as second argument",
+		},
+		{
+			name: "malformed table",
+			expr: callExpr(ident("filter"),
+				posArg(ident("cases")),
+				posArg(fnExpr([]ast.FuncParam{{Name: "row"}}, exprStmt(boolExpr(true)))),
+			),
+			wantText: "filter() could not read table column 'y'",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			env := map[string]Value{}
+			if tc.name == "malformed table" {
+				env["cases"] = CombValue(&Comb{
+					Order: []string{"x", "y"},
+					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+				})
+			}
+			got := EvalExprWithOptions(tc.expr, env, diags, ExprOptions{})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null, got %#v", got)
+			}
+			if diagCount(diags, "E106") == 0 || !strings.Contains(diags.String(), tc.wantText) {
+				t.Fatalf("expected E106 containing %q, got: %s", tc.wantText, diags.String())
+			}
+		})
+	}
+
+	t.Run("user function shadows filter builtin", func(t *testing.T) {
+		frame := NewRootFrame(nil)
+		defineFunctionInFrame(t, frame, "filter", fnExpr(
+			[]ast.FuncParam{{Name: "values"}, {Name: "fn"}},
+			exprStmt(listExpr(intExpr(42))),
+		))
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("filter"),
+			posArg(listExpr(intExpr(1), intExpr(2))),
+			posArg(ident("bool")),
+		), nil, diags, ExprOptions{Frame: frame})
+		want := List([]Value{Int(42)})
+		if !Equal(got, want) {
+			t.Fatalf("expected shadowed filter to win: got=%#v want=%#v", got, want)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())

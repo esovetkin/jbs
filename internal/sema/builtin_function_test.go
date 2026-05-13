@@ -97,6 +97,69 @@ mapped = map(sum, [[1, 2], [3, 4]])
 	}
 }
 
+func TestAnalyzeFilterBuiltinFunction(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+values = filter([0, 1, 2], bool)
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.List([]eval.Value{eval.Int(1), eval.Int(2)})) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	for _, dep := range []string{"filter", "bool"} {
+		if slices.Contains(values.DependsOn, dep) {
+			t.Fatalf("unshadowed builtin %q should not be recorded as dependency: %#v", dep, values.DependsOn)
+		}
+	}
+	for _, key := range values.DependsOnKeys {
+		if key.Public == "filter" || key.Public == "bool" {
+			t.Fatalf("unshadowed builtin dependency key recorded: %#v", values.DependsOnKeys)
+		}
+	}
+}
+
+func TestAnalyzeFilterUserPredicateDependency(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+keep = function(x) { x > 1 }
+values = filter([0, 1, 2], keep)
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.List([]eval.Value{eval.Int(2)})) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	if !slices.Contains(values.DependsOn, "keep") {
+		t.Fatalf("expected dependency on keep, got %#v", values.DependsOn)
+	}
+	if slices.Contains(values.DependsOn, "filter") {
+		t.Fatalf("unshadowed filter should not be recorded as dependency: %#v", values.DependsOn)
+	}
+}
+
+func TestAnalyzeShadowedFilterDependency(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+filter = function(values, fn) { [42] }
+values = filter([0, 1, 2], bool)
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.List([]eval.Value{eval.Int(42)})) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	if !slices.Contains(values.DependsOn, "filter") {
+		t.Fatalf("expected dependency on shadowed filter, got %#v", values.DependsOn)
+	}
+	if slices.Contains(values.DependsOn, "bool") {
+		t.Fatalf("unshadowed bool should not be recorded as dependency: %#v", values.DependsOn)
+	}
+}
+
 func TestAnalyzeShadowedSumProdDependencies(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 sum = function(values) { 42 }

@@ -190,51 +190,6 @@ func evalLenCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	}
 }
 
-func evalFilterCall(args []Value, at diag.Span, diags *diag.Diagnostics) Value {
-	if len(args) != 2 {
-		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, mask)")
-		return Null()
-	}
-	target := args[0]
-	maskVals := ToSeries(args[1])
-	if len(maskVals) == 0 {
-		diags.AddError(diag.CodeE106, "filter() mask cannot be empty", at, "use a non-empty boolean mask")
-		return Null()
-	}
-	switch target.Kind {
-	case KindList, KindTuple:
-		out := make([]Value, 0, len(target.L))
-		mask := broadcastMask(maskVals, len(target.L), at, diags)
-		for i, item := range target.L {
-			if mask[i] {
-				out = append(out, item)
-			}
-		}
-		if target.Kind == KindTuple {
-			return Tuple(out)
-		}
-		return List(out)
-	case KindComb:
-		if !IsComb(target) {
-			return CombValue(&Comb{Order: nil, Rows: nil})
-		}
-		outRows := make([]Row, 0, len(target.C.Rows))
-		mask := broadcastMask(maskVals, len(target.C.Rows), at, diags)
-		for i, row := range target.C.Rows {
-			if mask[i] {
-				outRows = append(outRows, row.clone())
-			}
-		}
-		return CombValue(&Comb{
-			Order: append([]string(nil), target.C.Order...),
-			Rows:  outRows,
-		})
-	default:
-		diags.AddError(diag.CodeE106, "filter() expects list/tuple/table as first argument", at, "use filter() with list, tuple, or table values")
-		return Null()
-	}
-}
-
 func evalAllAnyCall(kind string, args []Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(args) != 1 {
 		diags.AddError(diag.CodeE106, kind+"() expects exactly one argument", at, "use "+kind+"(values)")
@@ -305,33 +260,4 @@ func truthy(v Value) (bool, bool) {
 	default:
 		return true, true
 	}
-}
-
-func broadcastMask(maskVals []Value, n int, at diag.Span, diags *diag.Diagnostics) []bool {
-	if n <= 0 {
-		return nil
-	}
-	m := len(maskVals)
-	if m != n {
-		shouldWarn := n%m != 0
-		if shouldWarn {
-			diags.AddWarning(
-				diag.CodeW101,
-				fmt.Sprintf("length mismatch in filter mask: values=%d mask=%d; cyclic broadcast to length %d", n, m, n),
-				at,
-				"align mask length with filtered value length",
-			)
-		}
-	}
-	out := make([]bool, n)
-	castWarned := false
-	for i := 0; i < n; i++ {
-		b, casted := truthy(maskVals[i%m])
-		if casted && !castWarned {
-			castWarned = true
-			diags.AddWarning(diag.CodeW101, "filter() cast non-boolean mask values via truthiness", at, "use explicit boolean mask values")
-		}
-		out[i] = b
-	}
-	return out
 }

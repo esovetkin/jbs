@@ -145,6 +145,123 @@ func evalReduceValueCall(args []CallValueArg, env map[string]Value, at diag.Span
 	return acc
 }
 
+func evalFilterCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(rawArgs) != 2 {
+		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, function)")
+		return Null()
+	}
+	for _, arg := range rawArgs {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "filter() does not accept named arguments", arg.Span, "pass positional arguments only")
+			return Null()
+		}
+	}
+	values := evalExprWithCtx(rawArgs[0].Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
+	predicate := evalExprWithCtx(rawArgs[1].Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return Null()
+	}
+	return evalFilterValueCall([]CallValueArg{
+		{Value: values, Span: rawArgs[0].Span},
+		{Value: predicate, Span: rawArgs[1].Span},
+	}, env, at, diags, opts, ctx)
+}
+
+func evalFilterValueCall(args []CallValueArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(args) != 2 {
+		diags.AddError(diag.CodeE106, "filter() expects exactly two arguments", at, "use filter(values, function)")
+		return Null()
+	}
+	for _, arg := range args {
+		if arg.Name != "" {
+			diags.AddError(diag.CodeE106, "filter() does not accept named arguments", arg.Span, "pass positional arguments only")
+			return Null()
+		}
+	}
+	target := args[0].Value
+	fnValue := args[1].Value
+	if fnValue.Kind != KindFunction || fnValue.Fn == nil {
+		diags.AddError(diag.CodeE106, "filter() expects function value as second argument", args[1].Span, "pass a function literal, built-in function, or function-valued variable")
+		return Null()
+	}
+	switch target.Kind {
+	case KindList, KindTuple:
+		return evalFilterSequence(target, fnValue.Fn, env, at, diags, opts, ctx)
+	case KindComb:
+		return evalFilterTable(target, fnValue.Fn, env, args[0].Span, at, diags, opts, ctx)
+	default:
+		diags.AddError(diag.CodeE106, "filter() expects list/tuple/table as first argument", args[0].Span, "pass a list, tuple, or table value")
+		return Null()
+	}
+}
+
+func evalFilterSequence(target Value, fn *FunctionValue, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	out := make([]Value, 0, len(target.L))
+	castWarned := false
+	for _, item := range target.L {
+		keep, ok := evalFilterPredicate(fn, item, at, env, at, diags, opts, ctx, &castWarned)
+		if !ok {
+			return Null()
+		}
+		if keep {
+			out = append(out, item)
+		}
+	}
+	if target.Kind == KindTuple {
+		return Tuple(out)
+	}
+	return List(out)
+}
+
+func evalFilterTable(target Value, fn *FunctionValue, env map[string]Value, valueSpan diag.Span, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if !IsComb(target) {
+		return CombValue(&Comb{Order: nil, Rows: nil})
+	}
+	names := CombNames(target)
+	outRows := make([]Row, 0, len(target.C.Rows))
+	castWarned := false
+	for _, row := range target.C.Rows {
+		rowDict, ok := dictFromTableRow("filter", names, row, valueSpan, diags)
+		if !ok {
+			return Null()
+		}
+		keep, ok := evalFilterPredicate(fn, rowDict, valueSpan, env, at, diags, opts, ctx, &castWarned)
+		if !ok {
+			return Null()
+		}
+		if keep {
+			outRows = append(outRows, row.clone())
+		}
+	}
+	return CombValue(&Comb{
+		Order: append([]string(nil), target.C.Order...),
+		Rows:  outRows,
+	})
+}
+
+func evalFilterPredicate(fn *FunctionValue, arg Value, argSpan diag.Span, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx, castWarned *bool) (bool, bool) {
+	if ctx.recursionLimitHit() {
+		return false, false
+	}
+	beforeErrors := diagErrorCount(diags)
+	result := executeFunctionCallValues(fn, []CallValueArg{{Value: arg, Span: argSpan}}, env, at, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return false, false
+	}
+	if diagErrorCount(diags) > beforeErrors {
+		return false, false
+	}
+	keep, casted := truthy(result)
+	if casted && !*castWarned {
+		*castWarned = true
+		diags.AddWarning(diag.CodeW101, "filter() cast non-boolean predicate result via truthiness", at, "return explicit boolean values from the predicate")
+	}
+	return keep, true
+}
+
 func evalFoldOperatorCall(name, op string, rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) != 1 {
 		diags.AddError(diag.CodeE106, name+"() expects exactly one argument", at, "use "+name+"(values)")

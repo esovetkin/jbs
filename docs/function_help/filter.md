@@ -1,13 +1,14 @@
-# `filter(<list/tuple/table>, <mask>)`
+# `filter(<list/tuple/table>, <function>)`
 
-Take subsets of a list, tuple, or a table
+Keep items or rows for which a predicate function returns true.
 
 ## Arguments
 
 - `values`: a list, tuple, or table.
-- `mask`: a scalar, list, or tuple used as a boolean mask.
-- The mask is broadcast cyclically. A length-mismatch warning is emitted when the value count is not divisible by the mask count.
-- Non-boolean mask values are tested by truthiness and emit a warning.
+- `function`: a predicate function called once for each item or row.
+- For lists and tuples, the predicate receives the item value.
+- For tables, the predicate receives the row as a dictionary with string keys matching the table column names.
+- Non-boolean predicate results are tested by truthiness and emit a warning.
 
 ## Returns
 
@@ -18,12 +19,13 @@ The same outer kind for list and tuple input. Table input returns a table with t
 ```jbs
 x = range(10)
 
-filter(x, 0 == x%2) == [0,2,4,6,8]
-# broadcasting applies
-filter(x, [true, false]) == [0,2,4,6,8]
-# boolean casting applies
-filter(x, ["a", "", 1, 0]) == [0,2,4,6,8]
+filter(x, function(v) { v % 2 == 0 }) == [0, 2, 4, 6, 8]
 
-a = table(x = x, y = ("a","b","c","a","b","c","a","b","c","a"))
-filter(a, a.y == "a") == [0,3,6,9]
+filter(("a", "", "b"), bool) == ("a", "b")
+
+cases = table(id = [1, 2, 3], group = ["a", "b", "a"])
+filtered = filter(cases, function(row) { row["group"] == "a" })
+# id group
+#  1     a
+#  3     a
 ```
