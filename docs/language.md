@@ -271,7 +271,7 @@ jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # zip-like merge
 jbs> cases = t(x = [1, 2]) * t(y = [3, 4]) # Cartesian product
 jbs> cases.x
 [1,1,2,2]
-jbs> cases[x].x
+jbs> cases["x"].x
 [1, 2]
 ```
 
@@ -292,7 +292,7 @@ Useful functions:
 - `t(...)`              # alias for table(...)
 - `read_csv(...)`       # import CSV/TSV as a table
 - `select(table, cols)` # project columns
-- `table[cols]`         # projection syntax
+- `table["col", ...]`   # projection syntax
 - `zip(a, b, ...)`      # row-wise merge
 - `a + b`               # row-wise merge in table context
 - `product(a, b, ...)`  # Cartesian product

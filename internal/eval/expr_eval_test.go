@@ -159,7 +159,7 @@ func TestIndexExprCombProjectionErrors(t *testing.T) {
 			env:  map[string]Value{"m": Int(1)},
 			expr: ast.IndexExpr{
 				Base:  ast.IdentExpr{Name: "m", Span: spanAt(92, 1)},
-				Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(92, 3)}},
+				Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(92, 3)}},
 				Span:  spanAt(92, 1),
 			},
 			diagCode: "E106",
@@ -189,7 +189,7 @@ func TestIndexExprCombProjectionErrors(t *testing.T) {
 			env:  map[string]Value{"m": comb},
 			expr: ast.IndexExpr{
 				Base:  ast.IdentExpr{Name: "m", Span: spanAt(95, 1)},
-				Items: []ast.Expr{ast.IdentExpr{Name: "y", Span: spanAt(95, 3)}},
+				Items: []ast.Expr{ast.StringExpr{Value: "y", Span: spanAt(95, 3)}},
 				Span:  spanAt(95, 1),
 			},
 			diagCode: "E106",
@@ -223,7 +223,7 @@ func TestMemberExprCombAccess(t *testing.T) {
 			ast.MemberExpr{
 				Base: ast.IndexExpr{
 					Base:  ast.IdentExpr{Name: "p0", Span: spanAt(96, 1)},
-					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(96, 4)}},
+					Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(96, 4)}},
 					Span:  spanAt(96, 1),
 				},
 				Name: "x",
@@ -286,13 +286,13 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 			ast.BinaryExpr{
 				Left: ast.IndexExpr{
 					Base:  ast.IdentExpr{Name: "p0", Span: spanAt(98, 1)},
-					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(98, 4)}},
+					Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(98, 4)}},
 					Span:  spanAt(98, 1),
 				},
 				Op: "+",
 				Right: ast.IndexExpr{
 					Base:  ast.IdentExpr{Name: "p1", Span: spanAt(98, 10)},
-					Items: []ast.Expr{ast.IdentExpr{Name: "y", Span: spanAt(98, 13)}},
+					Items: []ast.Expr{ast.StringExpr{Value: "y", Span: spanAt(98, 13)}},
 					Span:  spanAt(98, 10),
 				},
 				Span: spanAt(98, 1),
@@ -326,7 +326,7 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 					Expr: ast.MemberExpr{
 						Base: ast.IndexExpr{
 							Base:  ast.IdentExpr{Name: "p0", Span: spanAt(99, 1)},
-							Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(99, 4)}},
+							Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(99, 4)}},
 							Span:  spanAt(99, 1),
 						},
 						Name: "x",
@@ -338,7 +338,7 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 				Op: "+",
 				Right: ast.IndexExpr{
 					Base:  ast.IdentExpr{Name: "p1", Span: spanAt(99, 14)},
-					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(99, 17)}},
+					Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(99, 17)}},
 					Span:  spanAt(99, 14),
 				},
 				Span: spanAt(99, 1),

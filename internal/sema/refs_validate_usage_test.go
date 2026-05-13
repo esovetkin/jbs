@@ -93,7 +93,11 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 	bodySpan := diag.NewSpan("refs.jbs", diag.NewPos(40, 6, 1), diag.NewPos(70, 8, 10))
 
 	params := &GlobalBinding{
-		Name:  "params",
+		Name: "params",
+		Value: tableValueFromVars([]string{"x", "y"}, map[string][]eval.Value{
+			"x": {eval.Int(1)},
+			"y": {eval.Int(2)},
+		}),
 		Shape: BindingTable,
 		Order: []string{"x", "y"},
 		Vars: map[string][]eval.Value{
@@ -108,6 +112,7 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 	}
 	pattern := &GlobalBinding{
 		Name:  "pattern",
+		Value: eval.String("id=%d"),
 		Shape: BindingScalar,
 		Order: []string{"pattern"},
 		Vars: map[string][]eval.Value{
@@ -145,7 +150,7 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 			},
 		},
 		Program: ast.Program{Stmts: []ast.Stmt{
-			ast.AnalyseBlock{StepName: "step_used", WithItems: []ast.WithItem{{Source: "pattern", Span: patternSpan}}, Span: bodySpan},
+			ast.AnalyseBlock{StepName: "step_used", WithItems: []ast.WithItem{withIdentItem("pattern", patternSpan)}, Span: bodySpan},
 		}},
 	}
 
@@ -178,7 +183,7 @@ func TestValidateStepVarReferencesWarnsForMissingInheritedSourceVarAfterRebind(t
 cases = table(x = range(5)) + table(y = ("a","b","c"))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -203,7 +208,7 @@ func TestValidateStepVarReferencesStillWarnsForDifferentPublicNameControl(t *tes
 cases = table(x = range(5)) + table(y = ("a","b","c"))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -228,7 +233,7 @@ func TestValidateStepVarReferencesDoesNotWarnForVisibleReboundVars(t *testing.T)
 cases = table(x = range(5)) + table(y = ("a","b","c"))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -293,7 +298,7 @@ func TestValidateStepVarReferencesDoesNotSuppressW313AcrossReboundVersions(t *te
 cases = table(x = (1, 2))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -301,7 +306,7 @@ do step0
 cases = table(x = (3, 4))
 
 do step1
-        with cases[x]
+        with cases["x"]
 {
         echo done
 }
@@ -317,13 +322,13 @@ func TestValidateStepVarReferencesW313UsesPublicRelatedSpanForSnapshotImport(t *
 cases = table(x = (1, 2))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
 
 do step1
-        with cases[x]
+        with cases["x"]
 {
         echo done
 }

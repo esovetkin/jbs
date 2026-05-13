@@ -47,32 +47,32 @@ func TestWithPolicyFormatHelpers(t *testing.T) {
 		{
 			name:    "table",
 			issue:   ResolveIssue{Source: "cases", Span: span, DisallowedReason: DisallowedBindingAnalyseTable},
-			message: "analyse with-clause requires a scalar string binding; 'cases' is a table",
-			hint:    "select a scalar string binding instead of a table binding",
+			message: "analyse with-clause requires a bare string scalar variable; 'cases' is a table",
+			hint:    "import a bare string scalar global instead of a table binding",
 		},
 		{
 			name:    "multi-column",
 			issue:   ResolveIssue{Source: "pat", Span: span, DisallowedReason: DisallowedBindingAnalyseMultiColumn, DisallowedColumns: 2},
-			message: "analyse with-clause requires a scalar string binding; 'pat' has 2 columns",
-			hint:    "select a scalar binding with exactly one string column",
+			message: "analyse with-clause requires a bare string scalar variable; 'pat' has 2 columns",
+			hint:    "import a bare string scalar global, not a multi-column binding",
 		},
 		{
 			name:    "non-string",
 			issue:   ResolveIssue{Source: "pat", Span: span, DisallowedReason: DisallowedBindingAnalyseNonString},
-			message: "analyse with-clause requires a scalar string binding; 'pat' is not string-valued",
-			hint:    "use a string-valued scalar binding for analyse imports",
+			message: "analyse with-clause requires a bare string scalar variable; 'pat' is not string-valued",
+			hint:    "use syntax such as `with pattern`, where pattern is a string scalar global",
 		},
 		{
 			name:    "not-data",
 			issue:   ResolveIssue{Source: "make_pat", Span: span, DisallowedReason: DisallowedBindingNotData},
-			message: "analyse with-clause requires a scalar string binding; 'make_pat' is not a data binding",
-			hint:    "use a scalar string data binding, not an expression-visible global such as a function",
+			message: "analyse with-clause requires a bare string scalar variable; 'make_pat' is not a data binding",
+			hint:    "use a bare string scalar data binding, not an expression-visible global such as a function",
 		},
 		{
 			name:    "zero-column",
 			issue:   ResolveIssue{Source: "empty_shape", Span: span, DisallowedReason: DisallowedBindingAnalyseMultiColumn},
-			message: "analyse with-clause requires a scalar string binding; 'empty_shape' has no columns",
-			hint:    "select a scalar binding with exactly one string column",
+			message: "analyse with-clause requires a bare string scalar variable; 'empty_shape' has no columns",
+			hint:    "import a bare string scalar global, not a multi-column binding",
 		},
 	}
 	for _, tt := range disallowedTests {
@@ -121,10 +121,10 @@ func TestWithPolicyMappingsAndDefaults(t *testing.T) {
 	}
 
 	stepPolicy := stepValidateWithDiagPolicy()
-	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{}}); got != "import an existing global binding" {
+	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{}}); got != "import from an existing global binding" {
 		t.Fatalf("unexpected step-policy unknown-source hint for full import: %q", got)
 	}
-	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: ast.WithItem{Source: "src", Selectors: []string{"x"}}}); got != "import from an existing global binding" {
+	if got := stepPolicy.UnknownSource.Hint(ResolveIssue{Item: withIndexStringItem("src", []string{"x"}, diag.Span{})}); got != "import from an existing global binding" {
 		t.Fatalf("unexpected step-policy unknown-source hint for projection: %q", got)
 	}
 	if stepPolicy.DisallowedBinding.Code != diag.CodeE420 {
@@ -148,20 +148,20 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 	issues := []ResolveIssue{
 		{
 			Kind:   IssueUnknownSource,
-			Item:   ast.WithItem{Source: "missing", Span: span},
+			Item:   withIdentItem("missing", span),
 			Source: "missing",
 			Span:   span,
 		},
 		{
 			Kind:     IssueUnknownVar,
-			Item:     ast.WithItem{Source: "named", Selectors: []string{"x"}, Span: span},
+			Item:     withIndexStringItem("named", []string{"x"}, span),
 			Source:   "named",
 			Variable: "x",
 			Span:     span,
 		},
 		{
 			Kind:             IssueDisallowedBinding,
-			Item:             ast.WithItem{Source: "table", Span: span},
+			Item:             withIdentItem("table", span),
 			Source:           "table",
 			Span:             span,
 			DisallowedReason: DisallowedBindingAnalyseTable,
@@ -188,7 +188,7 @@ func TestEmitWithIssuesRoutesDiagnostics(t *testing.T) {
 	if diags.Items[2].Code != string(diag.CodeE420) {
 		t.Fatalf("expected third code E420, got %s", diags.Items[2].Code)
 	}
-	if diags.Items[2].Message != "analyse with-clause requires a scalar string binding; 'table' is a table" {
+	if diags.Items[2].Message != "analyse with-clause requires a bare string scalar variable; 'table' is a table" {
 		t.Fatalf("unexpected disallowed-binding message: %q", diags.Items[2].Message)
 	}
 }
@@ -199,7 +199,7 @@ func TestEmitWithIssuesSkipsUnknownIssueKind(t *testing.T) {
 	emitWithIssues(diags, stepValidateWithDiagPolicy(), []ResolveIssue{
 		{
 			Kind:   ResolveIssueKind(999),
-			Item:   ast.WithItem{Source: "x", Span: span},
+			Item:   withIdentItem("x", span),
 			Source: "x",
 			Span:   span,
 		},

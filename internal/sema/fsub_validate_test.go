@@ -14,7 +14,7 @@ func TestValidateFileSubstitutionsAcceptsVisibleAndInheritedRefs(t *testing.T) {
 cases = table(x = [1], y = ["a"])
 
 do prep
-        with cases[x]
+        with cases["x"]
         fsub "prep.tpl" { "X": x }
 {
         :
@@ -22,7 +22,7 @@ do prep
 
 do run
         after prep
-        with cases[y]
+        with cases["y"]
         fsub "run.tpl" { "X": x, "Y": y }
 {
         :
@@ -39,7 +39,7 @@ func TestValidateFileSubstitutionsRejectsInvisibleRefsInvalidRegexAndDuplicateDe
 cases = table(x = [1])
 
 do run
-        with cases[x]
+        with cases["x"]
         fsub "./a/input.tpl" { "(": x }
         fsub "./b/input.tpl" { "Y": y }
 {
@@ -66,7 +66,7 @@ func TestValidateFileSubstitutionsCountAsImportUsage(t *testing.T) {
 cases = table(x = [1])
 
 do run
-        with cases[x]
+        with cases["x"]
         fsub "input.tpl" { "X": x }
 {
         :

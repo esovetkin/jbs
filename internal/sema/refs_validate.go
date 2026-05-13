@@ -48,8 +48,17 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 	used := make(usedBySource)
 	stepUnused := make(map[string]stepUnusedImport)
 
+	markUsedSourceVar := func(key BindingVersionKey, sourceVar string) {
+		used.mark(key, sourceVar)
+		src := catalog.byKey[key]
+		if src == nil || slices.Contains(src.Order, sourceVar) || len(src.Order) != 1 {
+			return
+		}
+		used.mark(key, src.Order[0])
+	}
+
 	markUsedExact := func(bindings map[string]*GlobalBinding, source string, sourceVar string) {
-		used.mark(catalog.keyForSource(bindings, source), sourceVar)
+		markUsedSourceVar(catalog.keyForSource(bindings, source), sourceVar)
 	}
 
 	markUsedByImports := func(imports []importedVar) {
@@ -62,7 +71,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 			if key == (BindingVersionKey{}) {
 				key = catalog.keyForSource(nil, imp.Source)
 			}
-			used.mark(key, sourceVar)
+			markUsedSourceVar(key, sourceVar)
 		}
 	}
 
@@ -99,13 +108,13 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		}
 		warned := make(map[string]struct{})
 		for _, ref := range refs {
-			candidates := candidatesByVar[ref.Name]
-			if len(candidates) == 0 {
-				continue
-			}
 			origins := imports[ref.Name]
 			if len(origins) > 0 {
 				markUsedByImports(origins)
+				continue
+			}
+			candidates := candidatesByVar[ref.Name]
+			if len(candidates) == 0 {
 				continue
 			}
 			markUsedCandidates(candidates)

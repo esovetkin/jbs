@@ -121,7 +121,7 @@ func TestEvalNamesCall(t *testing.T) {
 				Args: ast.PosCallArgs(
 					ast.IndexExpr{
 						Base:  ast.IdentExpr{Name: "params", Span: span},
-						Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: span}},
+						Items: []ast.Expr{ast.StringExpr{Value: "x", Span: span}},
 						Span:  span,
 					},
 				),

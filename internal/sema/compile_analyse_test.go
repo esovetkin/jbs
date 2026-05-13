@@ -15,6 +15,7 @@ func testScalarBinding(name, publicName string, value eval.Value, span diag.Span
 	return &GlobalBinding{
 		Name:       name,
 		PublicName: publicName,
+		Value:      value,
 		Shape:      BindingScalar,
 		Order:      []string{publicName},
 		Vars:       map[string][]eval.Value{publicName: {value}},
@@ -91,11 +92,11 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 		},
 	}
 	items := []ast.WithItem{
-		{Source: "pattern", Span: span},
-		{Source: "pattern_dup", Selectors: []string{"pattern"}, Span: span},
-		{Source: "empty", Span: span},
-		{Source: "fn", Span: span},
-		{Source: "missing", Span: span},
+		withIdentItem("pattern", span),
+		withIdentItem("pattern_dup", span),
+		withIdentItem("empty", span),
+		withIdentItem("fn", span),
+		withIdentItem("missing", span),
 	}
 
 	diags := &diag.Diagnostics{}
@@ -103,14 +104,14 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
 		t.Fatalf("expected pattern import, got %#v", got["pattern"])
 	}
-	if imported, ok := got["pattern"]; !ok || imported.Source != "pattern" || imported.SourceVar != "pattern" {
-		t.Fatalf("expected first conflicting import to win, got %#v", got["pattern"])
+	if imported, ok := got["pattern_dup"]; !ok || imported.Source != "pattern_dup" || imported.SourceVar != "pattern" {
+		t.Fatalf("expected pattern_dup import, got %#v", got["pattern_dup"])
 	}
-	if imported, ok := got["empty"]; !ok || imported.Source != "empty" || imported.SourceVar != "empty" {
-		t.Fatalf("expected empty import to be retained, got %#v", got["empty"])
+	if _, ok := got["empty"]; ok {
+		t.Fatalf("did not expect empty non-string import, got %#v", got["empty"])
 	}
-	if countDiagCode(diags, "E214") != 1 {
-		t.Fatalf("expected one analyse import conflict diagnostic, got %d: %s", countDiagCode(diags, "E214"), diags.String())
+	if countDiagCode(diags, "E214") != 0 {
+		t.Fatalf("did not expect analyse import conflict diagnostic, got %d: %s", countDiagCode(diags, "E214"), diags.String())
 	}
 	if countDiagCode(diags, "E422") != 0 {
 		t.Fatalf("did not expect analyse import string-type diagnostic, got %d: %s", countDiagCode(diags, "E422"), diags.String())
@@ -118,8 +119,8 @@ func TestResolveAnalyseImportsCanonical(t *testing.T) {
 	if countDiagCode(diags, "E020") != 1 {
 		t.Fatalf("expected one unknown analyse import source diagnostic, got %d: %s", countDiagCode(diags, "E020"), diags.String())
 	}
-	if countDiagCode(diags, "E420") != 1 {
-		t.Fatalf("expected one disallowed analyse import diagnostic, got %d: %s", countDiagCode(diags, "E420"), diags.String())
+	if countDiagCode(diags, "E420") != 2 {
+		t.Fatalf("expected two disallowed analyse import diagnostics, got %d: %s", countDiagCode(diags, "E420"), diags.String())
 	}
 }
 
@@ -127,7 +128,10 @@ func TestResolveAnalyseImportsCanonicalReportsPreciseSourceRejections(t *testing
 	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	bindings := map[string]*GlobalBinding{
 		"cases": {
-			Name:  "cases",
+			Name: "cases",
+			Value: tableValueFromVars([]string{"x"}, map[string][]eval.Value{
+				"x": {eval.String("a")},
+			}),
 			Shape: BindingTable,
 			Order: []string{"x"},
 			Vars: map[string][]eval.Value{
@@ -137,6 +141,7 @@ func TestResolveAnalyseImportsCanonicalReportsPreciseSourceRejections(t *testing
 		},
 		"pair": {
 			Name:  "pair",
+			Value: eval.Tuple([]eval.Value{eval.String("a"), eval.String("b")}),
 			Shape: BindingScalar,
 			Order: []string{"x", "y"},
 			Vars: map[string][]eval.Value{
@@ -151,10 +156,10 @@ func TestResolveAnalyseImportsCanonicalReportsPreciseSourceRejections(t *testing
 		"make_pat": eval.Function(&eval.FunctionValue{}),
 	}
 	items := []ast.WithItem{
-		{Source: "cases", Span: span},
-		{Source: "pair", Span: span},
-		{Source: "num_pat", Span: span},
-		{Source: "make_pat", Span: span},
+		withIdentItem("cases", span),
+		withIdentItem("pair", span),
+		withIdentItem("num_pat", span),
+		withIdentItem("make_pat", span),
 	}
 
 	diags := &diag.Diagnostics{}
@@ -168,7 +173,7 @@ func TestResolveAnalyseImportsCanonicalReportsPreciseSourceRejections(t *testing
 	text := diags.String()
 	for _, want := range []string{
 		"'cases' is a table",
-		"'pair' has 2 columns",
+		"'pair' is not string-valued",
 		"'num_pat' is not string-valued",
 		"'make_pat' is not a data binding",
 	} {
@@ -208,7 +213,7 @@ func TestCompileAnalyseBlock(t *testing.T) {
 	block := ast.AnalyseBlock{
 		StepName: "run",
 		WithItems: []ast.WithItem{
-			{Source: "pattern", Span: span},
+			withIdentItem("pattern", span),
 		},
 		Assignments: []ast.AnalyseAssign{
 			{Name: "stepVar", Expr: ast.StringExpr{Value: "helper", Span: span}, Span: span},

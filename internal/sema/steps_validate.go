@@ -111,8 +111,7 @@ func validateWithItems(
 		Globals:    snapshotGlobals(res, snap),
 		Namespaces: snapshotNamespaces(res, snap),
 	}
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoStep})
-	emitWithIssues(diags, stepValidateWithDiagPolicy(), issues)
+	expanded := resolver.ResolveDoWithItems(items, diags)
 
 	tracker := newImportConflictTracker()
 	for _, item := range expanded {

@@ -3,9 +3,10 @@
 ## Arguments
 
 - `table`: a table value.
-- `selector...`: one or more identifier or qualified-identifier column selectors.
+- `selector...`: one or more identifier or qualified-identifier column names.
 - Named arguments are rejected.
-- Selectors must name existing columns.
+- Column names must exist in the input table.
+- Table index projection uses string selectors, for example `grid["id", "replica"]`.
 
 ## Returns
 

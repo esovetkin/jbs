@@ -6,7 +6,7 @@ The `analyse` block targets an existing `do` step and maps matched patterns plus
 
 ```jbs
 analyse <step_name>
-        [with <scalar0>, <scalar1>, ...]
+        [with <string_scalar0>, <string_scalar1>, ...]
 {
         helper = <expr>
 
@@ -29,7 +29,7 @@ Rules:
 - Each output table starts with `run_id`, the workpackage directory ID.
 - Analysis files are resolved relative to each workpackage directory.
 - Missing analysis files make the benchmark status `ERROR`.
-- `with` in `analyse` is scalar-only and requires string data bindings.
+- `with` in `analyse` accepts only bare string scalar data bindings such as `with pat_number`.
 - Pattern shortcuts:
   - `%d` captures an integer.
   - `%f` captures a floating-point value.

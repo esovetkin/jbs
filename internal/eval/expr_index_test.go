@@ -308,3 +308,55 @@ func TestSequenceIndexDoesNotChangeDictionaryBoolKeys(t *testing.T) {
 		t.Fatalf("unexpected dictionary bool-key result: %#v", got)
 	}
 }
+
+func TestTableIndexStringColumns(t *testing.T) {
+	table := CombValue(&Comb{
+		Order: []string{"a", "b"},
+		Rows: []Row{
+			{Values: map[string]Cell{"a": {Value: Int(1)}, "b": {Value: String("x")}}},
+			{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
+		},
+	})
+	cases := []struct {
+		name string
+		env  map[string]Value
+		expr ast.Expr
+		want []string
+	}{
+		{
+			name: "literal string selector",
+			env:  map[string]Value{"t": table},
+			expr: indexExprForTest(ident("t"), stringExpr("a")),
+			want: []string{"a"},
+		},
+		{
+			name: "selector variable",
+			env:  map[string]Value{"t": table, "sel": String("b")},
+			expr: indexExprForTest(ident("t"), ident("sel")),
+			want: []string{"b"},
+		},
+		{
+			name: "multiple selectors",
+			env:  map[string]Value{"t": table, "sel": String("b")},
+			expr: indexExprForTest(ident("t"), stringExpr("a"), ident("sel")),
+			want: []string{"a", "b"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{})
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if !IsComb(got) || len(got.C.Order) != len(tc.want) {
+				t.Fatalf("unexpected projection result: %#v", got)
+			}
+			for i, name := range tc.want {
+				if got.C.Order[i] != name {
+					t.Fatalf("unexpected projection order: got=%#v want=%#v", got.C.Order, tc.want)
+				}
+			}
+		})
+	}
+}

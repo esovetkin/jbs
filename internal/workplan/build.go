@@ -13,15 +13,18 @@ import (
 type state struct {
 	ID         WorkID
 	Values     map[string]eval.Value
-	SourceRows map[sema.BindingVersionKey][]int
+	SourceRows map[sema.BindingVersionKey][]SourceRowConstraint
 	Parents    []WorkID
 }
 
 type sourceGroup struct {
+	ItemID        int
 	Source        string
 	SourceKey     sema.BindingVersionKey
 	DisplaySource string
 	Vars          []sourceVar
+	ValuesByName  map[string][]eval.Value
+	RowCount      int
 	Full          bool
 	Span          diag.Span
 }
@@ -62,7 +65,7 @@ func Build(res *sema.Result, diags *diag.Diagnostics) Plan {
 		step := defs[stepName]
 		plan := res.StepScopeByName[stepName]
 		parents := inheritParentStates(step.After, statesByStep, step.Span, diags)
-		groups := groupExplicitDeltaBySource(plan, res.BindingsByName)
+		groups := groupExplicitDeltaByItem(plan, res.BindingsByName)
 		states := expandStep(parents, groups, res.BindingsByName, step.Span, diags)
 		for i := range states {
 			states[i].ID = WorkID{Step: step.Name, Row: i}
@@ -149,23 +152,62 @@ func inheritParentStates(after []string, byStep map[string][]state, at diag.Span
 	return combined
 }
 
-func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*sema.GlobalBinding) []sourceGroup {
+func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema.GlobalBinding) []sourceGroup {
 	if plan == nil {
 		return nil
 	}
-	order := make([]string, 0)
-	bySource := make(map[string]*sourceGroup)
+	if len(plan.Expansions) > 0 {
+		out := make([]sourceGroup, 0, len(plan.Expansions))
+		for _, expansion := range plan.Expansions {
+			vars := make([]sourceVar, 0, len(expansion.Vars))
+			for _, v := range expansion.Vars {
+				sourceVarName := v.SourceVar
+				if sourceVarName == "" {
+					sourceVarName = v.Visible
+				}
+				vars = append(vars, sourceVar{Visible: v.Visible, SourceVar: sourceVarName})
+			}
+			rowCount := expansion.RowCount
+			if rowCount == 0 {
+				rowCount = sourceRowCountFromVars(expansion.VarsByName)
+			}
+			out = append(out, sourceGroup{
+				ItemID:        expansion.ItemID,
+				Source:        expansion.Source,
+				SourceKey:     expansion.SourceKey,
+				DisplaySource: expansion.DisplaySource,
+				Vars:          vars,
+				ValuesByName:  cloneSeriesMap(expansion.VarsByName),
+				RowCount:      rowCount,
+				Full:          expansion.Full,
+				Span:          expansion.Span,
+			})
+		}
+		return out
+	}
+
+	type fallbackGroupKey struct {
+		itemID    int
+		source    string
+		sourceKey sema.BindingVersionKey
+	}
+	order := make([]fallbackGroupKey, 0)
+	byItem := make(map[fallbackGroupKey]*sourceGroup)
 	for _, item := range plan.ExplicitDelta {
 		source := item.Source
 		if source == "" {
 			continue
 		}
-		g, ok := bySource[source]
+		sourceKey := item.SourceKey
+		if sourceKey == (sema.BindingVersionKey{}) {
+			sourceKey = sema.BindingVersionKeyForSource(sources, source)
+		}
+		key := fallbackGroupKey{itemID: item.ItemID, source: source, sourceKey: sourceKey}
+		g, ok := byItem[key]
 		if !ok {
-			sourceKey := sema.BindingVersionKeyForSource(sources, source)
-			g = &sourceGroup{Source: source, SourceKey: sourceKey, DisplaySource: sourceKey.Display(), Vars: make([]sourceVar, 0), Span: item.Span}
-			bySource[source] = g
-			order = append(order, source)
+			g = &sourceGroup{ItemID: item.ItemID, Source: source, SourceKey: sourceKey, DisplaySource: sourceKey.Display(), Vars: make([]sourceVar, 0), Span: item.Span}
+			byItem[key] = g
+			order = append(order, key)
 		}
 		if g.Span.IsZero() {
 			g.Span = item.Span
@@ -179,6 +221,8 @@ func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*se
 					}
 					g.Vars = append(g.Vars, sourceVar{Visible: name, SourceVar: name})
 				}
+				g.ValuesByName = cloneSeriesMap(src.Vars)
+				g.RowCount = planutil.SourceRowCount(src.Order, src.Vars)
 			}
 			continue
 		}
@@ -196,8 +240,12 @@ func groupExplicitDeltaBySource(plan *sema.StepScopePlan, sources map[string]*se
 	}
 
 	out := make([]sourceGroup, 0, len(order))
-	for _, source := range order {
-		if g := bySource[source]; g != nil {
+	for _, key := range order {
+		if g := byItem[key]; g != nil {
+			if g.ValuesByName == nil {
+				g.ValuesByName = valuesByNameForGroup(*g, sources)
+				g.RowCount = sourceRowCountFromVars(g.ValuesByName)
+			}
 			out = append(out, *g)
 		}
 	}
@@ -230,20 +278,31 @@ func expandStep(parents []state, groups []sourceGroup, sources map[string]*sema.
 }
 
 func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBinding) []sourceChoice {
-	src := sources[group.Source]
-	if src == nil {
-		return nil
-	}
-	rowCount := planutil.SourceRowCount(src.Order, src.Vars)
-	if rowCount == 0 {
-		rowCount = 1
-	}
-
 	vars := group.Vars
 	if group.Full && len(vars) == 0 {
-		for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
-			vars = append(vars, sourceVar{Visible: name, SourceVar: name})
+		if src := sources[group.Source]; src != nil {
+			for _, name := range planutil.SourceVarNames(src.Order, src.Vars) {
+				vars = append(vars, sourceVar{Visible: name, SourceVar: name})
+			}
+		} else {
+			for _, name := range sortedSeriesNames(group.ValuesByName) {
+				vars = append(vars, sourceVar{Visible: name, SourceVar: name})
+			}
 		}
+	}
+	group.Vars = vars
+	if group.ValuesByName == nil {
+		group.ValuesByName = valuesByNameForGroup(group, sources)
+	}
+	rowCount := group.RowCount
+	if rowCount == 0 {
+		rowCount = sourceRowCountFromVars(group.ValuesByName)
+	}
+	if rowCount == 0 && group.Full && len(vars) == 0 {
+		rowCount = 1
+	}
+	if rowCount == 0 {
+		return nil
 	}
 
 	valuesByName := make(map[string][]eval.Value, len(vars))
@@ -253,26 +312,14 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 		if sourceVarName == "" {
 			sourceVarName = v.Visible
 		}
-		valuesByName[v.Visible] = planutil.ExpandValues(src.Vars[sourceVarName], rowCount)
+		valuesByName[v.Visible] = planutil.ExpandValues(group.ValuesByName[sourceVarName], rowCount)
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
 	sourceKey := sourceKeyForGroup(group, sources)
-	allowedRows, constrained := st.SourceRows[sourceKey]
-	if constrained {
-		filtered := make([]int, 0, len(allowedRows))
-		for _, idx := range allowedRows {
-			if idx < 0 || idx >= rowCount {
-				continue
-			}
-			filtered = append(filtered, idx)
-		}
-		allowedRows = filtered
-		if len(allowedRows) == 0 {
-			return nil
-		}
-	} else {
-		allowedRows = planutil.SequentialIndices(rowCount)
+	allowedRows := allowedRowsForSource(st.SourceRows[sourceKey], rowCount)
+	if len(allowedRows) == 0 {
+		return nil
 	}
 
 	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full)
@@ -318,6 +365,50 @@ func valueAt(series []eval.Value, idx int) eval.Value {
 	return series[idx]
 }
 
+func allowedRowsForSource(constraints []SourceRowConstraint, rowCount int) []int {
+	if rowCount <= 0 {
+		return nil
+	}
+	allowed := make([]bool, rowCount)
+	for i := range allowed {
+		allowed[i] = true
+	}
+	constrained := false
+	for _, constraint := range constraints {
+		if !constraint.Inherited {
+			continue
+		}
+		constrained = true
+		next := make([]bool, rowCount)
+		for _, row := range constraint.Rows {
+			if row >= 0 && row < rowCount {
+				next[row] = true
+			}
+		}
+		for i := range allowed {
+			allowed[i] = allowed[i] && next[i]
+		}
+	}
+	if !constrained {
+		return planutil.SequentialIndices(rowCount)
+	}
+	out := make([]int, 0, rowCount)
+	for i, ok := range allowed {
+		if ok {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func visibleNamesForGroup(group sourceGroup) []string {
+	out := make([]string, 0, len(group.Vars))
+	for _, v := range group.Vars {
+		out = append(out, v.Visible)
+	}
+	return out
+}
+
 func mergeParentStates(a, b state, at diag.Span, diags *diag.Diagnostics) (state, bool) {
 	out := cloneState(a)
 	for name, value := range b.Values {
@@ -335,31 +426,20 @@ func mergeParentStates(a, b state, at diag.Span, diags *diag.Diagnostics) (state
 		}
 		out.Values[name] = value
 	}
-	for sourceKey, rows := range b.SourceRows {
-		if existing, ok := out.SourceRows[sourceKey]; ok {
-			if !slices.Equal(existing, rows) {
-				diags.AddError(
-					diag.CodeE501,
-					fmt.Sprintf("conflicting inherited row context for source '%s'", sourceKey.Display()),
-					at,
-					"ensure dependencies constrain the same source consistently",
-				)
-				return state{}, false
-			}
-			continue
+	for sourceKey, constraints := range b.SourceRows {
+		for _, constraint := range constraints {
+			constraint.Inherited = true
+			constraint.Rows = slices.Clone(constraint.Rows)
+			constraint.Vars = slices.Clone(constraint.Vars)
+			out.SourceRows[sourceKey] = append(out.SourceRows[sourceKey], constraint)
 		}
-		out.SourceRows[sourceKey] = slices.Clone(rows)
 	}
 	return out, true
 }
 
 func mergeWithChoice(st state, group sourceGroup, choice sourceChoice, at diag.Span, diags *diag.Diagnostics) (state, bool) {
 	out := cloneState(st)
-	sourceKey := group.SourceKey
-	if sourceKey == (sema.BindingVersionKey{}) {
-		source := displaySourceForGroup(group)
-		sourceKey = sema.BindingVersionKey{Public: source, Version: source}
-	}
+	sourceKey := sourceKeyForGroup(group, nil)
 	source := sourceKey.Display()
 	for name, value := range choice.Values {
 		if existing, ok := out.Values[name]; ok {
@@ -376,14 +456,18 @@ func mergeWithChoice(st state, group sourceGroup, choice sourceChoice, at diag.S
 		}
 		out.Values[name] = value
 	}
-	out.SourceRows[sourceKey] = slices.Clone(choice.Rows)
+	out.SourceRows[sourceKey] = append(out.SourceRows[sourceKey], SourceRowConstraint{
+		ItemID: group.ItemID,
+		Vars:   visibleNamesForGroup(group),
+		Rows:   slices.Clone(choice.Rows),
+	})
 	return out, true
 }
 
 func emptyState() state {
 	return state{
 		Values:     make(map[string]eval.Value),
-		SourceRows: make(map[sema.BindingVersionKey][]int),
+		SourceRows: make(map[sema.BindingVersionKey][]SourceRowConstraint),
 	}
 }
 
@@ -394,8 +478,8 @@ func cloneState(st state) state {
 	for name, value := range st.Values {
 		out.Values[name] = value
 	}
-	for sourceKey, rows := range st.SourceRows {
-		out.SourceRows[sourceKey] = slices.Clone(rows)
+	for sourceKey, constraints := range st.SourceRows {
+		out.SourceRows[sourceKey] = cloneConstraints(constraints)
 	}
 	return out
 }
@@ -416,10 +500,68 @@ func cloneValues(in map[string]eval.Value) map[string]eval.Value {
 	return out
 }
 
-func cloneSourceRows(in map[sema.BindingVersionKey][]int) map[sema.BindingVersionKey][]int {
-	out := make(map[sema.BindingVersionKey][]int, len(in))
+func cloneSeriesMap(in map[string][]eval.Value) map[string][]eval.Value {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]eval.Value, len(in))
 	for k, v := range in {
-		out[k] = slices.Clone(v)
+		out[k] = eval.CloneValues(v)
+	}
+	return out
+}
+
+func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding) map[string][]eval.Value {
+	src := sources[group.Source]
+	if src == nil {
+		return nil
+	}
+	out := make(map[string][]eval.Value, len(group.Vars))
+	for _, v := range group.Vars {
+		sourceVar := v.SourceVar
+		if sourceVar == "" {
+			sourceVar = v.Visible
+		}
+		if values, ok := src.Vars[sourceVar]; ok {
+			out[sourceVar] = eval.CloneValues(values)
+		}
+	}
+	return out
+}
+
+func sourceRowCountFromVars(vars map[string][]eval.Value) int {
+	rowCount := 0
+	for _, values := range vars {
+		if len(values) > rowCount {
+			rowCount = len(values)
+		}
+	}
+	return rowCount
+}
+
+func sortedSeriesNames(vars map[string][]eval.Value) []string {
+	out := make([]string, 0, len(vars))
+	for name := range vars {
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func cloneConstraints(in []SourceRowConstraint) []SourceRowConstraint {
+	out := make([]SourceRowConstraint, len(in))
+	for i, constraint := range in {
+		out[i] = constraint
+		out[i].Vars = slices.Clone(constraint.Vars)
+		out[i].Rows = slices.Clone(constraint.Rows)
+	}
+	return out
+}
+
+func cloneSourceRows(in map[sema.BindingVersionKey][]SourceRowConstraint) map[sema.BindingVersionKey][]SourceRowConstraint {
+	out := make(map[sema.BindingVersionKey][]SourceRowConstraint, len(in))
+	for k, v := range in {
+		out[k] = cloneConstraints(v)
 	}
 	return out
 }

@@ -10,7 +10,7 @@ import (
 func TestParseHeaderElementsKindsAndComments(t *testing.T) {
 	raw := "\n" +
 		"  # lead comment\n" +
-		"with p[x], q # inline note\n" +
+		`with p["x"], q # inline note` + "\n" +
 		"\n" +
 		"nproc 2\n" +
 		"after prep\n" +
@@ -25,7 +25,7 @@ func TestParseHeaderElementsKindsAndComments(t *testing.T) {
 	if elems[0].Kind != ast.HeaderElemComment || elems[0].Comment == nil || elems[0].Comment.Text != "lead comment" {
 		t.Fatalf("unexpected comment element: %#v", elems[0])
 	}
-	if elems[1].Kind != ast.HeaderElemWith || elems[1].Text != "with p[x], q" {
+	if elems[1].Kind != ast.HeaderElemWith || elems[1].Text != `with p["x"], q` {
 		t.Fatalf("unexpected with element: %#v", elems[1])
 	}
 	if elems[1].Inline == nil || elems[1].Inline.Text != "inline note" {

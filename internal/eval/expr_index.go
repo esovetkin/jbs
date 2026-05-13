@@ -140,22 +140,22 @@ func emptySequenceResult(base Value) Value {
 	return sequenceResult(base, nil)
 }
 
-func evalCombIndex(base Value, items []ast.Expr, at diag.Span, diags *diag.Diagnostics) Value {
+func evalCombIndex(base Value, items []ast.Expr, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	if len(items) == 0 {
+		diags.AddError(diag.CodeE106, "table index selectors cannot be empty", at, `use at least one quoted column name such as table_value["col"]`)
+		return Null()
+	}
 	selectors := make([]string, 0, len(items))
 	for _, item := range items {
-		switch n := item.(type) {
-		case ast.IdentExpr:
-			selectors = append(selectors, n.Name)
-		case ast.QualifiedIdentExpr:
-			selectors = append(selectors, n.Namespace+"."+n.Name)
-		default:
-			diags.AddError(diag.CodeE106, "table index selectors must be identifiers", item.GetSpan(), "use syntax: table_value[col] or table_value[col0,col1]")
+		value := evalExprWithCtx(item, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
 			return Null()
 		}
-	}
-	if len(selectors) == 0 {
-		diags.AddError(diag.CodeE106, "table index selectors cannot be empty", at, "use at least one selector inside []")
-		return Null()
+		if value.Kind != KindString {
+			diags.AddError(diag.CodeE106, "table index selector must evaluate to a string", item.GetSpan(), `use table_value["col"] or assign a selector variable such as col = "name"`)
+			return Null()
+		}
+		selectors = append(selectors, value.S)
 	}
 	projected, ok := CombProject(base, selectors)
 	if !ok {

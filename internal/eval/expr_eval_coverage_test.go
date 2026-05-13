@@ -51,7 +51,7 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 		}
 	})
 
-	t.Run("index with qualified selector projects comb", func(t *testing.T) {
+	t.Run("index with dotted string selector projects comb", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		comb := CombValue(&Comb{
 			Order: []string{"ns.x", "y"},
@@ -66,7 +66,7 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 			ast.IndexExpr{
 				Base: ast.IdentExpr{Name: "m", Span: spanAt(502, 1)},
 				Items: []ast.Expr{
-					ast.QualifiedIdentExpr{Namespace: "ns", Name: "x", Span: spanAt(502, 4)},
+					ast.StringExpr{Value: "ns.x", Span: spanAt(502, 4)},
 				},
 				Span: spanAt(502, 1),
 			},
@@ -103,7 +103,7 @@ func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
 			ast.MemberExpr{
 				Base: ast.IndexExpr{
 					Base:  ast.IdentExpr{Name: "m", Span: spanAt(502, 1)},
-					Items: []ast.Expr{ast.IdentExpr{Name: "x", Span: spanAt(502, 3)}},
+					Items: []ast.Expr{ast.StringExpr{Value: "x", Span: spanAt(502, 3)}},
 					Span:  spanAt(502, 1),
 				},
 				Name: "x",

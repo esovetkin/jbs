@@ -13,6 +13,7 @@ import (
 func bindingWithOrigins(name string, order []string, vars map[string][]eval.Value, origins map[string]diag.Span) *GlobalBinding {
 	return &GlobalBinding{
 		Name:    name,
+		Value:   tableValueFromVars(order, vars),
 		Shape:   BindingTable,
 		Order:   order,
 		Vars:    vars,
@@ -25,8 +26,8 @@ func TestCollectStepDefinitionsUsesFirstMatchingBlockAndCopiesSlices(t *testing.
 	span1 := diag.NewSpan("in.jbs", diag.NewPos(2, 2, 1), diag.NewPos(3, 2, 2))
 	res := &Result{
 		DoBlocks: []ast.DoBlock{
-			{Name: "build", After: []string{"prep"}, WithItems: []ast.WithItem{{Source: "srcA", Span: span0}}, Span: span0},
-			{Name: "build", After: []string{"shadow"}, WithItems: []ast.WithItem{{Source: "srcB", Span: span1}}, Span: span1},
+			{Name: "build", After: []string{"prep"}, WithItems: []ast.WithItem{withIdentItem("srcA", span0)}, Span: span0},
+			{Name: "build", After: []string{"shadow"}, WithItems: []ast.WithItem{withIdentItem("srcB", span1)}, Span: span1},
 			{Name: "run", After: []string{"build"}, Span: span1},
 		},
 		StepOrder: []string{"run", "build", "missing"},
@@ -39,18 +40,18 @@ func TestCollectStepDefinitionsUsesFirstMatchingBlockAndCopiesSlices(t *testing.
 	if !reflect.DeepEqual(defs["build"].After, []string{"prep"}) {
 		t.Fatalf("expected first matching build definition, got %#v", defs["build"])
 	}
-	if len(defs["build"].WithItems) != 1 || defs["build"].WithItems[0].Source != "srcA" {
+	if len(defs["build"].WithItems) != 1 || withItemIdentName(defs["build"].WithItems[0]) != "srcA" {
 		t.Fatalf("expected first matching build with-items, got %#v", defs["build"].WithItems)
 	}
 
 	defAfter := defs["build"].After
 	defItems := defs["build"].WithItems
 	defAfter[0] = "changed"
-	defItems[0].Source = "changed"
+	defItems[0] = withIdentItem("changed", span0)
 	if res.DoBlocks[0].After[0] != "prep" {
 		t.Fatalf("expected collectStepDefinitions to copy after slice, got %#v", res.DoBlocks[0].After)
 	}
-	if res.DoBlocks[0].WithItems[0].Source != "srcA" {
+	if withItemIdentName(res.DoBlocks[0].WithItems[0]) != "srcA" {
 		t.Fatalf("expected collectStepDefinitions to copy with-items slice, got %#v", res.DoBlocks[0].WithItems)
 	}
 }
@@ -96,11 +97,11 @@ func TestBuildStepScopePlansHandlesInheritanceAndConflicts(t *testing.T) {
 			}),
 		},
 		DoBlocks: []ast.DoBlock{
-			{Name: "first", WithItems: []ast.WithItem{{Source: "srcA", Span: stepSpan}}, Span: stepSpan},
-			{Name: "second", WithItems: []ast.WithItem{{Source: "srcB", Span: stepSpan}}, Span: stepSpan},
-			{Name: "projected", WithItems: []ast.WithItem{{Source: "srcA", Selectors: []string{"a"}, Span: stepSpan}}, Span: stepSpan},
+			{Name: "first", WithItems: []ast.WithItem{withIdentItem("srcA", stepSpan)}, Span: stepSpan},
+			{Name: "second", WithItems: []ast.WithItem{withIdentItem("srcB", stepSpan)}, Span: stepSpan},
+			{Name: "projected", WithItems: []ast.WithItem{withIndexStringItem("srcA", []string{"a"}, stepSpan)}, Span: stepSpan},
 			{Name: "merge", After: []string{"first", "second", "first"}, Span: stepSpan},
-			{Name: "explicitConflict", After: []string{"first"}, WithItems: []ast.WithItem{{Source: "srcB", Span: stepSpan}}, Span: stepSpan},
+			{Name: "explicitConflict", After: []string{"first"}, WithItems: []ast.WithItem{withIdentItem("srcB", stepSpan)}, Span: stepSpan},
 		},
 		StepOrder: []string{"first", "second", "projected", "merge", "explicitConflict"},
 	}
@@ -168,13 +169,13 @@ func TestBuildStepScopePlansHandlesInheritanceAndConflicts(t *testing.T) {
 	}
 }
 
-func TestAnalyzeKeepsDuplicateInheritedVisibleNameConflictForSameSourceVersion(t *testing.T) {
+func TestAnalyzeAllowsDuplicateInheritedVisibleNameForSameSourceVersion(t *testing.T) {
 	src := `
 cases = table(x = (1,2))
 
-do step0 with cases[x] { echo $x }
+do step0 with cases["x"] { echo $x }
 
-do step1 with cases[x] { echo $x }
+do step1 with cases["x"] { echo $x }
 
 do step2
         after step0
@@ -184,8 +185,8 @@ do step2
 }
 `
 	_, diags := analyzeRefValidationSource(t, "same_source_conflict.jbs", src)
-	if countDiagCode(diags, string(diag.CodeE214)) == 0 {
-		t.Fatalf("expected E214 for duplicate inherited visible x, got: %s", diags.String())
+	if countDiagCode(diags, string(diag.CodeE214)) != 0 {
+		t.Fatalf("did not expect E214 for duplicate same-source inherited x, got: %s", diags.String())
 	}
 }
 
@@ -193,11 +194,11 @@ func TestAnalyzeAllowsDifferentInheritedVisibleNamesAcrossReboundPublicSource(t 
 	src := `
 cases = table(x = (1,2))
 
-do step0 with cases[x] { echo $x }
+do step0 with cases["x"] { echo $x }
 
 cases = table(y = (1,2))
 
-do step1 with cases[y] { echo $y }
+do step1 with cases["y"] { echo $y }
 
 do step2
         after step0
@@ -210,6 +211,11 @@ do step2
 	if countDiagCode(diags, string(diag.CodeE214)) != 0 {
 		t.Fatalf("did not expect E214 for distinct inherited names x and y, got: %s", diags.String())
 	}
+}
+
+func withItemIdentName(item ast.WithItem) string {
+	ident, _ := item.Expr.(ast.IdentExpr)
+	return ident.Name
 }
 
 func containsAll(text string, parts ...string) bool {

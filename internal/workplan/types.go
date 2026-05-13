@@ -34,7 +34,14 @@ type WorkPackage struct {
 	StepName   string
 	StepKind   string
 	Values     map[string]eval.Value
-	SourceRows map[sema.BindingVersionKey][]int
+	SourceRows map[sema.BindingVersionKey][]SourceRowConstraint
 	Deps       []WorkID
 	Span       diag.Span
+}
+
+type SourceRowConstraint struct {
+	ItemID    int
+	Vars      []string
+	Rows      []int
+	Inherited bool
 }

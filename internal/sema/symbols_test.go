@@ -20,6 +20,7 @@ func TestGlobalBindingSupports(t *testing.T) {
 	}
 
 	scalarString := &GlobalBinding{
+		Value: eval.String("ok"),
 		Shape: BindingScalar,
 		Order: []string{"value"},
 		Vars: map[string][]eval.Value{
@@ -34,6 +35,7 @@ func TestGlobalBindingSupports(t *testing.T) {
 		},
 	}
 	scalarNumber := &GlobalBinding{
+		Value: eval.Int(1),
 		Shape: BindingScalar,
 		Order: []string{"value"},
 		Vars: map[string][]eval.Value{
@@ -41,6 +43,7 @@ func TestGlobalBindingSupports(t *testing.T) {
 		},
 	}
 	scalarMultiColumn := &GlobalBinding{
+		Value: eval.Tuple([]eval.Value{eval.String("x"), eval.String("y")}),
 		Shape: BindingScalar,
 		Order: []string{"a", "b"},
 		Vars: map[string][]eval.Value{
@@ -49,6 +52,9 @@ func TestGlobalBindingSupports(t *testing.T) {
 		},
 	}
 	tableBinding := &GlobalBinding{
+		Value: tableValueFromVars([]string{"value"}, map[string][]eval.Value{
+			"value": {eval.String("ok")},
+		}),
 		Shape: BindingTable,
 		Order: []string{"value"},
 		Vars: map[string][]eval.Value{
@@ -65,8 +71,8 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if !scalarString.Supports(ImportIntoAnalyse) {
 		t.Fatalf("single-column string scalar should support analyse imports")
 	}
-	if !scalarEmpty.Supports(ImportIntoAnalyse) {
-		t.Fatalf("empty scalar values should still support analyse imports")
+	if scalarEmpty.Supports(ImportIntoAnalyse) {
+		t.Fatalf("empty binding without a raw string value should not support analyse imports")
 	}
 	if tableBinding.Supports(ImportIntoAnalyse) {
 		t.Fatalf("table binding should not support analyse imports")
@@ -77,8 +83,8 @@ func TestGlobalBindingSupports(t *testing.T) {
 	if scalarMultiColumn.Supports(ImportIntoAnalyse) {
 		t.Fatalf("multi-column scalar should not support analyse imports")
 	}
-	if got := scalarMultiColumn.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingAnalyseMultiColumn {
-		t.Fatalf("multi-column scalar should report multi-column reason, got %v", got)
+	if got := scalarMultiColumn.SupportIssue(ImportIntoAnalyse); got != DisallowedBindingAnalyseNonString {
+		t.Fatalf("tuple-valued scalar should report non-string reason, got %v", got)
 	}
 	if scalarNumber.Supports(ImportIntoAnalyse) {
 		t.Fatalf("non-string scalar should not support analyse imports")

@@ -230,7 +230,7 @@ func TestRunCheckRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
 		t.Fatalf("expected failing check for table-valued analyse import, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	errText := stderr.String()
-	want := "analyse with-clause requires a scalar string binding; 'cases' is a table"
+	want := "analyse with-clause requires a bare string scalar variable; 'cases' is a table"
 	if !strings.Contains(errText, "ERROR E420") || !strings.Contains(errText, want) {
 		t.Fatalf("expected precise analyse with diagnostic %q, got %q", want, errText)
 	}

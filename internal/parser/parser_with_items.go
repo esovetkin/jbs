@@ -1,12 +1,9 @@
-// parse `with`-clause item lists into `[]ast.WithItem`
-//
-// The canonical surface is intentionally small:
-//   - `with source`
-//   - `with source[col0, col1]`
+// parse `with`-clause item lists into expression-backed `[]ast.WithItem`
 package parser
 
 import (
 	"strings"
+	"unicode"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -15,15 +12,18 @@ import (
 func (p *Parser) parseWithItems() []ast.WithItem {
 	items := make([]ast.WithItem, 0)
 	for {
-		p.skipTriviaInline()
-		itemStart := p.pos()
-		item, ok := p.parseWithItem()
-		if ok {
-			items = append(items, item)
-		}
-		if itemStart == p.pos() {
+		raw, span, ok := p.readWithItemExprText()
+		if !ok {
 			break
 		}
+		before := len(p.diags.Items)
+		expr, parsed := ParseStandaloneExpr(p.file, raw, span.Start, p.diags)
+		if !parsed || expr == nil || parserAddedErrorSince(p.diags, before) {
+			p.diags.AddError(diag.CodeE023, "invalid with-clause expression", span, `use a variable name or table projection such as cases["x"]`)
+			break
+		}
+		items = append(items, ast.WithItem{Expr: expr, Span: span})
+
 		p.skipTriviaInline()
 		if p.peek() != ',' {
 			break
@@ -33,115 +33,105 @@ func (p *Parser) parseWithItems() []ast.WithItem {
 	return items
 }
 
-func (p *Parser) parseWithItem() (ast.WithItem, bool) {
-	p.skipTriviaInline()
-	source, sourceSpan := p.parseQualifiedName(diag.CodeE023, "expected source global binding name in with clause")
-	if source == "" {
-		return ast.WithItem{}, false
-	}
-	item := ast.WithItem{Source: source, Span: sourceSpan}
-
-	p.skipTriviaInline()
-	if p.peek() == '[' {
-		selectors, sliceSpan, ok := p.parseWithSliceNames()
-		if !ok {
-			return ast.WithItem{}, false
-		}
-		item.Selectors = selectors
-		item.Span = diag.Merge(item.Span, sliceSpan)
-	}
-
-	if p.rejectUnsupportedWithTail(item.Span) {
-		return ast.WithItem{}, false
-	}
-	return item, item.Source != ""
-}
-
-func (p *Parser) rejectUnsupportedWithTail(itemSpan diag.Span) bool {
-	p.skipTriviaInline()
-	word, ok := p.peekWord()
-	if !ok || (word != "from" && word != "in" && word != "as") {
+func parserAddedErrorSince(diags *diag.Diagnostics, start int) bool {
+	if diags == nil || start >= len(diags.Items) {
 		return false
 	}
+	for _, item := range diags.Items[start:] {
+		if item.Severity == diag.SeverityError {
+			return true
+		}
+	}
+	return false
+}
 
-	tailStart := p.pos()
+func (p *Parser) readWithItemExprText() (string, diag.Span, bool) {
+	p.skipTriviaInline()
+	start := p.pos()
+	startOff := p.off
+	if p.eof() || p.peek() == ',' || p.peek() == '{' {
+		span := diag.NewSpan(p.file, start, start)
+		p.diags.AddError(diag.CodeE023, "expected expression in with clause", span, `use a variable name or table projection such as cases["x"]`)
+		return "", span, false
+	}
+
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+	quote := rune(0)
+	escaped := false
 	for !p.eof() {
 		r := p.peek()
-		if r == ',' || r == '{' {
-			break
-		}
-		p.advance()
-	}
-	tailSpan := diag.NewSpan(p.file, tailStart, p.pos())
-	p.diags.AddError(
-		diag.CodeE023,
-		"invalid with-clause syntax",
-		diag.Merge(itemSpan, tailSpan),
-		"use `with source` or `with source[col0, col1]`",
-	)
-	return true
-}
-
-func (p *Parser) parseWithSliceNames() ([]string, diag.Span, bool) {
-	start := p.pos()
-	if p.peek() != '[' {
-		p.diags.AddError(diag.CodeE023, "expected '[' in with slice syntax", diag.NewSpan(p.file, start, start), "use syntax: source[var0,var1]")
-		return nil, diag.NewSpan(p.file, start, start), false
-	}
-	p.advance()
-	names := make([]string, 0, 2)
-	for {
-		p.skipTriviaInline()
-		if p.peek() == ']' {
-			end := p.pos()
+		if quote != 0 {
 			p.advance()
-			if len(names) == 0 {
-				span := diag.NewSpan(p.file, start, end)
-				p.diags.AddError(diag.CodeE023, "empty with-slice selector list", span, "add at least one variable name inside []")
-				return nil, span, false
+			if escaped {
+				escaped = false
+				continue
 			}
-			return names, diag.NewSpan(p.file, start, p.pos()), true
-		}
-		name, _ := p.parseQualifiedName(diag.CodeE023, "expected identifier in with slice selector")
-		if name == "" {
-			return nil, diag.NewSpan(p.file, start, p.pos()), false
-		}
-		names = append(names, name)
-		p.skipTriviaInline()
-		if p.peek() == ',' {
-			p.advance()
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
 			continue
 		}
-		if p.peek() == ']' {
-			continue
-		}
-		span := diag.NewSpan(p.file, start, p.pos())
-		p.diags.AddError(diag.CodeE023, "unterminated with slice selector list", span, "close selector list with ']'")
-		return nil, span, false
-	}
-}
 
-func (p *Parser) parseQualifiedName(code diag.Code, message string) (string, diag.Span) {
-	name, span := p.parseRequiredIdent(code, message)
-	if name == "" {
-		return "", span
-	}
-	parts := []string{name}
-	for {
-		p.skipTriviaInline()
-		if p.peek() != '.' {
-			break
+		if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 {
+			if r == ',' || r == '{' || r == '#' || p.startsNextWithBoundaryWord(startOff) {
+				break
+			}
+		}
+
+		switch r {
+		case '\'', '"':
+			quote = r
+			escaped = false
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case '{':
+			braceDepth++
+		case '}':
+			if braceDepth > 0 {
+				braceDepth--
+			}
 		}
 		p.advance()
-		p.skipTriviaInline()
-		next, nextSpan := p.parseRequiredIdent(code, message)
-		if next == "" {
-			return strings.Join(parts, "."), span
-		}
-		parts = append(parts, next)
-		span = diag.Merge(span, nextSpan)
 	}
-	return strings.Join(parts, "."), span
+
+	end := p.pos()
+	raw := strings.TrimSpace(string(p.src[startOff:p.off]))
+	if raw == "" {
+		span := diag.NewSpan(p.file, start, end)
+		p.diags.AddError(diag.CodeE023, "expected expression in with clause", span, `use a variable name or table projection such as cases["x"]`)
+		return "", span, false
+	}
+	return raw, diag.NewSpan(p.file, start, end), true
+}
+
+func (p *Parser) startsNextWithBoundaryWord(itemStartOff int) bool {
+	if p.off <= itemStartOff {
+		return false
+	}
+	if p.off > 0 && !unicode.IsSpace(p.src[p.off-1]) {
+		return false
+	}
+	word, ok := p.peekWord()
+	if !ok {
+		return false
+	}
+	return p.headerWordFollowedBySpace(word)
 }
 
 func (p *Parser) parseNameList() []string {

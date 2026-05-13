@@ -45,28 +45,31 @@ func analyseDisallowedBindingFormat() withIssueFormat {
 		Message: func(issue ResolveIssue) string {
 			switch issue.DisallowedReason {
 			case DisallowedBindingAnalyseTable:
-				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is a table", issue.Source)
+				return fmt.Sprintf("analyse with-clause requires a bare string scalar variable; '%s' is a table", issue.Source)
 			case DisallowedBindingAnalyseMultiColumn:
 				if issue.DisallowedColumns == 0 {
-					return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' has no columns", issue.Source)
+					return fmt.Sprintf("analyse with-clause requires a bare string scalar variable; '%s' has no columns", issue.Source)
 				}
-				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' has %d columns", issue.Source, issue.DisallowedColumns)
+				return fmt.Sprintf("analyse with-clause requires a bare string scalar variable; '%s' has %d columns", issue.Source, issue.DisallowedColumns)
 			case DisallowedBindingAnalyseNonString:
-				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is not string-valued", issue.Source)
+				if issue.Source == "" {
+					return "analyse with-clause requires a bare string scalar variable"
+				}
+				return fmt.Sprintf("analyse with-clause requires a bare string scalar variable; '%s' is not string-valued", issue.Source)
 			default:
-				return fmt.Sprintf("analyse with-clause requires a scalar string binding; '%s' is not a data binding", issue.Source)
+				return fmt.Sprintf("analyse with-clause requires a bare string scalar variable; '%s' is not a data binding", issue.Source)
 			}
 		},
 		Hint: func(issue ResolveIssue) string {
 			switch issue.DisallowedReason {
 			case DisallowedBindingAnalyseTable:
-				return "select a scalar string binding instead of a table binding"
+				return "import a bare string scalar global instead of a table binding"
 			case DisallowedBindingAnalyseMultiColumn:
-				return "select a scalar binding with exactly one string column"
+				return "import a bare string scalar global, not a multi-column binding"
 			case DisallowedBindingAnalyseNonString:
-				return "use a string-valued scalar binding for analyse imports"
+				return "use syntax such as `with pattern`, where pattern is a string scalar global"
 			default:
-				return "use a scalar string data binding, not an expression-visible global such as a function"
+				return "use a bare string scalar data binding, not an expression-visible global such as a function"
 			}
 		},
 	}
@@ -115,6 +118,8 @@ func policyFormatForIssue(policy WithDiagPolicy, kind ResolveIssueKind) withIssu
 		return policy.UnknownVar
 	case IssueDisallowedBinding:
 		return policy.DisallowedBinding
+	case IssueUnsupportedExpression:
+		return policy.DisallowedBinding
 	default:
 		return withIssueFormat{}
 	}
@@ -131,9 +136,6 @@ func paramWithDiagPolicy() WithDiagPolicy {
 func stepValidateWithDiagPolicy() WithDiagPolicy {
 	policy := baseWithDiagPolicy()
 	policy.UnknownSource = unknownSourceFormat(func(issue ResolveIssue) string {
-		if len(issue.Item.Selectors) == 0 {
-			return "import an existing global binding"
-		}
 		return "import from an existing global binding"
 	})
 	policy.DisallowedBinding = stepDisallowedBindingFormat()

@@ -7,7 +7,7 @@ The `do` block defines shell commands and workpackages executed by `jbs run`. JB
 ```jbs
 do <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <source2>[<col0>, <col1>, ...], ...]
+        [with <source>, <source2>["<col0>", "<col1>", ...], ...]
         [fsub "<template>" { "<regex>": <expr>, ... }]
         [nproc <int>]
 {
@@ -22,22 +22,27 @@ do <name>
 
 ### `with`: import data bindings into the step
 
-`with` imports table or scalar data bindings produced by top-level assignments or by imported modules.
+`with` imports scalar, list, tuple, table, or dictionary data bindings produced by top-level assignments or by imported modules.
 
 Examples:
 
 - `with cases`
-- `with cases[x]`
-- `with cases[x, y]`
-- `with defaults.rows[x, y]`
+- `with cases["x"]`
+- `with cases["x", "y"]`
+- `with defaults.rows["x", "y"]`
+- `with case_id, cases["x"]`
 
 Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
+- importing a scalar creates one workpackage and exposes that scalar under its source name
+- importing a list or tuple creates one workpackage per element; non-scalar elements are exported with `str(value)` and emit a warning
 - importing a table source such as `with cases` exposes all of its columns
-- importing selected columns such as `with cases[x, y]` exposes only those names
-- importing multiple sources such as `with cases[x], env[host]` creates a Cartesian product across those sources
-- name collisions across imported or inherited variables are errors
+- importing a dictionary acts like `with table(dict_value)` and exposes dictionary keys as table columns
+- importing selected columns such as `with cases["x", "y"]` exposes only those names
+- importing multiple sources such as `with cases["x"], env["host"]` creates a Cartesian product across those sources
+- name collisions across different imported or inherited sources are errors
+- overlapping imports from the same source are tolerated; a dependent full-source import keeps only columns not already inherited
 
 ### `fsub`: copy and substitute a template file
 
@@ -121,14 +126,14 @@ d = ("x", "y")
 extra_cases = table(d = d)
 
 do step0
-        with base_cases[a, b]
+        with base_cases["a", "b"]
 {
         echo "${a} ${b}" > prepared.txt
 }
 
 do step1
         after step0
-        with extra_cases[d]
+        with extra_cases["d"]
 {
         test -f ../step0/work/prepared.txt
         echo "${a} ${b} ${d}"
@@ -139,7 +144,7 @@ In that example:
 
 - `step1` waits for `step0`
 - `a` and `b` come from inherited visibility through `after step0`
-- `d` is added by the explicit `with extra_cases[d]`
+- `d` is added by the explicit `with extra_cases["d"]`
 
 ```bash
 % jbs run do.jbs

@@ -37,7 +37,7 @@ Imported tables can be used in `with` clauses:
 ```jbs
 use cases from "./params.jbs"
 
-do run with cases[x,label] {
+do run with cases["x", "label"] {
         echo "${x} ${label}"
 }
 ```

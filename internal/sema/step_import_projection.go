@@ -29,6 +29,7 @@ func importsFromStepPlan(plan *StepScopePlan) map[string][]importedVar {
 			Name:      name,
 			SourceVar: sourceVar,
 			Source:    origin.Source,
+			SourceKey: origin.SourceKey,
 			Span:      origin.Span,
 		})
 	}
@@ -40,8 +41,25 @@ func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*Globa
 		return map[string][]importedVar{}
 	}
 	out := make(map[string][]importedVar, len(plan.ExplicitDelta))
+	expansions := expansionsByItemID(plan.Expansions)
 	for _, imp := range plan.ExplicitDelta {
 		if imp.Full {
+			if expansion, ok := expansions[imp.ItemID]; ok {
+				for _, v := range expansion.Vars {
+					sourceVar := v.SourceVar
+					if sourceVar == "" {
+						sourceVar = v.Visible
+					}
+					out[v.Visible] = append(out[v.Visible], importedVar{
+						Name:      v.Visible,
+						SourceVar: sourceVar,
+						Source:    imp.Source,
+						SourceKey: imp.SourceKey,
+						Span:      imp.Span,
+					})
+				}
+				continue
+			}
 			src := bindings[imp.Source]
 			if src == nil {
 				continue
@@ -51,6 +69,7 @@ func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*Globa
 					Name:      name,
 					SourceVar: name,
 					Source:    imp.Source,
+					SourceKey: imp.SourceKey,
 					Span:      imp.Span,
 				})
 			}
@@ -64,6 +83,7 @@ func explicitImportsFromStepPlan(plan *StepScopePlan, bindings map[string]*Globa
 			Name:      imp.Visible,
 			SourceVar: sourceVar,
 			Source:    imp.Source,
+			SourceKey: imp.SourceKey,
 			Span:      imp.Span,
 		})
 	}
@@ -95,7 +115,13 @@ func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindings
 	if plan == nil {
 		return
 	}
+	for name, values := range plan.EffectiveValues {
+		env[name] = seriesAsValue(values)
+	}
 	for name, origin := range plan.Effective {
+		if _, exists := env[name]; exists {
+			continue
+		}
 		src := bindings[origin.Source]
 		if src == nil {
 			continue
@@ -108,4 +134,12 @@ func addEnvFromStepPlan(env map[string]eval.Value, plan *StepScopePlan, bindings
 			env[name] = seriesAsValue(vals)
 		}
 	}
+}
+
+func expansionsByItemID(expansions []WithExpansion) map[int]WithExpansion {
+	out := make(map[int]WithExpansion, len(expansions))
+	for _, expansion := range expansions {
+		out[expansion.ItemID] = expansion
+	}
+	return out
 }

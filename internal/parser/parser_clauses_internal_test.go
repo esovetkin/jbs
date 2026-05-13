@@ -39,14 +39,15 @@ func TestReadHeaderIntegerValue(t *testing.T) {
 func TestParseOptionalDoHeaderClauses(t *testing.T) {
 	t.Run("do header parses clauses and nproc then stops at unknown", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("after prep with p[x] fsub \"a.tpl\" { \"A\": x } nproc 3 unknown", diags)
+		p := newTopLevelParser(`after prep with p["x"] fsub "a.tpl" { "A": x } nproc 3 unknown`, diags)
 		after, withItems, opts := p.parseOptionalDoHeaderClauses()
 		if len(after) != 1 || after[0] != "prep" {
 			t.Fatalf("unexpected after: %#v", after)
 		}
-		if len(withItems) != 1 || withItems[0].Source != "p" || len(withItems[0].Selectors) != 1 || withItems[0].Selectors[0] != "x" {
+		if len(withItems) != 1 {
 			t.Fatalf("unexpected with items: %#v", withItems)
 		}
+		assertWithIndexStringColumns(t, withItems[0], "p", []string{"x"})
 		if opts.NProc == nil || *opts.NProc != 3 {
 			t.Fatalf("unexpected parsed nproc: %#v", opts)
 		}
@@ -90,7 +91,7 @@ func TestParseFileSubstitutionErrors(t *testing.T) {
 
 func TestParseOptionalAfterAndWith(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("after a,b with p[x] with q[y] tail", diags)
+	p := newTopLevelParser(`after a,b with p["x"] with q["y"] tail`, diags)
 	after, withItems := p.parseOptionalAfterAndWith()
 	if len(after) != 2 || after[0] != "a" || after[1] != "b" {
 		t.Fatalf("unexpected after list: %#v", after)
@@ -98,9 +99,8 @@ func TestParseOptionalAfterAndWith(t *testing.T) {
 	if len(withItems) != 2 {
 		t.Fatalf("unexpected with items length: %#v", withItems)
 	}
-	if withItems[0].Source != "p" || withItems[0].Selectors[0] != "x" || withItems[1].Source != "q" || withItems[1].Selectors[0] != "y" {
-		t.Fatalf("unexpected with items: %#v", withItems)
-	}
+	assertWithIndexStringColumns(t, withItems[0], "p", []string{"x"})
+	assertWithIndexStringColumns(t, withItems[1], "q", []string{"y"})
 	word, ok := p.peekWord()
 	if !ok || word != "tail" {
 		t.Fatalf("expected parser to stop before non-clause token, got word=%q ok=%v", word, ok)
@@ -112,7 +112,7 @@ func TestParseOptionalAfterAndWith(t *testing.T) {
 
 func TestParseOptionalHeaderClausesStopAtInheritWord(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("after prep inherit base with cases[id] tail", diags)
+	p := newTopLevelParser(`after prep inherit base with cases["id"] tail`, diags)
 	after, withItems, _ := p.parseOptionalDoHeaderClauses()
 	if len(after) != 1 || after[0] != "prep" {
 		t.Fatalf("unexpected after clauses: %#v", after)

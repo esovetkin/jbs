@@ -66,6 +66,21 @@ func evalTableFromDictArg(arg ast.CallArg, env map[string]Value, at diag.Span, d
 	return tableFromDict(value, arg.Span, diags)
 }
 
+func TableFromDictValue(value Value, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
+	if value.Kind != KindDict || value.D == nil {
+		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary", at, "use table(dict_value) or named columns such as table(id = ids)")
+		return Null(), false
+	}
+	before := len(diags.Items)
+	out := tableFromDict(value, at, diags)
+	for _, item := range diags.Items[before:] {
+		if item.Severity == diag.SeverityError {
+			return out, false
+		}
+	}
+	return out, true
+}
+
 func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if value.D == nil || len(value.D.Order) == 0 {
 		return CombValue(&Comb{})

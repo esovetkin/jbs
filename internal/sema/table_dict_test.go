@@ -63,6 +63,25 @@ columns["x"]
 	}
 }
 
+func TestAnalyzeDoWithDictMarksSourceUsed(t *testing.T) {
+	src := `
+settings = dict(host = ("h0", "h1"), rank = (0, 1))
+
+do run with settings {
+        echo "${host} ${rank}"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got := countWarningsWithParts(diags, diag.CodeW310, "global 'settings'"); got != 0 {
+		t.Fatalf("did not expect W310 for dict source used through columns, got %d: %s", got, diags.String())
+	}
+}
+
 func TestAnalyzeSupportsRowsFromTableConversion(t *testing.T) {
 	src := `
 cases = table(x = [1, 2], y = ["a", "b"])

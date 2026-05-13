@@ -49,21 +49,10 @@ func (b *GlobalBinding) SupportIssue(ctx ImportContext) DisallowedBindingReason 
 	case ImportIntoStep:
 		return DisallowedBindingNone
 	case ImportIntoAnalyse:
-		if b.Shape == BindingTable {
+		if b.Value.Kind == eval.KindComb {
 			return DisallowedBindingAnalyseTable
 		}
-		if b.Shape != BindingScalar {
-			return DisallowedBindingNotData
-		}
-		if len(b.Order) != 1 {
-			return DisallowedBindingAnalyseMultiColumn
-		}
-		col := b.Order[0]
-		vals := b.Vars[col]
-		if len(vals) == 0 {
-			return DisallowedBindingNone
-		}
-		if vals[0].Kind != eval.KindString {
+		if b.Value.Kind != eval.KindString {
 			return DisallowedBindingAnalyseNonString
 		}
 		return DisallowedBindingNone
@@ -144,24 +133,41 @@ type VisibleBinding struct {
 	Name      string
 	SourceVar string
 	Source    string
+	SourceKey BindingVersionKey
 	ViaStep   string
 	Span      diag.Span
 }
 
 type ScopeImport struct {
+	ItemID    int
 	Source    string
+	SourceKey BindingVersionKey
 	Visible   string
 	SourceVar string
 	Full      bool
 	Span      diag.Span
 }
 
+type WithExpansion struct {
+	ItemID        int
+	Source        string
+	SourceKey     BindingVersionKey
+	DisplaySource string
+	Vars          []ExpandedWithVar
+	VarsByName    map[string][]eval.Value
+	RowCount      int
+	Full          bool
+	Span          diag.Span
+}
+
 type StepScopePlan struct {
-	StepName       string
-	Inherited      map[string]VisibleBinding
-	ExplicitDelta  []ScopeImport
-	Effective      map[string]VisibleBinding
-	InheritedSteps []string
+	StepName        string
+	Inherited       map[string]VisibleBinding
+	ExplicitDelta   []ScopeImport
+	Effective       map[string]VisibleBinding
+	EffectiveValues map[string][]eval.Value
+	InheritedSteps  []string
+	Expansions      []WithExpansion
 }
 
 type PatternTemplate struct {

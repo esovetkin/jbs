@@ -154,7 +154,7 @@ do <step_name>
 }
 ```
 
-`with` imports the variables used in the execution block.
+`with` imports values used in the execution block. Scalars run once, lists and tuples run once per element, tables and dictionaries expose columns, and table projections use quoted column names such as `with cases["x"]`.
 
 The `after` keyword declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
 

@@ -38,7 +38,10 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 	span := diag.NewSpan("steps.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	bindings := map[string]*GlobalBinding{
 		"srcA": {
-			Name:  "srcA",
+			Name: "srcA",
+			Value: tableValueFromVars([]string{"a"}, map[string][]eval.Value{
+				"a": {eval.Int(1)},
+			}),
 			Shape: BindingTable,
 			Order: []string{"a"},
 			Vars: map[string][]eval.Value{
@@ -46,7 +49,10 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 			},
 		},
 		"srcB": {
-			Name:  "srcB",
+			Name: "srcB",
+			Value: tableValueFromVars([]string{"a"}, map[string][]eval.Value{
+				"a": {eval.Int(2)},
+			}),
 			Shape: BindingTable,
 			Order: []string{"a"},
 			Vars: map[string][]eval.Value{
@@ -65,23 +71,23 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 			{
 				Name: "run",
 				WithItems: []ast.WithItem{
-					{Source: "srcA", Selectors: []string{"a"}, Span: span},
-					{Source: "srcB", Selectors: []string{"a"}, Span: span},
-					{Source: "srcA", Selectors: []string{"missing_var"}, Span: span},
+					withIndexStringItem("srcA", []string{"a"}, span),
+					withIndexStringItem("srcB", []string{"a"}, span),
+					withIndexStringItem("srcA", []string{"missing_var"}, span),
 				},
 				Span: span,
 			},
 			{
 				Name: "fn_step",
 				WithItems: []ast.WithItem{
-					{Source: "fn", Span: span},
+					withIdentItem("fn", span),
 				},
 				Span: span,
 			},
 			{
 				Name: "missing_source_step",
 				WithItems: []ast.WithItem{
-					{Source: "missing_source", Span: span},
+					withIdentItem("missing_source", span),
 				},
 				Span: span,
 			},

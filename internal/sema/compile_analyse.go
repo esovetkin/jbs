@@ -266,60 +266,15 @@ type analyseImportOptions struct {
 }
 
 func resolveAnalyseImportsCanonical(items []ast.WithItem, bindings map[string]*GlobalBinding, globals map[string]eval.Value, namespaces map[string]*Namespace, diags *diag.Diagnostics, opts analyseImportOptions) map[string]analyseBindingImport {
-	out := make(map[string]analyseBindingImport)
 	resolver := BindingResolver{
 		Bindings:   bindings,
 		Globals:    globals,
 		Namespaces: namespaces,
 	}
-	expanded, issues := resolver.ExpandWithItems(items, ResolveOptions{Context: ImportIntoAnalyse})
+	out, issues := resolver.ResolveAnalyseWithItems(items, diags)
 	if opts.EmitDiagnostics && diags != nil {
 		emitWithIssues(diags, analyseWithDiagPolicy(), issues)
 	}
-
-	tracker := newImportConflictTracker()
-	for _, item := range expanded {
-		binding := bindings[item.Source]
-		if binding == nil {
-			continue
-		}
-		for _, v := range item.Vars {
-			values, ok := binding.Vars[v.SourceVar]
-			if !ok {
-				continue
-			}
-			if len(values) > 0 && values[0].Kind != eval.KindString {
-				if opts.EmitDiagnostics && diags != nil {
-					diags.AddError(
-						diag.CodeE422,
-						fmt.Sprintf("analyse with-clause variable '%s' from global '%s' must be a string", v.SourceVar, item.Source),
-						item.Span,
-						"use string-valued globals for analyse imports",
-					)
-				}
-				continue
-			}
-			prev, conflict, first := tracker.Add(v.Visible, item.Source, item.Span)
-			if conflict {
-				if opts.EmitDiagnostics && diags != nil && first {
-					diags.AddError(
-						diag.CodeE214,
-						fmt.Sprintf("conflicting analyse import '%s' from globals '%s' and '%s'", v.Visible, prev.Source, item.Source),
-						item.Span,
-						"import each analyse variable from only one global binding",
-						diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
-					)
-				}
-				continue
-			}
-			out[v.Visible] = analyseBindingImport{
-				Source:    item.Source,
-				SourceVar: v.SourceVar,
-				Span:      item.Span,
-			}
-		}
-	}
-
 	return out
 }
 

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
@@ -20,107 +21,25 @@ func TestParseWithItemsEarlyBreakOnInvalidStart(t *testing.T) {
 	}
 }
 
-func TestParseQualifiedNameErrorBranches(t *testing.T) {
-	t.Run("missing head identifier", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser(".", diags)
-		name, _ := p.parseQualifiedName("E023", "expected identifier in with clause")
-		if name != "" {
-			t.Fatalf("expected empty qualified name, got %q", name)
-		}
-		if !hasDiag(diags, "E023") {
-			t.Fatalf("expected E023 for missing qualified-name head, got: %s", diags.String())
-		}
-	})
-
-	t.Run("missing tail identifier after dot", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("ns.", diags)
-		name, _ := p.parseQualifiedName("E023", "expected identifier in with clause")
-		if name != "ns" {
-			t.Fatalf("expected partial qualified name 'ns', got %q", name)
-		}
-		if !hasDiag(diags, "E023") {
-			t.Fatalf("expected E023 for missing qualified-name tail, got: %s", diags.String())
-		}
-	})
-}
-
 func TestParseWithItemsCanonicalSyntax(t *testing.T) {
 	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("cases[id,label], env", diags)
+	p := newTopLevelParser(`cases["id","label"], env`, diags)
 	items := p.parseWithItems()
 	if len(items) != 2 {
 		t.Fatalf("expected two with items, got %#v", items)
 	}
-	if items[0].Source != "cases" || len(items[0].Selectors) != 2 || items[0].Selectors[0] != "id" || items[0].Selectors[1] != "label" {
-		t.Fatalf("unexpected projection item: %#v", items[0])
-	}
-	if items[1].Source != "env" || len(items[1].Selectors) != 0 {
-		t.Fatalf("unexpected full-source item: %#v", items[1])
-	}
+	assertWithIndexStringColumns(t, items[0], "cases", []string{"id", "label"})
+	assertWithIdent(t, items[1], "env")
 	if diags.HasErrors() {
 		t.Fatalf("unexpected parse errors: %s", diags.String())
 	}
 }
 
-func TestParseWithItemsSliceFailureStopsItemParsing(t *testing.T) {
-	diags := &diag.Diagnostics{}
-	p := newTopLevelParser("p[]", diags)
-	items := p.parseWithItems()
-	if len(items) != 0 {
-		t.Fatalf("expected no items when slice parsing fails, got %#v", items)
-	}
-	if !hasDiag(diags, "E023") {
-		t.Fatalf("expected E023 for empty selector list, got: %s", diags.String())
-	}
-}
-
-func TestParseWithSliceNamesErrorBranches(t *testing.T) {
-	t.Run("missing opening bracket", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("x", diags)
-		names, _, ok := p.parseWithSliceNames()
-		if ok || names != nil {
-			t.Fatalf("expected parse failure for missing '[', got ok=%v names=%v", ok, names)
-		}
-		if !hasDiag(diags, "E023") {
-			t.Fatalf("expected E023, got: %s", diags.String())
-		}
-	})
-
-	t.Run("invalid identifier in selector", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("[1]", diags)
-		names, _, ok := p.parseWithSliceNames()
-		if ok || names != nil {
-			t.Fatalf("expected parse failure for invalid selector name, got ok=%v names=%v", ok, names)
-		}
-		if !hasDiag(diags, "E023") {
-			t.Fatalf("expected E023, got: %s", diags.String())
-		}
-	})
-
-	t.Run("unterminated selector list", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("[x y]", diags)
-		names, _, ok := p.parseWithSliceNames()
-		if ok || names != nil {
-			t.Fatalf("expected parse failure for unterminated selector list, got ok=%v names=%v", ok, names)
-		}
-		if !hasDiag(diags, "E023") {
-			t.Fatalf("expected E023, got: %s", diags.String())
-		}
-	})
-}
-
 func TestParseWithItemsRejectsUnsupportedSyntax(t *testing.T) {
 	tests := []string{
-		"x from p",
-		"x in p",
-		"p[x] as pair",
-		"(x, y) from p",
-		"(x, y) in p",
+		"p[",
+		"x +",
+		"(x, y",
 	}
 
 	for _, src := range tests {
@@ -139,5 +58,71 @@ func TestParseWithItemsRejectsUnsupportedSyntax(t *testing.T) {
 				t.Fatalf("expected generic invalid syntax diagnostic, got: %s", got)
 			}
 		})
+	}
+}
+
+func TestParseWithItemsExpressionSyntax(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`p["a,b", sel], q with r`, diags)
+	items := p.parseWithItems()
+	if len(items) != 2 {
+		t.Fatalf("expected two comma-separated with items, got %#v", items)
+	}
+	assertWithIndexMixedColumns(t, items[0], "p", []string{"a,b", "sel"})
+	assertWithIdent(t, items[1], "q")
+	word, ok := p.peekWord()
+	if !ok || word != "with" {
+		t.Fatalf("expected parser to stop before next with clause, got word=%q ok=%v", word, ok)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func assertWithIdent(t *testing.T, item ast.WithItem, name string) {
+	t.Helper()
+	ident, ok := item.Expr.(ast.IdentExpr)
+	if !ok || ident.Name != name {
+		t.Fatalf("expected with ident %q, got %#v", name, item.Expr)
+	}
+}
+
+func assertWithIndexStringColumns(t *testing.T, item ast.WithItem, source string, selectors []string) {
+	t.Helper()
+	assertWithIndexMixedColumns(t, item, source, selectors)
+	for i, expr := range item.Expr.(ast.IndexExpr).Items {
+		str, ok := expr.(ast.StringExpr)
+		if !ok || str.Value != selectors[i] {
+			t.Fatalf("expected string selector %q, got %#v", selectors[i], expr)
+		}
+	}
+}
+
+func assertWithIndexMixedColumns(t *testing.T, item ast.WithItem, source string, selectors []string) {
+	t.Helper()
+	idx, ok := item.Expr.(ast.IndexExpr)
+	if !ok {
+		t.Fatalf("expected index expression, got %#v", item.Expr)
+	}
+	base, ok := idx.Base.(ast.IdentExpr)
+	if !ok || base.Name != source {
+		t.Fatalf("expected index base %q, got %#v", source, idx.Base)
+	}
+	if len(idx.Items) != len(selectors) {
+		t.Fatalf("expected %d selectors, got %#v", len(selectors), idx.Items)
+	}
+	for i, expr := range idx.Items {
+		switch e := expr.(type) {
+		case ast.StringExpr:
+			if e.Value != selectors[i] {
+				t.Fatalf("expected selector %q, got %#v", selectors[i], expr)
+			}
+		case ast.IdentExpr:
+			if e.Name != selectors[i] {
+				t.Fatalf("expected selector %q, got %#v", selectors[i], expr)
+			}
+		default:
+			t.Fatalf("unexpected selector expression: %#v", expr)
+		}
 	}
 }

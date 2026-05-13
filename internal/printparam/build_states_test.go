@@ -207,7 +207,7 @@ func TestBuildReboundTableDoesNotInheritOldRows(t *testing.T) {
 cases = t(x = range(5)) * t(y = ["a","b","c"])
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -257,7 +257,7 @@ func TestBuildDistinctPublicNameControlStillExpandsProduct(t *testing.T) {
 cases = t(x = range(5)) * t(y = ["a","b","c"])
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
@@ -289,14 +289,14 @@ func TestBuildSameBindingVersionKeepsInheritedRows(t *testing.T) {
 cases = table(x = (0, 0, 1), y = ("a", "b", "c"))
 
 do step0
-        with cases[x]
+        with cases["x"]
 {
         echo $x
 }
 
 do step1
         after step0
-        with cases[y]
+        with cases["y"]
 {
         echo $x $y
 }

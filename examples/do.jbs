@@ -2,14 +2,14 @@ p0 = t(d = (true, false)) * (t(a = range(6)) + t(b = ("a", "b", "c"))) * t(c=("x
 p1 = t(a = ("a", "b")) + t(b = range(4))
 
 do step0
-        with p0[a]
+        with p0["a"]
 {
         echo "a=${a}" > step0.out
 }
 
 do step1
         after step0
-        with p0[b,c]
+        with p0["b","c"]
 {
         echo "a=${a}" > step1.out
         echo "b=${b}" >> step1.out
@@ -18,7 +18,7 @@ do step1
 
 do step2
         after step0
-        with p1[b], p0[d]
+        with p1["b"], p0["d"]
 {
         echo "a=${a}" > step2.out
         echo "b=${b}" >> step2.out
@@ -27,7 +27,7 @@ do step2
 
 do step3
         after step2
-        with p0[c]
+        with p0["c"]
 {
         echo "a=${a}" > step3.out
         echo "b=${b}" >> step3.out
@@ -37,7 +37,7 @@ do step3
 
 do step4
         after step1
-        with p0[d]
+        with p0["d"]
 {
         echo "a=${a}" > step4.out
         echo "c=${c}" >> step4.out
@@ -66,4 +66,17 @@ analyse step5
         b_parsed = "b=%d" in "step5.out"
 
         (a, b, c, d, a_parsed as "parsed_a", b_parsed as "parsed_b")
+}
+
+x = range(5)
+y = range(5)
+do cartesian_25 with x,y
+{
+        echo $x $y
+}
+
+x = {"x": range(3), "y": range(9)}
+do dict_9 with x
+{
+        echo $x $y
 }

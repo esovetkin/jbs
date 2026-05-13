@@ -84,7 +84,7 @@ func TestCollectStepsInResultOrderAndDeps(t *testing.T) {
 	}
 }
 
-func TestGroupExplicitDeltaBySource(t *testing.T) {
+func TestGroupExplicitDeltaByItem(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	sources := map[string]*sema.GlobalBinding{
 		"p": {
@@ -105,14 +105,14 @@ func TestGroupExplicitDeltaBySource(t *testing.T) {
 	plan := &sema.StepScopePlan{
 		ExplicitDelta: []sema.ScopeImport{
 			{Source: "", Visible: "skip", Span: span},
-			{Source: "p", Full: true, Span: span},
-			{Source: "p", Visible: "a", SourceVar: "a", Span: span},
-			{Source: "q", Visible: "", SourceVar: "x", Span: span},
-			{Source: "q", Visible: "ren", SourceVar: "", Span: span},
+			{ItemID: 0, Source: "p", Full: true, Span: span},
+			{ItemID: 0, Source: "p", Visible: "a", SourceVar: "a", Span: span},
+			{ItemID: 1, Source: "q", Visible: "", SourceVar: "x", Span: span},
+			{ItemID: 1, Source: "q", Visible: "ren", SourceVar: "", Span: span},
 		},
 	}
 
-	got := groupExplicitDeltaBySource(plan, sources)
+	got := groupExplicitDeltaByItem(plan, sources)
 	if len(got) != 2 {
 		t.Fatalf("expected two source groups, got %#v", got)
 	}
@@ -139,7 +139,7 @@ func TestStateCloneHelpers(t *testing.T) {
 	st := state{
 		ID:         WorkID{Step: "s0", Row: 3},
 		Values:     map[string]eval.Value{"a": eval.Int(1)},
-		SourceRows: map[sema.BindingVersionKey][]int{{Public: "p", Version: "p:v1"}: {0, 1}},
+		SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{{Public: "p", Version: "p:v1"}: sourceRows(0, 1)},
 		Parents:    []WorkID{{Step: "parent", Row: 2}},
 	}
 	pKey := sema.BindingVersionKey{Public: "p", Version: "p:v1"}
@@ -148,9 +148,9 @@ func TestStateCloneHelpers(t *testing.T) {
 		t.Fatalf("cloneState mismatch: got=%#v want=%#v", cloned, st)
 	}
 	cloned.Values["a"] = eval.Int(2)
-	cloned.SourceRows[pKey][0] = 9
+	cloned.SourceRows[pKey][0].Rows[0] = 9
 	cloned.Parents[0].Row = 7
-	if st.Values["a"].I != 1 || st.SourceRows[pKey][0] != 0 || st.Parents[0].Row != 2 {
+	if st.Values["a"].I != 1 || st.SourceRows[pKey][0].Rows[0] != 0 || st.Parents[0].Row != 2 {
 		t.Fatalf("cloneState must deep copy maps, row slices, and parents, state=%#v clone=%#v", st, cloned)
 	}
 
@@ -158,8 +158,8 @@ func TestStateCloneHelpers(t *testing.T) {
 	if len(sliceClone) != 1 || !reflect.DeepEqual(sliceClone[0], st) {
 		t.Fatalf("cloneStateSlice mismatch: got=%#v want %#v", sliceClone, st)
 	}
-	sliceClone[0].SourceRows[pKey][1] = 7
-	if st.SourceRows[pKey][1] != 1 {
+	sliceClone[0].SourceRows[pKey][0].Rows[1] = 7
+	if st.SourceRows[pKey][0].Rows[1] != 1 {
 		t.Fatalf("cloneStateSlice must deep copy nested row slices, state=%#v clone=%#v", st, sliceClone)
 	}
 }
@@ -177,11 +177,11 @@ func TestInheritParentStates(t *testing.T) {
 	q := sema.BindingVersionKey{Public: "q", Version: "q:v1"}
 	byStep := map[string][]state{
 		"s0": {
-			{ID: WorkID{Step: "s0", Row: 0}, Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}},
-			{ID: WorkID{Step: "s0", Row: 1}, Values: map[string]eval.Value{"a": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{p: {1}}},
+			{ID: WorkID{Step: "s0", Row: 0}, Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(0)}},
+			{ID: WorkID{Step: "s0", Row: 1}, Values: map[string]eval.Value{"a": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(1)}},
 		},
 		"s1": {
-			{ID: WorkID{Step: "s1", Row: 0}, Values: map[string]eval.Value{"b": eval.String("x")}, SourceRows: map[sema.BindingVersionKey][]int{q: {0}}},
+			{ID: WorkID{Step: "s1", Row: 0}, Values: map[string]eval.Value{"b": eval.String("x")}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{q: sourceRows(0)}},
 		},
 	}
 	got = inheritParentStates([]string{"s0", "s0", "s1"}, byStep, span, diags)
@@ -212,8 +212,8 @@ func TestInheritParentStatesConflicts(t *testing.T) {
 	q := sema.BindingVersionKey{Public: "q", Version: "q:v1"}
 
 	diags := &diag.Diagnostics{}
-	a := state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
-	b := state{Values: map[string]eval.Value{"x": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{q: {1}}}
+	a := state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(0)}}
+	b := state{Values: map[string]eval.Value{"x": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{q: sourceRows(1)}}
 	_, ok := mergeParentStates(a, b, span, diags)
 	if ok {
 		t.Fatalf("expected value conflict merge to fail")
@@ -223,21 +223,21 @@ func TestInheritParentStatesConflicts(t *testing.T) {
 	}
 
 	diags = &diag.Diagnostics{}
-	a = state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
-	b = state{Values: map[string]eval.Value{"y": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]int{p: {1}}}
-	_, ok = mergeParentStates(a, b, span, diags)
-	if ok {
-		t.Fatalf("expected source-row conflict merge to fail")
+	a = state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(0)}}
+	b = state{Values: map[string]eval.Value{"y": eval.Int(2)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(1)}}
+	merged, ok := mergeParentStates(a, b, span, diags)
+	if !ok {
+		t.Fatalf("expected same-source row constraints to merge: %s", diags.String())
 	}
-	if countWorkplanDiag(diags, diag.CodeE501) != 1 {
-		t.Fatalf("expected one E501, got %d: %s", countWorkplanDiag(diags, diag.CodeE501), diags.String())
+	if len(merged.SourceRows[p]) != 2 {
+		t.Fatalf("expected both same-source row constraints to survive, got %#v", merged.SourceRows[p])
 	}
 
 	diags = &diag.Diagnostics{}
 	p2 := sema.BindingVersionKey{Public: "p", Version: "p:v2"}
-	a = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p: {0}}}
-	b = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]int{p2: {1}}}
-	merged, ok := mergeParentStates(a, b, span, diags)
+	a = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p: sourceRows(0)}}
+	b = state{Values: map[string]eval.Value{}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{p2: sourceRows(1)}}
+	merged, ok = mergeParentStates(a, b, span, diags)
 	if !ok {
 		t.Fatalf("same public source with different versions should not conflict: %s", diags.String())
 	}
@@ -287,7 +287,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 	}
 
 	st := emptyState()
-	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p")] = []int{1, 5}
+	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p")] = inheritedSourceRows(1, 5)
 	choices := buildChoices(st, sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources)
 	if len(choices) != 1 {
 		t.Fatalf("expected invalid row indices to be skipped, got %#v", choices)
@@ -324,7 +324,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
 	sources := map[string]*sema.GlobalBinding{"p0": hiddenProjectionBinding()}
 	st := emptyState()
-	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p0")] = []int{0, 1, 12, 13}
+	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p0")] = inheritedSourceRows(0, 1, 12, 13)
 
 	choices := buildChoices(st, sourceGroup{
 		Source: "p0",
@@ -369,7 +369,7 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 		t.Fatalf("expected nil expansion for empty parent states, got %#v", got)
 	}
 
-	parent := state{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}}
+	parent := state{Values: map[string]eval.Value{"a": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{}}
 	groups := []sourceGroup{{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}}
 	got := expandStep([]state{parent}, groups, sources, span, diags)
 	if len(got) != 1 {
@@ -384,7 +384,7 @@ func TestExpandStepAndMergeWithChoiceConflict(t *testing.T) {
 
 	diags = &diag.Diagnostics{}
 	merged, ok := mergeWithChoice(
-		state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]int{}},
+		state{Values: map[string]eval.Value{"x": eval.Int(1)}, SourceRows: map[sema.BindingVersionKey][]SourceRowConstraint{}},
 		sourceGroup{Source: "p", DisplaySource: "p"},
 		sourceChoice{Rows: []int{0}, Values: map[string]eval.Value{"x": eval.Int(2)}},
 		span,
@@ -406,6 +406,14 @@ func countWorkplanDiag(diags *diag.Diagnostics, code diag.Code) int {
 		}
 	}
 	return count
+}
+
+func sourceRows(rows ...int) []SourceRowConstraint {
+	return []SourceRowConstraint{{Rows: append([]int(nil), rows...)}}
+}
+
+func inheritedSourceRows(rows ...int) []SourceRowConstraint {
+	return []SourceRowConstraint{{Rows: append([]int(nil), rows...), Inherited: true}}
 }
 
 func hiddenProjectionBinding() *sema.GlobalBinding {

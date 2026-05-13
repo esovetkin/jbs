@@ -123,12 +123,24 @@ func prefixWithItems(items []ast.WithItem, prefix string) []ast.WithItem {
 	out := make([]ast.WithItem, len(items))
 	for i, item := range items {
 		next := item
-		if next.Source != "" {
-			next.Source = prefix + "." + next.Source
-		}
+		next.Expr = prefixWithExprRoot(next.Expr, prefix)
 		out[i] = next
 	}
 	return out
+}
+
+func prefixWithExprRoot(expr ast.Expr, prefix string) ast.Expr {
+	switch e := expr.(type) {
+	case ast.IdentExpr:
+		return ast.QualifiedIdentExpr{Namespace: prefix, Name: e.Name, Span: e.Span}
+	case ast.QualifiedIdentExpr:
+		return ast.QualifiedIdentExpr{Namespace: prefix + "." + e.Namespace, Name: e.Name, Span: e.Span}
+	case ast.IndexExpr:
+		e.Base = prefixWithExprRoot(e.Base, prefix)
+		return e
+	default:
+		return expr
+	}
 }
 
 func prefixNames(prefix string, names []string) []string {

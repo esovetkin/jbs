@@ -386,9 +386,9 @@ func TestAnalyzeInputCombProjectionAndMemberAccessCompose(t *testing.T) {
 		"p0 = product(table(x = range(10)), table(y = rev(range(5))))",
 		"p1 = product(table(x = range(5)), table(y = rev(range(10))))",
 		"",
-		"p0[x] + p1[y]",
-		"p0[x].x",
-		"p0[x].x as y + p1[x]",
+		`p0["x"] + p1["y"]`,
+		`p0["x"].x`,
+		`p0["x"].x as y + p1["x"]`,
 		"",
 	}, "\n"))
 
@@ -419,7 +419,7 @@ func TestAnalyzeSourceWithNamespaceAwareImportPlan(t *testing.T) {
 	writeCLIFile(t, cwd, "lib.jbs", "x = (1, 2)\njobs = table(x = x)\n")
 	src := "use \"./lib.jbs\" as lib\n" +
 		"do s\n" +
-		"        with lib.jobs[x]\n" +
+		"        with lib.jobs[\"x\"]\n" +
 		"{\n" +
 		"        echo ${x}\n" +
 		"}\n"
@@ -483,13 +483,13 @@ func TestRunParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 		"d = table(d = (true, false))\n"+
 		"p0 = c*(a+b)*d\n\n"+
 		"do step0\n"+
-		"        with p0[a]\n"+
+		"        with p0[\"a\"]\n"+
 		"{\n"+
 		"        echo \"a=${a}\" > step0.out\n"+
 		"}\n\n"+
 		"do step1\n"+
 		"        after step0\n"+
-		"        with p0[b,c]\n"+
+		"        with p0[\"b\",\"c\"]\n"+
 		"{\n"+
 		"        echo \"a=${a}\" > step1.out\n"+
 		"        echo \"b=${b}\" >> step1.out\n"+

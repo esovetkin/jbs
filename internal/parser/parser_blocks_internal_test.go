@@ -10,7 +10,10 @@ import (
 func TestParseDoBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("do run after prep with p[x] nproc 2 {\n  echo ${x}\n}\n", diags)
+		p := newTopLevelParser(`do run after prep with p["x"] nproc 2 {
+  echo ${x}
+}
+`, diags)
 		start := p.pos()
 		p.consumeWord()
 		block := p.parseDoBlock(start)
@@ -20,9 +23,10 @@ func TestParseDoBlockBranches(t *testing.T) {
 		if len(block.After) != 1 || block.After[0] != "prep" {
 			t.Fatalf("unexpected after list: %#v", block.After)
 		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
+		if len(block.WithItems) != 1 {
 			t.Fatalf("unexpected with-items: %#v", block.WithItems)
 		}
+		assertWithIndexStringColumns(t, block.WithItems[0], "p", []string{"x"})
 		if block.NProc == nil || *block.NProc != 2 {
 			t.Fatalf("unexpected nproc option: %#v", block)
 		}
@@ -36,7 +40,10 @@ func TestParseDoBlockBranches(t *testing.T) {
 
 	t.Run("with fsub", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		src := "do run with p[x] fsub \"input.tpl\" { \"###X###\": x, \"Y\": \"lit\" } {\n  cat input.tpl\n}\n"
+		src := `do run with p["x"] fsub "input.tpl" { "###X###": x, "Y": "lit" } {
+  cat input.tpl
+}
+`
 		p := newTopLevelParser(src, diags)
 		start := p.pos()
 		p.consumeWord()
@@ -94,7 +101,11 @@ func TestParseDoBlockBranches(t *testing.T) {
 func TestParseAnalyseBlockBranches(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		src := "analyse run with p[x] {\n  n = \"Number: %d\" in \"out.log\"\n  (x, n as \"N\")\n}\n"
+		src := `analyse run with p {
+  n = "Number: %d" in "out.log"
+  (x, n as "N")
+}
+`
 		p := newTopLevelParser(src, diags)
 		start := p.pos()
 		p.consumeWord()
@@ -102,9 +113,10 @@ func TestParseAnalyseBlockBranches(t *testing.T) {
 		if block.StepName != "run" {
 			t.Fatalf("unexpected analyse step name: %#v", block)
 		}
-		if len(block.WithItems) != 1 || block.WithItems[0].Source != "p" || len(block.WithItems[0].Selectors) != 1 || block.WithItems[0].Selectors[0] != "x" {
+		if len(block.WithItems) != 1 {
 			t.Fatalf("unexpected analyse with-items: %#v", block.WithItems)
 		}
+		assertWithIdent(t, block.WithItems[0], "p")
 		if len(block.Assignments) != 1 || len(block.Columns) != 2 {
 			t.Fatalf("unexpected analyse body parse result: assignments=%#v columns=%#v", block.Assignments, block.Columns)
 		}
@@ -144,7 +156,7 @@ func TestParseAnalyseBlockBranches(t *testing.T) {
 
 	t.Run("missing opening brace", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		p := newTopLevelParser("analyse run with p[x]", diags)
+		p := newTopLevelParser(`analyse run with p["x"]`, diags)
 		start := p.pos()
 		p.consumeWord()
 		block := p.parseAnalyseBlock(start)

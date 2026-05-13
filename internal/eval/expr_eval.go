@@ -250,7 +250,7 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		case base.Kind == KindList || base.Kind == KindTuple:
 			return evalSequenceIndex(base, e.Items, env, e.Span, diags, opts, ctx)
 		case IsComb(base):
-			return evalCombIndex(base, e.Items, e.Span, diags)
+			return evalCombIndex(base, e.Items, env, e.Span, diags, opts, ctx)
 		default:
 			diags.AddError(diag.CodeE106, "index expression requires a list, tuple, dictionary, or table base", e.Span, "use value[index], dict_value[key], or table_value[col]")
 			return Null()
