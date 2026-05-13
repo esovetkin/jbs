@@ -74,10 +74,7 @@ func baseOptions(t *testing.T, reader *fakeReader) Options {
 		Cwd:       t.TempDir(),
 		BuildInfo: "version v0.1.0-test, commit testcommit, built 2026-05-12T00:00:00Z",
 		NewReader: fakeFactory(reader),
-		Check: func(source string) (string, bool, error) {
-			return "", false, nil
-		},
-		Commit: defaultCommitForTest,
+		Commit:    defaultCommitForTest,
 	}
 }
 
@@ -207,6 +204,21 @@ func TestRunUnknownCommand(t *testing.T) {
 		t.Fatalf("Run returned %d, want 0", code)
 	}
 	if !strings.Contains(err.String(), "unknown command") {
+		t.Fatalf("expected unknown-command error, got: %q", err.String())
+	}
+}
+
+func TestRunRemovedCheckCommandIsUnknown(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: ":check"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if !strings.Contains(err.String(), "unknown command: :check") {
 		t.Fatalf("expected unknown-command error, got: %q", err.String())
 	}
 }

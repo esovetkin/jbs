@@ -10,6 +10,22 @@ import (
 	"testing"
 )
 
+func chdirCLITest(t *testing.T, dir string) {
+	t.Helper()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+}
+
 func TestDefaultFileRunMatchesExplicitRunTree(t *testing.T) {
 	origWD, err := os.Getwd()
 	if err != nil {
@@ -92,96 +108,9 @@ func TestPrintHelpTopic(t *testing.T) {
 	}
 }
 
-func TestRunCheckWithTopLevelExprLinesProducesNoExprOutput(t *testing.T) {
+func TestRunDryRunRejectsFunctionValuedWithImport(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"x = (1, 2)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"x",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) != "" {
-		t.Fatalf("expected no stdout output from top-level expr lines in check mode, got %q", stdout.String())
-	}
-}
-
-func TestRunCheckWithFunctionValuedGlobals(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"base = 40",
-		"mk = function(delta) {",
-		"  function(x) {",
-		"    x + delta + base",
-		"  }",
-		"}",
-		"inc = mk(1)",
-		"x = inc(1)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) != "" {
-		t.Fatalf("expected no stdout output in check mode, got %q", stdout.String())
-	}
-}
-
-func TestRunCheckWithMapReduceExprLinesProducesNoExprOutput(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.jbs")
-	src := strings.Join([]string{
-		"inc = function(x) {",
-		"  x + 1",
-		"}",
-		"sum2 = function(acc, x) {",
-		"  acc + x",
-		"}",
-		"map(inc, [1,2,3])",
-		"reduce(sum2, [1,2,3])",
-		"x = (1, 2)",
-		"do run with x {",
-		"  echo ${x}",
-		"}",
-		"",
-	}, "\n")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", path}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) != "" {
-		t.Fatalf("expected no stdout output from map/reduce expr lines in check mode, got %q", stdout.String())
-	}
-}
-
-func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
-	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
 		"add = function(x) {",
@@ -197,9 +126,9 @@ func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", path}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", path}, &stdout, &stderr)
 	if code != 1 {
-		t.Fatalf("expected failing check for function-valued with import, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected failing dry-run for function-valued with import, code=%d stderr=%s", code, stderr.String())
 	}
 	errText := stderr.String()
 	if !strings.Contains(errText, "ERROR E420") || !strings.Contains(errText, "not a data binding") {
@@ -207,8 +136,9 @@ func TestRunCheckRejectsFunctionValuedWithImport(t *testing.T) {
 	}
 }
 
-func TestRunCheckRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
+func TestRunDryRunRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := strings.Join([]string{
 		`cases = table(x=[1])`,
@@ -225,9 +155,9 @@ func TestRunCheckRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", path}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", path}, &stdout, &stderr)
 	if code != 1 {
-		t.Fatalf("expected failing check for table-valued analyse import, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		t.Fatalf("expected failing dry-run for table-valued analyse import, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	errText := stderr.String()
 	want := "analyse with-clause requires a bare string scalar variable; 'cases' is a table"

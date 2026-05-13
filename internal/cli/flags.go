@@ -23,7 +23,6 @@ type Flags struct {
 	Benchmark         string
 	Output            string
 	Repl              bool
-	Check             bool
 	Param             bool
 	PrintType         string
 	Help              bool
@@ -107,8 +106,6 @@ func ParseFlags(args []string) (Flags, error) {
 		switch {
 		case arg == "-h" || arg == "--help":
 			cfg.Help = true
-		case arg == "-c" || arg == "--check":
-			cfg.Check = true
 		case arg == "-n" || arg == "--dry-run":
 			if cfg.DryRun {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
@@ -129,10 +126,10 @@ func ParseFlags(args []string) (Flags, error) {
 			}
 		}
 	}
-	if (cfg.NoStrict || cfg.DryRun || cfg.Benchmark != "") && (cfg.Check || cfg.Help || cfg.Input == "") {
+	if (cfg.NoStrict || cfg.DryRun || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
-	if cfg.Input != "" && !cfg.Check && !cfg.Help {
+	if cfg.Input != "" && !cfg.Help {
 		cfg.Run = true
 	}
 	return cfg, nil
@@ -160,7 +157,6 @@ Options:
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
-  -c, --check   Parse+validate only
 
 Archive benchmark directory:
   jbs archive input.jbs
@@ -205,8 +201,6 @@ func parseParamArgs(args []string) (Flags, error) {
 			cfg.Output = strings.TrimPrefix(arg, "--output=")
 		case strings.HasPrefix(arg, "-o="):
 			cfg.Output = strings.TrimPrefix(arg, "-o=")
-		case arg == "-c" || arg == "--check":
-			return Flags{}, UsageError{Message: paramUsageMessage()}
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: paramUsageMessage()}
 		default:

@@ -73,9 +73,6 @@ func evalParsedShellCall(args shellArgs, env map[string]Value, at diag.Span, dia
 	if diags.HasErrors() {
 		return Null()
 	}
-	if opts.ShellMode == ShellAssumeString {
-		return String("")
-	}
 
 	runner := opts.ShellRunner
 	if runner == nil {

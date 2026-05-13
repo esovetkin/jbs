@@ -253,7 +253,6 @@ func analyseEvalOptions(res *Result, assign ast.AnalyseAssign, visible []string,
 		Names:       scopeNameCatalog(visible, namespaces),
 		Files:       fileAccessForSpan(res.BaseDirByFile, assign.Span),
 		ShellRunner: opts.ShellRunner,
-		ShellMode:   opts.ShellMode,
 		Environ:     opts.Environ,
 	}
 }

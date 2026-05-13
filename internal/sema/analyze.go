@@ -12,7 +12,6 @@ import (
 type AnalyzeOptions struct {
 	CollectPrints bool
 	ShellRunner   eval.ShellRunner
-	ShellMode     eval.ShellMode
 	Environ       func() []string
 }
 

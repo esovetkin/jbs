@@ -18,13 +18,12 @@ func mustParseFlags(t *testing.T, args []string) Flags {
 	return f
 }
 
-func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
+func TestParseFlagsDefaultRunCases(t *testing.T) {
 	cases := []struct {
 		name                  string
 		args                  []string
 		wantInput             string
 		wantOutput            string
-		wantCheck             bool
 		wantRun               bool
 		wantStatus            bool
 		wantTree              bool
@@ -42,29 +41,13 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			args:       []string{"input.jbs"},
 			wantInput:  "input.jbs",
 			wantOutput: "-",
-			wantCheck:  false,
 			wantRun:    true,
-		},
-		{
-			name:       "check",
-			args:       []string{"--check", "input.jbs"},
-			wantInput:  "input.jbs",
-			wantOutput: "-",
-			wantCheck:  true,
-		},
-		{
-			name:       "short_check",
-			args:       []string{"-c", "input.jbs"},
-			wantInput:  "input.jbs",
-			wantOutput: "-",
-			wantCheck:  true,
 		},
 		{
 			name:       "run_command",
 			args:       []string{"run", "input.jbs"},
 			wantInput:  "input.jbs",
 			wantOutput: "-",
-			wantCheck:  false,
 			wantRun:    true,
 		},
 		{
@@ -320,9 +303,6 @@ func TestParseFlagsDefaultRunAndCheckCases(t *testing.T) {
 			}
 			if f.Output != tc.wantOutput {
 				t.Fatalf("unexpected output: got=%q want=%q", f.Output, tc.wantOutput)
-			}
-			if f.Check != tc.wantCheck {
-				t.Fatalf("unexpected check flag: got=%v want=%v", f.Check, tc.wantCheck)
 			}
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
@@ -582,7 +562,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		args []string
 	}{
 		{name: "help_unknown_topic", args: []string{"help", "badtopic"}},
-		{name: "param_rejects_check", args: []string{"param", "--check", "input.jbs"}},
+		{name: "check_option_removed", args: []string{"--check", "input.jbs"}},
+		{name: "short_check_option_removed", args: []string{"-c", "input.jbs"}},
+		{name: "param_rejects_unknown_check_option", args: []string{"param", "--check", "input.jbs"}},
 		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
 		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},
 		{name: "old_printparam_command_removed", args: []string{"printparam", "input.jbs"}},
@@ -622,9 +604,6 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "fwait_missing_input", args: []string{"fwait"}},
 		{name: "fwait_exit_existing_missing_input", args: []string{"fwait", "-e"}},
 		{name: "fwait_rejects_option", args: []string{"fwait", "--timeout", "1", "a"}},
-		{name: "check_rejects_no_strict", args: []string{"--check", "input.jbs", "--no-strict"}},
-		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
-		{name: "check_rejects_benchmark", args: []string{"--check", "-b", "small", "input.jbs"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
 		{name: "help_rejects_dry_run", args: []string{"--help", "-n"}},
 		{name: "help_rejects_benchmark", args: []string{"--help", "-b", "small"}},

@@ -26,7 +26,6 @@ const helpText = `REPL commands:
 ?                      list internal functions with focused help
 ?<function_name>       shortcut for :help <function_name>
 :show                  print accepted session source
-:check                 run parser+sema validation on accepted source
 :save <filename>       write accepted session source to file
 :reset                 clear accepted source and pending input
 :quit / :exit          exit REPL`
@@ -47,7 +46,7 @@ func Run(opts Options) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	if opts.Check == nil || opts.Commit == nil {
+	if opts.Commit == nil {
 		fmt.Fprintln(stderr, "repl evaluator is not configured")
 		return 1
 	}
@@ -122,7 +121,7 @@ func Run(opts Options) int {
 			continue
 		}
 		if state.pending == "" && isREPLCommandLine(trimmed) {
-			exit, code := handleCommand(trimmed, absCwd, &state, stdout, stderr, opts.Check)
+			exit, code := handleCommand(trimmed, absCwd, &state, stdout, stderr)
 			if exit {
 				return code
 			}
@@ -208,7 +207,6 @@ func handleCommand(
 	state *sessionState,
 	stdout io.Writer,
 	stderr io.Writer,
-	check CheckFunc,
 ) (bool, int) {
 	if q := parseQuestionHelp(line); q.kind != questionHelpNone {
 		switch q.kind {
@@ -248,22 +246,6 @@ func handleCommand(
 	case ":reset":
 		state.accepted = ""
 		state.pending = ""
-	case ":check":
-		if strings.TrimSpace(state.accepted) == "" {
-			fmt.Fprintln(stderr, "no accepted input to check")
-			return false, 0
-		}
-		diagText, hasErrors, err := check(state.accepted)
-		if err != nil {
-			fmt.Fprintf(stderr, "check failed: %v\n", err)
-			return false, 0
-		}
-		if strings.TrimSpace(diagText) != "" {
-			fmt.Fprintln(stderr, diagText)
-		}
-		if !hasErrors && strings.TrimSpace(diagText) == "" {
-			fmt.Fprintln(stdout, "OK")
-		}
 	case ":save":
 		if len(fields) != 2 {
 			fmt.Fprintln(stderr, "usage: :save <filename>")

@@ -11,8 +11,9 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func TestRunCheckAcceptsLoopComputedGlobals(t *testing.T) {
+func TestRunDryRunAcceptsLoopComputedGlobals(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := `
 jbs_name = "loop_demo"
@@ -28,11 +29,11 @@ do run with values {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"run", "-n", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no check output, got %q", stdout.String())
+		t.Fatalf("expected no dry-run output, got %q", stdout.String())
 	}
 }
 

@@ -13,7 +13,6 @@ import (
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/filewait"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/printparam"
@@ -79,9 +78,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if flags.Archive {
 		return archiveBenchmark(flags.Input, stdout, stderr)
 	}
-	if flags.Check {
-		return checkInput(flags.Input, stdout, stderr)
-	}
 	if flags.Input == "" {
 		fmt.Fprintln(stderr, "missing input file")
 		fmt.Fprintln(stderr, UsageText())
@@ -99,23 +95,6 @@ func fwaitFiles(paths []string, exitExisting bool, stdout, stderr io.Writer) int
 		return 1
 	}
 	fmt.Fprintln(stdout, result.Path)
-	return 0
-}
-
-func checkInput(path string, stdout, stderr io.Writer) int {
-	_ = stdout
-	diags := &diag.Diagnostics{}
-	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{ShellMode: eval.ShellAssumeString}, diags)
-	if err != nil {
-		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
-		return 1
-	}
-	if len(diags.Items) > 0 {
-		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
-	}
-	if diags.HasErrors() {
-		return 1
-	}
 	return 0
 }
 
@@ -330,19 +309,6 @@ func runRepl(stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "failed to determine working directory: %v\n", err)
 		return 1
 	}
-	check := func(source string) (string, bool, error) {
-		diags := &diag.Diagnostics{}
-		bundle, err := analyzeSource("<repl>", source, cwd, diags)
-		if err != nil {
-			return "", true, err
-		}
-		diagText := ""
-		errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
-		if len(errorDiags.Items) > 0 {
-			diagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
-		}
-		return diagText, diags.HasErrors(), nil
-	}
 	commit := func(source, chunk string) (jbsrepl.CommitResult, error) {
 		return commitReplChunk(cwd, source, chunk)
 	}
@@ -351,7 +317,6 @@ func runRepl(stdout, stderr io.Writer) int {
 		Stderr:    stderr,
 		Cwd:       cwd,
 		BuildInfo: version.Full(),
-		Check:     check,
 		Commit:    commit,
 	})
 }

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
@@ -115,79 +114,6 @@ func TestAnalyzeWithImportsShellRunnerAndModuleWorkingDir(t *testing.T) {
 	}
 	if len(res.PrintEvents) != 0 {
 		t.Fatalf("shell runner propagation should not change print collection, got %#v", res.PrintEvents)
-	}
-}
-
-func TestAnalyzeAssumeStringShellDoesNotRunAndKeepsDependencies(t *testing.T) {
-	src := strings.Join([]string{
-		"x = 1",
-		`y = shell("printf $x")`,
-		`do s with y {`,
-		`  echo "$y"`,
-		`}`,
-		"",
-	}, "\n")
-	diags := &diag.Diagnostics{}
-	prog := parser.Parse("in.jbs", src, diags)
-	res := AnalyzeWithOptions(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, AnalyzeOptions{
-		ShellMode: eval.ShellAssumeString,
-		ShellRunner: func(eval.ShellCommand) ([]byte, error) {
-			t.Fatal("shell runner should not be called")
-			return nil, nil
-		},
-	}, diags)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected diagnostics: %s", diags.String())
-	}
-	if got := res.GlobalVarByName["y"].Value; got.Kind != eval.KindString || got.S != "" {
-		t.Fatalf("unexpected y value: %#v", got)
-	}
-	if !slices.Contains(res.GlobalVarByName["y"].DependsOn, "x") {
-		t.Fatalf("expected y to depend on x, got %#v", res.GlobalVarByName["y"].DependsOn)
-	}
-}
-
-func TestCompileAnalyseBlockAssumeStringShellDoesNotRun(t *testing.T) {
-	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
-	res := &Result{
-		Globals:         GlobalState{Values: map[string]eval.Value{}},
-		BindingsByName:  map[string]*GlobalBinding{},
-		DoBlocks:        []ast.DoBlock{{Name: "run", Span: span}},
-		StepScopeByName: map[string]*StepScopePlan{"run": {Effective: map[string]VisibleBinding{}}},
-	}
-	block := ast.AnalyseBlock{
-		StepName: "run",
-		Assignments: []ast.AnalyseAssign{
-			{
-				Name: "parsed",
-				File: "out.txt",
-				Expr: ast.CallExpr{
-					Callee: ast.IdentExpr{Name: "shell", Span: span},
-					Args:   ast.PosCallArgs(ast.StringExpr{Value: "touch marker; printf '%d'", Span: span}),
-					Span:   span,
-				},
-				Span: span,
-			},
-		},
-		Columns: []ast.AnalyseColumn{{Name: "parsed", Span: span}},
-		Span:    span,
-	}
-	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, AnalyzeOptions{
-		ShellMode: eval.ShellAssumeString,
-		ShellRunner: func(eval.ShellCommand) ([]byte, error) {
-			t.Fatal("shell runner should not be called")
-			return nil, nil
-		},
-	}, diags)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected diagnostics: %s", diags.String())
-	}
-	if len(spec.Assignments) != 1 {
-		t.Fatalf("expected one analyse assignment, got %#v", spec.Assignments)
-	}
-	if strings.Contains(diags.String(), "shell() command failed") {
-		t.Fatalf("unexpected shell failure diagnostic: %s", diags.String())
 	}
 }
 

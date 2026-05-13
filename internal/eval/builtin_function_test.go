@@ -184,7 +184,7 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 		}
 	})
 
-	t.Run("shell respects execution mode", func(t *testing.T) {
+	t.Run("shell function value runs", func(t *testing.T) {
 		frame := NewRootFrame(nil)
 		assignBuiltinFunction(t, frame, "sh", "shell")
 		called := false
@@ -200,20 +200,6 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 		})
 		if !called || got.Kind != KindString || got.S != "hi" {
 			t.Fatalf("expected shell function value to run once and return hi, called=%v got=%#v", called, got)
-		}
-		if diags.HasErrors() {
-			t.Fatalf("unexpected diagnostics: %s", diags.String())
-		}
-
-		called = false
-		diags = &diag.Diagnostics{}
-		got = EvalExprWithOptions(callExpr(ident("sh"), posArg(ast.StringExpr{Value: "printf hi"})), nil, diags, ExprOptions{
-			Frame:       frame,
-			ShellRunner: runner,
-			ShellMode:   ShellAssumeString,
-		})
-		if called || got.Kind != KindString || got.S != "" {
-			t.Fatalf("expected check-mode shell function value not to run, called=%v got=%#v", called, got)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())

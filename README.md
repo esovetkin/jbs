@@ -100,7 +100,6 @@ Options:
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
-  -c, --check   Parse+validate only
 
 Archive benchmark directory:
   jbs archive input.jbs

@@ -516,15 +516,16 @@ func TestRunParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 	}
 }
 
-func TestRunCheckFormatsDiagnosticsAcrossImportedSources(t *testing.T) {
+func TestRunDryRunFormatsDiagnosticsAcrossImportedSources(t *testing.T) {
 	cwd := t.TempDir()
+	chdirCLITest(t, cwd)
 	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\n")
 	libPath := writeCLIFile(t, cwd, "lib.jbs", "value = (\n")
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", mainPath}, &stdout, &stderr)
 	if code != 1 {
-		t.Fatalf("expected failing check for imported-source syntax error, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected failing dry-run for imported-source syntax error, code=%d stderr=%s", code, stderr.String())
 	}
 	text := stderr.String()
 	if !strings.Contains(text, libPath) || !strings.Contains(text, "value = (") {
@@ -532,32 +533,51 @@ func TestRunCheckFormatsDiagnosticsAcrossImportedSources(t *testing.T) {
 	}
 }
 
-func TestRunCheckWithSelectiveImportedFunction(t *testing.T) {
+func TestRunDryRunWithSelectiveImportedFunction(t *testing.T) {
 	cwd := t.TempDir()
+	chdirCLITest(t, cwd)
 	writeCLIFile(t, cwd, "lib.jbs", "add = function(a, b) {\n  a + b\n}\n")
-	mainPath := writeCLIFile(t, cwd, "main.jbs", "use add from \"./lib.jbs\"\nadd(1, 2)\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		`jbs_name = "bench"`,
+		`use add from "./lib.jbs"`,
+		`x = add(1, 2)`,
+		`do run with x {`,
+		`  echo "$x"`,
+		`}`,
+		``,
+	}, "\n"))
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", mainPath}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 }
 
-func TestRunCheckWithNamespacedImportedFunction(t *testing.T) {
+func TestRunDryRunWithNamespacedImportedFunction(t *testing.T) {
 	cwd := t.TempDir()
+	chdirCLITest(t, cwd)
 	writeCLIFile(t, cwd, "lib.jbs", "base = 40\nadd = function(a, b) {\n  a + b + base\n}\n")
-	mainPath := writeCLIFile(t, cwd, "main.jbs", "use \"./lib.jbs\" as lib\nlib.add(1, 2)\n")
+	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		`jbs_name = "bench"`,
+		`use "./lib.jbs" as lib`,
+		`x = lib.add(1, 2)`,
+		`do run with x {`,
+		`  echo "$x"`,
+		`}`,
+		``,
+	}, "\n"))
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", mainPath}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 }
 
-func TestRunCheckWithImportedHigherOrderInitializer(t *testing.T) {
+func TestRunDryRunWithImportedHigherOrderInitializer(t *testing.T) {
 	cwd := t.TempDir()
+	chdirCLITest(t, cwd)
 	writeCLIFile(t, cwd, "lib.jbs", strings.Join([]string{
 		"base = 40",
 		"mk = function(delta) {",
@@ -568,6 +588,7 @@ func TestRunCheckWithImportedHigherOrderInitializer(t *testing.T) {
 		"",
 	}, "\n"))
 	mainPath := writeCLIFile(t, cwd, "main.jbs", strings.Join([]string{
+		`jbs_name = "bench"`,
 		"use mk from \"./lib.jbs\"",
 		"inc = mk(1)",
 		"x = inc(1)",
@@ -578,8 +599,8 @@ func TestRunCheckWithImportedHigherOrderInitializer(t *testing.T) {
 	}, "\n"))
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--check", mainPath}, &stdout, &stderr)
+	code := Run([]string{"run", "-n", mainPath}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("expected successful check for imported higher-order initializer, code=%d stderr=%s", code, stderr.String())
+		t.Fatalf("expected successful dry-run for imported higher-order initializer, code=%d stderr=%s", code, stderr.String())
 	}
 }

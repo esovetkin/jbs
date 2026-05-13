@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-func TestRunCheckAcceptsIfAssignments(t *testing.T) {
+func TestRunDryRunAcceptsIfAssignments(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := `
 jbs_name = "if_demo"
@@ -27,16 +28,17 @@ do run with cases {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"run", "-n", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no check output, got %q", stdout.String())
+		t.Fatalf("expected no dry-run output, got %q", stdout.String())
 	}
 }
 
-func TestRunCheckAcceptsElifAssignments(t *testing.T) {
+func TestRunDryRunAcceptsElifAssignments(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := `
 jbs_name = "elif_demo"
@@ -56,16 +58,17 @@ do run with cases {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"run", "-n", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no check output, got %q", stdout.String())
+		t.Fatalf("expected no dry-run output, got %q", stdout.String())
 	}
 }
 
-func TestRunCheckAcceptsLogicalOperatorAliases(t *testing.T) {
+func TestRunDryRunAcceptsLogicalOperatorAliases(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := `
 jbs_name = "logical_aliases"
@@ -88,16 +91,17 @@ do run with x {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"run", "-n", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no check output, got %q", stdout.String())
+		t.Fatalf("expected no dry-run output, got %q", stdout.String())
 	}
 }
 
-func TestRunCheckDoesNotWarnUnusedForSelfRebindDependency(t *testing.T) {
+func TestRunDryRunDoesNotWarnUnusedForSelfRebindDependency(t *testing.T) {
 	dir := t.TempDir()
+	chdirCLITest(t, dir)
 	path := filepath.Join(dir, "main.jbs")
 	src := `
 jbs_name = "self_rebind_deps"
@@ -118,14 +122,14 @@ do s with testcases {
 		t.Fatalf("write input: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", path}, &stdout, &stderr); code != 0 {
-		t.Fatalf("expected successful check, code=%d stderr=%s", code, stderr.String())
+	if code := Run([]string{"run", "-n", path}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful dry-run, code=%d stderr=%s", code, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "common_args") {
 		t.Fatalf("did not expect common_args warning, got %s", stderr.String())
 	}
 	if stdout.Len() != 0 {
-		t.Fatalf("expected no check output, got %q", stdout.String())
+		t.Fatalf("expected no dry-run output, got %q", stdout.String())
 	}
 }
 

@@ -2,8 +2,6 @@ package repl
 
 import "io"
 
-type CheckFunc func(source string) (diagText string, hasErrors bool, err error)
-
 type CommitResult struct {
 	Source     string
 	ExprOutput []string
@@ -27,7 +25,6 @@ type Options struct {
 	Cwd         string
 	HistoryFile string
 	BuildInfo   string
-	Check       CheckFunc
 	Commit      CommitFunc
 	NewReader   ReaderFactory
 }
