@@ -13,6 +13,7 @@ import (
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/filewait"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/printparam"
@@ -104,7 +105,7 @@ func fwaitFiles(paths []string, exitExisting bool, stdout, stderr io.Writer) int
 func checkInput(path string, stdout, stderr io.Writer) int {
 	_ = stdout
 	diags := &diag.Diagnostics{}
-	bundle, err := analyzeInput(path, diags)
+	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{ShellMode: eval.ShellAssumeString}, diags)
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to load input %q: %v\n", path, err)
 		return 1

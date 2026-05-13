@@ -60,7 +60,7 @@ func normalizePatternRegex(input string) (string, string, bool) {
 	return out.String(), t, true
 }
 
-func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagnostics) *AnalyseSpec {
+func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOptions, diags *diag.Diagnostics) *AnalyseSpec {
 	snap := snapshotForAnalyseBlock(res, block)
 	analyseBindings := snapshotBindings(res, snap)
 	analyseGlobals := snapshotGlobals(res, snap)
@@ -138,11 +138,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 					diag.RelatedSpan{Message: "step variable", Span: existing},
 				)
 			}
-			value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
-				Context: eval.EvalCtxAnalyseAssign,
-				Names:   scopeNameCatalog(visibleNamesFromEnv(env), analyseNamespaces),
-				Files:   fileAccessForSpan(res.BaseDirByFile, assign.Span),
-			})
+			value := eval.EvalExprWithOptions(effectiveExpr, env, diags, analyseEvalOptions(res, assign, visibleNamesFromEnv(env), analyseNamespaces, opts))
 			if value.Kind == eval.KindFunction {
 				diags.AddError(
 					diag.CodeE412,
@@ -175,11 +171,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 			continue
 		}
 		before := len(diags.Items)
-		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, eval.ExprOptions{
-			Context: eval.EvalCtxAnalyseAssign,
-			Names:   scopeNameCatalog(visibleNamesFromEnv(env), analyseNamespaces),
-			Files:   fileAccessForSpan(res.BaseDirByFile, assign.Span),
-		})
+		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, analyseEvalOptions(res, assign, visibleNamesFromEnv(env), analyseNamespaces, opts))
 		if value.Kind != eval.KindString {
 			if hasErrorCodeSince(diags, before, diag.CodeE100) {
 				continue
@@ -253,6 +245,17 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, diags *diag.Diagno
 	}
 
 	return spec
+}
+
+func analyseEvalOptions(res *Result, assign ast.AnalyseAssign, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions) eval.ExprOptions {
+	return eval.ExprOptions{
+		Context:     eval.EvalCtxAnalyseAssign,
+		Names:       scopeNameCatalog(visible, namespaces),
+		Files:       fileAccessForSpan(res.BaseDirByFile, assign.Span),
+		ShellRunner: opts.ShellRunner,
+		ShellMode:   opts.ShellMode,
+		Environ:     opts.Environ,
+	}
 }
 
 type analyseBindingImport struct {

@@ -12,6 +12,7 @@ import (
 type globalExecOptions struct {
 	CollectPrints bool
 	ShellRunner   eval.ShellRunner
+	ShellMode     eval.ShellMode
 	Environ       func() []string
 }
 
@@ -49,6 +50,7 @@ type globalSeqEngine struct {
 	namespaces          map[string]*Namespace
 	collectPrints       bool
 	shellRunner         eval.ShellRunner
+	shellMode           eval.ShellMode
 	environ             func() []string
 	shellUses           []string
 	outputSeq           int
@@ -95,6 +97,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		namespaces:          make(map[string]*Namespace),
 		collectPrints:       opts.CollectPrints,
 		shellRunner:         opts.ShellRunner,
+		shellMode:           opts.ShellMode,
 		environ:             opts.Environ,
 		res:                 res,
 	}
@@ -141,6 +144,7 @@ func (e *globalSeqEngine) evalOptions(step globalInputStep) eval.ExprOptions {
 		Files:                           &eval.FileAccess{BaseDir: step.BaseDir},
 		Frame:                           e.rootFrame,
 		ShellRunner:                     e.shellRunner,
+		ShellMode:                       e.shellMode,
 		ShellUse:                        e.recordShellUse,
 		Environ:                         e.environ,
 		DeleteName:                      e.deleteGlobalName,

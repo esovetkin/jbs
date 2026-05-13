@@ -27,6 +27,13 @@ const (
 	EvalCtxAnalyseAssign
 )
 
+type ShellMode int
+
+const (
+	ShellExecute ShellMode = iota
+	ShellAssumeString
+)
+
 type ExprOptions struct {
 	GlobalAssignmentTupleArithmetic bool
 	Context                         EvalContext
@@ -38,6 +45,7 @@ type ExprOptions struct {
 	PrintIndex                      int
 	NextPrintSeq                    func() int
 	ShellRunner                     ShellRunner
+	ShellMode                       ShellMode
 	ShellUse                        func(ShellUseEvent)
 	Environ                         func() []string
 	DeleteName                      DeleteNameFunc

@@ -13,6 +13,8 @@ Scalar JBS variables referenced as `$name` or `${name}` are exported to the shel
 
 If the command cannot start or exits non-zero, JBS raises an error during evaluation. Non-zero exit diagnostics include the exit code and stderr.
 
+During `jbs -c` / `jbs --check`, `shell(...)` is validated as a string-producing expression but the command is not executed. Command failures are therefore reported in run-like evaluation modes such as `jbs run`, not in check mode.
+
 ## Returns
 
 A string containing stdout. By default, one trailing newline is removed. Use `strip=false` to preserve stdout exactly.

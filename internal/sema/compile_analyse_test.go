@@ -234,7 +234,7 @@ func TestCompileAnalyseBlock(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, diags)
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
 	if spec.StepKind != "do" {
 		t.Fatalf("expected analyse target kind do, got %q", spec.StepKind)
 	}
@@ -277,7 +277,7 @@ func TestCompileAnalyseBlockUnknownStep(t *testing.T) {
 		Globals:         GlobalState{Values: map[string]eval.Value{}},
 		BindingsByName:  map[string]*GlobalBinding{},
 		StepScopeByName: map[string]*StepScopePlan{},
-	}, diags)
+	}, AnalyzeOptions{}, diags)
 	if spec.StepKind != "" {
 		t.Fatalf("expected unknown step kind, got %q", spec.StepKind)
 	}
@@ -306,7 +306,7 @@ func TestCompileAnalyseBlockRejectsTrailingPercentPlaceholder(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, diags)
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
 	if len(spec.Assignments) != 0 {
 		t.Fatalf("expected invalid trailing-percent assignment to be skipped, got %#v", spec.Assignments)
 	}
@@ -382,7 +382,7 @@ func TestCompileAnalyseBlockSupportsNamesBuiltin(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, diags)
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
 	if spec == nil {
 		t.Fatalf("expected analyse spec")
 	}
@@ -439,7 +439,7 @@ func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, diags)
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
 	if spec == nil {
 		t.Fatalf("expected analyse spec")
 	}
@@ -475,7 +475,7 @@ func TestCompileAnalyseBlockRejectsFunctionValuedHelpers(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	spec := compileAnalyseBlock(block, res, diags)
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
 	if spec == nil {
 		t.Fatalf("expected analyse spec")
 	}

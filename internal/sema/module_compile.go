@@ -31,7 +31,7 @@ func compileModule(ref imports.ModuleRef, loadRes *imports.LoadResult, globals m
 	childByIndex := make(map[int]*moduleScope, len(info.Uses))
 	prefixedByIndex := make(map[int]*moduleScope, len(info.Uses))
 	for _, use := range info.Uses {
-		child := compileModule(use.Source, loadRes, globals, AnalyzeOptions{ShellRunner: opts.ShellRunner, Environ: opts.Environ}, diags, cache, visiting)
+		child := compileModule(use.Source, loadRes, globals, AnalyzeOptions{ShellRunner: opts.ShellRunner, ShellMode: opts.ShellMode, Environ: opts.Environ}, diags, cache, visiting)
 		childByIndex[use.Index] = child
 		if use.Kind == imports.UseNamespace {
 			prefixedByIndex[use.Index] = prefixModuleScope(child, use.Alias)

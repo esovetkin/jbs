@@ -12,6 +12,7 @@ import (
 type AnalyzeOptions struct {
 	CollectPrints bool
 	ShellRunner   eval.ShellRunner
+	ShellMode     eval.ShellMode
 	Environ       func() []string
 }
 
@@ -148,7 +149,7 @@ func analyzeProgram(prog ast.Program, globals map[string]eval.Value, loadRes *im
 	validateFileSubstitutions(res, diags)
 	validateStepVarReferences(res, diags)
 	for _, block := range scope.AnalyseBlocks {
-		spec := compileAnalyseBlock(block, res, diags)
+		spec := compileAnalyseBlock(block, res, opts, diags)
 		res.Analyse = append(res.Analyse, spec)
 	}
 	validateBenchmarksGlobal(res, diags)

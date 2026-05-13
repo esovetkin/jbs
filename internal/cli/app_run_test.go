@@ -376,7 +376,87 @@ func TestRunCommandSupportsShellCompileTimeFunction(t *testing.T) {
 	}
 }
 
-func TestCheckReportsShellCommandFailure(t *testing.T) {
+func TestRunCheckDoesNotExecuteShell(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	marker := filepath.Join(cwd, "marker")
+	input := filepath.Join(cwd, "bench.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`value = shell("touch marker; printf hi; exit 7")`,
+		`do s with value {`,
+		`  echo "$value"`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected no stdout, got %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "shell() command failed") {
+		t.Fatalf("check mode reported shell failure:\n%s", stderr.String())
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("expected marker not to exist, stat err=%v", err)
+	}
+}
+
+func TestRunCheckDoesNotExecuteShellInImportedModule(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	libDir := filepath.Join(cwd, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "lib.jbs"), []byte(`value = shell("touch ../import-marker; printf imported")`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(cwd, "bench.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`use value from "./lib/lib.jbs"`,
+		`do s with value {`,
+		`  echo "$value"`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "import-marker")); !os.IsNotExist(err) {
+		t.Fatalf("expected import marker not to exist, stat err=%v", err)
+	}
+}
+
+func TestRunCheckDoesNotExecuteShellInAnalyse(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
 	if err != nil {
@@ -388,17 +468,27 @@ func TestCheckReportsShellCommandFailure(t *testing.T) {
 	defer os.Chdir(oldwd)
 
 	input := filepath.Join(cwd, "bench.jbs")
-	if err := os.WriteFile(input, []byte(`value = shell("printf shellerr >&2; exit 7")`+"\n"), 0o644); err != nil {
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`  true`,
+		`}`,
+		`analyse s {`,
+		`  parsed = shell("touch analyse-marker; printf '%d'") in "out.txt"`,
+		`  (parsed)`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--check", input}, &stdout, &stderr); code == 0 {
-		t.Fatalf("expected check failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	if code := Run([]string{"--check", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected successful check, code=%d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
-	errText := stderr.String()
-	if !strings.Contains(errText, "shell() command failed with exit code 7") || !strings.Contains(errText, "shellerr") {
-		t.Fatalf("expected shell failure diagnostic with stderr, got:\n%s", errText)
+	if _, err := os.Stat(filepath.Join(cwd, "analyse-marker")); !os.IsNotExist(err) {
+		t.Fatalf("expected analyse marker not to exist, stat err=%v", err)
 	}
 }
 

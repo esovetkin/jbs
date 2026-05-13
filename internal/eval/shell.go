@@ -62,6 +62,9 @@ func evalShellCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, di
 	if diags.HasErrors() {
 		return Null()
 	}
+	if opts.ShellMode == ShellAssumeString {
+		return String("")
+	}
 
 	runner := opts.ShellRunner
 	if runner == nil {
