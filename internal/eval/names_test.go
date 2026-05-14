@@ -128,6 +128,66 @@ func TestEvalNamesCall(t *testing.T) {
 			want: List([]Value{String("x"), String("y")}),
 		},
 		{
+			name: "dict argument string keys",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "names", Span: span},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "settings", Span: span}),
+				Span:   span,
+			},
+			env: map[string]Value{
+				"settings": DictValue([]DictEntry{
+					{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+					{Key: DictKey{Kind: DictKeyString, S: "y"}, Value: Int(2)},
+				}),
+			},
+			opts: opts,
+			want: List([]Value{String("x"), String("y")}),
+		},
+		{
+			name: "dict argument mixed keys",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "names", Span: span},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "settings", Span: span}),
+				Span:   span,
+			},
+			env: map[string]Value{
+				"settings": DictValue([]DictEntry{
+					{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+					{Key: DictKey{Kind: DictKeyInt, I: 2}, Value: String("two")},
+					{Key: DictKey{Kind: DictKeyBool, B: true}, Value: Bool(false)},
+				}),
+			},
+			opts: opts,
+			want: List([]Value{String("x"), Int(2), Bool(true)}),
+		},
+		{
+			name: "named values argument with dict",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "names", Span: span},
+				Args: []ast.CallArg{
+					namedArg("values", ast.ListExpr{Items: []ast.Expr{ast.IdentExpr{Name: "settings", Span: span}}, Span: span}),
+				},
+				Span: span,
+			},
+			env: map[string]Value{
+				"settings": DictValue([]DictEntry{
+					{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+				}),
+			},
+			opts: opts,
+			want: List([]Value{String("x")}),
+		},
+		{
+			name: "empty dict argument",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "names", Span: span},
+				Args:   ast.PosCallArgs(ast.DictExpr{Span: span}),
+				Span:   span,
+			},
+			opts: opts,
+			want: List(nil),
+		},
+		{
 			name: "projected comb argument",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "names", Span: span},

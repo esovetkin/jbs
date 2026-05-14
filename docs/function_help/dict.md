@@ -32,3 +32,5 @@ columns == dict(x = [1, 2], y = ["a", "b"])
 Duplicate keys are allowed; the last value wins.
 
 `dict(table_value)` creates one dictionary entry per table column. Values are lists containing the column values in row order.
+
+Use `names(dictionary)` to list dictionary keys.

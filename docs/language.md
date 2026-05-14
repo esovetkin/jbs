@@ -310,6 +310,7 @@ Useful functions:
 - `tail(table, n = 5)`  # last rows
 - `len(table)`          # row count
 - `names(table)`        # column names
+- `names(dict)`         # dictionary keys
 - `dict(table)`         # table -> dictionary
 - `table(dict)`         # dictionary -> table
 - `table(rows)`         # list of row dictionaries -> table

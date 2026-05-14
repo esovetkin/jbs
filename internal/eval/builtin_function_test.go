@@ -146,9 +146,14 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 			}}},
 		})
 		frame.AssignLocal("grid", grid, diag.Span{})
+		settings := DictValue([]DictEntry{
+			{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)},
+			{Key: DictKey{Kind: DictKeyBool, B: true}, Value: String("enabled")},
+		})
+		frame.AssignLocal("settings", settings, diag.Span{})
 		opts := ExprOptions{
 			Frame: frame,
-			Names: NewNameCatalog([]string{"grid", "name_fn"}, nil),
+			Names: NewNameCatalog([]string{"grid", "name_fn", "settings"}, nil),
 		}
 
 		diags := &diag.Diagnostics{}
@@ -159,6 +164,10 @@ func TestSpecialBuiltinFunctionValues(t *testing.T) {
 		tableNames := EvalExprWithOptions(callExpr(ident("name_fn"), posArg(ident("grid"))), nil, diags, opts)
 		if !Equal(tableNames, List([]Value{String("x"), String("y")})) {
 			t.Fatalf("expected table column names, got %#v", tableNames)
+		}
+		dictNames := EvalExprWithOptions(callExpr(ident("name_fn"), posArg(ident("settings"))), nil, diags, opts)
+		if !Equal(dictNames, List([]Value{String("x"), Bool(true)})) {
+			t.Fatalf("expected dictionary keys, got %#v", dictNames)
 		}
 		if diags.HasErrors() {
 			t.Fatalf("unexpected diagnostics: %s", diags.String())

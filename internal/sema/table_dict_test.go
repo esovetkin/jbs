@@ -64,6 +64,23 @@ columns["x"]
 	}
 }
 
+func TestAnalyzeNamesSupportsDictionaryKeys(t *testing.T) {
+	src := `
+settings = {"x": 1, 2: "two", true: "enabled"}
+names(settings)
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	want := eval.List([]eval.Value{eval.String("x"), eval.Int(2), eval.Bool(true)})
+	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, want) {
+		t.Fatalf("unexpected names(settings) result: %#v", res.TopLevelExprs)
+	}
+}
+
 func TestAnalyzeDoWithDictMarksSourceUsed(t *testing.T) {
 	src := `
 settings = dict(host = ("h0", "h1"), rank = (0, 1))

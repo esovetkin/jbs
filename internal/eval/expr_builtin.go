@@ -77,11 +77,14 @@ func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags
 	if len(diags.Items) > before {
 		return Null()
 	}
-	if !IsComb(value) {
-		diags.AddError(diag.CodeE106, "names() expects a module namespace or table value", rawArgs[0].GetSpan(), "use names(), names(module), or names(table)")
-		return Null()
+	if IsComb(value) {
+		return stringListValue(CombNames(value))
 	}
-	return stringListValue(CombNames(value))
+	if value.Kind == KindDict {
+		return dictKeyListValue(value.D)
+	}
+	diags.AddError(diag.CodeE106, "names() expects a module namespace, table, or dictionary value", rawArgs[0].GetSpan(), "use names(), names(module), names(table), or names(dictionary)")
+	return Null()
 }
 
 func evalNamesDirectCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -114,18 +117,21 @@ func evalNamesValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnosti
 		return Null()
 	}
 	if len(bound.Varargs) > 1 {
-		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names() or names(table)")
+		diags.AddError(diag.CodeE106, "names() expects zero or one argument", at, "use names(), names(table), or names(dictionary)")
 		return Null()
 	}
 	if len(bound.Varargs) == 0 {
 		return stringListValue(opts.Names.Visible)
 	}
 	arg := bound.Varargs[0]
-	if !IsComb(arg.Value) {
-		diags.AddError(diag.CodeE106, "names() function value expects a table value", arg.Span, "use names() or names(table)")
-		return Null()
+	if IsComb(arg.Value) {
+		return stringListValue(CombNames(arg.Value))
 	}
-	return stringListValue(CombNames(arg.Value))
+	if arg.Value.Kind == KindDict {
+		return dictKeyListValue(arg.Value.D)
+	}
+	diags.AddError(diag.CodeE106, "names() function value expects a table or dictionary value", arg.Span, "use names(), names(table), or names(dictionary)")
+	return Null()
 }
 
 func namespaceArgName(expr ast.Expr, catalog *NameCatalog) (string, bool) {
@@ -152,6 +158,20 @@ func stringListValue(names []string) Value {
 	items := make([]Value, 0, len(names))
 	for _, name := range names {
 		items = append(items, String(name))
+	}
+	return List(items)
+}
+
+func dictKeyListValue(dict *Dict) Value {
+	if dict == nil || len(dict.Order) == 0 {
+		return List(nil)
+	}
+	items := make([]Value, 0, len(dict.Order))
+	for _, key := range dict.Order {
+		if _, ok := dict.Entries[key]; !ok {
+			continue
+		}
+		items = append(items, ValueFromDictKey(key))
 	}
 	return List(items)
 }
