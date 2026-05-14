@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -42,7 +43,7 @@ func runAnalysesSQLite(store *Store, analyses map[string]AnalysePlan) error {
 		if err != nil {
 			return err
 		}
-		if err := replaceAnalyseTable(tx, step.AnalyseTable, plan.Header, rows); err != nil {
+		if err := replaceAnalyseTable(tx, step.AnalyseTable, plan.Header, plan.ColumnTypes, rows); err != nil {
 			return fmt.Errorf("write analyse table %q: %w", step.Name, err)
 		}
 	}
@@ -68,15 +69,19 @@ func ensureAnalyseDatabaseParent(path string) error {
 	return os.MkdirAll(filepath.Dir(path), 0o755)
 }
 
-func replaceAnalyseTable(tx *sql.Tx, table string, header []string, rows [][]string) error {
+func replaceAnalyseTable(tx *sql.Tx, table string, header []string, columnTypes []AnalyseValueKind, rows [][]AnalyseCell) error {
 	quotedTable := quoteSQLiteIdent(table)
 	if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + quotedTable); err != nil {
 		return err
 	}
 
 	defs := make([]string, 0, len(header))
-	for _, col := range header {
-		defs = append(defs, quoteSQLiteIdent(col)+` TEXT NOT NULL`)
+	for i, col := range header {
+		kind := analyseValueString
+		if i < len(columnTypes) && columnTypes[i] != "" {
+			kind = columnTypes[i]
+		}
+		defs = append(defs, quoteSQLiteIdent(col)+` `+sqliteAnalyseType(kind))
 	}
 	if _, err := tx.Exec(`CREATE TABLE ` + quotedTable + ` (` + strings.Join(defs, ", ") + `)`); err != nil {
 		return err
@@ -104,9 +109,9 @@ func replaceAnalyseTable(tx *sql.Tx, table string, header []string, rows [][]str
 	args := make([]any, len(header))
 	for _, row := range rows {
 		for i := range header {
-			args[i] = ""
+			args[i] = nil
 			if i < len(row) {
-				args[i] = row[i]
+				args[i] = row[i].SQLiteValue()
 			}
 		}
 		if _, err := stmt.Exec(args...); err != nil {
@@ -114,6 +119,17 @@ func replaceAnalyseTable(tx *sql.Tx, table string, header []string, rows [][]str
 		}
 	}
 	return nil
+}
+
+func sqliteAnalyseType(kind AnalyseValueKind) string {
+	switch kind {
+	case analyseValueInt, analyseValueBool:
+		return "INTEGER"
+	case analyseValueFloat:
+		return "REAL"
+	default:
+		return "TEXT"
+	}
 }
 
 func readAnalyseTable(db *sql.DB, table string) ([]string, [][]string, error) {
@@ -137,7 +153,7 @@ func readAnalyseTable(db *sql.DB, table string) ([]string, [][]string, error) {
 
 	out := make([][]string, 0)
 	for rows.Next() {
-		values := make([]sql.NullString, len(header))
+		values := make([]any, len(header))
 		dest := make([]any, len(header))
 		for i := range values {
 			dest[i] = &values[i]
@@ -147,9 +163,7 @@ func readAnalyseTable(db *sql.DB, table string) ([]string, [][]string, error) {
 		}
 		row := make([]string, len(header))
 		for i, value := range values {
-			if value.Valid {
-				row[i] = value.String
-			}
+			row[i] = sqliteValueString(value)
 		}
 		out = append(out, row)
 	}
@@ -157,6 +171,23 @@ func readAnalyseTable(db *sql.DB, table string) ([]string, [][]string, error) {
 		return nil, nil, err
 	}
 	return header, out, nil
+}
+
+func sqliteValueString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case []byte:
+		return string(v)
+	case string:
+		return v
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func sqliteTableColumns(db *sql.DB, table string) ([]string, error) {

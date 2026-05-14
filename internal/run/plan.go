@@ -130,7 +130,7 @@ func buildRuntimeInputs(opts Options, diags *diag.Diagnostics) (runtimeInputs, e
 	if err != nil {
 		return runtimeInputs{}, err
 	}
-	analyses, err := analysePlansByStep(res)
+	analyses, err := analysePlansByStep(res, wp)
 	if err != nil {
 		return runtimeInputs{}, err
 	}
@@ -422,8 +422,9 @@ func resolveAnalyseDatabasePath(raw string) (analyseDatabaseConfig, error) {
 	return analyseDatabaseConfig{Display: display, Path: filepath.Clean(path)}, nil
 }
 
-func analysePlansByStep(res *sema.Result) (map[string]AnalysePlan, error) {
+func analysePlansByStep(res *sema.Result, wp workplan.Plan) (map[string]AnalysePlan, error) {
 	out := make(map[string]AnalysePlan)
+	workKinds := analyseWorkValueKindsByStep(wp)
 	for _, spec := range res.Analyse {
 		if spec == nil {
 			continue
@@ -434,7 +435,7 @@ func analysePlansByStep(res *sema.Result) (map[string]AnalysePlan, error) {
 		if _, ok := out[spec.Name]; ok {
 			return nil, fmt.Errorf("multiple analyse blocks target step %q", spec.Name)
 		}
-		plan, err := buildAnalysePlan(spec)
+		plan, err := buildAnalysePlan(spec, workKinds[spec.Name])
 		if err != nil {
 			return nil, err
 		}
@@ -443,7 +444,7 @@ func analysePlansByStep(res *sema.Result) (map[string]AnalysePlan, error) {
 	return out, nil
 }
 
-func buildAnalysePlan(spec *sema.AnalyseSpec) (AnalysePlan, error) {
+func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueKind) (AnalysePlan, error) {
 	selected := selectedPatternNames(spec)
 	patterns := make(map[string]AnalysePatternPlan, len(selected))
 	for _, assign := range spec.Assignments {
@@ -458,21 +459,24 @@ func buildAnalysePlan(spec *sema.AnalyseSpec) (AnalysePlan, error) {
 		if groups == 0 {
 			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q must contain at least one capture group", spec.Name, assign.Name)
 		}
+		groupTypes := patternGroupTypes(re, assign.Template.CaptureTypesByName)
 		patterns[assign.Name] = AnalysePatternPlan{
 			Name:         assign.Name,
 			File:         assign.File,
 			Regex:        assign.Template.Regex,
 			GroupCount:   groups,
+			GroupTypes:   groupTypes,
 			CompiledExpr: re,
 		}
 	}
 
 	plan := AnalysePlan{
-		Step:     spec.Name,
-		CSV:      "analyse.csv",
-		Header:   []string{"run_id"},
-		Columns:  make([]AnalyseColumnPlan, 0, len(spec.Columns)),
-		Patterns: patterns,
+		Step:        spec.Name,
+		CSV:         "analyse.csv",
+		Header:      []string{"run_id"},
+		ColumnTypes: []AnalyseValueKind{analyseValueString},
+		Columns:     make([]AnalyseColumnPlan, 0, len(spec.Columns)),
+		Patterns:    patterns,
 	}
 	for _, col := range spec.Columns {
 		source := col.Source
@@ -489,19 +493,104 @@ func buildAnalysePlan(spec *sema.AnalyseSpec) (AnalysePlan, error) {
 				Source:     source,
 				Title:      title,
 				GroupCount: p.GroupCount,
+				GroupTypes: append([]AnalyseValueKind(nil), p.GroupTypes...),
 			})
 			plan.Header = appendExpandedHeader(plan.Header, title, p.GroupCount)
+			plan.ColumnTypes = append(plan.ColumnTypes, p.GroupTypes...)
 			continue
+		}
+		kind := analyseValueString
+		if workKinds != nil && workKinds[source] != "" {
+			kind = workKinds[source]
 		}
 		plan.Columns = append(plan.Columns, AnalyseColumnPlan{
 			Kind:       analyseColumnWorkValue,
 			Source:     source,
 			Title:      title,
 			GroupCount: 1,
+			GroupTypes: []AnalyseValueKind{kind},
 		})
 		plan.Header = append(plan.Header, title)
+		plan.ColumnTypes = append(plan.ColumnTypes, kind)
+	}
+	if err := validateAnalysePlanShape(plan); err != nil {
+		return AnalysePlan{}, err
 	}
 	return plan, nil
+}
+
+func analyseWorkValueKindsByStep(wp workplan.Plan) map[string]map[string]AnalyseValueKind {
+	out := make(map[string]map[string]AnalyseValueKind)
+	for _, work := range wp.Work {
+		stepKinds := out[work.StepName]
+		if stepKinds == nil {
+			stepKinds = make(map[string]AnalyseValueKind)
+			out[work.StepName] = stepKinds
+		}
+		for name, value := range work.Values {
+			kind := analyseValueKindFromEval(value)
+			stepKinds[name] = mergeAnalyseValueKinds(stepKinds[name], kind)
+		}
+	}
+	return out
+}
+
+func analyseValueKindFromEval(value eval.Value) AnalyseValueKind {
+	switch value.Kind {
+	case eval.KindInt:
+		return analyseValueInt
+	case eval.KindFloat:
+		return analyseValueFloat
+	case eval.KindBool:
+		return analyseValueBool
+	case eval.KindString:
+		return analyseValueString
+	default:
+		return analyseValueString
+	}
+}
+
+func mergeAnalyseValueKinds(a, b AnalyseValueKind) AnalyseValueKind {
+	if a == "" {
+		return b
+	}
+	if a == b {
+		return a
+	}
+	if (a == analyseValueInt && b == analyseValueFloat) || (a == analyseValueFloat && b == analyseValueInt) {
+		return analyseValueFloat
+	}
+	return analyseValueString
+}
+
+func patternGroupTypes(re *regexp.Regexp, byName map[string]string) []AnalyseValueKind {
+	names := re.SubexpNames()
+	out := make([]AnalyseValueKind, re.NumSubexp())
+	for i := 1; i < len(names); i++ {
+		out[i-1] = analyseValueString
+		if typ, ok := byName[names[i]]; ok {
+			out[i-1] = analyseValueKindFromTemplate(typ)
+		}
+	}
+	return out
+}
+
+func analyseValueKindFromTemplate(typ string) AnalyseValueKind {
+	switch typ {
+	case "int":
+		return analyseValueInt
+	case "float":
+		return analyseValueFloat
+	default:
+		return analyseValueString
+	}
+}
+
+func validateAnalysePlanShape(plan AnalysePlan) error {
+	if len(plan.ColumnTypes) != len(plan.Header) {
+		return fmt.Errorf("analyse %q has %d headers but %d column types", plan.Step, len(plan.Header), len(plan.ColumnTypes))
+	}
+	return nil
 }
 
 func selectedPatternNames(spec *sema.AnalyseSpec) map[string]struct{} {

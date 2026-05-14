@@ -210,7 +210,7 @@ Multiple matches produce multiple rows in the resulting table.
 
 Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)). Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
 
-In CSV mode, JBS rewrites the step's `analyse.csv` in the corresponding directory. JBS also supports SQLite mode, which writes all analysis tables to a single file (use [`jbs_database`](docs/help_globals.md#jbs_database-write-results-to-a-sqlite-database)).
+In CSV mode, JBS rewrites the step's `analyse.csv` in the corresponding directory. JBS also supports SQLite mode, which writes all analysis tables to a single file (use [`jbs_database`](docs/help_globals.md#jbs_database-write-results-to-a-sqlite-database)). SQLite output preserves `%d` captures as `INTEGER` columns and `%f` captures as `REAL` columns.
 
 See more in [docs/help_analyse.md](docs/help_analyse.md) or `jbs help analyse`.
 

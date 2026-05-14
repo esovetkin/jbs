@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	runtimeIntPattern   = `([-+]?[0-9]+)`
-	runtimeFloatPattern = `([-+]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][-+]?[0-9]+)?)`
-	runtimeWordPattern  = `([A-Za-z0-9_]+)`
+	runtimeIntBody   = `[-+]?[0-9]+`
+	runtimeFloatBody = `[-+]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][-+]?[0-9]+)?`
+	runtimeWordBody  = `[A-Za-z0-9_]+`
 )
 
-func normalizePatternRegex(input string) (string, string, bool) {
+func normalizePatternRegex(input string) (string, map[string]string, bool) {
 	var out strings.Builder
-	sawInt := false
-	sawFloat := false
+	captureTypes := make(map[string]string)
+	usedNames := make(map[string]struct{})
+	counter := 0
 	runes := []rune(input)
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
@@ -32,32 +33,49 @@ func normalizePatternRegex(input string) (string, string, bool) {
 			continue
 		}
 		if i+1 >= len(runes) {
-			return "", "", false
+			return "", nil, false
 		}
 		next := runes[i+1]
 		switch next {
 		case '%':
 			out.WriteRune('%')
 		case 'd':
-			out.WriteString(runtimeIntPattern)
-			sawInt = true
+			name := nextAnalyseCaptureName(input, usedNames, "int", &counter)
+			out.WriteString(namedAnalyseCapture(name, runtimeIntBody))
+			captureTypes[name] = "int"
 		case 'f':
-			out.WriteString(runtimeFloatPattern)
-			sawFloat = true
+			name := nextAnalyseCaptureName(input, usedNames, "float", &counter)
+			out.WriteString(namedAnalyseCapture(name, runtimeFloatBody))
+			captureTypes[name] = "float"
 		case 'w':
-			out.WriteString(runtimeWordPattern)
+			name := nextAnalyseCaptureName(input, usedNames, "string", &counter)
+			out.WriteString(namedAnalyseCapture(name, runtimeWordBody))
+			captureTypes[name] = "string"
 		default:
-			return "", "", false
+			return "", nil, false
 		}
 		i++
 	}
-	t := "string"
-	if sawFloat {
-		t = "float"
-	} else if sawInt {
-		t = "int"
+	return out.String(), captureTypes, true
+}
+
+func namedAnalyseCapture(name, body string) string {
+	return `(?P<` + name + `>` + body + `)`
+}
+
+func nextAnalyseCaptureName(input string, used map[string]struct{}, kind string, counter *int) string {
+	for {
+		name := fmt.Sprintf("JBS_CAPTURE_%s_%d", strings.ToUpper(kind), *counter)
+		*counter = *counter + 1
+		if strings.Contains(input, name) {
+			continue
+		}
+		if _, ok := used[name]; ok {
+			continue
+		}
+		used[name] = struct{}{}
+		return name
 	}
-	return out.String(), t, true
 }
 
 func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOptions, diags *diag.Diagnostics) *AnalyseSpec {
@@ -193,7 +211,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 			)
 			continue
 		}
-		regex, inferredType, ok := normalizePatternRegex(value.S)
+		regex, captureTypes, ok := normalizePatternRegex(value.S)
 		if !ok {
 			diags.AddError(
 				diag.CodeE402,
@@ -208,9 +226,9 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 			Name: assign.Name,
 			File: assign.File,
 			Template: PatternTemplate{
-				Regex: regex,
-				Type:  inferredType,
-				Span:  assign.Span,
+				Regex:              regex,
+				CaptureTypesByName: captureTypes,
+				Span:               assign.Span,
 			},
 			Span: assign.Span,
 		})

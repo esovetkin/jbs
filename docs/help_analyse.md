@@ -31,14 +31,14 @@ Rules:
 - Missing analysis files make the benchmark status `ERROR`.
 - `with` in `analyse` accepts only bare string scalar data bindings such as `with pat_number`.
 - Pattern shortcuts:
-  - `%d` captures an integer.
-  - `%f` captures a floating-point value.
+  - `%d` captures an integer and produces an integer result column.
+  - `%f` captures a floating-point value and produces a float result column.
   - `%w` captures a word.
   - `%%` matches a literal percent character.
 
-`jbs run` creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints a summary of generated analyse outputs after the progress output. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`. Component targets may name `do` steps or analyse targets; only targeted steps that have an `analyse` block generate analyse output.
+`jbs run` creates `<benchmark>/<run_id>/<step>/analyse.csv` only for steps with an `analyse` block and prints a summary of generated analyse outputs after the progress output. CSV output stores all analyse result values as text. With `jbs_benchmarks`, component output is written below `<benchmark>/<component>/<run_id>/`. Component targets may name `do` steps or analyse targets; only targeted steps that have an `analyse` block generate analyse output.
 
-If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints the current run's analyse path or table name with row and column counts, not full table contents. Use `jbs ls-analyse <file.jbs>` to list analyse outputs for the latest run again later.
+If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. In SQLite mode, `%d` capture columns and integer step-variable columns use `INTEGER`, `%f` capture columns and float step-variable columns use `REAL`, boolean step-variable columns use `INTEGER` values `1` and `0`, and string or mixed-type step-variable columns use `TEXT`. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints the current run's analyse path or table name with row and column counts, not full table contents. Use `jbs ls-analyse <file.jbs>` to list analyse outputs for the latest run again later.
 
 ## Example
 

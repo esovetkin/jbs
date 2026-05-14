@@ -174,9 +174,9 @@ type StepScopePlan struct {
 }
 
 type PatternTemplate struct {
-	Regex string
-	Type  string
-	Span  diag.Span
+	Regex              string
+	CaptureTypesByName map[string]string
+	Span               diag.Span
 }
 
 type AnalyseSpec struct {

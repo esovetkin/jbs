@@ -72,7 +72,13 @@ func TestBuildAnalyseOutputSummariesSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := replaceAnalyseTable(tx, "bench_000000_run", []string{"run_id", "x"}, [][]string{{"000000", "1"}, {"000001", "2"}}); err != nil {
+	if err := replaceAnalyseTable(
+		tx,
+		"bench_000000_run",
+		[]string{"run_id", "x"},
+		[]AnalyseValueKind{analyseValueString, analyseValueString},
+		analyseRowsFromStrings([][]string{{"000000", "1"}, {"000001", "2"}}),
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

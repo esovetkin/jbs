@@ -3,6 +3,7 @@ package sema
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,22 +25,40 @@ func testScalarBinding(name, publicName string, value eval.Value, span diag.Span
 	}
 }
 
+func normalizedCaptureTypes(t *testing.T, regex string, byName map[string]string) []string {
+	t.Helper()
+	re := regexp.MustCompile(regex)
+	names := re.SubexpNames()
+	out := make([]string, 0, re.NumSubexp())
+	for i := 1; i < len(names); i++ {
+		typ := byName[names[i]]
+		if typ == "" {
+			typ = "string"
+		}
+		out = append(out, typ)
+	}
+	return out
+}
+
 func TestNormalizePatternRegexAndHasErrorCodeSince(t *testing.T) {
-	regex, typ, ok := normalizePatternRegex("value=%d%%-%f-%w")
-	if !ok || regex != "value="+runtimeIntPattern+"%-"+runtimeFloatPattern+"-"+runtimeWordPattern || typ != "float" {
-		t.Fatalf("unexpected normalized regex: regex=%q type=%q ok=%v", regex, typ, ok)
+	regex, types, ok := normalizePatternRegex("value=%d%%-%f-%w")
+	if !ok || strings.Join(normalizedCaptureTypes(t, regex, types), ",") != "int,float,string" {
+		t.Fatalf("unexpected normalized regex: regex=%q types=%#v ok=%v", regex, types, ok)
 	}
-	regex, typ, ok = normalizePatternRegex("count=%d")
-	if !ok || regex != "count="+runtimeIntPattern || typ != "int" {
-		t.Fatalf("unexpected int normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+	if !regexp.MustCompile(regex).MatchString("value=-7%-1.5-word") {
+		t.Fatalf("normalized regex did not match expected value: %q", regex)
 	}
-	regex, typ, ok = normalizePatternRegex("pair=([A-Z]+)-([0-9]+)")
-	if !ok || regex != "pair=([A-Z]+)-([0-9]+)" || typ != "string" {
-		t.Fatalf("unexpected manual group normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+	regex, types, ok = normalizePatternRegex("count=%d")
+	if !ok || strings.Join(normalizedCaptureTypes(t, regex, types), ",") != "int" {
+		t.Fatalf("unexpected int normalization: regex=%q types=%#v ok=%v", regex, types, ok)
 	}
-	regex, typ, ok = normalizePatternRegex("literal%%")
-	if !ok || regex != "literal%" || typ != "string" {
-		t.Fatalf("unexpected literal-percent normalization: regex=%q type=%q ok=%v", regex, typ, ok)
+	regex, types, ok = normalizePatternRegex("pair=([A-Z]+)-([0-9]+)")
+	if !ok || regex != "pair=([A-Z]+)-([0-9]+)" || len(types) != 0 {
+		t.Fatalf("unexpected manual group normalization: regex=%q types=%#v ok=%v", regex, types, ok)
+	}
+	regex, types, ok = normalizePatternRegex("literal%%")
+	if !ok || regex != "literal%" || len(types) != 0 {
+		t.Fatalf("unexpected literal-percent normalization: regex=%q types=%#v ok=%v", regex, types, ok)
 	}
 	if _, _, ok := normalizePatternRegex("value %"); ok {
 		t.Fatalf("expected trailing percent normalization to fail")
@@ -241,10 +260,10 @@ func TestCompileAnalyseBlock(t *testing.T) {
 	if len(spec.Assignments) != 2 {
 		t.Fatalf("expected two valid analyse extraction assignments, got %#v", spec.Assignments)
 	}
-	if spec.Assignments[0].Name != "capture" || spec.Assignments[0].Template.Regex != runtimeIntPattern || spec.Assignments[0].Template.Type != "int" {
+	if spec.Assignments[0].Name != "capture" || strings.Join(normalizedCaptureTypes(t, spec.Assignments[0].Template.Regex, spec.Assignments[0].Template.CaptureTypesByName), ",") != "int" {
 		t.Fatalf("unexpected imported analyse assignment: %#v", spec.Assignments[0])
 	}
-	if spec.Assignments[1].Name != "localCap" || spec.Assignments[1].Template.Regex != runtimeFloatPattern || spec.Assignments[1].Template.Type != "float" {
+	if spec.Assignments[1].Name != "localCap" || strings.Join(normalizedCaptureTypes(t, spec.Assignments[1].Template.Regex, spec.Assignments[1].Template.CaptureTypesByName), ",") != "float" {
 		t.Fatalf("unexpected synthetic analyse assignment: %#v", spec.Assignments[1])
 	}
 	if len(spec.Columns) != 2 || spec.Columns[0].Source != "stepVar" || spec.Columns[1].Source != "capture" {
@@ -449,7 +468,7 @@ func TestCompileAnalyseBlockSupportsReadCSVBuiltin(t *testing.T) {
 	if len(spec.Assignments) != 1 {
 		t.Fatalf("expected one extraction assignment, got %#v", spec.Assignments)
 	}
-	if spec.Assignments[0].Template.Regex != "2" || spec.Assignments[0].Template.Type != "string" {
+	if spec.Assignments[0].Template.Regex != "2" || len(spec.Assignments[0].Template.CaptureTypesByName) != 0 {
 		t.Fatalf("expected helper-backed extraction regex '2', got %#v", spec.Assignments[0])
 	}
 }

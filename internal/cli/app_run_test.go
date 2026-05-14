@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -2495,10 +2497,62 @@ func TestRunCommandWritesAnalyseSQLiteDatabase(t *testing.T) {
 	header, rows := readSQLiteTable(t, dbPath, "bench_000000_run")
 	assertStringSlices(t, header, []string{"run_id", "x", "number"})
 	assertStringRows(t, rows, [][]string{{"000000", "1", "7"}})
+	assertStringRows(t, readSQLiteColumnTypes(t, dbPath, "bench_000000_run"), [][]string{
+		{"run_id", "TEXT"},
+		{"x", "INTEGER"},
+		{"number", "INTEGER"},
+	})
+	assertSQLiteValueTypes(t, dbPath, "bench_000000_run", []string{"x", "number"}, []string{"integer", "integer"})
 	if !strings.Contains(stdout.String(), "results.sqlite:bench_000000_run") ||
 		!strings.Contains(stdout.String(), "|     1 |     3 |") {
 		t.Fatalf("sqlite analyse summary missing\nstdout:\n%s", stdout.String())
 	}
+}
+
+func TestRunCommandWritesTypedAnalyseSQLiteWorkValues(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`cases = table(i = [1], f = [1.5], b = [true], s = ["x"])`,
+		`do run with cases {`,
+		`echo ok > out.log`,
+		`}`,
+		`analyse run {`,
+		`(i, f, b, s)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	header, rows := readSQLiteTable(t, dbPath, "bench_000000_run")
+	assertStringSlices(t, header, []string{"run_id", "i", "f", "b", "s"})
+	assertStringRows(t, rows, [][]string{{"000000", "1", "1.5", "1", "x"}})
+	assertStringRows(t, readSQLiteColumnTypes(t, dbPath, "bench_000000_run"), [][]string{
+		{"run_id", "TEXT"},
+		{"i", "INTEGER"},
+		{"f", "REAL"},
+		{"b", "INTEGER"},
+		{"s", "TEXT"},
+	})
+	assertSQLiteValueTypes(t, dbPath, "bench_000000_run", []string{"i", "f", "b", "s"}, []string{"integer", "real", "integer", "text"})
 }
 
 func TestRunCommandAnalyseSQLiteAccumulatesTablesAcrossRuns(t *testing.T) {
@@ -3010,7 +3064,7 @@ func readSQLiteTable(t *testing.T, dbPath, table string) ([]string, [][]string) 
 
 	rows := make([][]string, 0)
 	for dataRows.Next() {
-		values := make([]sql.NullString, len(header))
+		values := make([]any, len(header))
 		dest := make([]any, len(header))
 		for i := range values {
 			dest[i] = &values[i]
@@ -3020,9 +3074,7 @@ func readSQLiteTable(t *testing.T, dbPath, table string) ([]string, [][]string) 
 		}
 		row := make([]string, len(header))
 		for i, value := range values {
-			if value.Valid {
-				row[i] = value.String
-			}
+			row[i] = sqliteValueString(value)
 		}
 		rows = append(rows, row)
 	}
@@ -3030,6 +3082,77 @@ func readSQLiteTable(t *testing.T, dbPath, table string) ([]string, [][]string) 
 		t.Fatal(err)
 	}
 	return header, rows
+}
+
+func sqliteValueString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case []byte:
+		return string(v)
+	case string:
+		return v
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func readSQLiteColumnTypes(t *testing.T, dbPath, table string) [][]string {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`PRAGMA table_info(` + quoteSQLiteIdent(table) + `)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := make([][]string, 0)
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, []string{name, typ})
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func assertSQLiteValueTypes(t *testing.T, dbPath, table string, columns []string, want []string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	exprs := make([]string, 0, len(columns))
+	for _, column := range columns {
+		exprs = append(exprs, `typeof(`+quoteSQLiteIdent(column)+`)`)
+	}
+	row := db.QueryRow(`SELECT ` + strings.Join(exprs, ", ") + ` FROM ` + quoteSQLiteIdent(table) + ` ORDER BY rowid LIMIT 1`)
+	got := make([]string, len(columns))
+	dest := make([]any, len(columns))
+	for i := range got {
+		dest[i] = &got[i]
+	}
+	if err := row.Scan(dest...); err != nil {
+		t.Fatal(err)
+	}
+	assertStringSlices(t, got, want)
 }
 
 func assertSQLiteTable(t *testing.T, dbPath, table string, wantHeader []string, wantRows [][]string) {
