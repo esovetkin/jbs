@@ -72,7 +72,7 @@ func ParseFlags(args []string) (Flags, error) {
 			cfg.Input = args[1]
 			return cfg, nil
 		}
-		return Flags{}, UsageError{Message: "usage: jbs archive <file.jbs>"}
+		return Flags{}, UsageError{Message: "usage: jbs archive <file.jbs|benchmark-dir>"}
 	}
 	if args[0] == "fwait" {
 		return parseFWaitArgs(args[1:])
@@ -162,10 +162,10 @@ Check syntax:
   jbs -c|--check input.jbs
 
 Print status of the latest run:
-  jbs status input.jbs [-b|--benchmark <name>]
+  jbs status <file.jbs|benchmark-dir> [-b|--benchmark <name>]
 
 List generated analyse tables:
-  jbs ls-analyse input.jbs [-b|--benchmark <name>]
+  jbs ls-analyse <file.jbs|benchmark-dir> [-b|--benchmark <name>]
 
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
@@ -175,7 +175,7 @@ Options:
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
 Archive benchmark directory:
-  jbs archive input.jbs
+  jbs archive <file.jbs|benchmark-dir>
 
 Wait for files:
   jbs fwait [-e] <path> [path...]
@@ -383,7 +383,7 @@ func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
 }
 
 func benchmarkInputUsageMessage(command string) string {
-	return fmt.Sprintf("usage: jbs %s [-b|--benchmark <name>] <file.jbs>", command)
+	return fmt.Sprintf("usage: jbs %s [-b|--benchmark <name>] <file.jbs|benchmark-dir>", command)
 }
 
 func consumeBenchmarkOption(cfg *Flags, args []string, i int, usage string) (int, bool, error) {

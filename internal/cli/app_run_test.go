@@ -890,6 +890,87 @@ func TestStatusCommandPrintsLatestRunStatus(t *testing.T) {
 	}
 }
 
+func TestStatusCommandAcceptsBenchmarkDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do s {`,
+		`echo should-not-run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "NOTSTARTED") || !strings.Contains(out, "└── s") || !strings.Contains(out, "|          1 |") {
+		t.Fatalf("status output missing not-started summary:\n%s", out)
+	}
+}
+
+func TestStatusCommandBenchmarkDirectoryDoesNotReadSource(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(strings.Join([]string{
+		`jbs_name = "bench"`,
+		`print("compile-time")`,
+		`do s { echo hi }`,
+		``,
+	}, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if err := os.WriteFile(input, []byte("do broken {\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "compile-time") {
+		t.Fatalf("directory status replayed compile-time print output: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "NOTSTARTED") {
+		t.Fatalf("status output missing summary:\n%s", stdout.String())
+	}
+}
+
 func TestStatusCommandSupportsBenchmarkSelection(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -918,6 +999,92 @@ func TestStatusCommandSupportsBenchmarkSelection(t *testing.T) {
 	}
 	if !strings.Contains(out, "run_small") {
 		t.Fatalf("selected status output missing small component:\n%s", out)
+	}
+}
+
+func TestStatusCommandBenchmarkDirectoryListsComponents(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[small]") || !strings.Contains(out, "[large]") {
+		t.Fatalf("status output missing component sections:\n%s", out)
+	}
+}
+
+func TestStatusCommandBenchmarkDirectorySupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status", "-b", "small", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "[large]") || strings.Contains(out, "run_large") {
+		t.Fatalf("selected status output included large component:\n%s", out)
+	}
+	if !strings.Contains(out, "run_small") {
+		t.Fatalf("selected status output missing small component:\n%s", out)
+	}
+}
+
+func TestStatusCommandBenchmarkDirectoryRejectsMismatchedBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"status", "-b", "large", filepath.Join(cwd, "bench", "small")}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected status failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `does not match --benchmark "large"`) {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
 
@@ -1158,6 +1325,50 @@ func TestLsAnalyseCommandListsCSVOutputs(t *testing.T) {
 	}
 }
 
+func TestLsAnalyseCommandAcceptsBenchmarkDirectoryCSV(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo "value: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{filepath.Join("bench", "000000", "run", "analyse.csv"), "nrows", "ncols", "|     1 |", "|     2 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ls-analyse output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestLsAnalyseCommandListsSQLiteOutputs(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1203,6 +1414,51 @@ func TestLsAnalyseCommandListsSQLiteOutputs(t *testing.T) {
 	}
 }
 
+func TestLsAnalyseCommandAcceptsBenchmarkDirectorySQLite(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`do run {`,
+		`echo "value: 7" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"results.sqlite:bench_000000_run", "nrows", "ncols", "|     1 |", "|     2 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("ls-analyse output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestLsAnalyseCommandSupportsBenchmarkSelection(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1222,6 +1478,36 @@ func TestLsAnalyseCommandSupportsBenchmarkSelection(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	if code := Run([]string{"ls-analyse", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "run_large") || strings.Contains(out, "[large]") {
+		t.Fatalf("selected ls-analyse output included large component:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join("bench", "small", "000000", "run_small", "analyse.csv")) {
+		t.Fatalf("selected ls-analyse output missing small analyse path:\n%s", out)
+	}
+}
+
+func TestLsAnalyseCommandBenchmarkDirectorySupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeMultiBenchmarkInput(t, cwd, "")
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"ls-analyse", "-b", "small", filepath.Join(cwd, "bench")}, &stdout, &stderr); code != 0 {
 		t.Fatalf("ls-analyse failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()

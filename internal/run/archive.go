@@ -50,6 +50,23 @@ func Archive(ctx context.Context, opts Options) error {
 	return nil
 }
 
+func ArchiveBenchmarkDir(ctx context.Context, opts BenchmarkDirOptions) error {
+	_ = ctx
+	root := filepath.Clean(opts.Root)
+	archivePath, err := archivePathForInput(root)
+	if err != nil {
+		return err
+	}
+	result, err := ArchiveRoot(root, archivePath, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if opts.Stdout != nil {
+		fmt.Fprintf(opts.Stdout, "archived %s to %s as %s and removed %s\n", result.BenchmarkName, result.ArchivePath, result.Prefix, result.BenchmarkName)
+	}
+	return nil
+}
+
 func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error) {
 	root = filepath.Clean(root)
 	archivePath = filepath.Clean(archivePath)

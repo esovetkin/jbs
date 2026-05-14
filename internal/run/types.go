@@ -19,6 +19,13 @@ type Options struct {
 	Stderr      io.Writer
 }
 
+type BenchmarkDirOptions struct {
+	Root      string
+	Benchmark string
+	Stdout    io.Writer
+	Stderr    io.Writer
+}
+
 type Status string
 
 const (

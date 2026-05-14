@@ -203,7 +203,46 @@ func analyzeCommandInput(path string, stderr io.Writer) (*analysisBundle, bool) 
 	return bundle, true
 }
 
+type benchmarkCommandInputKind int
+
+const (
+	benchmarkCommandInputSource benchmarkCommandInputKind = iota
+	benchmarkCommandInputDirectory
+)
+
+func classifyBenchmarkCommandInput(path string) (benchmarkCommandInputKind, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return benchmarkCommandInputDirectory, nil
+		}
+		return benchmarkCommandInputSource, nil
+	}
+	if os.IsNotExist(err) {
+		return benchmarkCommandInputSource, nil
+	}
+	return benchmarkCommandInputSource, fmt.Errorf("inspect input %q: %w", path, err)
+}
+
 func statusBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+	kind, err := classifyBenchmarkCommandInput(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if kind == benchmarkCommandInputDirectory {
+		if err := jbsrun.ShowStatusForBenchmarkDir(context.Background(), jbsrun.BenchmarkDirOptions{
+			Root:      path,
+			Benchmark: benchmark,
+			Stdout:    stdout,
+			Stderr:    stderr,
+		}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	bundle, ok := analyzeCommandInput(path, stderr)
 	if !ok {
 		return 1
@@ -244,6 +283,24 @@ func treeBenchmark(path string, benchmark string, stdout, stderr io.Writer) int 
 }
 
 func listAnalyseBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+	kind, err := classifyBenchmarkCommandInput(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if kind == benchmarkCommandInputDirectory {
+		if err := jbsrun.LsAnalyseForBenchmarkDir(context.Background(), jbsrun.BenchmarkDirOptions{
+			Root:      path,
+			Benchmark: benchmark,
+			Stdout:    stdout,
+			Stderr:    stderr,
+		}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	bundle, ok := analyzeCommandInput(path, stderr)
 	if !ok {
 		return 1
@@ -264,6 +321,23 @@ func listAnalyseBenchmark(path string, benchmark string, stdout, stderr io.Write
 }
 
 func archiveBenchmark(path string, stdout, stderr io.Writer) int {
+	kind, err := classifyBenchmarkCommandInput(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if kind == benchmarkCommandInputDirectory {
+		if err := jbsrun.ArchiveBenchmarkDir(context.Background(), jbsrun.BenchmarkDirOptions{
+			Root:   path,
+			Stdout: stdout,
+			Stderr: stderr,
+		}); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(path, diags)
 	if err != nil {

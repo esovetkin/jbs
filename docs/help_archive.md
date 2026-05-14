@@ -1,12 +1,23 @@
 # `jbs archive`
 
-Pack the benchmark output directory for a JBS file:
+Pack the benchmark output directory for a JBS file or an existing benchmark
+directory:
 
 ```bash
 jbs archive input.jbs
+jbs archive bench
 ```
 
-The archive is written in the current directory as `<input-stem>.tar.gz`. For example, `jbs archive sweep.jbs` writes `sweep.tar.gz`.
+For JBS-file input, the archive is written in the current directory as
+`<input-stem>.tar.gz`. For example, `jbs archive sweep.jbs` writes
+`sweep.tar.gz`.
+
+For benchmark-directory input, the archive name is derived from the directory
+name. For example, `jbs archive bench_out` writes `bench_out.tar.gz`. To archive
+one component from a `jbs_benchmarks` output tree, pass that component directory
+directly, for example `jbs archive bench/small`.
+
+Directory input does not parse or evaluate the source file.
 
 Archive entries are stored as:
 

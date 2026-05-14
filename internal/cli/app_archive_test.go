@@ -58,6 +58,85 @@ func TestArchiveCommandArchivesDryRunBenchmarkDirectory(t *testing.T) {
 	}
 }
 
+func TestArchiveCommandAcceptsBenchmarkDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeArchiveInput(t, cwd, "bench.jbs", []string{
+		`jbs_name = "bench_out"`,
+		`do s { echo hi }`,
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"archive", filepath.Join(cwd, "bench_out")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("archive failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench_out.tar.gz")); err != nil {
+		t.Fatalf("expected archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench_out")); !os.IsNotExist(err) {
+		t.Fatalf("expected benchmark directory removal, stat error: %v", err)
+	}
+	names := readCLITarGzNames(t, filepath.Join(cwd, "bench_out.tar.gz"))
+	if !tarNameHasSuffix(names, "/bench_out/000000/status") {
+		t.Fatalf("archive missing benchmark status; names=%v", names)
+	}
+}
+
+func TestArchiveCommandAcceptsComponentBenchmarkDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeArchiveInput(t, cwd, "multi.jbs", []string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"small": "run_small", "large": "run_large"}`,
+		`do run_small { echo small }`,
+		`do run_large { echo large }`,
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"archive", filepath.Join(cwd, "bench", "small")}, &stdout, &stderr); code != 0 {
+		t.Fatalf("archive failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "small.tar.gz")); err != nil {
+		t.Fatalf("expected component archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "small")); !os.IsNotExist(err) {
+		t.Fatalf("expected small component removal, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench", "large")); err != nil {
+		t.Fatalf("expected large component to remain: %v", err)
+	}
+	names := readCLITarGzNames(t, filepath.Join(cwd, "small.tar.gz"))
+	if !tarNameHasSuffix(names, "/small/000000/status") {
+		t.Fatalf("archive missing component status; names=%v", names)
+	}
+}
+
 func TestArchiveCommandArchivesCompletedBenchmarkDirectory(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

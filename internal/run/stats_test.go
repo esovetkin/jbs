@@ -2,7 +2,9 @@ package run
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -196,6 +198,86 @@ func TestBuildStatusSummaryReportsStatusReadError(t *testing.T) {
 	}
 }
 
+func TestOpenLatestStoresForBenchmarkDirSingleRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	writeInspectionRun(t, root, "000000", Manifest{
+		Schema:        1,
+		RunID:         "000000",
+		BenchmarkName: "bench",
+	})
+
+	prepared, err := openLatestStoresForBenchmarkDir(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared) != 1 {
+		t.Fatalf("prepared stores = %d, want 1", len(prepared))
+	}
+	if prepared[0].Plan.ComponentName != "bench" {
+		t.Fatalf("component label = %q, want bench", prepared[0].Plan.ComponentName)
+	}
+	if prepared[0].Store.RunDir != filepath.Join(root, "000000") {
+		t.Fatalf("run dir = %q, want latest run", prepared[0].Store.RunDir)
+	}
+}
+
+func TestOpenLatestStoresForBenchmarkDirComponentRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench", "small")
+	writeInspectionRun(t, root, "000000", Manifest{
+		Schema:             1,
+		RunID:              "000000",
+		BenchmarkName:      "bench",
+		BenchmarkComponent: "small",
+	})
+
+	prepared, err := openLatestStoresForBenchmarkDir(root, "small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared) != 1 || prepared[0].Plan.ComponentName != "small" {
+		t.Fatalf("prepared = %#v, want selected small component", prepared)
+	}
+}
+
+func TestOpenLatestStoresForBenchmarkDirSelectedComponent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	writeInspectionRun(t, filepath.Join(root, "small"), "000000", Manifest{
+		Schema:             1,
+		RunID:              "000000",
+		BenchmarkName:      "bench",
+		BenchmarkComponent: "small",
+	})
+	writeInspectionRun(t, filepath.Join(root, "large"), "000000", Manifest{
+		Schema:             1,
+		RunID:              "000000",
+		BenchmarkName:      "bench",
+		BenchmarkComponent: "large",
+	})
+
+	prepared, err := openLatestStoresForBenchmarkDir(root, "small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared) != 1 || prepared[0].Plan.ComponentName != "small" {
+		t.Fatalf("prepared = %#v, want only small component", prepared)
+	}
+}
+
+func TestOpenLatestStoresForBenchmarkDirRejectsUnknownSelectedComponent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	writeInspectionRun(t, filepath.Join(root, "small"), "000000", Manifest{
+		Schema:             1,
+		RunID:              "000000",
+		BenchmarkName:      "bench",
+		BenchmarkComponent: "small",
+	})
+
+	_, err := openLatestStoresForBenchmarkDir(root, "large")
+	if err == nil || !strings.Contains(err.Error(), `unknown benchmark "large"`) {
+		t.Fatalf("error = %v, want unknown selected component", err)
+	}
+}
+
 func statusSummaryManifest() Manifest {
 	return Manifest{
 		Steps: []ManifestStep{
@@ -212,6 +294,21 @@ func statusSummaryManifest() Manifest {
 			{Step: "step3", Row: 0, Dir: "000000", Deps: []ManifestWorkRef{{Step: "step2", Row: 0}}},
 			{Step: "step4", Row: 0, Dir: "000000", Deps: []ManifestWorkRef{{Step: "step1", Row: 0}}},
 		},
+	}
+}
+
+func writeInspectionRun(t *testing.T, root, runID string, manifest Manifest) {
+	t.Helper()
+	runDir := filepath.Join(root, runID)
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
