@@ -19,6 +19,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"filter":   {},
 	"float":    {},
 	"get":      {},
+	"head":     {},
 	"int":      {},
 	"len":      {},
 	"map":      {},
@@ -33,6 +34,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"str":      {},
 	"sum":      {},
 	"table":    {},
+	"tail":     {},
 	"t":        {},
 	"update":   {},
 }
@@ -119,6 +121,12 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 			return Null()
 		}
 		return evalFilterValueCall(args, env, at, diags, opts, ctx)
+	case "head", "tail":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalHeadTailValueCall(name, args, at, diags)
 	case "sum":
 		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
 		if !ok {

@@ -306,6 +306,8 @@ Useful functions:
 - `a + b`               # row-wise merge in table context
 - `a * b`               # Cartesian product in table context
 - `filter(table, function)` # keep selected rows
+- `head(table, n = 5)`  # first rows
+- `tail(table, n = 5)`  # last rows
 - `len(table)`          # row count
 - `names(table)`        # column names
 - `dict(table)`         # table -> dictionary
@@ -387,6 +389,8 @@ to_text = str
 labels = map(to_text, (1, 2))
 total = sum([1, 2, 3])
 scaled = prod((2, 3, 4))
+first_rows = head(table(id = range(10)))
+last_rows = tail(table(id = range(10)), n = 3)
 ```
 
 ## Built-In Globals

@@ -28,6 +28,8 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalRenameValueCall(args, at, diags)
 	case "filter":
 		return evalFilterValueCall(args, env, at, diags, opts, ctx)
+	case "head", "tail":
+		return evalHeadTailValueCall(name, args, at, diags)
 	case "sum":
 		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
 	case "prod":

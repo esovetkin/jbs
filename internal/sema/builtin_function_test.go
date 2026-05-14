@@ -97,6 +97,43 @@ mapped = map(sum, [[1, 2], [3, 4]])
 	}
 }
 
+func TestAnalyzeHeadTailBuiltins(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+values = [1, 2, 3, 4]
+first = head(values, n = 2)
+last = tail(values, 2)
+mapped = map(len, map(head, [[1, 2, 3, 4, 5, 6], [7, 8]]))
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	first := res.GlobalVarByName["first"]
+	if first == nil || !eval.Equal(first.Value, eval.List([]eval.Value{eval.Int(1), eval.Int(2)})) {
+		t.Fatalf("unexpected first global: %#v", first)
+	}
+	last := res.GlobalVarByName["last"]
+	if last == nil || !eval.Equal(last.Value, eval.List([]eval.Value{eval.Int(3), eval.Int(4)})) {
+		t.Fatalf("unexpected last global: %#v", last)
+	}
+	mapped := res.GlobalVarByName["mapped"]
+	wantMapped := eval.List([]eval.Value{eval.Int(5), eval.Int(2)})
+	if mapped == nil || !eval.Equal(mapped.Value, wantMapped) {
+		t.Fatalf("unexpected mapped global: %#v", mapped)
+	}
+	for _, gv := range []*GlobalVar{first, last, mapped} {
+		for _, dep := range []string{"head", "tail"} {
+			if slices.Contains(gv.DependsOn, dep) {
+				t.Fatalf("unshadowed builtin %q should not be recorded as dependency for %s: %#v", dep, gv.Name, gv.DependsOn)
+			}
+		}
+		for _, key := range gv.DependsOnKeys {
+			if key.Public == "head" || key.Public == "tail" {
+				t.Fatalf("unshadowed builtin dependency key recorded for %s: %#v", gv.Name, gv.DependsOnKeys)
+			}
+		}
+	}
+}
+
 func TestAnalyzeFilterBuiltinFunction(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 values = filter([0, 1, 2], bool)
@@ -238,6 +275,32 @@ product_value = prod((2, 3, 4))
 	}
 	if !slices.Contains(productValue.DependsOn, "prod") {
 		t.Fatalf("expected shadowed prod dependency, got %#v", productValue.DependsOn)
+	}
+}
+
+func TestAnalyzeShadowedHeadTailDependencies(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+head = function(values, n = 5) { [42] }
+tail = function(values, n = 5) { [99] }
+first = head([1, 2, 3])
+last = tail([1, 2, 3])
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	first := res.GlobalVarByName["first"]
+	if first == nil || !eval.Equal(first.Value, eval.List([]eval.Value{eval.Int(42)})) {
+		t.Fatalf("unexpected first global: %#v", first)
+	}
+	if !slices.Contains(first.DependsOn, "head") {
+		t.Fatalf("expected shadowed head dependency, got %#v", first.DependsOn)
+	}
+	last := res.GlobalVarByName["last"]
+	if last == nil || !eval.Equal(last.Value, eval.List([]eval.Value{eval.Int(99)})) {
+		t.Fatalf("unexpected last global: %#v", last)
+	}
+	if !slices.Contains(last.DependsOn, "tail") {
+		t.Fatalf("expected shadowed tail dependency, got %#v", last.DependsOn)
 	}
 }
 
