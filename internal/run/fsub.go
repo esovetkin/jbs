@@ -2,6 +2,8 @@ package run
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -38,6 +40,11 @@ type FileSubstitutionWarning struct {
 	DestName string
 	Pattern  string
 	Matches  int
+}
+
+type fsubTemplateSnapshot struct {
+	Data []byte
+	Perm fs.FileMode
 }
 
 func fileSubPlansByStep(res *sema.Result) (map[string][]FileSubstitutionPlan, error) {
@@ -133,21 +140,19 @@ func sourceHashWithFileSubs(sources map[string]string, fileSubs map[string][]Fil
 	hashes := make([]TemplateHash, 0)
 	for _, step := range slices.Sorted(maps.Keys(fileSubs)) {
 		for _, spec := range fileSubs[step] {
-			if err := validateFSubTemplateSource(spec.SourcePath); err != nil {
-				return "", nil, err
-			}
-			data, err := os.ReadFile(spec.SourcePath)
+			snap, err := readFSubTemplateSnapshot(spec.SourcePath)
 			if err != nil {
-				return "", nil, fmt.Errorf("read fsub template %s: %w", spec.SourcePath, err)
+				return "", nil, err
 			}
 			sourcePath := filepath.Clean(spec.SourcePath)
 			label := "fsub:" + step + ":" + spec.DestName + ":" + sourcePath
-			bundle[label] = string(data)
+			bundle[label] = string(snap.Data)
 			hashes = append(hashes, TemplateHash{
 				Step:       step,
 				SourcePath: sourcePath,
 				DestName:   spec.DestName,
-				SHA256:     sha256Hex(data),
+				SHA256:     sha256Hex(snap.Data),
+				Mode:       formatTemplatePerm(snap.Perm),
 			})
 		}
 	}
@@ -155,14 +160,35 @@ func sourceHashWithFileSubs(sources map[string]string, fileSubs map[string][]Fil
 }
 
 func validateFSubTemplateSource(path string) error {
-	info, err := os.Stat(path)
+	_, err := readFSubTemplateSnapshot(path)
+	return err
+}
+
+func readFSubTemplateSnapshot(path string) (fsubTemplateSnapshot, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("fsub template %s not found: %w", path, err)
+		if os.IsNotExist(err) {
+			return fsubTemplateSnapshot{}, fmt.Errorf("fsub template %s not found: %w", path, err)
+		}
+		return fsubTemplateSnapshot{}, fmt.Errorf("open fsub template %s: %w", path, err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return fsubTemplateSnapshot{}, fmt.Errorf("stat fsub template %s: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("fsub template %s is not a regular file", path)
+		return fsubTemplateSnapshot{}, fmt.Errorf("fsub template %s is not a regular file", path)
 	}
-	return nil
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return fsubTemplateSnapshot{}, fmt.Errorf("read fsub template %s: %w", path, err)
+	}
+	return fsubTemplateSnapshot{Data: data, Perm: info.Mode().Perm()}, nil
+}
+
+func formatTemplatePerm(perm fs.FileMode) string {
+	return fmt.Sprintf("%04o", uint32(perm.Perm()))
 }
 
 func validateTemplateHashes(runDir string, stored, current []TemplateHash) error {
@@ -175,6 +201,9 @@ func validateTemplateHashes(runDir string, stored, current []TemplateHash) error
 		}
 		if got.SHA256 != want.SHA256 {
 			return fmt.Errorf("cannot continue %s: fsub template %s hash does not match current file", runDir, want.DestName)
+		}
+		if want.Mode != "" && got.Mode != "" && got.Mode != want.Mode {
+			return fmt.Errorf("cannot continue %s: fsub template %s mode does not match current file (stored %s, current %s)", runDir, want.DestName, want.Mode, got.Mode)
 		}
 	}
 	for key, got := range currentByKey {
@@ -205,11 +234,11 @@ func workValuesByKey(wp workplan.Plan) map[string]map[string]eval.Value {
 func materializeFileSubstitutions(workDir string, work ManifestWork, specs []FileSubstitutionPlan, env map[string]eval.Value) ([]FileSubstitutionWarning, error) {
 	warnings := make([]FileSubstitutionWarning, 0)
 	for _, spec := range specs {
-		data, err := os.ReadFile(spec.SourcePath)
+		snap, err := readFSubTemplateSnapshot(spec.SourcePath)
 		if err != nil {
-			return nil, fmt.Errorf("read fsub template %s: %w", spec.SourcePath, err)
+			return nil, err
 		}
-		text := string(data)
+		text := string(snap.Data)
 		for _, rule := range spec.Rules {
 			next, matches, err := applyFSubRule(text, rule, env)
 			if err != nil {
@@ -227,7 +256,7 @@ func materializeFileSubstitutions(workDir string, work ManifestWork, specs []Fil
 			text = next
 		}
 		out := filepath.Join(workDir, spec.DestName)
-		if err := fsutil.WriteFileAtomic(out, []byte(text), 0o644, durableWrite); err != nil {
+		if err := fsutil.WriteFileAtomic(out, []byte(text), snap.Perm, durableWrite); err != nil {
 			return nil, fmt.Errorf("write fsub output %s: %w", out, err)
 		}
 	}

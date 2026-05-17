@@ -163,7 +163,7 @@ The `after` keyword declares step dependencies. A dependent step can inherit vis
 
 `nproc` controls how many workpackages can run simultaneously for one execution step. `jbs_nproc` controls the total number of simultaneous workpackages across all execution steps.
 
-`fsub` copies a template file into each workpackage directory and applies regular-expression substitutions using the step's visible variables before `run.sh` starts.
+`fsub` copies a template file into each workpackage directory, preserves its regular permission bits, and applies regular-expression substitutions using the step's visible variables before `run.sh` starts.
 
 Executing the script produces the following directory structure:
 

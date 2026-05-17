@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1866,6 +1867,150 @@ func TestRunCommandFSubDryRunContinueAndTemplateHash(t *testing.T) {
 	}
 }
 
+func TestRunCommandFSubPreservesExecutableTemplate(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.WriteFile(filepath.Join(cwd, "tool.sh"), []byte("#!/usr/bin/env bash\necho TOKEN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(cwd, "tool.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run`,
+		`        fsub "tool.sh" { "TOKEN": "ok" }`,
+		`{`,
+		`./tool.sh`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "run", "000000")
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "ok\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	assertFilePerm(t, filepath.Join(workDir, "tool.sh"), 0o755)
+}
+
+func TestRunCommandFSubDryRunContinuePreservesExecutableTemplate(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.WriteFile(filepath.Join(cwd, "tool.sh"), []byte("#!/usr/bin/env bash\necho TOKEN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(cwd, "tool.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run`,
+		`        fsub "tool.sh" { "TOKEN": "ok" }`,
+		`{`,
+		`./tool.sh`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-n", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "run", "000000")
+	assertFilePerm(t, filepath.Join(workDir, "tool.sh"), 0o755)
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "" {
+		t.Fatalf("dry-run stdout = %q", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("continue failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != "ok\n" {
+		t.Fatalf("continue stdout = %q", got)
+	}
+	assertFilePerm(t, filepath.Join(workDir, "tool.sh"), 0o755)
+}
+
+func TestRunCommandFSubContinueRejectsTemplateModeChange(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	template := filepath.Join(cwd, "tool.sh")
+	if err := os.WriteFile(template, []byte("#!/usr/bin/env bash\necho TOKEN\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(template, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run`,
+		`        fsub "tool.sh" { "TOKEN": "ok" }`,
+		`{`,
+		`./tool.sh`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-n", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if err := os.Chmod(template, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("continue should fail after template mode change\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "mode does not match") {
+		t.Fatalf("missing template mode diagnostic: %q", stderr.String())
+	}
+}
+
 func TestRunCommandFSubCreationFailureDoesNotCommitRun(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -3236,6 +3381,17 @@ func readFileString(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func assertFilePerm(t *testing.T, path string, want fs.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %04o, want %04o", path, got, want)
+	}
 }
 
 func readCSVFileRows(t *testing.T, path string) [][]string {

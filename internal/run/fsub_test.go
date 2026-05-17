@@ -126,7 +126,10 @@ func TestCloneFileSubstitutionPlansCopiesRules(t *testing.T) {
 func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "input.tpl")
-	if err := os.WriteFile(template, []byte("X\n"), 0o644); err != nil {
+	if err := os.WriteFile(template, []byte("X\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(template, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,6 +147,9 @@ func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testi
 	}
 	if len(templates) != 1 || templates[0].Step != "s" || templates[0].SourcePath != filepath.Clean(template) || templates[0].SHA256 != sha256Hex([]byte("X\n")) {
 		t.Fatalf("template hashes = %#v", templates)
+	}
+	if templates[0].Mode != "0755" {
+		t.Fatalf("template mode = %q, want 0755", templates[0].Mode)
 	}
 
 	_, _, err = sourceHashWithFileSubs(nil, map[string][]FileSubstitutionPlan{
@@ -166,6 +172,11 @@ func TestValidateTemplateHashes(t *testing.T) {
 	current := []TemplateHash{{Step: "s", SourcePath: filepath.Clean("input.tpl"), DestName: "input.tpl", SHA256: "old"}}
 	if err := validateTemplateHashes("run", stored, current); err != nil {
 		t.Fatal(err)
+	}
+	legacyStored := []TemplateHash{{Step: "s", SourcePath: "input.tpl", DestName: "input.tpl", SHA256: "old"}}
+	currentWithMode := []TemplateHash{{Step: "s", SourcePath: filepath.Clean("input.tpl"), DestName: "input.tpl", SHA256: "old", Mode: "0755"}}
+	if err := validateTemplateHashes("run", legacyStored, currentWithMode); err != nil {
+		t.Fatalf("legacy manifest should skip mode comparison: %v", err)
 	}
 
 	cases := []struct {
@@ -191,6 +202,12 @@ func TestValidateTemplateHashes(t *testing.T) {
 			stored:  nil,
 			current: current,
 			want:    "was not part of the prepared run",
+		},
+		{
+			name:    "mode",
+			stored:  []TemplateHash{{Step: "s", SourcePath: "input.tpl", DestName: "input.tpl", SHA256: "old", Mode: "0755"}},
+			current: []TemplateHash{{Step: "s", SourcePath: "input.tpl", DestName: "input.tpl", SHA256: "old", Mode: "0644"}},
+			want:    "mode does not match",
 		},
 	}
 	for _, tc := range cases {
@@ -403,6 +420,40 @@ func TestMaterializeFileSubstitutionsWritesOutputAndWarnings(t *testing.T) {
 	}
 }
 
+func TestMaterializeFileSubstitutionsPreservesTemplatePermissions(t *testing.T) {
+	dir := t.TempDir()
+	template := filepath.Join(dir, "tool.sh")
+	if err := os.WriteFile(template, []byte("#!/usr/bin/env bash\necho TOKEN\n"), 0o751); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(template, 0o751); err != nil {
+		t.Fatal(err)
+	}
+	workDir := filepath.Join(dir, "work")
+	if err := os.Mkdir(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	specs := []FileSubstitutionPlan{{
+		SourcePath: template,
+		DestName:   "tool.sh",
+		Rules: []FileSubstitutionRulePlan{{
+			Pattern: "TOKEN",
+			Regex:   regexp.MustCompile("TOKEN"),
+			Expr:    ast.StringExpr{Value: "ok"},
+		}},
+	}}
+	if _, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, specs, nil); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(workDir, "tool.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o751 {
+		t.Fatalf("mode = %04o, want 0751", got)
+	}
+}
+
 func TestMaterializeFileSubstitutionsRejectsZeroMatches(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "input.tpl")
@@ -444,8 +495,8 @@ func TestMaterializeFileSubstitutionsReportsReadAndWriteErrors(t *testing.T) {
 		DestName:   "input.tpl",
 		Rules:      []FileSubstitutionRulePlan{rule},
 	}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "read fsub template") {
-		t.Fatalf("expected read error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected missing-template error, got %v", err)
 	}
 
 	template := filepath.Join(dir, "input.tpl")

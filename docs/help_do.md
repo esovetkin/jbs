@@ -46,7 +46,7 @@ Rules:
 
 ### `fsub`: copy and substitute a template file
 
-`fsub "path" { ... }` copies a template into every workpackage directory for the step and applies ordered regular-expression substitutions before `run.sh` starts. Relative template paths are resolved relative to the `.jbs` file that defines the step. The copied filename is the template basename.
+`fsub "path" { ... }` copies a template into every workpackage directory for the step, preserves the template's regular permission bits, and applies ordered regular-expression substitutions before `run.sh` starts. Relative template paths are resolved relative to the `.jbs` file that defines the step. The copied filename is the template basename.
 
 ```jbs
 cases = table(x = [1, 2], label = ["a", "b"])

@@ -473,8 +473,8 @@ func TestPopulateRunTreeReportsFilesystemErrors(t *testing.T) {
 		}
 		fileSubs := map[string][]FileSubstitutionPlan{"step": {{SourcePath: filepath.Join(temp, "missing-template"), DestName: "out.txt"}}}
 		_, err := populateRunTree(staging, final, source, testPopulateManifest(), map[string]string{"step": "true"}, fileSubs, workplan.Plan{}, nil, false)
-		if err == nil || !strings.Contains(err.Error(), "read fsub template") {
-			t.Fatalf("error = %v, want fsub read error", err)
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Fatalf("error = %v, want fsub missing-template error", err)
 		}
 	})
 

@@ -80,6 +80,7 @@ type TemplateHash struct {
 	SourcePath string `json:"source_path"`
 	DestName   string `json:"dest_name"`
 	SHA256     string `json:"sha256"`
+	Mode       string `json:"mode,omitempty"`
 }
 
 type ManifestStep struct {
