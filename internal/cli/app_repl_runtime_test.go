@@ -572,6 +572,69 @@ func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
 	}
 }
 
+func TestInitialReplCompletionNamesIncludeDefaultGlobals(t *testing.T) {
+	names := initialReplCompletionNames()
+	for _, name := range []string{"jbs_benchmarks", "jbs_database", "jbs_name", "jbs_nproc"} {
+		if !slices.Contains(names, name) {
+			t.Fatalf("initial completion names missing %q: %#v", name, names)
+		}
+	}
+	if !slices.IsSorted(names) {
+		t.Fatalf("initial completion names must be sorted: %#v", names)
+	}
+}
+
+func TestCommitReplChunkCompletionNamesIncludeGlobals(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"x = 1",
+		"add = function(a) { a + 1 }",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	for _, name := range []string{"x", "add", "jbs_name"} {
+		if !slices.Contains(commit.CompletionNames, name) {
+			t.Fatalf("completion names missing %q: %#v", name, commit.CompletionNames)
+		}
+	}
+	if !slices.IsSorted(commit.CompletionNames) {
+		t.Fatalf("completion names must be sorted: %#v", commit.CompletionNames)
+	}
+}
+
+func TestCommitReplChunkCompletionNamesReflectDelete(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "x = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "delete(x)")
+	if err != nil {
+		t.Fatalf("unexpected delete commit error: %v", err)
+	}
+	if slices.Contains(second.CompletionNames, "x") {
+		t.Fatalf("deleted name still completes: %#v", second.CompletionNames)
+	}
+	if !slices.Contains(second.CompletionNames, "jbs_name") {
+		t.Fatalf("default global missing after delete: %#v", second.CompletionNames)
+	}
+}
+
+func TestCommitReplChunkCompletionNamesEmptyOnErrors(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "x =")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if !commit.HasErrors {
+		t.Fatalf("expected errors")
+	}
+	if len(commit.CompletionNames) != 0 {
+		t.Fatalf("error result should not publish completion names: %#v", commit.CompletionNames)
+	}
+}
+
 func TestCommitReplChunkMapReduceAcrossInputs(t *testing.T) {
 	cwd := t.TempDir()
 	first, err := commitReplChunk(cwd, "", strings.Join([]string{

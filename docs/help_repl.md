@@ -61,6 +61,8 @@ jbs> f = function(x) {
 ... }
 ```
 
+Press Tab to complete built-in symbols and globals already accepted in the session.
+
 ## Declarations
 
 `do`, `analyse`, and `use` declarations are accepted at top level.

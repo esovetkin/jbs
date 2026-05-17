@@ -31,8 +31,10 @@ const helpText = `REPL commands:
 :quit / :exit          exit REPL`
 
 type sessionState struct {
-	accepted string
-	pending  string
+	accepted               string
+	pending                string
+	completion             *symbolCompleter
+	initialCompletionNames []string
 }
 
 var replWrite = fsutil.AtomicWriteOptions{SyncDir: true, TempSuffix: "repl"}
@@ -85,7 +87,11 @@ func Run(opts Options) int {
 	if readerFactory == nil {
 		readerFactory = defaultReaderFactory
 	}
-	reader, err := readerFactory(historyPath)
+	completion := newSymbolCompleter(defaultBuiltinCompletionNames(), opts.InitialCompletionNames)
+	reader, err := readerFactory(ReaderConfig{
+		HistoryPath:  historyPath,
+		AutoComplete: completion,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "failed to initialize repl input: %v\n", err)
 		return 1
@@ -95,7 +101,10 @@ func Run(opts Options) int {
 	fmt.Fprintf(stdout, "JBS, %s\n\n", welcomeBuildInfo(opts.BuildInfo))
 	fmt.Fprintln(stdout, "Type :help for commands, Ctrl+D to exit")
 
-	state := sessionState{}
+	state := sessionState{
+		completion:             completion,
+		initialCompletionNames: cloneStrings(opts.InitialCompletionNames),
+	}
 	for {
 		if state.pending == "" {
 			reader.SetPrompt(primaryPrompt)
@@ -147,6 +156,7 @@ func Run(opts Options) int {
 		}
 		if !commit.HasErrors {
 			state.accepted = commit.Source
+			state.completion.SetGlobals(commit.CompletionNames)
 			for _, line := range commit.ExprOutput {
 				fmt.Fprintln(stdout, line)
 			}
@@ -163,10 +173,11 @@ func welcomeBuildInfo(info string) string {
 	return info
 }
 
-func defaultReaderFactory(historyPath string) (LineReader, error) {
+func defaultReaderFactory(rc ReaderConfig) (LineReader, error) {
 	cfg := readline.Config{
 		Prompt:          primaryPrompt,
-		HistoryFile:     historyPath,
+		HistoryFile:     rc.HistoryPath,
+		AutoComplete:    rc.AutoComplete,
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 	}
@@ -246,6 +257,9 @@ func handleCommand(
 	case ":reset":
 		state.accepted = ""
 		state.pending = ""
+		if state.completion != nil {
+			state.completion.SetGlobals(state.initialCompletionNames)
+		}
 	case ":save":
 		if len(fields) != 2 {
 			fmt.Fprintln(stderr, "usage: :save <filename>")

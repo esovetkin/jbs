@@ -189,6 +189,25 @@ func TestBuiltinCallNames(t *testing.T) {
 	}
 }
 
+func TestBuiltinSymbolNamesIncludesCallsAndConstants(t *testing.T) {
+	names := BuiltinSymbolNames()
+	for _, name := range []string{"range", "table", "read_csv", "None"} {
+		if !slices.Contains(names, name) {
+			t.Fatalf("BuiltinSymbolNames missing %q: %#v", name, names)
+		}
+	}
+	if !slices.IsSorted(names) {
+		t.Fatalf("BuiltinSymbolNames must be sorted, got %#v", names)
+	}
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if _, exists := seen[name]; exists {
+			t.Fatalf("BuiltinSymbolNames contains duplicate %q: %#v", name, names)
+		}
+		seen[name] = struct{}{}
+	}
+}
+
 func TestEvalBoolBuiltinShadowing(t *testing.T) {
 	span := spanAt(329, 1)
 	call := ast.CallExpr{

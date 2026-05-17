@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,10 +19,11 @@ type fakeEvent struct {
 }
 
 type fakeReader struct {
-	events      []fakeEvent
-	prompts     []string
-	historyPath string
-	closed      bool
+	events       []fakeEvent
+	prompts      []string
+	historyPath  string
+	autoComplete AutoCompleter
+	closed       bool
 }
 
 func (f *fakeReader) Readline() (string, error) {
@@ -43,8 +45,9 @@ func (f *fakeReader) Close() error {
 }
 
 func fakeFactory(fr *fakeReader) ReaderFactory {
-	return func(historyPath string) (LineReader, error) {
-		fr.historyPath = historyPath
+	return func(cfg ReaderConfig) (LineReader, error) {
+		fr.historyPath = cfg.HistoryPath
+		fr.autoComplete = cfg.AutoComplete
 		return fr, nil
 	}
 }
@@ -238,6 +241,107 @@ func TestRunUsesLocalHistoryPathByDefault(t *testing.T) {
 	want := filepath.Join(cwd, ".jbs_history")
 	if reader.historyPath != want {
 		t.Fatalf("history path mismatch: got=%q want=%q", reader.historyPath, want)
+	}
+}
+
+func TestRunConfiguresInitialCompletionNames(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.InitialCompletionNames = []string{"jbs_name"}
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if reader.autoComplete == nil {
+		t.Fatalf("expected auto completer to be configured")
+	}
+	got, off := reader.autoComplete.Do([]rune("jbs_n"), 5)
+	if off != 5 || !slices.Contains(runeSlicesToStrings(got), "ame") {
+		t.Fatalf("completion = %#v off=%d", got, off)
+	}
+}
+
+func TestRunUpdatesCompletionNamesAfterSuccessfulCommit(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "x = 1"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		return CommitResult{
+			Source:          appendAcceptedForTest(source, chunk),
+			CompletionNames: []string{"x"},
+		}, nil
+	}
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	got, off := reader.autoComplete.Do([]rune("x"), 1)
+	if off != 1 || !slices.Contains(runeSlicesToStrings(got), "") {
+		t.Fatalf("completion = %#v off=%d", got, off)
+	}
+}
+
+func TestRunDoesNotUpdateCompletionNamesAfterFailedCommit(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "bad ="}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.InitialCompletionNames = []string{"jbs_name"}
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		return CommitResult{
+			Source:          source,
+			HasErrors:       true,
+			CompletionNames: []string{"bad"},
+		}, nil
+	}
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	got, _ := reader.autoComplete.Do([]rune("ba"), 2)
+	if len(got) != 0 {
+		t.Fatalf("failed commit updated completion: %#v", got)
+	}
+}
+
+func TestRunResetRestoresInitialCompletionNames(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{
+		{line: "x = 1"},
+		{line: ":reset"},
+		{err: io.EOF},
+	}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.InitialCompletionNames = []string{"jbs_name"}
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		return CommitResult{
+			Source:          appendAcceptedForTest(source, chunk),
+			CompletionNames: []string{"x", "jbs_name"},
+		}, nil
+	}
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	got, _ := reader.autoComplete.Do([]rune("x"), 1)
+	if len(got) != 0 {
+		t.Fatalf("reset left x completion visible: %#v", got)
+	}
+	got, off := reader.autoComplete.Do([]rune("jbs_n"), 5)
+	if off != 5 || !slices.Contains(runeSlicesToStrings(got), "ame") {
+		t.Fatalf("reset did not restore defaults: %#v off=%d", got, off)
 	}
 }
 

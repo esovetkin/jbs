@@ -294,3 +294,13 @@ func BuiltinCallNames() []string {
 	slices.Sort(names)
 	return names
 }
+
+func BuiltinConstantNames() []string {
+	return []string{"None"}
+}
+
+func BuiltinSymbolNames() []string {
+	names := append(BuiltinCallNames(), BuiltinConstantNames()...)
+	slices.Sort(names)
+	return slices.Compact(names)
+}

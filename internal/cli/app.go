@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -411,12 +412,23 @@ func runRepl(stdout, stderr io.Writer) int {
 		return commitReplChunk(cwd, source, chunk)
 	}
 	return jbsrepl.Run(jbsrepl.Options{
-		Stdout:    stdout,
-		Stderr:    stderr,
-		Cwd:       cwd,
-		BuildInfo: version.Full(),
-		Commit:    commit,
+		Stdout:                 stdout,
+		Stderr:                 stderr,
+		Cwd:                    cwd,
+		BuildInfo:              version.Full(),
+		Commit:                 commit,
+		InitialCompletionNames: initialReplCompletionNames(),
 	})
+}
+
+func initialReplCompletionNames() []string {
+	defaults := sema.BuiltinGlobalValues()
+	names := make([]string, 0, len(defaults))
+	for name := range defaults {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
@@ -480,7 +492,23 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 		result.ExprOutput = append(result.ExprOutput, event.Text)
 	}
 	result.Source = candidate
+	result.CompletionNames = replCompletionNames(bundle.Result)
 	return result, nil
+}
+
+func replCompletionNames(res *sema.Result) []string {
+	if res == nil {
+		return nil
+	}
+	names := make([]string, 0, len(res.Globals.Values))
+	for name := range res.Globals.Values {
+		if name == "" || strings.Contains(name, ".") {
+			continue
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 type replOutputEvent struct {
