@@ -162,7 +162,7 @@ func TestExprEvalHelpersTruthyAndSeries(t *testing.T) {
 
 func TestBuiltinCallNames(t *testing.T) {
 	names := BuiltinCallNames()
-	for _, name := range []string{"bool", "env", "range", "rev", "table", "t", "map", "reduce", "rename", "sum", "prod", "head", "tail", "print", "read_csv", "shell"} {
+	for _, name := range []string{"bool", "env", "range", "rev", "table", "t", "map", "reduce", "rename", "rbind", "sum", "prod", "head", "tail", "print", "read_csv", "shell"} {
 		if !slices.Contains(names, name) {
 			t.Fatalf("BuiltinCallNames missing %q: %#v", name, names)
 		}
@@ -177,7 +177,7 @@ func TestBuiltinCallNames(t *testing.T) {
 		}
 		seen[name] = struct{}{}
 	}
-	for _, name := range []string{"range", "table", "t", "shell", "env", "rename", "sum", "prod", "head", "tail"} {
+	for _, name := range []string{"range", "table", "t", "shell", "env", "rename", "rbind", "sum", "prod", "head", "tail"} {
 		if !IsBuiltinCallName(name) {
 			t.Fatalf("expected %q to be a builtin call name", name)
 		}

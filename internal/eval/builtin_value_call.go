@@ -26,6 +26,8 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalReduceValueCall(args, env, at, diags, opts, ctx)
 	case "rename":
 		return evalRenameValueCall(args, at, diags)
+	case "rbind":
+		return evalRbindValueCall(args, at, diags)
 	case "filter":
 		return evalFilterValueCall(args, env, at, diags, opts, ctx)
 	case "head", "tail":

@@ -134,6 +134,44 @@ mapped = map(len, map(head, [[1, 2, 3, 4, 5, 6], [7, 8]]))
 	}
 }
 
+func TestAnalyzeRbindBuiltin(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+a = table(id = [1], label = ["a"])
+b = table(label = ["b"], id = [2])
+out = rbind(a, b)
+mapped = map(rbind, [a, b])
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	out := res.GlobalVarByName["out"]
+	if out == nil || !eval.IsComb(out.Value) || !slices.Equal(out.Value.C.Order, []string{"id", "label"}) || len(out.Value.C.Rows) != 2 {
+		t.Fatalf("unexpected out global: %#v", out)
+	}
+	if !eval.Equal(out.Value.C.Rows[0].Values["id"].Value, eval.Int(1)) ||
+		!eval.Equal(out.Value.C.Rows[1].Values["id"].Value, eval.Int(2)) ||
+		!eval.Equal(out.Value.C.Rows[1].Values["label"].Value, eval.String("b")) {
+		t.Fatalf("unexpected out rows: %#v", out.Value.C.Rows)
+	}
+	if !slices.Contains(out.DependsOn, "a") || !slices.Contains(out.DependsOn, "b") {
+		t.Fatalf("expected dependencies on a and b, got %#v", out.DependsOn)
+	}
+	if slices.Contains(out.DependsOn, "rbind") {
+		t.Fatalf("unshadowed rbind should not be recorded as dependency: %#v", out.DependsOn)
+	}
+	mapped := res.GlobalVarByName["mapped"]
+	if mapped == nil || mapped.Value.Kind != eval.KindList || len(mapped.Value.L) != 2 || !eval.IsComb(mapped.Value.L[0]) || !eval.IsComb(mapped.Value.L[1]) {
+		t.Fatalf("unexpected mapped global: %#v", mapped)
+	}
+	for _, gv := range []*GlobalVar{out, mapped} {
+		for _, key := range gv.DependsOnKeys {
+			if key.Public == "rbind" {
+				t.Fatalf("unshadowed rbind dependency key recorded for %s: %#v", gv.Name, gv.DependsOnKeys)
+			}
+		}
+	}
+}
+
 func TestAnalyzeFilterBuiltinFunction(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 values = filter([0, 1, 2], bool)
@@ -301,6 +339,25 @@ last = tail([1, 2, 3])
 	}
 	if !slices.Contains(last.DependsOn, "tail") {
 		t.Fatalf("expected shadowed tail dependency, got %#v", last.DependsOn)
+	}
+}
+
+func TestAnalyzeShadowedRbindDependency(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+rbind = function(left, right) { 42 }
+a = table(id = [1])
+b = table(id = [2])
+out = rbind(a, b)
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	out := res.GlobalVarByName["out"]
+	if out == nil || !eval.Equal(out.Value, eval.Int(42)) {
+		t.Fatalf("unexpected out global: %#v", out)
+	}
+	if !slices.Contains(out.DependsOn, "rbind") {
+		t.Fatalf("expected shadowed rbind dependency, got %#v", out.DependsOn)
 	}
 }
 
