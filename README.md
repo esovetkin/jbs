@@ -4,7 +4,7 @@
 
 JBS is a small benchmark scripting tool inspired by [JUBE](https://apps.fz-juelich.de/jsc/jube/docu/index.html). JBS lets you define parameter sets, run Bash scripts for them, parse their output, and accumulate results in tables.
 
-JBS defines a domain-specific language inspired by Python, R, and awk syntax.
+JBS defines a domain-specific language with syntax inspired by Python, R, and awk.
 
 ## Quick Start
 
@@ -23,8 +23,8 @@ do step with a, x {
 # The `analyse` sections define patterns to search for
 # and how they should be presented in the result table.
 analyse step {
-        # Define which pattern is searched for in which file.
-        # %d, %f, %w are shortcuts for common capture patterns
+        # Define which pattern to search for and which file to read.
+        # %d, %f, and %w are shortcuts for common capture patterns.
         number = "Number: %d" in "ex_ofile"
         letter = "Letter: %w" in "ex_ofile"
 
@@ -75,7 +75,7 @@ Or you can grab the [compiled binary](https://gitlab.jsc.fz-juelich.de/sdlaml/jb
 
 ## Usage
 
-`jbs` is a single executable that checks and compiles a script, then runs or continues its execution steps. JBS also includes a REPL interpreter, which is invoked by calling `jbs` without arguments.
+`jbs` is a single executable that checks and compiles a script, then runs or continues its execution steps. JBS also includes a REPL interpreter, invoked by calling `jbs` without arguments (see [docs/help_repl.md](docs/help_repl.md)).
 
 ```bash
 % jbs -h
@@ -85,59 +85,60 @@ Read examples/help:
   jbs help [analyse|archive|continue|do|fwait|globals|ls-analyse|param|repl|status|tree|use]
 
 Run:
-  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-  jbs continue input.jbs [-b|--benchmark <name>]
+  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs continue <file.jbs> [-b|--benchmark <name>]
 
 Check syntax:
-  jbs -c|--check input.jbs
+  jbs -c|--check <file.jbs>
 
 Print status of the latest run:
-  jbs status input.jbs [-b|--benchmark <name>]
+  jbs status <file.jbs|benchmark-dir> [-b|--benchmark <name>]
 
 List generated analyse tables:
-  jbs ls-analyse input.jbs [-b|--benchmark <name>]
+  jbs ls-analyse <file.jbs|benchmark-dir> [-b|--benchmark <name>]
 
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
+  -w, --weak     Generate analyse outputs even when some workpackages fail
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
 Archive benchmark directory:
-  jbs archive input.jbs
+  jbs archive <file.jbs|benchmark-dir>
 
 Wait for files:
   jbs fwait [-e] <path> [path...]
 
 Inspect job dependencies:
-  jbs tree input.jbs [-b|--benchmark <name>]
+  jbs tree <file.jbs> [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs param [-t pretty|csv] [-o <outputfile>] script.jbs
-  defaults: -t pretty, -o -
+  jbs param [-t pretty|csv] [-o <outputfile>] <file.jbs>
+  defaults: -t pretty, -o - (stdout)
 
 Interactive mode:
   jbs
   jbs repl
 ```
 
-`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status, `jbs tree` prints the planned job tree, and `jbs ls-analyse` lists generated analyse outputs. `jbs fwait` waits for files to appear or change using filesystem notifications plus periodic metadata polling, which is useful for barrier jobs on local and shared filesystems (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use.
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status (see [docs/help_status.md](docs/help_status.md)), `jbs tree` prints the planned job tree (see [docs/help_tree.md](docs/help_tree.md)), and `jbs ls-analyse` lists generated analyse outputs (see [docs/help_ls_analyse.md](docs/help_ls_analyse.md)). `jbs fwait` waits for files to appear or change (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use (see [docs/help_param.md](docs/help_param.md)).
 
 ## Variable Types, Tables, and Parameter Spaces
 
-The `jbs` language defines several data types and operations on those types.
+The `jbs` language defines several data types and operations on them.
 
 [Scalar values](docs/language.md#scalars) (`string`, `int`, `float`, `bool`) are the only values that can be exported as variables in execution steps.
 
 [Lists and tuples](docs/language.md#lists--tuples) combine scalar values and support several vector arithmetic operations.
 
-Lists and tuples can be combined in [tables](docs/language.md#tables). Tables support slicing, which lets you take subsets of parameters. Tables can also be imported from CSV/TSV files (see [`?read_csv`](docs/function_help/read_csv.md) in the REPL). JBS also supports [dictionaries](docs/language.md#dictionaries), which can be converted to and from tables.
+Lists and tuples can be combined in [tables](docs/language.md#tables). Tables support slicing, which lets you take subsets of parameters. Tables can also be imported from CSV/TSV files (see [`?read_csv`](docs/function_help/read_csv.md) in the REPL). JBS also supports [dictionaries](docs/language.md#dictionaries).
 
 `jbs` supports [loops](docs/language.md#for-while-loops), [conditional statements](docs/language.md#ifelse), and [functions](docs/language.md#functions).
 
-Defined variables can be imported into `do` sections, and the corresponding scalar values are set as variables in each workpackage job.
+Defined variables can be imported into `do` sections. Their corresponding scalar values are then set as variables in each workpackage job.
 
 ## `do` blocks: workpackages
 
@@ -145,8 +146,8 @@ Defined variables can be imported into `do` sections, and the corresponding scal
 
 ```jbs
 do <step_name>
+        [with <scalar/list/table/dict>, ... ]
         [after <dependency_step>]
-        [with <table_or_value>[<column>, ...]]
         [nproc <max_parallel_workpackages>]
         [fsub "<template_file>" {
                 "<regex>": <replacement_expr>,
@@ -157,13 +158,13 @@ do <step_name>
 }
 ```
 
-`with` imports values used in the execution block. Scalars run once, lists and tuples run once per element, tables and dictionaries expose columns, and table projections use quoted column names such as `with cases["x"]`.
+`with` imports values used in the execution block. Scalars run once, lists and tuples run once per element, tables and dictionaries expose columns, and table projections use quoted column names, such as `with cases["x"]`.
 
 The `after` keyword declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
 
 `nproc` controls how many workpackages can run simultaneously for one execution step. `jbs_nproc` controls the total number of simultaneous workpackages across all execution steps.
 
-`fsub` copies a template file into each workpackage directory, preserves its regular permission bits, and applies regular-expression substitutions using the step's visible variables before `run.sh` starts.
+`fsub` copies a template file into each workpackage directory, preserves its regular permission bits, and applies regular-expression substitutions with the step's visible variables before `run.sh` starts.
 
 Executing the script produces the following directory structure:
 
@@ -190,7 +191,7 @@ See more in [docs/help_do.md](docs/help_do.md) or `jbs help do`.
 
 ## Analysis
 
-`analyse` blocks define pattern matches in files generated across different workpackages. Analysis runs only after all scheduled workpackages for the component finish successfully. Each `analyse` block targets a specific `do` step and executes in the workpackage's directory.
+`analyse` blocks define pattern matches in files generated across workpackages. Each `analyse` block targets a specific `do` step and executes in the workpackage's directory. By default, analysis runs only after all scheduled workpackages for the component finish successfully. Pass `--weak` or `-w` to generate analyse outputs even when some workpackages fail.
 
 ```jbs
 analyse <step_name>
@@ -204,13 +205,11 @@ analyse <step_name>
 }
 ```
 
-Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of pattern assignments and a final tuple that defines the resulting table structure.
+Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of pattern assignments and a final tuple that defines the resulting table structure. Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
 
-Multiple matches produce multiple rows in the resulting table.
+Multiple matches produce multiple rows in the resulting table. Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
 
-Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)). Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
-
-In CSV mode, JBS rewrites the step's `analyse.csv` in the corresponding directory. JBS also supports SQLite mode, which writes all analysis tables to a single file (use [`jbs_database`](docs/help_globals.md#jbs_database-write-results-to-a-sqlite-database)). SQLite output preserves `%d` captures as `INTEGER` columns and `%f` captures as `REAL` columns.
+In CSV mode, JBS writes the step's `analyse.csv` in the corresponding directory. JBS also supports SQLite mode, which writes all analysis tables to a single file (use [`jbs_database`](docs/help_globals.md#jbs_database-write-results-to-a-sqlite-database)). SQLite output preserves `%d` captures as `INTEGER` columns and `%f` captures as `REAL` columns.
 
 See more in [docs/help_analyse.md](docs/help_analyse.md) or `jbs help analyse`.
 
@@ -224,8 +223,10 @@ JBS was inspired by JUBE. For example, it produces a similar directory structure
 
 - JBS currently has no tag support, because parameter spaces are already programmatically configurable.
 
-- Unlike JUBE, JBS analysis captures all groups and all matches in a file and represents them in a table. There is no built-in support for [summary statistics](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#statistic-pattern-values) like in JUBE; users can process analysis tables further as needed.
+- Unlike JUBE, JBS analysis captures all groups and all matches in a file and represents them in a table. There is no built-in support for [summary statistics](https://apps.fz-juelich.de/jsc/jube/docu/advanced.html#statistic-pattern-values) as JUBE provides; users can process analysis tables further as needed.
 
 - JBS does not include submit templates. Users define their own submission scripts, while JBS provides several ways to wait for submitted jobs (see [examples/do_sbatch.jbs](examples/do_sbatch.jbs)).
 
 - JBS greedily executes workpackages across the DAG while respecting global and local concurrency limits and job dependencies. JUBE executes jobs step by step. By default, JBS uses as many CPUs as are available.
+
+- In `--weak` mode, JBS can generate analysis tables even when some jobs fail. JUBE requires all steps to complete successfully.

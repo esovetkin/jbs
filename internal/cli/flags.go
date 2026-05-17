@@ -160,12 +160,12 @@ Read examples/help:
   jbs help [%s]
 
 Run:
-  jbs input.jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
-  jbs run input.jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
-  jbs continue input.jbs [-b|--benchmark <name>]
+  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs continue <file.jbs> [-b|--benchmark <name>]
 
 Check syntax:
-  jbs -c|--check input.jbs
+  jbs -c|--check <file.jbs>
 
 Print status of the latest run:
   jbs status <file.jbs|benchmark-dir> [-b|--benchmark <name>]
@@ -188,11 +188,11 @@ Wait for files:
   jbs fwait [-e] <path> [path...]
 
 Inspect job dependencies:
-  jbs tree input.jbs [-b|--benchmark <name>]
+  jbs tree <file.jbs> [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs param [-t pretty|csv] [-o <outputfile>] script.jbs
-  defaults: -t pretty, -o -
+  jbs param [-t pretty|csv] [-o <outputfile>] <file.jbs>
+  defaults: -t pretty, -o - (stdout)
 
 Interactive mode:
   jbs

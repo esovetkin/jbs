@@ -1,6 +1,6 @@
 # jbs help do
 
-The `do` block defines shell commands and workpackages executed by `jbs run`. JBS imports the required data bindings for each step and reports collisions, missing imports, and unused imports.
+A `do` block defines shell commands and workpackages that are executed by `jbs run`. JBS imports the required data bindings for each step and reports collisions, missing imports, and unused imports.
 
 ## Syntax
 
@@ -18,7 +18,7 @@ do <name>
 
 ### `after`: step dependency declarations
 
-`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names those predecessors inherited transitively. Any name collisions result in an error.
+`after` defines execution dependencies. A dependent step also inherits every variable visible in predecessor steps, including names inherited transitively. Any name collisions result in an error.
 
 ### `with`: import data bindings into the step
 
@@ -36,7 +36,7 @@ Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
 - importing a scalar creates one workpackage and exposes that scalar under its source name
-- importing a list or tuple creates one workpackage per element; non-scalar elements are exported with `str(value)` and emit a warning
+- importing a list or tuple creates one workpackage per element; non-scalar elements are exported as `str(value)`, and JBS emits a warning
 - importing a table source such as `with cases` exposes all of its columns
 - importing a dictionary acts like `with table(dict_value)` and exposes dictionary keys as table columns
 - importing selected columns such as `with cases["x", "y"]` exposes only those names
@@ -51,14 +51,21 @@ Rules:
 ```jbs
 cases = table(x = [1, 2], label = ["a", "b"])
 
+# > cat input.template
+# ###X###
+# ###LABEL###
+# tuple: (one, two)
+
 do run
         with cases
         fsub "input.template" {
                 "###X###": x,
                 "###LABEL###": label,
+                # capture groups are replaced from tuple values
+                "tuple: \((\S+), (\S+)\)": (x, label)
         }
 {
-        ./solver input.template
+        cat input.template
 }
 ```
 
@@ -67,12 +74,13 @@ Rules:
 - rule keys are Go regular expressions
 - rules run in declaration order
 - a rule must match at least once in every workpackage template
-- multiple matches are all replaced and reported as warnings
+- multiple matches are all replaced, and JBS reports a warning
 - without capture groups, the whole match is replaced by one scalar value
-- with capture groups, provide a tuple/list with one scalar value per group
+- with capture groups, provide a tuple or list with one scalar value per group
 - replacement expressions can use variables visible in the step through `with` or `after`
+- using `fsub "<filepath>" {}` simply copies the file without any replacements
 
-Dry-run creates substituted files without executing work. `jbs continue` resumes the already prepared files and rejects the run if configured template hashes no longer match.
+A dry run creates substituted files without executing work. `jbs continue` resumes the already prepared files and rejects the run if configured template hashes no longer match.
 
 ### `nproc`: control concurrency levels
 
@@ -96,7 +104,7 @@ Each workpackage executes the `do` body in its own work directory. Useful runtim
 
 - `$JBS_RUN_DIR`: absolute path to the final run directory
 - `$JBS_STEP`: current `do` step name
-- `$JBS_ROW`: zero-padded row/workpackage id
+- `$JBS_ROW`: zero-padded row/workpackage ID
 - `$JBS_WORK_DIR`: absolute path to the current workpackage directory
 - `$JBS_SRC_DIR`: absolute path to the directory containing the entry `.jbs` file
 
@@ -116,7 +124,7 @@ jbs do.jbs -n
 jbs continue do.jbs
 ```
 
-Dry-run creates the next numeric run directory with all workpackages marked `NOTSTARTED`. It does not execute workpackages or analyses.
+A dry run creates the next numeric run directory with all workpackages marked `NOTSTARTED`. It does not execute workpackages or analyses.
 
 ## Example
 
@@ -139,7 +147,7 @@ do step1
         after step0
         with extra_cases["d"]
 {
-        test -f ../step0/work/prepared.txt
+        test -f step0/prepared.txt
         echo "${a} ${b} ${d}"
 }
 ```
@@ -151,10 +159,17 @@ In that example:
 - `d` is added by the explicit `with extra_cases["d"]`
 
 ```bash
-% jbs run do.jbs
-42% |████████████████                | (42/100, 18 it/s) 3R|1E
+% jbs do.jbs
+ 100% |████████████████████████████████| (6/6, 34 it/s) 0R|0E
+
+| step          | FINISHED | ERROR | BLOCKED | NOTSTARTED | RUNNING | INTERRUPTED |
+|---------------|----------|-------|---------|------------|---------|-------------|
+| └── step0     |        2 |     0 |       0 |          0 |       0 |           0 |
+|     └── step1 |        4 |     0 |       0 |          0 |       0 |           0 |
+|---------------|----------|-------|---------|------------|---------|-------------|
+| total:        |        6 |     0 |       0 |          0 |       0 |           0 |
 ```
 
 ### `sbatch` example
 
-Direct `do` blocks can still call scheduler tools such as `sbatch` from inside `run.sh`, but direct `jbs run` only supervises the local shell process it starts.
+Direct `do` blocks can still call scheduler tools such as `sbatch` from inside `run.sh`, but direct `jbs run` only supervises the local shell process it starts. See [examples/do_sbatch.jbs](../examples/do_sbatch.jbs) for several ways to wait for submitted jobs.

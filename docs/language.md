@@ -1,11 +1,11 @@
 # JBS Language
 
-JBS is a domain-specific scripting language for benchmark parameter-space construction, DAG-based workpackage execution, and structured analysis of generated outputs. JBS has evaluation and run stages. During evaluation, declared variables are evaluated and the benchmark directory structure is created. At runtime, scripts are executed in parallel and the results are processed.
+JBS is a domain-specific scripting language for benchmark parameter-space construction, DAG-based workpackage execution, and structured analysis of generated outputs. JBS has separate evaluation and run stages. During evaluation, declared variables are evaluated and the benchmark directory structure is created. At runtime, scripts are executed in parallel and results are processed.
 
 ## Program shape
 
 ```jbs
-# import data and functions from other JBS files
+# import data and functions from other .jbs files
 use ...
 
 # define global configuration and parameter sets
@@ -35,7 +35,8 @@ analyse <step_name>
 
 JBS supports:
 
-- `int`, `float`, `str`, `bool`
+- `None`
+- scalars: `int`, `float`, `str`, `bool`
 - lists: `[1, 2, 3]`
 - tuples: `(1, 2, 3)`; one-item tuples require a comma: `(1,)`
 - dictionaries: `{"name": "case-a", 1: "one"}` or `dict(name = "case-a")`
@@ -52,7 +53,7 @@ Scalar values are the atomic values that can be used as workpackage shell variab
 
 - Floats are 64-bit floating-point values.
 
-  `1.0`, `.5`, `1e-3`, `2.5E6` are all supported forms
+  `1.0`, `.5`, `1e-3`, and `2.5E6` are all supported forms.
 
   **Not supported** syntax: `1.`
 
@@ -62,11 +63,11 @@ Scalar values are the atomic values that can be used as workpackage shell variab
   Unknown escapes are preserved literally; for example, `"\n"` remains backslash plus `n`.
   Strings can be appended: `"a" + "b" == "ab"`, and replicated: `"a" * 3 == "aaa"`.
 
-- Booleans can be written as `true`, `True`, `TRUE`, `false`, ...
+- Booleans can be written as `true`, `True`, `TRUE`, `false`, `False`, `FALSE`.
 
   Booleans work with logical operators and comparisons: `true && (threads > 1) and !enabled`.
   Conjunction can be written as `&`, `&&`, or `and`. Disjunction can be written as `|`, `||`, or `or`.
-  All spellings use JBS's eager, vector-aware logical semantics; they are not short-circuit operators.
+  All spellings use JBS's eager, vector-aware logical semantics: both operands are evaluated, and list/tuple operands are combined element-wise. They are not short-circuit operators.
 
 ### Lists / tuples
 
@@ -82,7 +83,7 @@ empty_list = []
 mixed = [1, "x", true, 1e-10]
 ```
 
-Lists and tuples are similar sequence containers, but they differ in vector arithmetic operations.
+Lists and tuples are similar sequence containers, but they differ in some vector arithmetic operations.
 
 ```jbs
 jbs> [1, 2, 3] + 10
@@ -116,39 +117,33 @@ jbs> ("a", "b") * 2
 ("a", "b", "a", "b")
 ```
 
-List vector arithmetic operations: `+`, `-`, `*`, `/`, `%`, `&`/`&&`/`and`, `|`/`||`/`or`, `!`.
+Vector arithmetic operations for lists: `+`, `-`, `*`, `/`, `%`, `&`/`&&`/`and`, `|`/`||`/`or`, `!`.
 Comparison operations: `==`, `!=`, `<`, `<=`, `>`, `>=`.
 
 Useful functions:
 
+- `len(...)` gets the number of elements
+- `list` and `tuple` convert between sequence types
+- `rev` reverses a list/tuple
 ```jbs
-jbs> len([1, 2, 3])
-3
-jbs> list((1, 2))
-[1, 2]
-jbs> tuple([1, 2])
-(1, 2)
 jbs> rev([1, 2, 3])
 [3, 2, 1]
+```
+- `filter` filters elements
+```jbs
 jbs> filter([0, 1, 2, 3], function(x) { x > 1 })
 [2, 3]
+```
+- `range` generates a sequence
+```jbs
 jbs> range(5)
 [0, 1, 2, 3, 4]
-jbs> range(2, 5)
-[2, 3, 4]
-jbs> range(5, 2)
-[5, 4, 3]
-jbs> range(0, 10, 2)
-[0, 2, 4, 6, 8]
-jbs> 1:5
-[1, 2, 3, 4]
+jbs> range(0,1,0.2)
+[0.0, 0.2, 0.4, 0.6, 0.8]
+jbs> # `:` is an equivalent syntax
 jbs> 5:1
 [5, 4, 3, 2]
-jbs> range(0, 1, 0.2)
-[0.0, 0.2, 0.4, 0.6, 0.8]
 ```
-
-The `start:stop` and `start:stop:step` shortcuts are expression syntax for `range(start, stop)` and `range(start, stop, step)`.
 
 ### Dictionaries
 
@@ -195,83 +190,94 @@ Operations on dictionaries:
 jbs> base = dict(a = 1, b = 2)
 jbs> # only dict + dict is valid
 jbs> base + dict(b = 3, c = 4)
-{"a": 1, "b": 3, "c": 4}
+{"a": 1,
+ "b": 3,
+ "c": 4}
 jbs> # the original dictionary is not modified
 jbs> update(base, b = 3, c = 4)
-{"a": 1, "b": 3, "c": 4}
+{"a": 1,
+ "b": 3,
+ "c": 4}
 ```
 
 Looping:
 ```jbs
-d = dict(a = 1, b = 2)
-
-# for loops over a dictionary iterate its keys in insertion order
-keys = []
-for k in d {
-        keys += [k]
-}
-# keys == ["a", "b"]
+jbs> d = dict(a = 1, b = 2)
+jbs> # for loops over a dictionary iterate its keys in insertion order
+jbs> keys = ()
+jbs> for k in d {
+...>         keys += (k,)
+...> }
+jbs> keys
+("a", "b")
 ```
 
 Conversion from `table` to `dict`:
 
 ```jbs
 jbs> cases = table(x = [1, 2], y = ["a", "b"])
+jbs> # each table column becomes a string key, and each dictionary value is a list of column values
 jbs> d = dict(cases)
-# each table column becomes a string key, and each dictionary value is a list of column values
-{"x": [1, 2], "y": ["a", "b"]}
+{"x": [1, 2],
+ "y": ["a", "b"]}
 ```
 
 A dictionary can be converted to a table:
 
 ```jbs
-d = dict(x = [1, 2], y = ["a", "b"])
-cases = table(d)
+table(dict(x = [1, 2], y = ["a", "b"]))
 ```
 
 - keys must be strings
-- key strings must be valid table column names
+- string keys must be valid table column names
 - values may be scalars, lists, or tuples
 - shorter non-empty columns are cyclically broadcast
 - empty columns are allowed only if all columns are empty
 
-```jbs
-table(dict(x = range(2), y = "same"))
-# x=0, y="same"
-# x=1, y="same"
-```
-
 ### Tables
 
-Tables are JBS's main parameter-space data type. A table is an ordered set of named columns, where each row represents one parameter combination. Because column names are used as identifiers in shell scripts, table column names are restricted.
+Tables are JBS's main parameter-space data type. A table is an ordered set of named columns, where each row represents one parameter combination. Because column names are used as identifiers in shell scripts, table column names must be valid variable identifiers.
 
 The main constructor is `table(...)`, also available as `t(...)`.
 
 ```jbs
-# column values can be: scalars, lists, tuples
-cases = table(x = [1, 2], y = ["a", "b"])
-
-# tables can also be built from row dictionaries
-row_cases = table([
-    dict(x = 1, y = "a"),
-    dict(x = 2, y = "b"),
-])
-
-# rows(table) converts a table to row dictionaries, and table(rows(...)) converts it back
-same_cases = table(rows(cases))
-
-# when columns have different non-empty lengths, JBS broadcasts shorter columns cyclically to the longest column
-table(x = [1, 2], y = "a")
-#  x  y
-#  1  a
-#  2  a
-
-# if the longer length is not divisible by the shorter length, JBS emits a warning because the cycling is uneven
-table(x = [1, 2, 3], y = range(10))
-# warning: cyclic broadcast 3 -> 10
+jbs> # column values can be scalars, lists, or tuples
+jbs> # when columns have different non-empty lengths, JBS broadcasts shorter columns cyclically to the longest column
+jbs> table(x = [1, 2], y = ("a", "b"), z = 0.1)
+| x | y | z   |
+|---|---|-----|
+| 1 | a | 0.1 |
+| 2 | b | 0.1 |
+jbs> # tables can also be built from row dictionaries
+jbs> cases = table([dict(x = 1, y = "a"), dict(x = 2, y = "b")])
+jbs> cases
+| x | y |
+|---|---|
+| 1 | a |
+| 2 | b |
+jbs> # `rows` converts a table to row dictionaries, and table(rows(...)) converts it back
+jbs> rows(cases)
+[{"x": 1, "y": "a"}, {"x": 2, "y": "b"}]
+jbs> table(rows(cases))
+| x | y |
+|---|---|
+| 1 | a |
+| 2 | b |
+jbs> # if a longer column length is not divisible by a shorter one, JBS emits a warning because the cycling is uneven
+jbs> # warning: cyclic broadcast 3 -> 10
+jbs> table(x = [1, 2, 3], y = range(10))
+| x | y |
+|---|---|
+| 1 | 0 |
+| 2 | 1 |
+| 3 | 2 |
+| 1 | 3 |
+| 2 | 4 |
+| 3 | 5 |
+...
 ```
 
-Reading tables from CSV/TSV:
+Reading CSV/TSV tables:
 
 ```jbs
 # The first row is the header.
@@ -284,45 +290,51 @@ cases = read_csv("cases.csv")
 
 ```jbs
 jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # row-wise merge
-  x  y
-  1  a
-  2  b
+| x | y |
+|---|---|
+| 1 | a |
+| 2 | b |
 jbs> cases = t(x = [1, 2]) * t(y = [3, 4]) # Cartesian product
+jbs> cases
+| x | y |
+|---|---|
+| 1 | 3 |
+| 1 | 4 |
+| 2 | 3 |
+| 2 | 4 |
+jbs> cases["x"] # projection
+| x |
+|---|
+| 1 |
+| 2 |
 jbs> cases.x
 [1,1,2,2]
-jbs> cases["x"].x
-[1, 2]
 ```
 
 `filter(table_value, function)` keeps rows where the predicate function returns true.
 
 ```jbs
-cases = table(id = [1, 2, 3], group = ["a", "b", "a"])
-filtered = filter(cases, function(row) { row["group"] == "a" })
-# id group
-#  1     a
-#  3     a
+jbs> cases = table(id = [1, 2, 3], group = ["a", "b", "a"])
+jbs> filter(cases, function(row) { row["group"] == "a" })
+| id | group |
+|----|-------|
+| 1  | a     |
+| 3  | a     |
 ```
 
 Useful functions:
 
-- `table(...)`          # construct a table
-- `t(...)`              # alias for table(...)
-- `read_csv(...)`       # import CSV/TSV as a table
-- `table["col", ...]`   # projection syntax
-- `rename(table, old = "new")` # rename columns
-- `a + b`               # row-wise merge in table context
-- `a * b`               # Cartesian product in table context
-- `filter(table, function)` # keep selected rows
-- `head(table, n = 5)`  # first rows
-- `tail(table, n = 5)`  # last rows
-- `len(table)`          # row count
-- `names(table)`        # column names
-- `names(dict)`         # dictionary keys
-- `dict(table)`         # table -> dictionary
-- `table(dict)`         # dictionary -> table
-- `table(rows)`         # list of row dictionaries -> table
-- `rows(table)`         # table rows as list of dictionaries
+- `table`/`t` construct a table
+- `read_csv(...)` import CSV/TSV as a table
+- `table["col", ...]` parameter projection syntax
+- `rename(table, {"old": "new"})` renames columns
+- `a + b` row-wise merge in table context
+- `a * b` Cartesian product in table context
+- `filter(table, function)` filter rows
+- `head(table, n = 5)`/`tail(table, n = 5)` first/last rows
+- `len(table)` row count
+- `names(table)` column names
+- `rows(table)` table rows as list of dictionaries
 
 ### Functions
 
@@ -333,21 +345,20 @@ JBS has two kinds of functions: user functions, defined with `function(...) { ..
 Function values are first-class: they can be assigned, returned, passed to calls, stored in lists/tuples/dictionaries, and imported from modules.
 
 ```jbs
-# parameters are comma-separated and may have defaults
+jbs> # parameters are comma-separated and may have defaults
 jbs> add = function(a, b = 1) {
-        # the last expression defines the result
-        # the result can also be returned with `return a + b`
-        a + b
-}
-
+...>         # the last expression defines the result
+...>         # the result can also be returned with `return a + b`
+...>         a + b
+...> }
 jbs> add(2)
 3
 jbs> # positional and named arguments are allowed; positional arguments must come first
 jbs> add(2, b = 3)
 5
 jbs> collect = function(prefix, *args, **kwargs) {
-        [prefix, args, kwargs]
-}
+...>         [prefix, args, kwargs]
+...> }
 jbs> collect("run", *[1, 2], mode = "fast", **{"queue": "debug"})
 ["run", [1, 2], {"mode": "fast", "queue": "debug"}]
 jbs> # top-level globals are captured live, so a function sees later reassignment of a global it reads
@@ -371,9 +382,9 @@ jbs> f()
 1
 ```
 
-Defaults that refer to earlier parameters, such as `function(a, b = a + 1)`, are evaluated at call time.
+Defaults that refer to earlier parameters, such as `function(a, b = a + 1)`, are evaluated when the function is called.
 
-Recursion is allowed. JBS has a maximum function-call depth guard to prevent runaway recursion.
+Recursion is allowed. JBS has a maximum function-call depth guard to prevent runaway recursion. Note that JBS does not yet have tail-call optimization or memoization, so recursive calls are not very efficient.
 
 ```jbsrepl
 jbs> factorial = function(n) {1 if 0 == n else n * factorial(n-1)}
@@ -383,14 +394,11 @@ jbs> factorial(5)
 
 #### Built-In Functions
 
-There are several built-in functions. Use `?` for a full list.
+JBS provides several built-in functions. Use `?` for a full list.
 
 Use `?<function_name>` in the REPL for focused help on a specific built-in function.
 
-Built-in functions are function values too: they can be assigned to variables,
-passed to `map()` or `reduce()`, stored in containers, returned from functions,
-and imported from modules. Sequence folds such as `sum()` and `prod()` are
-ordinary built-ins as well. For example:
+Built-in functions are function values too: they can be assigned to variables, passed to `map()` or `reduce()`, stored in containers, returned from functions, and imported from modules. Sequence folds such as `sum()` and `prod()` are ordinary built-ins as well. For example:
 
 ```jbs
 values = map(int, ["1", "2"])
@@ -404,7 +412,6 @@ last_rows = tail(table(id = range(10)), n = 3)
 
 ## Built-In Globals
 
-- `None` is the null value used by built-ins such as `env(name)` when no value is available.
 - `jbs_name="jbs_benchmark"` defines the name of the benchmark directory.
 - `jbs_benchmarks={}` splits one script into named benchmarks. Use `jbs --benchmark ...` to run individual benchmarks.
 - `jbs_nproc=0` sets the global concurrency limit. The default `0` uses all available CPUs.
@@ -414,9 +421,7 @@ Read more in [help_globals.md](help_globals.md).
 
 ## `for`, `while` loops
 
-JBS has `for` and `while` loops. They are evaluation-time control flow, not runtime shell loops: they run while the `.jbs` file is being evaluated, before `do` workpackages are executed.
-
-`for` syntax:
+JBS supports `for` and `while` loops. `for` syntax:
 
 ```jbs
 for name in iterable {
@@ -427,12 +432,12 @@ for name in iterable {
 The iterable must be a list, tuple, or dictionary. Dictionaries iterate over their keys in insertion order. Scalars, strings, and tables are not directly iterable in `for`.
 
 ```jbs
-sum = 0
-for x in range(5) {
-        sum += x
-}
-# sum == 10
-# x == 4
+jbs> sum = 0
+jbs> for x in range(5) { sum += x }
+jbs> sum
+10
+jbs> x
+4
 ```
 
 `while` syntax:
@@ -446,16 +451,21 @@ while condition {
 The condition is converted with the same truthiness rules as `bool(condition)`. For example, `0`, `""`, `None`, empty lists, empty tuples, empty dictionaries, and empty tables are false; non-empty containers and non-zero numbers are true.
 
 ```jbs
-i = 0
-while i < 3 {
-        print(i)
-        i += 1
-}
+jbs> i = 0
+jbs> while i < 3 {
+...>         print(i)
+...>         i += 1
+...> }
+0
+1
+2
+jbs> i
+3
 ```
 
 `break` exits the nearest enclosing loop. `continue` skips to the next iteration.
 
-Loops do not introduce a new scope. At top level, variables assigned in the body are globals. In functions, variables assigned in the body are function locals. The loop target remains visible after the loop if the loop ran at least once. Inside loop bodies, `do`, `analyse`, and `use` declarations are not allowed. Loops are for computing values, not dynamically declaring benchmark steps.
+Loops do not introduce a new scope. At the top level, variables assigned in the body are globals. In functions, variables assigned in the body are function locals. The loop target remains visible after the loop if the loop ran at least once. Inside loop bodies, `do`, `analyse`, and `use` declarations are not allowed. Loops are for computing values, not dynamically declaring benchmark steps.
 
 ## `if`/`else`
 
@@ -494,7 +504,7 @@ value_if_true if condition else value_if_false
 
 Only the selected expression is evaluated after the condition is checked. This makes inline conditionals useful for choosing values directly in assignments or function returns.
 
-There is no inline `elif`. Use nesting for multiple cases:
+There is no inline `elif`. Use nested conditional expressions for multiple cases:
 
 ```jbs
 label = "small" if n < 10 else "medium" if n < 100 else "large"
@@ -502,7 +512,7 @@ label = "small" if n < 10 else "medium" if n < 100 else "large"
 
 ## `use`: import other JBS files
 
-`use` imports symbols from another `.jbs` module during JBS evaluation. It is a compile-time/module-system feature, not a shell command.
+`use` imports symbols from another `.jbs` module during JBS evaluation. It is an evaluation-time module-system feature, not a shell command.
 
 The main supported forms are:
 
@@ -512,7 +522,7 @@ use value, cases from "./params.jbs"
 use "./params.jbs" as params
 ```
 
-Selective import brings named globals directly into the current scope:
+A selective import brings named globals directly into the current scope:
 
 ```jbs
 # params.jbs
@@ -528,7 +538,7 @@ do run with cases {
 values = map(scale, range(3))
 ```
 
-Namespace import keeps the imported module under an alias:
+A namespace import keeps the imported module under an alias:
 
 ```jbs
 use "./params.jbs" as p
