@@ -2,7 +2,6 @@ package sema
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -144,34 +143,58 @@ if false { 5 }
 	}
 }
 
-func TestAnalyzeTopLevelElifRejectsNonBoolCondition(t *testing.T) {
-	_, diags := analyzeIfSource(t, `
+func TestAnalyzeTopLevelElifAcceptsTruthyCondition(t *testing.T) {
+	res, diags := analyzeIfSource(t, `
 if false {
 	x = 1
-} elif 1 {
+} elif "non-empty" {
 	x = 2
 } else {
 	x = 3
 }
 `)
-	if !hasDiagCode(diags, "E102") {
-		t.Fatalf("expected E102, got: %s", diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if !strings.Contains(diags.String(), "elif condition requires boolean value") {
-		t.Fatalf("expected elif condition diagnostic, got: %s", diags.String())
+	if !eval.Equal(res.Globals.Values["x"], eval.Int(2)) {
+		t.Fatalf("expected truthy elif branch, got x=%#v", res.Globals.Values["x"])
 	}
 }
 
-func TestAnalyzeTopLevelIfRejectsNonBoolCondition(t *testing.T) {
+func TestAnalyzeTopLevelIfAcceptsTruthyCondition(t *testing.T) {
 	res, diags := analyzeIfSource(t, `
 x = 1
 if 1 { x = 2 }
 `)
-	if !hasDiagCode(diags, "E102") {
-		t.Fatalf("expected E102, got: %s", diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if !eval.Equal(res.Globals.Values["x"], eval.Int(1)) {
-		t.Fatalf("invalid condition should not execute branch, got x=%#v", res.Globals.Values["x"])
+	if !eval.Equal(res.Globals.Values["x"], eval.Int(2)) {
+		t.Fatalf("truthy condition should execute branch, got x=%#v", res.Globals.Values["x"])
+	}
+}
+
+func TestAnalyzeTopLevelIfAcceptsFalseyCondition(t *testing.T) {
+	res, diags := analyzeIfSource(t, `
+if [] { x = 1 } else { x = 2 }
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !eval.Equal(res.Globals.Values["x"], eval.Int(2)) {
+		t.Fatalf("falsey condition should execute else branch, got x=%#v", res.Globals.Values["x"])
+	}
+}
+
+func TestAnalyzeTopLevelIfConditionErrorSkipsBranches(t *testing.T) {
+	res, diags := analyzeIfSource(t, `
+if missing { x = 1 } else { x = 2 }
+`)
+	if !hasDiagCode(diags, "E100") {
+		t.Fatalf("expected E100, got: %s", diags.String())
+	}
+	if _, ok := res.Globals.Values["x"]; ok {
+		t.Fatalf("condition evaluation error should skip both branches, got x=%#v", res.Globals.Values["x"])
 	}
 }
 

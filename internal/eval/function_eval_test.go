@@ -203,7 +203,7 @@ func TestFunctionIfStatements(t *testing.T) {
 	}
 }
 
-func TestFunctionIfRejectsNonBoolCondition(t *testing.T) {
+func TestFunctionIfAcceptsTruthyCondition(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	fn := fnExpr(nil,
 		localAssign("x", intExpr(1)),
@@ -214,15 +214,15 @@ func TestFunctionIfRejectsNonBoolCondition(t *testing.T) {
 		exprStmt(ident("x")),
 	)
 	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
-	if !Equal(got, Int(1)) {
-		t.Fatalf("expected invalid condition to skip branch, got %#v", got)
+	if !Equal(got, Int(2)) {
+		t.Fatalf("expected truthy condition to execute branch, got %#v", got)
 	}
-	if diagCount(diags, "E102") != 1 {
-		t.Fatalf("expected one E102, got: %s", diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 }
 
-func TestFunctionElifRejectsNonBoolCondition(t *testing.T) {
+func TestFunctionElifAcceptsTruthyCondition(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	fn := fnExpr(nil,
 		localAssign("x", intExpr(1)),
@@ -238,11 +238,31 @@ func TestFunctionElifRejectsNonBoolCondition(t *testing.T) {
 		exprStmt(ident("x")),
 	)
 	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
-	if !Equal(got, Int(1)) {
-		t.Fatalf("expected invalid elif condition to skip branch chain, got %#v", got)
+	if !Equal(got, Int(3)) {
+		t.Fatalf("expected truthy elif condition to execute branch, got %#v", got)
 	}
-	if diagCount(diags, "E102") != 1 || !strings.Contains(diags.String(), "elif condition requires boolean value") {
-		t.Fatalf("expected one elif E102, got: %s", diags.String())
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFunctionIfConditionErrorSkipsBranches(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(nil,
+		localAssign("x", intExpr(1)),
+		ast.FuncIfStmt{
+			Cond: ast.IdentExpr{Name: "missing", Span: spanAt(1001, 1)},
+			Then: []ast.FuncBodyStmt{localAssign("x", intExpr(2))},
+			Else: []ast.FuncBodyStmt{localAssign("x", intExpr(3))},
+		},
+		exprStmt(ident("x")),
+	)
+	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+	if !Equal(got, Int(1)) {
+		t.Fatalf("condition error should skip both branches, got %#v", got)
+	}
+	if count := diagCount(diags, "E100"); count != 1 {
+		t.Fatalf("expected one E100, got %d: %s", count, diags.String())
 	}
 }
 
@@ -393,12 +413,22 @@ func TestFunctionWhileLoopStatements(t *testing.T) {
 }
 
 func TestFunctionWhileLoopErrors(t *testing.T) {
-	t.Run("non bool condition", func(t *testing.T) {
+	t.Run("truthy and falsey non bool condition", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		fn := fnExpr(nil, ast.FuncWhileStmt{Cond: intExpr(1)})
-		_ = EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
-		if diagCount(diags, "E102") == 0 {
-			t.Fatalf("expected E102, got: %s", diags.String())
+		fn := fnExpr(nil,
+			localAssign("x", ast.ListExpr{Items: []ast.Expr{intExpr(1)}}),
+			ast.FuncWhileStmt{
+				Cond: ident("x"),
+				Body: []ast.FuncBodyStmt{localAssign("x", ast.ListExpr{})},
+			},
+			exprStmt(ident("x")),
+		)
+		got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{})
+		if !Equal(got, List(nil)) {
+			t.Fatalf("expected falsey list after loop, got %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
 		}
 	})
 	t.Run("iteration limit", func(t *testing.T) {

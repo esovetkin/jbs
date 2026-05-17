@@ -368,10 +368,9 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 
 func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 	tests := []struct {
-		name         string
-		expr         ast.ConditionalExpr
-		want         Value
-		wantDiagE102 bool
+		name string
+		expr ast.ConditionalExpr
+		want Value
 	}{
 		{
 			name: "true branch",
@@ -392,14 +391,22 @@ func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 			want: String("else"),
 		},
 		{
-			name: "non bool condition falls back to then",
+			name: "truthy int condition selects then",
 			expr: ast.ConditionalExpr{
 				Then: ast.StringExpr{Value: "then"},
 				Cond: ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(85, 1)},
 				Else: ast.StringExpr{Value: "else"},
 			},
-			want:         String("then"),
-			wantDiagE102: true,
+			want: String("then"),
+		},
+		{
+			name: "falsey empty list condition selects else",
+			expr: ast.ConditionalExpr{
+				Then: ast.StringExpr{Value: "then"},
+				Cond: ast.ListExpr{},
+				Else: ast.StringExpr{Value: "else"},
+			},
+			want: String("else"),
 		},
 	}
 
@@ -410,12 +417,6 @@ func TestEvalExprWithCtxConditionalBranches(t *testing.T) {
 			got := evalExprWithCtx(tc.expr, map[string]Value{}, diags, ExprOptions{}, ctx)
 			if !Equal(got, tc.want) {
 				t.Fatalf("expected %#v, got %#v", tc.want, got)
-			}
-			if tc.wantDiagE102 {
-				if count := diagCount(diags, "E102"); count != 1 {
-					t.Fatalf("expected one E102, got %d: %s", count, diags.String())
-				}
-				return
 			}
 			if diags.HasErrors() {
 				t.Fatalf("unexpected errors: %s", diags.String())
@@ -531,23 +532,19 @@ func TestEvalVectorArithmetic(t *testing.T) {
 	}
 }
 
-func TestEvalConditionalRequiresBool(t *testing.T) {
+func TestEvalConditionalConditionErrorSkipsBranches(t *testing.T) {
 	expr := ast.ConditionalExpr{
-		Then: ast.NumberExpr{Int: true, IntValue: 1},
-		Cond: ast.NumberExpr{Int: true, IntValue: 2},
-		Else: ast.NumberExpr{Int: true, IntValue: 0},
+		Then: ast.IdentExpr{Name: "then_missing", Span: spanAt(100, 1)},
+		Cond: ast.IdentExpr{Name: "cond_missing", Span: spanAt(100, 5)},
+		Else: ast.IdentExpr{Name: "else_missing", Span: spanAt(100, 10)},
 	}
 	diags := &diag.Diagnostics{}
-	_ = EvalExpr(expr, map[string]Value{}, diags)
-	found := false
-	for _, d := range diags.Items {
-		if d.Code == "E102" {
-			found = true
-			break
-		}
+	got := EvalExpr(expr, map[string]Value{}, diags)
+	if got.Kind != KindNull {
+		t.Fatalf("expected null, got %#v", got)
 	}
-	if !found {
-		t.Fatalf("expected E102, got: %s", diags.String())
+	if count := diagCount(diags, "E100"); count != 1 {
+		t.Fatalf("expected one E100, got %d: %s", count, diags.String())
 	}
 }
 

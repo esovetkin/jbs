@@ -118,20 +118,17 @@ func (ctx *evalCtx) enterFunctionCall(frame *Frame) *evalCtx {
 	return next
 }
 
-func evalBoolConditionWithCtx(kind string, expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (bool, bool) {
+func evalBoolConditionWithCtx(_ string, expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (bool, bool) {
+	beforeErrors := diagErrorCount(diags)
 	value := evalExprWithCtx(expr, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return false, false
 	}
-	if value.Kind != KindBool {
-		span := diag.Span{}
-		if expr != nil {
-			span = expr.GetSpan()
-		}
-		diags.AddError(diag.CodeE102, kind+" condition requires boolean value", span, "ensure condition evaluates to true/false")
+	if diagErrorCount(diags) > beforeErrors {
 		return false, false
 	}
-	return value.B, true
+	b, _ := truthy(value)
+	return b, true
 }
 
 func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
@@ -322,19 +319,14 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		return evalCompare(e.Op, l, r, e.Span, diags)
 	case ast.ConditionalExpr:
-		c := evalExprWithCtx(e.Cond, env, diags, opts, ctx)
+		cond, ok := evalBoolConditionWithCtx("conditional", e.Cond, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
 			return Null()
 		}
-		if c.Kind != KindBool {
-			diags.AddError(diag.CodeE102, "conditional requires boolean condition", e.Cond.GetSpan(), "ensure condition evaluates to true/false")
-			value := evalExprWithCtx(e.Then, env, diags, opts, ctx)
-			if ctx.recursionLimitHit() {
-				return Null()
-			}
-			return value
+		if !ok {
+			return Null()
 		}
-		if c.B {
+		if cond {
 			value := evalExprWithCtx(e.Then, env, diags, opts, ctx)
 			if ctx.recursionLimitHit() {
 				return Null()

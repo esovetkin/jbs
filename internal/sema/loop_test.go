@@ -53,6 +53,21 @@ while x < 3 {
 	}
 }
 
+func TestAnalyzeTopLevelWhileLoopTruthyCondition(t *testing.T) {
+	res, diags := analyzeLoopSource(t, `
+x = [1]
+while x {
+	x = []
+}
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !eval.Equal(res.Globals.Values["x"], eval.List(nil)) {
+		t.Fatalf("x=%#v", res.Globals.Values["x"])
+	}
+}
+
 func TestAnalyzeTopLevelLoopBreakContinue(t *testing.T) {
 	res, diags := analyzeLoopSource(t, `
 sum = 0
@@ -103,7 +118,6 @@ func TestAnalyzeLoopErrors(t *testing.T) {
 		code string
 	}{
 		{name: "for scalar", src: "for x in 1 { y = x }\n", code: "E106"},
-		{name: "while non bool", src: "while 1 { x = 1 }\n", code: "E102"},
 		{name: "while infinite", src: "while true {}\n", code: "E106"},
 	}
 	for _, tc := range tests {

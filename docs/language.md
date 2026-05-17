@@ -443,7 +443,7 @@ while condition {
 }
 ```
 
-The condition must evaluate to a boolean. JBS does not use truthiness here, so `while 1 { ... }` is an error.
+The condition is converted with the same truthiness rules as `bool(condition)`. For example, `0`, `""`, `None`, empty lists, empty tuples, empty dictionaries, and empty tables are false; non-empty containers and non-zero numbers are true.
 
 ```jbs
 i = 0
@@ -471,7 +471,7 @@ if condition {
 }
 ```
 
-Conditions must evaluate to `bool`. JBS does not treat integers, strings, lists, or tables as truthy or falsey in `if` conditions.
+`if` and `elif` conditions are converted with `bool(...)` truthiness. This means `if values { ... }` runs when `values` is a non-empty list, tuple, dictionary, or table.
 
 ```jbs
 mode = "small"

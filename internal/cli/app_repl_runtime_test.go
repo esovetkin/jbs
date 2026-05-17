@@ -320,8 +320,8 @@ func TestCommitReplChunkIfOutputAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected second commit error: %v", err)
 	}
-	if !second.HasErrors || !strings.Contains(second.DiagText, "ERROR E102") {
-		t.Fatalf("expected E102, got errors=%v diag=%q", second.HasErrors, second.DiagText)
+	if second.HasErrors {
+		t.Fatalf("expected truthy if condition to succeed, diag=%q", second.DiagText)
 	}
 
 	third, err := commitReplChunk(cwd, first.Source, "if true { do run { echo bad } }")
@@ -356,12 +356,12 @@ func TestCommitReplChunkLoopOutputBreakAndContinue(t *testing.T) {
 		t.Fatalf("unexpected loop expression output: %#v", commit.ExprOutput)
 	}
 
-	invalid, err := commitReplChunk(cwd, commit.Source, "while 1 { break }")
+	truthy, err := commitReplChunk(cwd, commit.Source, "while 1 { break }")
 	if err != nil {
-		t.Fatalf("unexpected invalid commit error: %v", err)
+		t.Fatalf("unexpected truthy while commit error: %v", err)
 	}
-	if !invalid.HasErrors || !strings.Contains(invalid.DiagText, "ERROR E102") {
-		t.Fatalf("expected E102, got errors=%v diag=%q", invalid.HasErrors, invalid.DiagText)
+	if truthy.HasErrors {
+		t.Fatalf("expected truthy while condition to succeed, diag=%q", truthy.DiagText)
 	}
 }
 
