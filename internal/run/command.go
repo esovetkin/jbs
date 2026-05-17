@@ -96,10 +96,11 @@ type preparedStore struct {
 }
 
 type componentResult struct {
-	Label string
-	Store *Store
-	Final Status
-	Err   error
+	Label    string
+	Store    *Store
+	Final    Status
+	Analysed bool
+	Err      error
 }
 
 func createPreparedStores(plans []runtimePlan) ([]preparedStore, error) {
@@ -196,7 +197,7 @@ func runPreparedStores(ctx context.Context, opts Options, prepared []preparedSto
 			}
 			fmt.Fprintf(opts.Stdout, "[%s]\n", item.Plan.ComponentName)
 		}
-		result := runOneStore(ctx, item, continuing, opts.Stdout)
+		result := runOneStore(ctx, item, continuing, opts.Weak && !continuing, opts.Stdout)
 		results = append(results, result)
 		if result.Final == StatusInterrupted {
 			break
@@ -206,7 +207,7 @@ func runPreparedStores(ctx context.Context, opts Options, prepared []preparedSto
 	return aggregateComponentResults(results)
 }
 
-func runOneStore(ctx context.Context, item preparedStore, continuing bool, progressWriter io.Writer) componentResult {
+func runOneStore(ctx context.Context, item preparedStore, continuing bool, weak bool, progressWriter io.Writer) componentResult {
 	label := item.Plan.ComponentName
 	store := item.Store
 	if continuing {
@@ -223,26 +224,29 @@ func runOneStore(ctx context.Context, item preparedStore, continuing bool, progr
 	progress.Close(final)
 	message := schedulerResultMessage(schedulerResult)
 	var runErr error
-	if final == StatusFinished {
-		if err := RunAnalyses(store, item.Plan.Analyses); err != nil {
+	analysed := false
+	if final == StatusFinished || (weak && final == StatusError) {
+		if err := RunAnalysesWithOptions(store, item.Plan.Analyses, AnalyseRunOptions{Weak: weak}); err != nil {
 			final = StatusError
 			message = err.Error()
 			runErr = err
+		} else {
+			analysed = true
 		}
 	}
 	if err := store.MarkRootFinal(final, message); err != nil {
 		return componentResult{Label: label, Store: store, Final: StatusError, Err: err}
 	}
 	if final == StatusFinished {
-		return componentResult{Label: label, Store: store, Final: final}
+		return componentResult{Label: label, Store: store, Final: final, Analysed: analysed}
 	}
 	if runErr != nil {
-		return componentResult{Label: label, Store: store, Final: final, Err: runErr}
+		return componentResult{Label: label, Store: store, Final: final, Analysed: analysed, Err: runErr}
 	}
 	if schedulerResult.Err != nil {
-		return componentResult{Label: label, Store: store, Final: final, Err: schedulerResult.Err}
+		return componentResult{Label: label, Store: store, Final: final, Analysed: analysed, Err: schedulerResult.Err}
 	}
-	return componentResult{Label: label, Store: store, Final: final}
+	return componentResult{Label: label, Store: store, Final: final, Analysed: analysed}
 }
 
 func aggregateComponentResults(results []componentResult) error {
@@ -314,7 +318,7 @@ func printPostRunSummaries(stdout, stderr io.Writer, results []componentResult) 
 			fmt.Fprintln(stdout)
 			PrintFailedWorkDirectories(stdout, summary.FailedWork)
 		}
-		if result.Final != StatusFinished {
+		if !result.Analysed {
 			continue
 		}
 		analyseSummaries, err := BuildAnalyseOutputSummaries(result.Store)

@@ -102,11 +102,15 @@ Each workpackage executes the `do` body in its own work directory. Useful runtim
 
 Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`. Workpackage status is one of `NOTSTARTED`, `RUNNING`, `FINISHED`, `ERROR`, `BLOCKED`, or `INTERRUPTED`. `BLOCKED` means the workpackage did not run because a dependency failed. Generated `run.sh` files use `set -euo pipefail` by default; pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.
 
+Pass `--weak` or `-w` to generate analyse outputs even when some workpackages fail. The benchmark still ends with status `ERROR`, and the command still exits non-zero, but analyse tables are written for selected analyse steps. Weak mode does not apply to interrupted runs.
+
 Create the directory structure without starting work:
 
 ```bash
 jbs run --dry-run do.jbs
 jbs run -n do.jbs
+jbs run --weak do.jbs
+jbs run -w do.jbs
 jbs -n do.jbs
 jbs do.jbs -n
 jbs continue do.jbs

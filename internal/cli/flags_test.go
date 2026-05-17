@@ -33,6 +33,7 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 		wantFWaitExitExisting bool
 		wantFWaitPaths        []string
 		wantDryRun            bool
+		wantWeak              bool
 		wantNoStrict          bool
 		wantBenchmark         string
 		wantCheck             bool
@@ -132,6 +133,39 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantOutput: "-",
 			wantRun:    true,
 			wantDryRun: true,
+		},
+		{
+			name:       "run_command_weak_long",
+			args:       []string{"run", "--weak", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantWeak:   true,
+		},
+		{
+			name:       "run_command_weak_short",
+			args:       []string{"run", "-w", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantWeak:   true,
+		},
+		{
+			name:       "run_command_weak_short_after_input",
+			args:       []string{"run", "input.jbs", "-w"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantWeak:   true,
+		},
+		{
+			name:       "run_command_dry_run_weak",
+			args:       []string{"run", "--dry-run", "--weak", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantDryRun: true,
+			wantWeak:   true,
 		},
 		{
 			name:         "run_command_dry_run_no_strict",
@@ -283,6 +317,22 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantDryRun: true,
 		},
 		{
+			name:       "default_run_weak_long",
+			args:       []string{"--weak", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantWeak:   true,
+		},
+		{
+			name:       "default_run_weak_short_after_input",
+			args:       []string{"input.jbs", "-w"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantWeak:   true,
+		},
+		{
 			name:         "default_run_no_strict_after_input",
 			args:         []string{"input.jbs", "--no-strict"},
 			wantInput:    "input.jbs",
@@ -352,6 +402,9 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			}
 			if f.DryRun != tc.wantDryRun {
 				t.Fatalf("unexpected dry-run flag: got=%v want=%v", f.DryRun, tc.wantDryRun)
+			}
+			if f.Weak != tc.wantWeak {
+				t.Fatalf("unexpected weak flag: got=%v want=%v", f.Weak, tc.wantWeak)
 			}
 			if f.NoStrict != tc.wantNoStrict {
 				t.Fatalf("unexpected no-strict flag: got=%v want=%v", f.NoStrict, tc.wantNoStrict)
@@ -599,7 +652,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "old_printparam_command_removed", args: []string{"printparam", "input.jbs"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
 		{name: "run_duplicate_dry_run", args: []string{"run", "-n", "--dry-run", "input.jbs"}},
+		{name: "run_duplicate_weak", args: []string{"run", "--weak", "-w", "input.jbs"}},
 		{name: "run_dry_run_missing_input", args: []string{"run", "--dry-run"}},
+		{name: "run_weak_missing_input", args: []string{"run", "--weak"}},
 		{name: "run_duplicate_no_strict", args: []string{"run", "--no-strict", "--no-strict", "input.jbs"}},
 		{name: "run_no_strict_missing_input", args: []string{"run", "--no-strict"}},
 		{name: "run_duplicate_benchmark", args: []string{"run", "-b", "small", "--benchmark", "large", "input.jbs"}},
@@ -609,6 +664,7 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "run_rejects_check_option", args: []string{"run", "-c", "input.jbs"}},
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
+		{name: "continue_rejects_weak", args: []string{"continue", "input.jbs", "--weak"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_duplicate_benchmark", args: []string{"continue", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "continue_benchmark_missing_value", args: []string{"continue", "-b"}},
@@ -616,29 +672,36 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "status_duplicate_benchmark", args: []string{"status", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "status_benchmark_missing_value", args: []string{"status", "-b"}},
 		{name: "status_rejects_option", args: []string{"status", "-o", "out.yaml", "input.jbs"}},
+		{name: "status_rejects_weak", args: []string{"status", "--weak", "input.jbs"}},
 		{name: "status_extra_argument", args: []string{"status", "input.jbs", "extra"}},
 		{name: "tree_missing_input", args: []string{"tree"}},
 		{name: "tree_duplicate_benchmark", args: []string{"tree", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "tree_benchmark_missing_value", args: []string{"tree", "-b"}},
 		{name: "tree_rejects_option", args: []string{"tree", "-o", "out.yaml", "input.jbs"}},
+		{name: "tree_rejects_weak", args: []string{"tree", "--weak", "input.jbs"}},
 		{name: "tree_extra_argument", args: []string{"tree", "input.jbs", "extra"}},
 		{name: "ls_analyse_missing_input", args: []string{"ls-analyse"}},
 		{name: "ls_analyse_duplicate_benchmark", args: []string{"ls-analyse", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "ls_analyse_benchmark_missing_value", args: []string{"ls-analyse", "-b"}},
 		{name: "ls_analyse_rejects_option", args: []string{"ls-analyse", "-o", "out.yaml", "input.jbs"}},
+		{name: "ls_analyse_rejects_weak", args: []string{"ls-analyse", "--weak", "input.jbs"}},
 		{name: "ls_analyse_extra_argument", args: []string{"ls-analyse", "input.jbs", "extra"}},
 		{name: "old_stats_command_removed", args: []string{"stats", "input.jbs"}},
 		{name: "archive_missing_input", args: []string{"archive"}},
 		{name: "archive_extra_argument", args: []string{"archive", "input.jbs", "extra"}},
 		{name: "archive_rejects_option", args: []string{"archive", "-o", "out.tar.gz", "input.jbs"}},
+		{name: "archive_rejects_weak", args: []string{"archive", "--weak", "input.jbs"}},
 		{name: "fwait_missing_input", args: []string{"fwait"}},
 		{name: "fwait_exit_existing_missing_input", args: []string{"fwait", "-e"}},
 		{name: "fwait_rejects_option", args: []string{"fwait", "--timeout", "1", "a"}},
 		{name: "help_rejects_no_strict", args: []string{"--help", "--no-strict"}},
 		{name: "help_rejects_dry_run", args: []string{"--help", "-n"}},
+		{name: "help_rejects_weak", args: []string{"--help", "-w"}},
 		{name: "help_rejects_benchmark", args: []string{"--help", "-b", "small"}},
 		{name: "default_duplicate_dry_run", args: []string{"-n", "--dry-run", "input.jbs"}},
+		{name: "default_duplicate_weak", args: []string{"--weak", "-w", "input.jbs"}},
 		{name: "default_dry_run_missing_input", args: []string{"-n"}},
+		{name: "default_weak_missing_input", args: []string{"--weak"}},
 		{name: "default_duplicate_no_strict", args: []string{"--no-strict", "--no-strict", "input.jbs"}},
 		{name: "default_no_strict_missing_input", args: []string{"--no-strict"}},
 		{name: "default_duplicate_benchmark", args: []string{"-b", "small", "-b", "large", "input.jbs"}},

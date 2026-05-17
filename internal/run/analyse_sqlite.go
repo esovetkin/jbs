@@ -12,6 +12,10 @@ import (
 )
 
 func runAnalysesSQLite(store *Store, analyses map[string]AnalysePlan) error {
+	return runAnalysesSQLiteWithOptions(store, analyses, AnalyseRunOptions{})
+}
+
+func runAnalysesSQLiteWithOptions(store *Store, analyses map[string]AnalysePlan, opts AnalyseRunOptions) error {
 	dbPath := store.Manifest.AnalyseDatabasePath
 	if dbPath == "" {
 		return fmt.Errorf("analyse database path is empty")
@@ -39,11 +43,15 @@ func runAnalysesSQLite(store *Store, analyses map[string]AnalysePlan) error {
 		if !ok {
 			return fmt.Errorf("missing analyse plan for step %q", step.Name)
 		}
-		rows, err := collectStepAnalyseRows(store, step, plan)
+		header, err := analyseOutputHeader(plan, opts)
 		if err != nil {
 			return err
 		}
-		if err := replaceAnalyseTable(tx, step.AnalyseTable, plan.Header, plan.ColumnTypes, rows); err != nil {
+		rows, err := collectStepAnalyseRows(store, step, plan, opts)
+		if err != nil {
+			return err
+		}
+		if err := replaceAnalyseTable(tx, step.AnalyseTable, header, analyseOutputColumnTypes(plan, opts), rows); err != nil {
 			return fmt.Errorf("write analyse table %q: %w", step.Name, err)
 		}
 	}

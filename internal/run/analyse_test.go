@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -241,6 +242,25 @@ func TestRunAnalysesCSVWritesTable(t *testing.T) {
 	})
 }
 
+func TestRunAnalysesCSVWeakWritesMissingRowsForFailedWork(t *testing.T) {
+	store, plan := testCSVAnalyseStoreWithRunStatuses(t, []Status{StatusFinished, StatusError, StatusBlocked})
+	failedWork := store.Manifest.Work[1]
+	if err := os.Remove(filepath.Join(store.WorkDir(failedWork), "out.log")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAnalysesWithOptions(store, map[string]AnalysePlan{"run": plan}, AnalyseRunOptions{Weak: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := readCSVRows(t, filepath.Join(store.RunDir, "run", "analyse.csv"))
+	assertRows(t, rows, [][]string{
+		{"run_id", "x", "number", "jbs_status"},
+		{"000000", "a", "7", "FINISHED"},
+		{"000001", "", "", "ERROR"},
+		{"000002", "", "", "BLOCKED"},
+	})
+}
+
 func TestRunAnalysesCSVSkipsStepsWithoutAnalyseCSV(t *testing.T) {
 	runDir := t.TempDir()
 	manifest := Manifest{
@@ -278,6 +298,28 @@ func TestRunAnalysesCSVPropagatesWorkPackageAnalyseError(t *testing.T) {
 	}
 }
 
+func TestRunAnalysesWeakDoesNotIgnoreFinishedJobAnalyseErrors(t *testing.T) {
+	store, plan := testCSVAnalyseStore(t, StatusFinished)
+	work := store.Manifest.Work[0]
+	if err := os.Remove(filepath.Join(store.WorkDir(work), "out.log")); err != nil {
+		t.Fatal(err)
+	}
+
+	err := RunAnalysesWithOptions(store, map[string]AnalysePlan{"run": plan}, AnalyseRunOptions{Weak: true})
+	if err == nil || !strings.Contains(err.Error(), "analyse run/000000") || !strings.Contains(err.Error(), "read analyse file") {
+		t.Fatalf("expected analyse file error in weak mode, got %v", err)
+	}
+}
+
+func TestRunAnalysesWeakRejectsStatusColumnCollision(t *testing.T) {
+	store, plan := testCSVAnalyseStore(t, StatusFinished)
+	plan.Header = []string{"run_id", "jbs_status"}
+	err := RunAnalysesWithOptions(store, map[string]AnalysePlan{"run": plan}, AnalyseRunOptions{Weak: true})
+	if err == nil || !strings.Contains(err.Error(), "collides") {
+		t.Fatalf("expected weak status column collision error, got %v", err)
+	}
+}
+
 func TestCollectStepAnalyseRowsReportsStatusReadError(t *testing.T) {
 	store, plan := testCSVAnalyseStore(t, StatusFinished)
 	work := store.Manifest.Work[0]
@@ -285,7 +327,7 @@ func TestCollectStepAnalyseRowsReportsStatusReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := collectStepAnalyseRows(store, store.Manifest.Steps[0], plan)
+	_, err := collectStepAnalyseRows(store, store.Manifest.Steps[0], plan, AnalyseRunOptions{})
 	if err == nil || !strings.Contains(err.Error(), "analyse run/000000") {
 		t.Fatalf("expected status read error, got %v", err)
 	}
@@ -293,7 +335,7 @@ func TestCollectStepAnalyseRowsReportsStatusReadError(t *testing.T) {
 
 func TestCollectStepAnalyseRowsRejectsUnfinishedWork(t *testing.T) {
 	store, plan := testCSVAnalyseStore(t, StatusInterrupted)
-	_, err := collectStepAnalyseRows(store, store.Manifest.Steps[0], plan)
+	_, err := collectStepAnalyseRows(store, store.Manifest.Steps[0], plan, AnalyseRunOptions{})
 	if err == nil || !strings.Contains(err.Error(), "status is INTERRUPTED") {
 		t.Fatalf("expected unfinished status error, got %v", err)
 	}
@@ -488,6 +530,84 @@ func TestRunAnalysesSQLiteWritesTypedWorkValueColumns(t *testing.T) {
 	}
 	if iType != "integer" || fType != "real" || bType != "integer" || sType != "text" {
 		t.Fatalf("sqlite value types = %s/%s/%s/%s, want integer/real/integer/text", iType, fType, bType, sType)
+	}
+}
+
+func TestRunAnalysesSQLiteWeakWritesNullsAndStatus(t *testing.T) {
+	runDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "weak.sqlite")
+	manifest := Manifest{
+		AnalyseDatabasePath: dbPath,
+		Steps: []ManifestStep{{
+			Name:         "run",
+			Dir:          "run",
+			AnalyseTable: "bench_000000_run",
+		}},
+		Work: []ManifestWork{
+			{Step: "run", Row: 0, Dir: "000000", Values: map[string]string{"x": "a"}},
+			{Step: "run", Row: 1, Dir: "000001", Values: map[string]string{"x": "b"}},
+		},
+	}
+	store := NewStore(runDir, manifest, nil)
+	for _, work := range manifest.Work {
+		workDir := store.WorkDir(work)
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if work.Row == 0 {
+			if err := os.WriteFile(filepath.Join(workDir, "out.log"), []byte("Number: 7\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.WriteWorkStatus(work, WorkStatus{Schema: 1, Status: StatusFinished, Step: work.Step, Row: work.Row}); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if err := store.WriteWorkStatus(work, WorkStatus{Schema: 1, Status: StatusError, Step: work.Step, Row: work.Row}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	plan := AnalysePlan{
+		Step:        "run",
+		Header:      []string{"run_id", "x", "number"},
+		ColumnTypes: []AnalyseValueKind{analyseValueString, analyseValueString, analyseValueInt},
+		Columns: []AnalyseColumnPlan{
+			{Kind: analyseColumnWorkValue, Source: "x", GroupCount: 1, GroupTypes: []AnalyseValueKind{analyseValueString}},
+			{Kind: analyseColumnPattern, Source: "number", GroupCount: 1, GroupTypes: []AnalyseValueKind{analyseValueInt}},
+		},
+		Patterns: map[string]AnalysePatternPlan{
+			"number": testPatternWithTypes("number", "out.log", `Number: ([0-9]+)`, []AnalyseValueKind{analyseValueInt}),
+		},
+	}
+	if err := RunAnalysesWithOptions(store, map[string]AnalysePlan{"run": plan}, AnalyseRunOptions{Weak: true}); err != nil {
+		t.Fatal(err)
+	}
+	assertAnalyseTable(t, dbPath, "bench_000000_run",
+		[]string{"run_id", "x", "number", "jbs_status"},
+		[][]string{
+			{"000000", "a", "7", "FINISHED"},
+			{"000001", "", "", "ERROR"},
+		},
+	)
+	assertRows(t, readSQLiteColumnTypes(t, dbPath, "bench_000000_run"), [][]string{
+		{"run_id", "TEXT"},
+		{"x", "TEXT"},
+		{"number", "INTEGER"},
+		{"jbs_status", "TEXT"},
+	})
+
+	db, err := openAnalyseDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var xType, numberType, statusType string
+	if err := db.QueryRow(`SELECT typeof("x"), typeof("number"), typeof("jbs_status") FROM "bench_000000_run" WHERE "run_id" = '000001'`).Scan(&xType, &numberType, &statusType); err != nil {
+		t.Fatal(err)
+	}
+	if xType != "null" || numberType != "null" || statusType != "text" {
+		t.Fatalf("sqlite failed-row types = %s/%s/%s, want null/null/text", xType, numberType, statusType)
 	}
 }
 
@@ -727,17 +847,29 @@ func testPatternWithTypes(name, file, expr string, groupTypes []AnalyseValueKind
 
 func testCSVAnalyseStore(t *testing.T, status Status) (*Store, AnalysePlan) {
 	t.Helper()
+	return testCSVAnalyseStoreWithRunStatuses(t, []Status{status, status})
+}
+
+func testCSVAnalyseStoreWithRunStatuses(t *testing.T, statuses []Status) (*Store, AnalysePlan) {
+	t.Helper()
 	runDir := t.TempDir()
+	runWork := make([]ManifestWork, 0, len(statuses))
+	labels := []string{"a", "b", "c", "d", "e"}
+	for i := range statuses {
+		label := labels[i%len(labels)]
+		runWork = append(runWork, ManifestWork{
+			Step:   "run",
+			Row:    i,
+			Dir:    rowDir(i),
+			Values: map[string]string{"x": label},
+		})
+	}
 	manifest := Manifest{
 		Steps: []ManifestStep{
 			{Name: "run", Dir: "run", AnalyseCSV: "analyse.csv"},
 			{Name: "prep", Dir: "prep"},
 		},
-		Work: []ManifestWork{
-			{Step: "run", Row: 0, Dir: "000000", Values: map[string]string{"x": "a"}},
-			{Step: "run", Row: 1, Dir: "000001", Values: map[string]string{"x": "b"}},
-			{Step: "prep", Row: 0, Dir: "000000", Values: map[string]string{"x": "ignored"}},
-		},
+		Work: append(runWork, ManifestWork{Step: "prep", Row: 0, Dir: "000000", Values: map[string]string{"x": "ignored"}}),
 	}
 	store := NewStore(runDir, manifest, nil)
 	for _, step := range manifest.Steps {
@@ -751,10 +883,14 @@ func testCSVAnalyseStore(t *testing.T, status Status) (*Store, AnalysePlan) {
 			t.Fatal(err)
 		}
 		if work.Step == "run" {
-			number := map[int]string{0: "7", 1: "8"}[work.Row]
+			number := strconv.Itoa(7 + work.Row)
 			if err := os.WriteFile(filepath.Join(workDir, "out.log"), []byte("Number: "+number+"\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+		}
+		status := StatusFinished
+		if work.Step == "run" {
+			status = statuses[work.Row]
 		}
 		if err := store.WriteWorkStatus(work, WorkStatus{Schema: 1, Status: status, Step: work.Step, Row: work.Row}); err != nil {
 			t.Fatal(err)

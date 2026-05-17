@@ -40,6 +40,8 @@ Rules:
 
 If `jbs_database` is non-empty, all analyse output is written to that SQLite database instead, with one table per run and step. In SQLite mode, `%d` capture columns and integer step-variable columns use `INTEGER`, `%f` capture columns and float step-variable columns use `REAL`, boolean step-variable columns use `INTEGER` values `1` and `0`, and string or mixed-type step-variable columns use `TEXT`. Single-benchmark table names use `<benchmark_name>_<run_id>_<step_name>`, for example `bench_000000_run`. Component table names use `<benchmark_name>_<component>_<run_id>_<step_name>`, for example `bench_small_000000_run`. Later runs create new tables in the same database, and `jbs continue` rewrites the table for the original run. Relative paths are resolved from the directory where `jbs run` is executed; absolute paths are accepted. In SQLite mode, `analyse.csv` files are not created. `jbs run` prints the current run's analyse path or table name with row and column counts, not full table contents. Use `jbs ls-analyse <file.jbs>` to list analyse outputs for the latest run again later.
 
+Pass `jbs run --weak` or `jbs run -w` to generate analyse outputs even when some workpackages fail. The benchmark still ends with status `ERROR`, and the command still exits non-zero, but analyse tables are written for selected analyse steps. In weak mode, each analyse table gets a `jbs_status` column. Finished workpackages are analysed normally and have `FINISHED`; failed or blocked analysed workpackages contribute one row with missing analyse values and their status, such as `ERROR` or `BLOCKED`. Weak mode does not run analyses after interrupted runs, and it does not suppress analyse errors for finished jobs.
+
 ## Example
 
 ```jbs

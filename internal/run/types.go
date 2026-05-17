@@ -14,6 +14,7 @@ type Options struct {
 	ProgramFile string
 	Benchmark   string
 	NoStrict    bool
+	Weak        bool
 	PrintEvents []sema.PrintEvent
 	Stdout      io.Writer
 	Stderr      io.Writer

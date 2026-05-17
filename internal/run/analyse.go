@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -63,6 +64,12 @@ type AnalyseCell struct {
 }
 
 type patternMatches map[string][][]AnalyseCell
+
+type AnalyseRunOptions struct {
+	Weak bool
+}
+
+const weakAnalyseStatusColumn = "jbs_status"
 
 func stringAnalyseCell(s string) AnalyseCell {
 	return AnalyseCell{Kind: analyseValueString, Valid: true, Text: s}
@@ -146,13 +153,17 @@ func (c AnalyseCell) SQLiteValue() any {
 }
 
 func RunAnalyses(store *Store, analyses map[string]AnalysePlan) error {
-	if store.Manifest.AnalyseDatabasePath != "" {
-		return runAnalysesSQLite(store, analyses)
-	}
-	return runAnalysesCSV(store, analyses)
+	return RunAnalysesWithOptions(store, analyses, AnalyseRunOptions{})
 }
 
-func runAnalysesCSV(store *Store, analyses map[string]AnalysePlan) error {
+func RunAnalysesWithOptions(store *Store, analyses map[string]AnalysePlan, opts AnalyseRunOptions) error {
+	if store.Manifest.AnalyseDatabasePath != "" {
+		return runAnalysesSQLiteWithOptions(store, analyses, opts)
+	}
+	return runAnalysesCSV(store, analyses, opts)
+}
+
+func runAnalysesCSV(store *Store, analyses map[string]AnalysePlan, opts AnalyseRunOptions) error {
 	for _, step := range store.Manifest.Steps {
 		if step.AnalyseCSV == "" {
 			continue
@@ -161,25 +172,48 @@ func runAnalysesCSV(store *Store, analyses map[string]AnalysePlan) error {
 		if !ok {
 			return fmt.Errorf("missing analyse plan for step %q", step.Name)
 		}
-		if err := runStepAnalyseCSV(store, step, plan); err != nil {
+		if err := runStepAnalyseCSV(store, step, plan, opts); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func runStepAnalyseCSV(store *Store, step ManifestStep, plan AnalysePlan) error {
-	dataRows, err := collectStepAnalyseRows(store, step, plan)
+func runStepAnalyseCSV(store *Store, step ManifestStep, plan AnalysePlan, opts AnalyseRunOptions) error {
+	header, err := analyseOutputHeader(plan, opts)
 	if err != nil {
 		return err
 	}
-	rows := [][]string{append([]string(nil), plan.Header...)}
+	dataRows, err := collectStepAnalyseRows(store, step, plan, opts)
+	if err != nil {
+		return err
+	}
+	rows := [][]string{header}
 	rows = append(rows, analyseCellsToCSVRows(dataRows)...)
 	path := filepath.Join(store.RunDir, step.Dir, step.AnalyseCSV)
 	return fsutil.WriteCSVAtomic(path, rows, 0o644, durableWrite)
 }
 
-func collectStepAnalyseRows(store *Store, step ManifestStep, plan AnalysePlan) ([][]AnalyseCell, error) {
+func analyseOutputHeader(plan AnalysePlan, opts AnalyseRunOptions) ([]string, error) {
+	header := append([]string(nil), plan.Header...)
+	if !opts.Weak {
+		return header, nil
+	}
+	if slices.Contains(header, weakAnalyseStatusColumn) {
+		return nil, fmt.Errorf("analyse step %q weak status column %q collides with an existing result column", plan.Step, weakAnalyseStatusColumn)
+	}
+	return append(header, weakAnalyseStatusColumn), nil
+}
+
+func analyseOutputColumnTypes(plan AnalysePlan, opts AnalyseRunOptions) []AnalyseValueKind {
+	kinds := append([]AnalyseValueKind(nil), plan.ColumnTypes...)
+	if opts.Weak {
+		kinds = append(kinds, analyseValueString)
+	}
+	return kinds
+}
+
+func collectStepAnalyseRows(store *Store, step ManifestStep, plan AnalysePlan, opts AnalyseRunOptions) ([][]AnalyseCell, error) {
 	rows := make([][]AnalyseCell, 0)
 	for _, work := range store.Manifest.Work {
 		if work.Step != step.Name {
@@ -190,15 +224,42 @@ func collectStepAnalyseRows(store *Store, step ManifestStep, plan AnalysePlan) (
 			return nil, fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
 		}
 		if status.Status != StatusFinished {
+			if opts.Weak {
+				rows = append(rows, weakMissingAnalyseRow(work, plan, status.Status))
+				continue
+			}
 			return nil, fmt.Errorf("cannot analyse %s/%s: status is %s", work.Step, work.Dir, status.Status)
 		}
 		workRows, err := analyseWorkPackage(store.WorkDir(work), work, plan)
 		if err != nil {
 			return nil, fmt.Errorf("analyse %s/%s: %w", work.Step, work.Dir, err)
 		}
+		if opts.Weak {
+			appendAnalyseStatus(workRows, StatusFinished)
+		}
 		rows = append(rows, workRows...)
 	}
 	return rows, nil
+}
+
+func weakMissingAnalyseRow(work ManifestWork, plan AnalysePlan, status Status) []AnalyseCell {
+	row := make([]AnalyseCell, 0, len(plan.Header)+1)
+	row = append(row, stringAnalyseCell(work.Dir))
+	for i := 1; i < len(plan.Header); i++ {
+		kind := analyseValueString
+		if i < len(plan.ColumnTypes) && plan.ColumnTypes[i] != "" {
+			kind = plan.ColumnTypes[i]
+		}
+		row = append(row, missingAnalyseCell(kind))
+	}
+	row = append(row, stringAnalyseCell(string(status)))
+	return row
+}
+
+func appendAnalyseStatus(rows [][]AnalyseCell, status Status) {
+	for i := range rows {
+		rows[i] = append(rows[i], stringAnalyseCell(string(status)))
+	}
 }
 
 func analyseWorkPackage(workDir string, work ManifestWork, plan AnalysePlan) ([][]AnalyseCell, error) {

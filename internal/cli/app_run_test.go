@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2395,6 +2396,227 @@ func TestRunCommandAnalysisFailureMarksRootError(t *testing.T) {
 	}
 }
 
+func TestRunCommandWeakWritesAnalyseCSVAfterFailedJobs(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x = [1, 2])`,
+		`do run with cases nproc 1 {`,
+		`if [ "$x" = "2" ]; then exit 2; fi`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value=%d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--weak", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected weak run to keep failing exit code\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	if status := readRootStatus(t, filepath.Join(runDir, "status")); status.Status != jbsrun.StatusError {
+		t.Fatalf("weak run root status = %#v, want ERROR", status)
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "value", "jbs_status"},
+		{"000000", "1", "1", "FINISHED"},
+		{"000001", "", "", "ERROR"},
+	})
+	out := stdout.String()
+	for _, want := range []string{"failed workpackage directories:", "analyse.csv", "nrows", "ncols"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("weak run stdout missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunCommandNonWeakDoesNotPrintAnalyseSummaryAfterFailure(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x = [1, 2])`,
+		`do run with cases nproc 1 {`,
+		`if [ "$x" = "2" ]; then exit 2; fi`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value=%d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected run failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "analyse.csv") {
+		t.Fatalf("non-weak failed run should not print analyse summary:\n%s", stdout.String())
+	}
+	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")); got != "run_id,x,value\n" {
+		t.Fatalf("non-weak failed run should leave only initial analyse header, got %q", got)
+	}
+}
+
+func TestRunCommandWeakWritesAnalyseSQLiteAfterFailedJobs(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_database = "results.sqlite"`,
+		`cases = table(x = [1, 2])`,
+		`do run with cases nproc 1 {`,
+		`if [ "$x" = "2" ]; then exit 2; fi`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value=%d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--weak", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected weak run to keep failing exit code\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	dbPath := filepath.Join(cwd, "results.sqlite")
+	assertSQLiteTable(t, dbPath, "bench_000000_run",
+		[]string{"run_id", "x", "value", "jbs_status"},
+		[][]string{
+			{"000000", "1", "1", "FINISHED"},
+			{"000001", "", "", "ERROR"},
+		},
+	)
+	if !strings.Contains(stdout.String(), "results.sqlite:bench_000000_run") {
+		t.Fatalf("weak sqlite run did not print analyse summary:\n%s", stdout.String())
+	}
+}
+
+func TestRunCommandWeakWritesBlockedAnalyseRows(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`x = 1`,
+		`do prep with x {`,
+		`false`,
+		`}`,
+		`do run after prep {`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`(x)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--weak", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected weak blocked run to keep failing exit code\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	if status := readWorkStatus(t, filepath.Join(runDir, "run", "000000", "status")); status.Status != jbsrun.StatusBlocked {
+		t.Fatalf("run work status = %#v, want BLOCKED", status)
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "jbs_status"},
+		{"000000", "", "BLOCKED"},
+	})
+}
+
+func TestRunCommandWeakSuccessfulRunAddsStatusColumn(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x = [1, 2])`,
+		`do run with cases nproc 1 {`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value=%d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--weak", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("weak successful run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "value", "jbs_status"},
+		{"000000", "1", "1", "FINISHED"},
+		{"000001", "2", "2", "FINISHED"},
+	})
+}
+
 func TestContinueRegeneratesAnalyse(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -3014,6 +3236,20 @@ func readFileString(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func readCSVFileRows(t *testing.T, path string) [][]string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	rows, err := csv.NewReader(f).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
 }
 
 func readSQLiteTable(t *testing.T, dbPath, table string) ([]string, [][]string) {

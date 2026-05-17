@@ -19,6 +19,7 @@ type Flags struct {
 	FWaitExitExisting bool
 	FWaitPaths        []string
 	DryRun            bool
+	Weak              bool
 	NoStrict          bool
 	Benchmark         string
 	Output            string
@@ -117,6 +118,11 @@ func ParseFlags(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 			}
 			cfg.DryRun = true
+		case arg == "-w" || arg == "--weak":
+			if cfg.Weak {
+				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
+			}
+			cfg.Weak = true
 		case arg == "--no-strict":
 			if cfg.NoStrict {
 				return Flags{}, UsageError{Message: defaultRunUsageMessage()}
@@ -133,12 +139,12 @@ func ParseFlags(args []string) (Flags, error) {
 		}
 	}
 	if cfg.Check {
-		if cfg.Input == "" || cfg.Help || cfg.DryRun || cfg.NoStrict || cfg.Benchmark != "" {
+		if cfg.Input == "" || cfg.Help || cfg.DryRun || cfg.Weak || cfg.NoStrict || cfg.Benchmark != "" {
 			return Flags{}, UsageError{Message: checkUsageMessage()}
 		}
 		return cfg, nil
 	}
-	if (cfg.NoStrict || cfg.DryRun || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
+	if (cfg.NoStrict || cfg.DryRun || cfg.Weak || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
 	if cfg.Input != "" && !cfg.Help {
@@ -154,8 +160,8 @@ Read examples/help:
   jbs help [%s]
 
 Run:
-  jbs input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
-  jbs run input.jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>]
+  jbs input.jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs run input.jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
   jbs continue input.jbs [-b|--benchmark <name>]
 
 Check syntax:
@@ -169,6 +175,7 @@ List generated analyse tables:
 
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
+  -w, --weak     Generate analyse outputs even when some workpackages fail
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
@@ -277,6 +284,11 @@ func parseRunArgs(args []string) (Flags, error) {
 				return Flags{}, UsageError{Message: runUsageMessage()}
 			}
 			cfg.DryRun = true
+		case arg == "-w" || arg == "--weak":
+			if cfg.Weak {
+				return Flags{}, UsageError{Message: runUsageMessage()}
+			}
+			cfg.Weak = true
 		case arg == "--no-strict":
 			if cfg.NoStrict {
 				return Flags{}, UsageError{Message: runUsageMessage()}
@@ -298,11 +310,11 @@ func parseRunArgs(args []string) (Flags, error) {
 }
 
 func runUsageMessage() string {
-	return "usage: jbs run [-n|--dry-run] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs run [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func defaultRunUsageMessage() string {
-	return "usage: jbs [-n|--dry-run] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func checkUsageMessage() string {
