@@ -78,6 +78,10 @@ func exprEvalTimeReadsName(expr ast.Expr, name string) bool {
 			}
 		}
 		return false
+	case ast.RangeExpr:
+		return exprEvalTimeReadsName(node.Start, name) ||
+			exprEvalTimeReadsName(node.Stop, name) ||
+			exprEvalTimeReadsName(node.Step, name)
 	case ast.CallExpr:
 		if exprEvalTimeReadsName(node.Callee, name) {
 			return true

@@ -269,6 +269,124 @@ func TestParseLogicalOperatorAliasesCanonicalized(t *testing.T) {
 	}
 }
 
+func TestParseRangeExprShortcut(t *testing.T) {
+	tests := []struct {
+		src     string
+		hasStep bool
+	}{
+		{src: "1:10"},
+		{src: "1:10:2", hasStep: true},
+		{src: "10:-2:-2", hasStep: true},
+		{src: "0.1:10:0.5", hasStep: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.src, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(tc.src, diags)
+			expr := tp.parseExpr()
+			if diags.HasErrors() {
+				t.Fatalf("unexpected parse errors: %s", diags.String())
+			}
+			r, ok := expr.(ast.RangeExpr)
+			if !ok {
+				t.Fatalf("expected RangeExpr, got %#v", expr)
+			}
+			if (r.Step != nil) != tc.hasStep {
+				t.Fatalf("unexpected step presence for %q", tc.src)
+			}
+			if r.Start == nil || r.Stop == nil {
+				t.Fatalf("expected start and stop expressions, got %#v", r)
+			}
+		})
+	}
+}
+
+func TestParseRangeExprInPostfixAndCalls(t *testing.T) {
+	t.Run("index selector", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("xs[1:3]", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok || len(idx.Items) != 1 {
+			t.Fatalf("expected one index selector, got %#v", expr)
+		}
+		if _, ok := idx.Items[0].(ast.RangeExpr); !ok {
+			t.Fatalf("expected range index selector, got %#v", idx.Items[0])
+		}
+	})
+
+	t.Run("named call argument", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("table(x = 1:3)", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		call, ok := expr.(ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			t.Fatalf("expected call expression, got %#v", expr)
+		}
+		if call.Args[0].Name != "x" {
+			t.Fatalf("expected named argument x, got %#v", call.Args[0])
+		}
+		if _, ok := call.Args[0].Expr.(ast.RangeExpr); !ok {
+			t.Fatalf("expected range named argument, got %#v", call.Args[0].Expr)
+		}
+	})
+
+	t.Run("positional call argument", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("map(int, 1:3)", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		call, ok := expr.(ast.CallExpr)
+		if !ok || len(call.Args) != 2 {
+			t.Fatalf("expected call expression, got %#v", expr)
+		}
+		if _, ok := call.Args[1].Expr.(ast.RangeExpr); !ok {
+			t.Fatalf("expected range positional argument, got %#v", call.Args[1].Expr)
+		}
+	})
+}
+
+func TestParseDictionaryColonStillSeparatesKeyValue(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`{"a": 1:3}`, diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	dict, ok := expr.(ast.DictExpr)
+	if !ok || len(dict.Entries) != 1 {
+		t.Fatalf("expected one-entry DictExpr, got %#v", expr)
+	}
+	if _, ok := dict.Entries[0].Key.(ast.StringExpr); !ok {
+		t.Fatalf("expected string key, got %#v", dict.Entries[0].Key)
+	}
+	if _, ok := dict.Entries[0].Value.(ast.RangeExpr); !ok {
+		t.Fatalf("expected range value, got %#v", dict.Entries[0].Value)
+	}
+}
+
+func TestParseRangeExprReportsTrailingColonTokens(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	expr, ok := ParseStandaloneExpr("expr.jbs", "1:2:3:4", diag.NewPos(0, 1, 1), diags)
+	if !ok {
+		t.Fatalf("expected standalone expression")
+	}
+	if _, ok := expr.(ast.RangeExpr); !ok {
+		t.Fatalf("expected range expression, got %#v", expr)
+	}
+	if !hasCode(diags, "E061") {
+		t.Fatalf("expected trailing token diagnostic, got: %s", diags.String())
+	}
+}
+
 func TestParseLogicalAliasPrecedence(t *testing.T) {
 	tests := []string{
 		"a || b && c",

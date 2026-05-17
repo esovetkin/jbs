@@ -39,6 +39,34 @@ func TestLexDictionaryPunctuation(t *testing.T) {
 	}
 }
 
+func TestLexRangeShortcutTokens(t *testing.T) {
+	src := "0.1:10:0.5\n10:-2:-2\n"
+	diags := &diag.Diagnostics{}
+	tokens := Lex("in.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected lexer errors: %s", diags.String())
+	}
+	got := make([]TokenType, 0, len(tokens))
+	for _, tok := range tokens {
+		if tok.Type == TokenNewline || tok.Type == TokenEOF {
+			continue
+		}
+		got = append(got, tok.Type)
+	}
+	want := []TokenType{
+		TokenNumber, TokenColon, TokenNumber, TokenColon, TokenNumber,
+		TokenNumber, TokenColon, TokenMinus, TokenNumber, TokenColon, TokenMinus, TokenNumber,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected token count: got %#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected token %d: got %#v want %#v", i, got, want)
+		}
+	}
+}
+
 func TestLexStarSymbols(t *testing.T) {
 	src := "a * b\nx *= y\nf(**kwargs)\n"
 	diags := &diag.Diagnostics{}

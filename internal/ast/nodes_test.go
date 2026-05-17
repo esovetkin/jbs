@@ -45,6 +45,7 @@ var (
 	_ Expr         = TupleExpr{}
 	_ Node         = DictEntryExpr{}
 	_ Expr         = DictExpr{}
+	_ Expr         = RangeExpr{}
 	_ Expr         = CallExpr{}
 	_ Expr         = FunctionExpr{}
 	_ Expr         = AliasExpr{}
@@ -158,7 +159,8 @@ func TestExprNodes(t *testing.T) {
 	tuple := TupleExpr{Span: testSpan(38)}
 	dictEntry := DictEntryExpr{Span: testSpan(39)}
 	dict := DictExpr{Span: testSpan(40)}
-	call := CallExpr{Span: testSpan(40)}
+	rangeExpr := RangeExpr{Span: testSpan(41)}
+	call := CallExpr{Span: testSpan(42)}
 	function := FunctionExpr{Span: testSpan(41)}
 	alias := AliasExpr{Span: testSpan(42)}
 	unary := UnaryExpr{Span: testSpan(43)}
@@ -183,7 +185,8 @@ func TestExprNodes(t *testing.T) {
 		{name: "TupleExpr", call: func() { tuple.exprNode() }, node: tuple, want: testSpan(38)},
 		{name: "DictEntryExpr", call: func() {}, node: dictEntry, want: testSpan(39)},
 		{name: "DictExpr", call: func() { dict.exprNode() }, node: dict, want: testSpan(40)},
-		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(40)},
+		{name: "RangeExpr", call: func() { rangeExpr.exprNode() }, node: rangeExpr, want: testSpan(41)},
+		{name: "CallExpr", call: func() { call.exprNode() }, node: call, want: testSpan(42)},
 		{name: "FunctionExpr", call: func() { function.exprNode() }, node: function, want: testSpan(41)},
 		{name: "AliasExpr", call: func() { alias.exprNode() }, node: alias, want: testSpan(42)},
 		{name: "UnaryExpr", call: func() { unary.exprNode() }, node: unary, want: testSpan(43)},

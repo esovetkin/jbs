@@ -68,6 +68,7 @@ func TestWalkExprVisitsChildExpressions(t *testing.T) {
 			Key:   walkIdent("dict_key"),
 			Value: walkIdent("dict_value"),
 		}}},
+		RangeExpr{Start: walkIdent("range_start"), Stop: walkIdent("range_stop"), Step: walkIdent("range_step")},
 		CallExpr{
 			Callee: walkIdent("callee"),
 			Args:   []CallArg{PosCallArg(walkIdent("arg"))},
@@ -91,6 +92,9 @@ func TestWalkExprVisitsChildExpressions(t *testing.T) {
 		"tuple_item",
 		"dict_key",
 		"dict_value",
+		"range_start",
+		"range_stop",
+		"range_step",
 		"callee",
 		"arg",
 		"param_default",

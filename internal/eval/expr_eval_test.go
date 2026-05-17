@@ -1891,18 +1891,6 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			wantCode: "E199",
 		},
 		{
-			name: "range empty output for start greater than stop",
-			expr: ast.CallExpr{
-				Callee: ast.IdentExpr{Name: "range"},
-				Args: ast.PosCallArgs(
-					ast.NumberExpr{Int: true, IntValue: 10},
-					ast.NumberExpr{Int: true, IntValue: 1},
-				),
-			},
-			opts:       ExprOptions{Context: EvalCtxBindingAssign},
-			wantNoErrs: true,
-		},
-		{
 			name: "range empty output for negative stop",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "range"},

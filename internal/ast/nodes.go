@@ -358,6 +358,16 @@ type DictExpr struct {
 func (e DictExpr) exprNode()          {}
 func (e DictExpr) GetSpan() diag.Span { return e.Span }
 
+type RangeExpr struct {
+	Start Expr
+	Stop  Expr
+	Step  Expr
+	Span  diag.Span
+}
+
+func (e RangeExpr) exprNode()          {}
+func (e RangeExpr) GetSpan() diag.Span { return e.Span }
+
 type CallArgKind uint8
 
 const (

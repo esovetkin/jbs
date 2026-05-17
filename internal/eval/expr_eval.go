@@ -224,6 +224,24 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		return Tuple(items)
 	case ast.DictExpr:
 		return evalDictExpr(e, env, diags, opts, ctx)
+	case ast.RangeExpr:
+		start := evalExprWithCtx(e.Start, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		stop := evalExprWithCtx(e.Stop, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return Null()
+		}
+		args := []Value{start, stop}
+		if e.Step != nil {
+			step := evalExprWithCtx(e.Step, env, diags, opts, ctx)
+			if ctx.recursionLimitHit() {
+				return Null()
+			}
+			args = append(args, step)
+		}
+		return evalRangeCall(args, e.Span, diags)
 	case ast.FunctionExpr:
 		value := newFunctionValue(e, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {

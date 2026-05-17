@@ -89,6 +89,9 @@ func exprWithSpan(expr ast.Expr, span diag.Span) ast.Expr {
 	case ast.DictExpr:
 		e.Span = span
 		return e
+	case ast.RangeExpr:
+		e.Span = span
+		return e
 	case ast.CallExpr:
 		e.Span = span
 		return e
@@ -167,10 +170,10 @@ func (p *tokenParser) parseExpr() ast.Expr {
 }
 
 func (p *tokenParser) parseConditional() ast.Expr {
-	thenExpr := p.parsePipe()
+	thenExpr := p.parseRange()
 	if p.peek().Type == lexer.TokenIf {
 		ifTok := p.next()
-		cond := p.parsePipe()
+		cond := p.parseRange()
 		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
 		elseExpr := p.parseConditional()
 		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
@@ -183,6 +186,62 @@ func (p *tokenParser) parseConditional() ast.Expr {
 		}
 	}
 	return thenExpr
+}
+
+func (p *tokenParser) parseConditionalNoRange() ast.Expr {
+	thenExpr := p.parsePipe()
+	if p.peek().Type == lexer.TokenIf {
+		ifTok := p.next()
+		cond := p.parsePipe()
+		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
+		elseExpr := p.parseConditionalNoRange()
+		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
+		span = diag.Merge(span, ifTok.Span)
+		return ast.ConditionalExpr{
+			Then: thenExpr,
+			Cond: cond,
+			Else: elseExpr,
+			Span: span,
+		}
+	}
+	return thenExpr
+}
+
+func (p *tokenParser) parseExprNoRange() ast.Expr {
+	return p.parseConditionalNoRange()
+}
+
+func (p *tokenParser) parseRange() ast.Expr {
+	start := p.parsePipe()
+	if p.peek().Type != lexer.TokenColon {
+		return start
+	}
+
+	firstColon := p.next()
+	stop := p.parsePipe()
+	if stop == nil {
+		p.diags.AddError(diag.CodeE058, "expected range stop after ':'", firstColon.Span, "use start:stop or start:stop:step")
+		return start
+	}
+
+	var step ast.Expr
+	end := stop.GetSpan()
+	if p.peek().Type == lexer.TokenColon {
+		secondColon := p.next()
+		step = p.parsePipe()
+		if step == nil {
+			p.diags.AddError(diag.CodeE058, "expected range step after ':'", secondColon.Span, "use start:stop:step")
+			return ast.RangeExpr{Start: start, Stop: stop, Span: diag.Merge(start.GetSpan(), end)}
+		}
+		end = step.GetSpan()
+	}
+
+	return ast.RangeExpr{
+		Start: start,
+		Stop:  stop,
+		Step:  step,
+		Span:  diag.Merge(start.GetSpan(), end),
+	}
 }
 
 func canonicalLogicalOp(tt lexer.TokenType) (string, bool) {
@@ -434,7 +493,7 @@ func (p *tokenParser) parseDictExpr() ast.Expr {
 	entries := make([]ast.DictEntryExpr, 0)
 	if p.peek().Type != lexer.TokenRBrace {
 		for {
-			key := p.parseExpr()
+			key := p.parseExprNoRange()
 			p.skipNewlines()
 			colon := p.expect(lexer.TokenColon, diag.CodeE058, "expected ':' between dictionary key and value")
 			p.skipNewlines()

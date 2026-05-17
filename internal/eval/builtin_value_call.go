@@ -132,15 +132,20 @@ func bindRangeBuiltinValues(args []CallValueArg, at diag.Span, diags *diag.Diagn
 	if !ok {
 		return nil, false
 	}
-	if _, ok := bound.ByName["start"]; !ok {
-		bound.ByName["start"] = CallValueArg{Value: Int(0), Span: at}
+
+	stop := bound.ByName["stop"].Value
+	startArg, hasStart := bound.ByName["start"]
+	stepArg, hasStep := bound.ByName["step"]
+	if !hasStart && !hasStep {
+		return []Value{stop}, true
 	}
-	if _, ok := bound.ByName["step"]; !ok {
-		bound.ByName["step"] = CallValueArg{Value: Int(1), Span: at}
+
+	start := Int(0)
+	if hasStart {
+		start = startArg.Value
 	}
-	return []Value{
-		bound.ByName["start"].Value,
-		bound.ByName["stop"].Value,
-		bound.ByName["step"].Value,
-	}, true
+	if !hasStep {
+		return []Value{start, stop}, true
+	}
+	return []Value{start, stop, stepArg.Value}, true
 }

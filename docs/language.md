@@ -136,11 +136,19 @@ jbs> range(5)
 [0, 1, 2, 3, 4]
 jbs> range(2, 5)
 [2, 3, 4]
+jbs> range(5, 2)
+[5, 4, 3]
 jbs> range(0, 10, 2)
 [0, 2, 4, 6, 8]
+jbs> 1:5
+[1, 2, 3, 4]
+jbs> 5:1
+[5, 4, 3, 2]
 jbs> range(0, 1, 0.2)
 [0.0, 0.2, 0.4, 0.6, 0.8]
 ```
+
+The `start:stop` and `start:stop:step` shortcuts are expression syntax for `range(start, stop)` and `range(start, stop, step)`.
 
 ### Dictionaries
 

@@ -55,6 +55,11 @@ func walkExpr(expr Expr, callbacks WalkCallbacks) bool {
 			}
 		}
 		return true
+	case RangeExpr:
+		if !walkExpr(node.Start, callbacks) || !walkExpr(node.Stop, callbacks) {
+			return false
+		}
+		return walkExpr(node.Step, callbacks)
 	case CallExpr:
 		if !walkExpr(node.Callee, callbacks) {
 			return false
