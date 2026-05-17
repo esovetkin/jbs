@@ -443,12 +443,46 @@ func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.HasPrefix(out, "starting [1, 2, 3, ...] {\"name\": \"case\"}\n") {
+	if !strings.HasPrefix(out, "starting [1, 2, 3, 4] {\"name\": \"case\"}\n") {
 		t.Fatalf("expected print output before progress, got %q", out)
 	}
 	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "000000", "stdout"))
 	if workOut != "shell\n" {
 		t.Fatalf("expected shell stdout to stay in workpackage file, got %q", workOut)
+	}
+}
+
+func TestRunCommandPrintHonorsNRow(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`print(range(100), nrow = 1)`,
+		`do run {`,
+		`echo shell`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	firstLine := strings.SplitN(stdout.String(), "\n", 2)[0]
+	if !strings.HasPrefix(firstLine, "[0, 1, 2") || !strings.HasSuffix(firstLine, "...]") {
+		t.Fatalf("expected nrow-truncated print output, got %q", firstLine)
 	}
 }
 

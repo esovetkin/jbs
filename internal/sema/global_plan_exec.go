@@ -164,6 +164,9 @@ func (e *globalSeqEngine) recordPrintEvent(event eval.PrintEvent) {
 		Seq:    event.Seq,
 		Span:   event.Span,
 		Values: eval.CloneValues(event.Values),
+		Options: eval.PrintOptions{
+			NRow: event.Options.NRow,
+		},
 	})
 }
 

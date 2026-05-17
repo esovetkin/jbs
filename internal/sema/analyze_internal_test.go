@@ -122,7 +122,7 @@ masked
 }
 
 func TestAnalyzePrintEventsRequireOption(t *testing.T) {
-	src := "print(\"quiet\")\n"
+	src := "print(\"quiet\", nrow = 3)\n"
 	diags := &diag.Diagnostics{}
 	prog := parser.Parse("in.jbs", src, diags)
 	res := Analyze(prog, map[string]eval.Value{
@@ -142,7 +142,7 @@ func TestAnalyzePrintEventsRequireOption(t *testing.T) {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "quiet" {
+	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "quiet" || res.PrintEvents[0].Options.NRow != 3 {
 		t.Fatalf("unexpected collected print events: %#v", res.PrintEvents)
 	}
 	if len(res.TopLevelExprs) != 1 || res.TopLevelExprs[0].Echo {
@@ -199,7 +199,7 @@ for x in (3, 4) {
 func TestAnalyzeWithImportsCollectsEntryPrintsOnly(t *testing.T) {
 	cwd := t.TempDir()
 	libPath := filepath.Join(cwd, "lib.jbs")
-	libSrc := "print(\"imported\")\nf = function() { print(\"called\"); 1 }\n"
+	libSrc := "print(\"imported\")\nf = function() { print(\"called\", nrow = 4); 1 }\n"
 	if err := os.WriteFile(libPath, []byte(libSrc), 0o644); err != nil {
 		t.Fatalf("write lib: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestAnalyzeWithImportsCollectsEntryPrintsOnly(t *testing.T) {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "called" {
+	if len(res.PrintEvents) != 1 || len(res.PrintEvents[0].Values) != 1 || res.PrintEvents[0].Values[0].S != "called" || res.PrintEvents[0].Options.NRow != 4 {
 		t.Fatalf("expected only called imported function print, got %#v", res.PrintEvents)
 	}
 	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, eval.Int(1)) {

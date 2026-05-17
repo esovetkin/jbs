@@ -94,10 +94,11 @@ type TopLevelExprResult struct {
 }
 
 type PrintEvent struct {
-	Index  int
-	Seq    int
-	Span   diag.Span
-	Values []eval.Value
+	Index   int
+	Seq     int
+	Span    diag.Span
+	Values  []eval.Value
+	Options eval.PrintOptions
 }
 
 type ScopeSnapshot struct {

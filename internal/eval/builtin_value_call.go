@@ -40,6 +40,12 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalShellValueCall(args, env, at, diags, opts, ctx)
 	case "update":
 		return evalUpdateValueCall(args, at, diags)
+	case "print":
+		bound, ok := bindPrintArgs(args, diags)
+		if !ok {
+			return Null()
+		}
+		return evalPrintCall(bound.Values, bound.Options, at, opts)
 	}
 
 	values, ok := simpleBuiltinValues(name, args, at, diags)
@@ -57,8 +63,6 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalAllAnyCall("all", values, at, diags)
 	case "any":
 		return evalAllAnyCall("any", values, at, diags)
-	case "print":
-		return evalPrintCall(values, at, opts)
 	}
 	return evalKernelCall(name, values, at, diags, opts)
 }
@@ -85,12 +89,6 @@ func simpleBuiltinValues(name string, args []CallValueArg, at diag.Span, diags *
 			return nil, false
 		}
 		return []Value{bound.ByName[param].Value}, true
-	case "print":
-		bound, ok := bindBuiltinArgs(name, args, builtinSignature{Name: name, Varargs: "values", NamedVarargs: true, AllowNoArgs: true}, at, diags)
-		if !ok {
-			return nil, false
-		}
-		return callArgsToValues(bound.Varargs), true
 	case "range":
 		return bindRangeBuiltinValues(args, at, diags)
 	}

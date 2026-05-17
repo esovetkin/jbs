@@ -62,7 +62,10 @@ func printEvents(w io.Writer, events []sema.PrintEvent) {
 		return ordered[i].Seq < ordered[j].Seq
 	})
 	for _, event := range ordered {
-		fmt.Fprintln(w, valuefmt.PrintLine(event.Values))
+		fmt.Fprintln(w, valuefmt.PrintLineWithOptions(event.Values, valuefmt.Options{
+			NRow:  event.Options.NRow,
+			Width: valuefmt.DefaultWidth,
+		}))
 	}
 }
 

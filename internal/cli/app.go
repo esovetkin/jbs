@@ -457,8 +457,11 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 			continue
 		}
 		events = append(events, replOutputEvent{
-			Seq:  event.Seq,
-			Text: valuefmt.PrintLine(event.Values),
+			Seq: event.Seq,
+			Text: valuefmt.PrintLineWithOptions(event.Values, valuefmt.Options{
+				NRow:  event.Options.NRow,
+				Width: valuefmt.DefaultWidth,
+			}),
 		})
 	}
 	for _, expr := range bundle.Result.TopLevelExprs {

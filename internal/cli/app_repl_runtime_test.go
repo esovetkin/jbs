@@ -28,7 +28,7 @@ func TestFilterDiagnosticsBySeverity(t *testing.T) {
 
 func TestFormatReplValueListTupleTruncation(t *testing.T) {
 	list := eval.List([]eval.Value{eval.Int(0), eval.Int(1), eval.Int(2), eval.Int(3)})
-	if got := valuefmt.ReplValue(list); got != "[0, 1, 2, ...]" {
+	if got := valuefmt.ReplValue(list); got != "[0, 1, 2, 3]" {
 		t.Fatalf("unexpected list preview: %q", got)
 	}
 
@@ -45,7 +45,8 @@ func TestFormatReplValueDictionaryPreview(t *testing.T) {
 		{Key: eval.DictKey{Kind: eval.DictKeyBool, B: true}, Value: eval.Bool(false)},
 		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "extra"}, Value: eval.Int(9)},
 	})
-	if got := valuefmt.ReplValue(dict); got != "{\"name\": \"case\", 2: [1, 2, 3, ...], true: false, ...}" {
+	want := "{\"name\": \"case\",\n 2: [1, 2, 3, 4],\n true: false,\n \"extra\": 9}"
+	if got := valuefmt.ReplValue(dict); got != want {
 		t.Fatalf("unexpected dictionary preview: %q", got)
 	}
 }
@@ -61,14 +62,8 @@ func TestFormatReplValueTableSummary(t *testing.T) {
 		},
 	})
 	got := valuefmt.ReplValue(comb)
-	if !strings.Contains(got, "table(rows=4") {
-		t.Fatalf("expected rows summary, got: %q", got)
-	}
-	if !strings.Contains(got, "cols=[a, b]") {
-		t.Fatalf("expected column summary, got: %q", got)
-	}
-	if !strings.Contains(got, "head=[{a:1, b:\"x\"}, {a:2, b:\"y\"}, {a:3, b:\"z\"}, ...]") {
-		t.Fatalf("expected truncated head summary, got: %q", got)
+	if !strings.Contains(got, "| a | b |") || !strings.Contains(got, "| 4 | w |") {
+		t.Fatalf("expected pretty table, got: %q", got)
 	}
 }
 
@@ -82,7 +77,7 @@ func TestFormatReplValueTableFallbackColumnOrder(t *testing.T) {
 		}},
 	})
 	got := valuefmt.ReplValue(comb)
-	if !strings.Contains(got, "cols=[a, z]") {
+	if !strings.HasPrefix(got, "| a | z |") {
 		t.Fatalf("expected sorted fallback columns, got: %q", got)
 	}
 }
@@ -129,6 +124,49 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 	if second.Source != "a = range(5)\nlen(a)" {
 		t.Fatalf("unexpected committed source: %q", second.Source)
+	}
+}
+
+func TestCommitReplChunkEmitsExpandedListOutput(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "range(10)")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no expression errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" {
+		t.Fatalf("unexpected list output: %#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkEmitsPrettyTableOutput(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", `table(id = [1, 2], label = ["a", "bbb"])`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no expression errors, diag=%q", commit.DiagText)
+	}
+	want := "| id | label |\n|----|-------|\n| 1  | a     |\n| 2  | bbb   |"
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != want {
+		t.Fatalf("unexpected table output:\n%#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkPrintHonorsNRow(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", `print(range(100), nrow = 1)`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no print errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || !strings.HasPrefix(commit.ExprOutput[0], "[0, 1, 2") || !strings.HasSuffix(commit.ExprOutput[0], "...]") {
+		t.Fatalf("unexpected nrow print output: %#v", commit.ExprOutput)
 	}
 }
 
@@ -365,7 +403,7 @@ func TestCommitReplChunkEmitsNamesOutput(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_benchmarks\", \"jbs_database\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"a\", \"jbs_benchmarks\", \"jbs_database\", \"jbs_name\", \"jbs_nproc\"]" {
 		t.Fatalf("unexpected names() expr output: %#v", second.ExprOutput)
 	}
 }
@@ -529,7 +567,7 @@ func TestCommitReplChunkNamesIncludeFunctionValuedGlobals(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected names() to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_benchmarks\", \"jbs_database\", ...]" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "[\"add\", \"jbs_benchmarks\", \"jbs_database\", \"jbs_name\", \"jbs_nproc\"]" {
 		t.Fatalf("unexpected names() output for function globals: %#v", second.ExprOutput)
 	}
 }

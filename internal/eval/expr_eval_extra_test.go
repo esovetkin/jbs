@@ -295,6 +295,132 @@ func TestEvalPrintCallCollectsEvents(t *testing.T) {
 	}
 }
 
+func TestEvalPrintCallOptions(t *testing.T) {
+	tests := []struct {
+		name       string
+		expr       ast.Expr
+		wantNRow   int
+		wantValues []Value
+		opts       ExprOptions
+	}{
+		{
+			name:       "positional with nrow",
+			expr:       callExpr(ident("print"), posArg(intExpr(1)), namedArg("nrow", intExpr(3))),
+			wantNRow:   3,
+			wantValues: []Value{Int(1)},
+		},
+		{
+			name:       "values with unlimited nrow",
+			expr:       callExpr(ident("print"), namedArg("values", listExpr(intExpr(1), intExpr(2))), namedArg("nrow", intExpr(0))),
+			wantNRow:   0,
+			wantValues: []Value{Int(1), Int(2)},
+		},
+		{
+			name: "builtin function value",
+			expr: callExpr(ident("p"), posArg(listExpr(intExpr(1), intExpr(2))), namedArg("nrow", intExpr(2))),
+			opts: ExprOptions{Frame: func() *Frame {
+				frame := NewRootFrame(nil)
+				assignBuiltinFunction(t, frame, "p", "print")
+				return frame
+			}()},
+			wantNRow:   2,
+			wantValues: []Value{List([]Value{Int(1), Int(2)})},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			events := []PrintEvent{}
+			opts := tc.opts
+			opts.Context = EvalCtxBindingAssign
+			opts.Print = func(event PrintEvent) {
+				events = append(events, event)
+			}
+			got := EvalExprWithOptions(tc.expr, nil, diags, opts)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if got.Kind != KindNull {
+				t.Fatalf("expected print to return null, got %#v", got)
+			}
+			if len(events) != 1 {
+				t.Fatalf("expected one print event, got %#v", events)
+			}
+			if events[0].Options.NRow != tc.wantNRow {
+				t.Fatalf("unexpected nrow: got %d want %d", events[0].Options.NRow, tc.wantNRow)
+			}
+			if len(events[0].Values) != len(tc.wantValues) {
+				t.Fatalf("unexpected values: got=%#v want=%#v", events[0].Values, tc.wantValues)
+			}
+			for i := range tc.wantValues {
+				if !Equal(events[0].Values[i], tc.wantValues[i]) {
+					t.Fatalf("value %d: got=%#v want=%#v", i, events[0].Values[i], tc.wantValues[i])
+				}
+			}
+		})
+	}
+}
+
+func TestEvalPrintCallOptionDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		expr ast.Expr
+		want string
+	}{
+		{
+			name: "nrow string",
+			expr: callExpr(ident("print"), namedArg("nrow", stringExpr("10"))),
+			want: "nrow argument must be an integer",
+		},
+		{
+			name: "nrow negative",
+			expr: callExpr(ident("print"), namedArg("nrow", intExpr(-1))),
+			want: "nrow argument must be non-negative",
+		},
+		{
+			name: "unknown option",
+			expr: callExpr(ident("print"), namedArg("width", intExpr(80))),
+			want: "unknown named argument 'width' for print()",
+		},
+		{
+			name: "positional after named",
+			expr: callExpr(ident("print"), namedArg("nrow", intExpr(1)), posArg(intExpr(2))),
+			want: "positional arguments cannot follow named arguments",
+		},
+		{
+			name: "values not sequence",
+			expr: callExpr(ident("print"), namedArg("values", intExpr(1))),
+			want: "* call expansion expects a list or tuple",
+		},
+		{
+			name: "duplicate nrow",
+			expr: callExpr(ident("print"), namedArg("nrow", intExpr(1)), namedArg("nrow", intExpr(2))),
+			want: "argument 'nrow' received multiple values",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			events := []PrintEvent{}
+			got := EvalExprWithOptions(tc.expr, nil, diags, ExprOptions{
+				Context: EvalCtxBindingAssign,
+				Print: func(event PrintEvent) {
+					events = append(events, event)
+				},
+			})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null on diagnostic, got %#v", got)
+			}
+			if diagCount(diags, "E106") != 1 || !strings.Contains(diags.String(), tc.want) {
+				t.Fatalf("expected E106 containing %q, got: %s", tc.want, diags.String())
+			}
+			if len(events) != 0 {
+				t.Fatalf("expected no print event on invalid call, got %#v", events)
+			}
+		})
+	}
+}
+
 func TestEvalPrintCallNoSinkAndClone(t *testing.T) {
 	span := spanAt(331, 1)
 	env := map[string]Value{"x": List([]Value{Int(1)})}
