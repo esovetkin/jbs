@@ -26,6 +26,8 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalReduceValueCall(args, env, at, diags, opts, ctx)
 	case "rename":
 		return evalRenameValueCall(args, at, diags)
+	case "order":
+		return evalOrderValueCall(args, env, at, diags, opts, ctx)
 	case "rbind":
 		return evalRbindValueCall(args, at, diags)
 	case "filter":
@@ -36,6 +38,8 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
 	case "prod":
 		return evalFoldOperatorValueCall("prod", "*", args, at, diags, opts, ctx)
+	case "sort":
+		return evalSortValueCall(args, env, at, diags, opts, ctx)
 	case "rows":
 		return evalRowsValueCall(args, at, diags)
 	case "shell":

@@ -24,6 +24,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"len":      {},
 	"map":      {},
 	"names":    {},
+	"order":    {},
 	"prod":     {},
 	"print":    {},
 	"read_csv": {},
@@ -32,6 +33,7 @@ var specialBuiltinCallNames = map[string]struct{}{
 	"rename":   {},
 	"rows":     {},
 	"shell":    {},
+	"sort":     {},
 	"str":      {},
 	"sum":      {},
 	"table":    {},
@@ -116,6 +118,12 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 			return Null()
 		}
 		return evalRenameValueCall(args, at, diags)
+	case "order":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalOrderValueCall(args, env, at, diags, opts, ctx)
 	case "rbind":
 		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
 		if !ok {
@@ -146,6 +154,12 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 			return Null()
 		}
 		return evalFoldOperatorValueCall("prod", "*", args, at, diags, opts, ctx)
+	case "sort":
+		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
+		if !ok {
+			return Null()
+		}
+		return evalSortValueCall(args, env, at, diags, opts, ctx)
 	case "rows":
 		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
 		if !ok {

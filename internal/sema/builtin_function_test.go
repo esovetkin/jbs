@@ -134,6 +134,67 @@ mapped = map(len, map(head, [[1, 2, 3, 4, 5, 6], [7, 8]]))
 	}
 }
 
+func TestAnalyzeSortOrderBuiltins(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+values = sort([3, 1, 2])
+perm = order(values)
+mapped_count = len(map(sort, [[2, 1], [4, 3]]))
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.List([]eval.Value{eval.Int(1), eval.Int(2), eval.Int(3)})) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	perm := res.GlobalVarByName["perm"]
+	if perm == nil || !eval.Equal(perm.Value, eval.List([]eval.Value{eval.Int(0), eval.Int(1), eval.Int(2)})) {
+		t.Fatalf("unexpected perm global: %#v", perm)
+	}
+	mappedCount := res.GlobalVarByName["mapped_count"]
+	if mappedCount == nil || !eval.Equal(mappedCount.Value, eval.Int(2)) {
+		t.Fatalf("unexpected mapped_count global: %#v", mappedCount)
+	}
+	for _, gv := range []*GlobalVar{values, perm, mappedCount} {
+		for _, dep := range []string{"sort", "order"} {
+			if slices.Contains(gv.DependsOn, dep) {
+				t.Fatalf("unshadowed builtin %q should not be recorded as dependency for %s: %#v", dep, gv.Name, gv.DependsOn)
+			}
+		}
+		for _, key := range gv.DependsOnKeys {
+			if key.Public == "sort" || key.Public == "order" {
+				t.Fatalf("unshadowed sort/order dependency key recorded for %s: %#v", gv.Name, gv.DependsOnKeys)
+			}
+		}
+	}
+}
+
+func TestAnalyzeShadowedSortOrderDependency(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+sort = function(x) { 42 }
+order = function(x) { 99 }
+values = sort([3, 1, 2])
+perm = order([3, 1, 2])
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.Int(42)) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	perm := res.GlobalVarByName["perm"]
+	if perm == nil || !eval.Equal(perm.Value, eval.Int(99)) {
+		t.Fatalf("unexpected perm global: %#v", perm)
+	}
+	if !slices.Contains(values.DependsOn, "sort") {
+		t.Fatalf("expected dependency on shadowed sort, got %#v", values.DependsOn)
+	}
+	if !slices.Contains(perm.DependsOn, "order") {
+		t.Fatalf("expected dependency on shadowed order, got %#v", perm.DependsOn)
+	}
+}
+
 func TestAnalyzeRbindBuiltin(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 a = table(id = [1], label = ["a"])
