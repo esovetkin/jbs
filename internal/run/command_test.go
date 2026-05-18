@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -239,15 +240,17 @@ func TestCreatePreparedStoresAndOpenContinuableStores(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "bench")
 	plan := testRuntimePlan(t.TempDir())
 	plan.RootDir = root
-	prepared, err := createPreparedStores([]runtimePlan{plan})
+	suite := runtimeSuitePlan{RootName: root, Plans: []runtimePlan{plan}}
+	prepared, unlock, err := createPreparedStores(suite)
 	if err != nil {
 		t.Fatal(err)
 	}
+	unlock()
 	if len(prepared) != 1 || prepared[0].Store == nil || prepared[0].Store.RunDir != filepath.Join(root, "000000") {
 		t.Fatalf("prepared stores = %#v, want one store at first run", prepared)
 	}
 
-	continuable, unlock, err := openContinuableStores(runtimeSuitePlan{Plans: []runtimePlan{plan}})
+	continuable, unlock, err := openContinuableStores(suite)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func TestCreatePreparedStoresAndOpenContinuableStores(t *testing.T) {
 	}
 	badPlan := plan
 	badPlan.RootDir = fileRoot
-	if _, err := createPreparedStores([]runtimePlan{badPlan}); err == nil {
+	if _, _, err := createPreparedStores(runtimeSuitePlan{RootName: fileRoot, Plans: []runtimePlan{badPlan}}); err == nil {
 		t.Fatal("expected createPreparedStores error for file root")
 	}
 
@@ -387,17 +390,115 @@ func TestCreatePreparedStoresAndOpenContinuableStores(t *testing.T) {
 	}
 }
 
-func TestRunPreparedStoresCoversMultiComponentAndCancelledRun(t *testing.T) {
-	first := testRuntimePlan(t.TempDir())
-	first.RootDir = filepath.Join(t.TempDir(), "first")
-	first.ComponentName = "first"
-	second := testRuntimePlan(t.TempDir())
-	second.RootDir = filepath.Join(t.TempDir(), "second")
-	second.ComponentName = "second"
-	prepared, err := createPreparedStores([]runtimePlan{first, second})
+func TestCreatePreparedStoresHoldsLifecycleLocksBeforeRunning(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		suite runtimeSuitePlan
+		root  string
+	}{
+		{
+			name: "single",
+			root: filepath.Join(t.TempDir(), "single"),
+		},
+		{
+			name: "configured",
+			root: filepath.Join(t.TempDir(), "configured"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := testRuntimePlan(t.TempDir())
+			if tc.name == "configured" {
+				plan.RootDir = filepath.Join(tc.root, "small")
+				plan.ComponentName = "small"
+				tc.suite = runtimeSuitePlan{
+					RootName:   tc.root,
+					Configured: true,
+					Plans:      []runtimePlan{plan},
+				}
+			} else {
+				plan.RootDir = tc.root
+				tc.suite = runtimeSuitePlan{
+					RootName: tc.root,
+					Plans:    []runtimePlan{plan},
+				}
+			}
+
+			prepared, unlock, err := createPreparedStores(tc.suite)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unlock()
+			if len(prepared) != 1 {
+				t.Fatalf("prepared = %d, want 1", len(prepared))
+			}
+			status, err := prepared[0].Store.LoadRootStatus()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status.Status != StatusNotStarted {
+				t.Fatalf("status = %s, want %s", status.Status, StatusNotStarted)
+			}
+
+			_, err = ArchiveRoot(tc.root, filepath.Join(t.TempDir(), "bench.tar.gz"), time.Now().UTC())
+			if err == nil || !strings.Contains(err.Error(), "locked") {
+				t.Fatalf("ArchiveRoot error = %v, want lock error", err)
+			}
+		})
+	}
+}
+
+func TestOpenContinuableStoresHoldsConfiguredLifecycleLocksBeforeRunning(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	plan := testRuntimePlan(t.TempDir())
+	plan.RootDir = filepath.Join(root, "small")
+	plan.ComponentName = "small"
+	if _, _, err := CreateRunDirectoryWithInitial(plan.RootDir, plan, StatusNotStarted); err != nil {
+		t.Fatal(err)
+	}
+	suite := runtimeSuitePlan{
+		RootName:   root,
+		Configured: true,
+		Plans:      []runtimePlan{plan},
+	}
+	prepared, unlock, err := openContinuableStores(suite)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer unlock()
+	if len(prepared) != 1 {
+		t.Fatalf("prepared = %d, want 1", len(prepared))
+	}
+	status, err := prepared[0].Store.LoadRootStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != StatusNotStarted {
+		t.Fatalf("status = %s, want %s", status.Status, StatusNotStarted)
+	}
+
+	_, err = ArchiveRoot(root, filepath.Join(t.TempDir(), "bench.tar.gz"), time.Now().UTC())
+	if err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("ArchiveRoot error = %v, want lock error", err)
+	}
+}
+
+func TestRunPreparedStoresCoversMultiComponentAndCancelledRun(t *testing.T) {
+	first := testRuntimePlan(t.TempDir())
+	first.ComponentName = "first"
+	second := testRuntimePlan(t.TempDir())
+	second.ComponentName = "second"
+	root := filepath.Join(t.TempDir(), "multi")
+	first.RootDir = filepath.Join(root, "first")
+	second.RootDir = filepath.Join(root, "second")
+	prepared, unlock, err := createPreparedStores(runtimeSuitePlan{
+		RootName:   root,
+		Configured: true,
+		Plans:      []runtimePlan{first, second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
 
 	withRunWorkProcess(t, func(context.Context, string) processResult {
 		code := 0

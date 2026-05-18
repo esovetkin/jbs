@@ -70,18 +70,30 @@ func ArchiveBenchmarkDir(ctx context.Context, opts BenchmarkDirOptions) error {
 func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error) {
 	root = filepath.Clean(root)
 	archivePath = filepath.Clean(archivePath)
+	locks := &heldRootLocks{}
 	unlock, err := acquireExistingRootLock(root)
 	if err != nil {
 		return ArchiveResult{}, err
 	}
-	defer unlock()
+	locks.unlocks = append(locks.unlocks, unlock)
+	defer locks.release()
 
-	runs, err := archiveableRuns(root)
+	inventory, err := discoverArchiveRuns(root)
 	if err != nil {
 		return ArchiveResult{}, err
 	}
-	if len(runs) == 0 {
+	if len(inventory.Runs) == 0 {
 		return ArchiveResult{}, fmt.Errorf("no run directories found in %s", root)
+	}
+	for _, component := range inventory.ComponentRoots {
+		unlock, err := acquireExistingRootLock(filepath.Join(root, component))
+		if err != nil {
+			return ArchiveResult{}, err
+		}
+		locks.unlocks = append(locks.unlocks, unlock)
+	}
+	if err := validateArchiveRuns(root, inventory.Runs); err != nil {
+		return ArchiveResult{}, err
 	}
 
 	prefix := archiveTimestamp(now)
@@ -89,7 +101,7 @@ func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error)
 	if err != nil {
 		return ArchiveResult{}, err
 	}
-	if err := rewriteArchiveWithSnapshot(root, archivePath, prefix, runs); err != nil {
+	if err := rewriteArchiveWithSnapshot(root, archivePath, prefix, inventory.Runs); err != nil {
 		return ArchiveResult{}, err
 	}
 	if err := removeArchivedRoot(root, prefix); err != nil {
@@ -101,7 +113,7 @@ func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error)
 		BenchmarkName: benchmark,
 		ArchivePath:   archivePath,
 		Prefix:        path.Join(prefix, filepath.ToSlash(benchmark)),
-		RunCount:      len(runs),
+		RunCount:      len(inventory.Runs),
 	}, nil
 }
 
@@ -125,25 +137,28 @@ func archiveTimestamp(now time.Time) string {
 	return now.UTC().Format("20060102T150405.000000000Z")
 }
 
-func archiveableRuns(root string) ([]string, error) {
+type archiveRunInventory struct {
+	Runs           []string
+	ComponentRoots []string
+}
+
+func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, err
+		return archiveRunInventory{}, err
 	}
 	runs := make([]string, 0)
 	for _, entry := range entries {
 		if !entry.IsDir() || !numericRunDir.MatchString(entry.Name()) {
 			continue
 		}
-		if err := validateArchiveRun(root, entry.Name()); err != nil {
-			return nil, err
-		}
 		runs = append(runs, entry.Name())
 	}
 	if len(runs) > 0 {
 		slices.Sort(runs)
-		return runs, nil
+		return archiveRunInventory{Runs: runs}, nil
 	}
+	componentRoots := make([]string, 0)
 	for _, component := range entries {
 		if !component.IsDir() || strings.HasPrefix(component.Name(), ".") || numericRunDir.MatchString(component.Name()) {
 			continue
@@ -151,21 +166,44 @@ func archiveableRuns(root string) ([]string, error) {
 		componentDir := filepath.Join(root, component.Name())
 		componentEntries, err := os.ReadDir(componentDir)
 		if err != nil {
-			return nil, err
+			return archiveRunInventory{}, err
 		}
+		hadRuns := false
 		for _, run := range componentEntries {
 			if !run.IsDir() || !numericRunDir.MatchString(run.Name()) {
 				continue
 			}
 			rel := filepath.Join(component.Name(), run.Name())
-			if err := validateArchiveRun(root, rel); err != nil {
-				return nil, err
-			}
 			runs = append(runs, rel)
+			hadRuns = true
+		}
+		if hadRuns {
+			componentRoots = append(componentRoots, component.Name())
 		}
 	}
 	slices.Sort(runs)
-	return runs, nil
+	slices.Sort(componentRoots)
+	return archiveRunInventory{Runs: runs, ComponentRoots: componentRoots}, nil
+}
+
+func archiveableRuns(root string) ([]string, error) {
+	inventory, err := discoverArchiveRuns(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateArchiveRuns(root, inventory.Runs); err != nil {
+		return nil, err
+	}
+	return inventory.Runs, nil
+}
+
+func validateArchiveRuns(root string, runs []string) error {
+	for _, run := range runs {
+		if err := validateArchiveRun(root, run); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateArchiveRun(root, run string) error {

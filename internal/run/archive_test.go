@@ -285,6 +285,44 @@ func TestArchiveRootIncludesComponentRuns(t *testing.T) {
 	}
 }
 
+func TestArchiveRootRejectsLockedComponentRoot(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	unlock, err := acquireExistingRootLock(filepath.Join(root, "small"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	_, err = ArchiveRoot(root, filepath.Join(dir, "bench.tar.gz"), time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("expected component lock error, got %v", err)
+	}
+	if _, statErr := os.Stat(root); statErr != nil {
+		t.Fatalf("expected root to remain after component lock failure: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "bench.tar.gz")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no archive after component lock failure, stat error: %v", statErr)
+	}
+}
+
+func TestArchiveRootDoesNotArchiveComponentLockFiles(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	createArchiveRun(t, filepath.Join(root, "large"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "large\n"})
+	archive := filepath.Join(dir, "bench.tar.gz")
+	if _, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	for name := range readTarGzEntries(t, archive) {
+		if strings.Contains(name, rootLockName) || strings.Contains(name, rootLockReclaimName) {
+			t.Fatalf("component lock entry archived: %q", name)
+		}
+	}
+}
+
 func TestArchiveRootRejectsRunningComponentRun(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "bench")

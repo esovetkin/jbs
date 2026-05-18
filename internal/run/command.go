@@ -23,13 +23,19 @@ func Run(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	prepared, err := createPreparedStores(suite.Plans)
+	locks, err := acquireRootLockRequests(suiteLifecycleLockRequests(suite, false))
+	if err != nil {
+		return err
+	}
+	unlockOnce := sync.OnceFunc(locks.release)
+	defer unlockOnce()
+	prepared, err := createPreparedStoresLocked(suite.Plans)
 	if err != nil {
 		return err
 	}
 	printFileSubstitutionWarnings(opts.Stderr, prepared)
 	printEvents(opts.Stdout, opts.PrintEvents)
-	ctx, stop := withSignals(ctx, nil)
+	ctx, stop := withSignals(ctx, unlockOnce)
 	defer stop()
 	return runPreparedStores(ctx, opts, prepared, false)
 }
@@ -44,7 +50,12 @@ func DryRun(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	prepared, err := createPreparedStores(suite.Plans)
+	locks, err := acquireRootLockRequests(suiteLifecycleLockRequests(suite, false))
+	if err != nil {
+		return err
+	}
+	defer locks.release()
+	prepared, err := createPreparedStoresLocked(suite.Plans)
 	if err != nil {
 		return err
 	}
@@ -78,12 +89,16 @@ func Continue(ctx context.Context, opts Options) error {
 	if diags.HasErrors() {
 		return fmt.Errorf("failed to build runtime workplan")
 	}
-	prepared, unlock, err := openContinuableStores(suite)
+	locks, err := acquireRootLockRequests(suiteLifecycleLockRequests(suite, true))
 	if err != nil {
 		return err
 	}
-	unlockOnce := sync.OnceFunc(unlock)
+	unlockOnce := sync.OnceFunc(locks.release)
 	defer unlockOnce()
+	prepared, err := openContinuableStoresLocked(suite)
+	if err != nil {
+		return err
+	}
 	ctx, stop := withSignals(ctx, unlockOnce)
 	defer stop()
 	return runPreparedStores(ctx, opts, prepared, true)
@@ -103,10 +118,10 @@ type componentResult struct {
 	Err      error
 }
 
-func createPreparedStores(plans []runtimePlan) ([]preparedStore, error) {
+func createPreparedStoresLocked(plans []runtimePlan) ([]preparedStore, error) {
 	prepared := make([]preparedStore, 0, len(plans))
 	for _, plan := range plans {
-		store, warnings, err := CreateRunDirectoryWithInitial(plan.RootDir, plan, StatusNotStarted)
+		store, warnings, err := createRunDirectoryLocked(plan.RootDir, plan, StatusNotStarted)
 		if err != nil {
 			return nil, err
 		}
@@ -126,62 +141,68 @@ func printFileSubstitutionWarnings(w io.Writer, prepared []preparedStore) {
 	}
 }
 
-func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), error) {
-	prepared := make([]preparedStore, 0, len(suite.Plans))
-	unlocks := make([]func(), 0, len(suite.Plans))
-	unlockAll := func() {
-		for i := len(unlocks) - 1; i >= 0; i-- {
-			unlocks[i]()
-		}
+func createPreparedStores(suite runtimeSuitePlan) ([]preparedStore, func(), error) {
+	locks, err := acquireRootLockRequests(suiteLifecycleLockRequests(suite, false))
+	if err != nil {
+		return nil, func() {}, err
 	}
+	prepared, err := createPreparedStoresLocked(suite.Plans)
+	if err != nil {
+		locks.release()
+		return nil, func() {}, err
+	}
+	return prepared, locks.release, nil
+}
+
+func openContinuableStores(suite runtimeSuitePlan) ([]preparedStore, func(), error) {
+	locks, err := acquireRootLockRequests(suiteLifecycleLockRequests(suite, true))
+	if err != nil {
+		return nil, func() {}, err
+	}
+	prepared, err := openContinuableStoresLocked(suite)
+	if err != nil {
+		locks.release()
+		return nil, func() {}, err
+	}
+	return prepared, locks.release, nil
+}
+
+func openContinuableStoresLocked(suite runtimeSuitePlan) ([]preparedStore, error) {
+	prepared := make([]preparedStore, 0, len(suite.Plans))
 	for _, plan := range suite.Plans {
-		unlock, err := acquireExistingRootLock(plan.RootDir)
-		if err != nil {
-			unlockAll()
-			return nil, func() {}, err
-		}
-		unlocks = append(unlocks, unlock)
 		runDir, err := latestRunDir(plan.RootDir)
 		if err != nil {
-			unlockAll()
 			if suite.Configured && suite.SelectedName == "" {
-				return nil, func() {}, fmt.Errorf("cannot continue benchmark %q: %w; use --benchmark to continue one component", plan.ComponentName, err)
+				return nil, fmt.Errorf("cannot continue benchmark %q: %w; use --benchmark to continue one component", plan.ComponentName, err)
 			}
-			return nil, func() {}, err
+			return nil, err
 		}
 		rootStatus, err := LoadRootStatus(filepath.Join(runDir, "status"))
 		if err != nil {
-			unlockAll()
-			return nil, func() {}, fmt.Errorf("cannot continue incomplete run %s: %w", runDir, err)
+			return nil, fmt.Errorf("cannot continue incomplete run %s: %w", runDir, err)
 		}
 		if rootStatus.Status == StatusRunning {
-			unlockAll()
-			return nil, func() {}, fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
+			return nil, fmt.Errorf("cannot continue %s: benchmark status is RUNNING", runDir)
 		}
 		manifest, err := LoadManifest(filepath.Join(runDir, "manifest.json"))
 		if err != nil {
-			unlockAll()
-			return nil, func() {}, err
+			return nil, err
 		}
 		if err := validateRunManifest(manifest); err != nil {
-			unlockAll()
-			return nil, func() {}, fmt.Errorf("cannot continue %s: %w", runDir, err)
+			return nil, fmt.Errorf("cannot continue %s: %w", runDir, err)
 		}
 		if err := validateTemplateHashes(runDir, manifest.TemplateHashes, plan.Manifest.TemplateHashes); err != nil {
-			unlockAll()
-			return nil, func() {}, err
+			return nil, err
 		}
 		if rootStatus.SourceHash != plan.Manifest.SourceHash {
-			unlockAll()
-			return nil, func() {}, sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
+			return nil, sourceHashMismatchError(runDir, rootStatus.SourceHash, plan.Manifest.SourceHash, "root status")
 		}
 		if manifest.SourceHash != plan.Manifest.SourceHash {
-			unlockAll()
-			return nil, func() {}, sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
+			return nil, sourceHashMismatchError(runDir, manifest.SourceHash, plan.Manifest.SourceHash, "manifest")
 		}
 		prepared = append(prepared, preparedStore{Plan: plan, Store: NewStore(runDir, manifest, plan.Bodies)})
 	}
-	return prepared, unlockAll, nil
+	return prepared, nil
 }
 
 func runPreparedStores(ctx context.Context, opts Options, prepared []preparedStore, continuing bool) error {

@@ -21,19 +21,18 @@ type Store struct {
 var durableWrite = fsutil.AtomicWriteOptions{SyncDir: true}
 
 func CreateRunDirectoryWithInitial(root string, plan runtimePlan, initial Status) (*Store, []FileSubstitutionWarning, error) {
-	return createRunDirectory(root, plan, initial)
-}
-
-func createRunDirectory(root string, plan runtimePlan, initial Status) (*Store, []FileSubstitutionWarning, error) {
-	if initial != StatusRunning && initial != StatusNotStarted {
-		return nil, nil, fmt.Errorf("invalid initial root status %s", initial)
-	}
 	unlock, err := acquireRootLock(root)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer unlock()
+	return createRunDirectoryLocked(root, plan, initial)
+}
 
+func createRunDirectoryLocked(root string, plan runtimePlan, initial Status) (*Store, []FileSubstitutionWarning, error) {
+	if initial != StatusRunning && initial != StatusNotStarted {
+		return nil, nil, fmt.Errorf("invalid initial root status %s", initial)
+	}
 	runID, err := nextRunID(root)
 	if err != nil {
 		return nil, nil, err
