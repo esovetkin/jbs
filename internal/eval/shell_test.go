@@ -245,6 +245,36 @@ func TestEvalShellCallEnvironmentCapture(t *testing.T) {
 	}
 }
 
+func TestEvalShellCallExportsNestedBracedDefaultRefs(t *testing.T) {
+	t.Setenv("fallback", "from-os")
+	var call ShellCommand
+	uses := make([]ShellUseEvent, 0)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(shellCall(ast.StringExpr{Value: "printf '%s' ${missing:-$fallback}"}), map[string]Value{
+		"fallback": String("from-jbs"),
+	}, diags, ExprOptions{
+		ShellRunner: func(spec ShellCommand) ([]byte, error) {
+			call = spec
+			return []byte("from-jbs\n"), nil
+		},
+		ShellUse: func(event ShellUseEvent) {
+			uses = append(uses, event)
+		},
+	})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if got.Kind != KindString || got.S != "from-jbs" {
+		t.Fatalf("unexpected shell result: %#v", got)
+	}
+	if env := envMap(call.Env); env["fallback"] != "from-jbs" {
+		t.Fatalf("expected JBS fallback override, got env fallback=%q", env["fallback"])
+	}
+	if len(uses) != 1 || uses[0].Name != "fallback" {
+		t.Fatalf("unexpected shell use events: %#v", uses)
+	}
+}
+
 func TestEvalShellCallUnassignedNamePassesThrough(t *testing.T) {
 	t.Setenv("x", "from-os")
 	frame := NewRootFrame(nil)

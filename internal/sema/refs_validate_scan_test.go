@@ -40,6 +40,19 @@ func TestCollectShellLikeRefsRespectsQuotesCommentsAndSpans(t *testing.T) {
 	}
 }
 
+func TestCollectShellLikeRefsIncludesNestedBracedDefaults(t *testing.T) {
+	refs := shellRefsToVarRefs(shellref.Collect(
+		"echo ${missing:-$fallback} \"${x:-${quoted}}\"",
+		diag.NewPos(10, 2, 3),
+		"scan.jbs",
+	))
+	got := refNames(refs)
+	want := []string{"missing", "fallback", "x", "quoted"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected refs: got=%#v want=%#v", got, want)
+	}
+}
+
 func TestCollectExprStringRefsWrapperAndWalker(t *testing.T) {
 	sp0 := diag.NewSpan("expr.jbs", diag.NewPos(0, 1, 1), diag.NewPos(11, 1, 12))
 	sp1 := diag.NewSpan("expr.jbs", diag.NewPos(20, 2, 4), diag.NewPos(31, 2, 15))

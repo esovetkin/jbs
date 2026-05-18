@@ -11,6 +11,12 @@ type Ref struct {
 	Span diag.Span
 }
 
+type bracedVarRef struct {
+	Name    string
+	NameEnd int
+	End     int
+}
+
 type scanState uint8
 
 const (
@@ -56,11 +62,13 @@ func Collect(text string, base diag.Position, file string) []Ref {
 		})
 	}
 	parseExpansion := func(start diag.Position) {
-		if i+1 < len(runes) && runes[i+1] == '{' {
-			name, end, ok := parseBracedVarRef(runes, i+2)
+		dollarIdx := i
+		if dollarIdx+1 < len(runes) && runes[dollarIdx+1] == '{' {
+			ref, ok := parseBracedVarRef(runes, dollarIdx+2)
 			if ok {
-				advanceN(end + 1)
-				appendRef(name, start)
+				advanceN(ref.End + 1)
+				appendRef(ref.Name, start)
+				refs = append(refs, collectNestedBracedRefs(runes, dollarIdx, ref.NameEnd, ref.End, start, file)...)
 				return
 			}
 			advance()
@@ -190,10 +198,10 @@ func parseBareVarName(runes []rune, start int) (int, bool) {
 	return j, true
 }
 
-func parseBracedVarRef(runes []rune, start int) (string, int, bool) {
+func parseBracedVarRef(runes []rune, start int) (bracedVarRef, bool) {
 	j := start
 	if j >= len(runes) {
-		return "", 0, false
+		return bracedVarRef{}, false
 	}
 	if runes[j] == '#' || runes[j] == '!' {
 		j++
@@ -201,9 +209,12 @@ func parseBracedVarRef(runes []rune, start int) (string, int, bool) {
 	nameStart := j
 	nameEnd, ok := parseBareVarName(runes, j)
 	if !ok {
-		return "", 0, false
+		return bracedVarRef{}, false
 	}
-	name := string(runes[nameStart:nameEnd])
+	ref := bracedVarRef{
+		Name:    string(runes[nameStart:nameEnd]),
+		NameEnd: nameEnd,
+	}
 	j = nameEnd
 	depth := 1
 	for j < len(runes) {
@@ -216,12 +227,34 @@ func parseBracedVarRef(runes []rune, start int) (string, int, bool) {
 		case '}':
 			depth--
 			if depth == 0 {
-				return name, j, true
+				ref.End = j
+				return ref, true
 			}
 		}
 		j++
 	}
-	return "", 0, false
+	return bracedVarRef{}, false
+}
+
+func collectNestedBracedRefs(runes []rune, dollarIdx, suffixStart, suffixEnd int, dollarPos diag.Position, file string) []Ref {
+	if suffixStart >= suffixEnd {
+		return nil
+	}
+	base := positionAfter(dollarPos, runes, dollarIdx, suffixStart)
+	return Collect(string(runes[suffixStart:suffixEnd]), base, file)
+}
+
+func positionAfter(pos diag.Position, runes []rune, from, to int) diag.Position {
+	for idx := from; idx < to && idx < len(runes); idx++ {
+		pos.Offset++
+		if runes[idx] == '\n' {
+			pos.Line++
+			pos.Column = 1
+		} else {
+			pos.Column++
+		}
+	}
+	return pos
 }
 
 func isCommentStart(runes []rune, idx int) bool {

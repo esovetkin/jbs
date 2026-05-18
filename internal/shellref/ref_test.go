@@ -40,6 +40,44 @@ func TestCollectHashAndPatternVariants(t *testing.T) {
 	}
 }
 
+func TestCollectNestedRefsInBracedExpansions(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{
+			name: "bare default",
+			text: "echo ${missing:-$fallback}",
+			want: []string{"missing", "fallback"},
+		},
+		{
+			name: "nested braced default",
+			text: "echo ${x:-${fallback}}",
+			want: []string{"x", "fallback"},
+		},
+		{
+			name: "double quoted default",
+			text: `echo "${missing:-$fallback}"`,
+			want: []string{"missing", "fallback"},
+		},
+		{
+			name: "recursive defaults",
+			text: "echo ${x:-${y:-$z}}",
+			want: []string{"x", "y", "z"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := Collect(tc.text, diag.NewPos(0, 1, 1), "in.jbs")
+			if got := refNames(refs); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("unexpected refs: got=%#v want=%#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCollectQuotes(t *testing.T) {
 	refs := Collect("echo '$single' \"$double\" $plain\n", diag.NewPos(0, 1, 1), "in.jbs")
 	got := refNames(refs)
@@ -52,6 +90,14 @@ func TestCollectQuotes(t *testing.T) {
 func TestNamesUniqueOrder(t *testing.T) {
 	got := Names("$b $a $b ${c:-x} '$d'")
 	want := []string{"b", "a", "c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected names: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestNamesDeduplicatesNestedBracedRefs(t *testing.T) {
+	got := Names("$fallback ${missing:-$fallback} ${missing:-${other}}")
+	want := []string{"fallback", "missing", "other"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected names: got=%#v want=%#v", got, want)
 	}
@@ -157,26 +203,27 @@ func TestParseHelpers(t *testing.T) {
 	}
 
 	tests := []struct {
-		expr     string
-		start    int
-		wantName string
-		wantEnd  int
-		wantOK   bool
+		expr        string
+		start       int
+		wantName    string
+		wantNameEnd int
+		wantEnd     int
+		wantOK      bool
 	}{
-		{expr: "${x}", start: 2, wantName: "x", wantEnd: 3, wantOK: true},
-		{expr: "${#x}", start: 2, wantName: "x", wantEnd: 4, wantOK: true},
-		{expr: "${!x}", start: 2, wantName: "x", wantEnd: 4, wantOK: true},
-		{expr: "${x:-${y}}", start: 2, wantName: "x", wantEnd: 9, wantOK: true},
-		{expr: "${x\\}}", start: 2, wantName: "x", wantEnd: 5, wantOK: true},
+		{expr: "${x}", start: 2, wantName: "x", wantNameEnd: 3, wantEnd: 3, wantOK: true},
+		{expr: "${#x}", start: 2, wantName: "x", wantNameEnd: 4, wantEnd: 4, wantOK: true},
+		{expr: "${!x}", start: 2, wantName: "x", wantNameEnd: 4, wantEnd: 4, wantOK: true},
+		{expr: "${x:-${y}}", start: 2, wantName: "x", wantNameEnd: 3, wantEnd: 9, wantOK: true},
+		{expr: "${x\\}}", start: 2, wantName: "x", wantNameEnd: 3, wantEnd: 5, wantOK: true},
 		{expr: "${}", start: 2, wantOK: false},
 		{expr: "${#1}", start: 2, wantOK: false},
 		{expr: "${x", start: 2, wantOK: false},
 		{expr: "$", start: 1, wantOK: false},
 	}
 	for _, tc := range tests {
-		gotName, gotEnd, gotOK := parseBracedVarRef([]rune(tc.expr), tc.start)
-		if gotName != tc.wantName || gotEnd != tc.wantEnd || gotOK != tc.wantOK {
-			t.Fatalf("parseBracedVarRef(%q,%d) = (%q,%d,%v), want (%q,%d,%v)", tc.expr, tc.start, gotName, gotEnd, gotOK, tc.wantName, tc.wantEnd, tc.wantOK)
+		got, gotOK := parseBracedVarRef([]rune(tc.expr), tc.start)
+		if got.Name != tc.wantName || got.NameEnd != tc.wantNameEnd || got.End != tc.wantEnd || gotOK != tc.wantOK {
+			t.Fatalf("parseBracedVarRef(%q,%d) = (%q,%d,%d,%v), want (%q,%d,%d,%v)", tc.expr, tc.start, got.Name, got.NameEnd, got.End, gotOK, tc.wantName, tc.wantNameEnd, tc.wantEnd, tc.wantOK)
 		}
 	}
 
