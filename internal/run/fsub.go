@@ -166,11 +166,6 @@ func sourceHashWithFileSubs(sources map[string]string, fileSubs map[string][]Fil
 	return SourceBundleHash(bundle), hashes, nil
 }
 
-func validateFSubTemplateSource(path string) error {
-	_, err := readFSubTemplateSnapshot(path)
-	return err
-}
-
 func readFSubTemplateSnapshot(path string) (fsubTemplateSnapshot, error) {
 	f, err := os.Open(path)
 	if err != nil {

@@ -170,13 +170,6 @@ func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testi
 	}
 }
 
-func TestValidateFSubTemplateSourceRejectsDirectory(t *testing.T) {
-	err := validateFSubTemplateSource(t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("expected regular-file error, got %v", err)
-	}
-}
-
 func TestValidateTemplateHashes(t *testing.T) {
 	stored := []TemplateHash{{Step: "s", SourcePath: "input.tpl", DestName: "input.tpl", SHA256: "old"}}
 	current := []TemplateHash{{Step: "s", SourcePath: filepath.Clean("input.tpl"), DestName: "input.tpl", SHA256: "old"}}
@@ -585,6 +578,19 @@ func TestMaterializeFileSubstitutionsReportsReadAndWriteErrors(t *testing.T) {
 		t.Fatalf("expected missing-template error, got %v", err)
 	}
 
+	directoryTemplate := filepath.Join(dir, "directory.tpl")
+	if err := os.Mkdir(directoryTemplate, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err = materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{{
+		SourcePath: directoryTemplate,
+		DestName:   "input.tpl",
+		Rules:      []FileSubstitutionRulePlan{rule},
+	}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("expected regular-file error, got %v", err)
+	}
+
 	template := filepath.Join(dir, "input.tpl")
 	if err := os.WriteFile(template, []byte("X\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -596,6 +602,26 @@ func TestMaterializeFileSubstitutionsReportsReadAndWriteErrors(t *testing.T) {
 	}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "write fsub output") {
 		t.Fatalf("expected write error, got %v", err)
+	}
+}
+
+func TestRuntimePlanRejectsDirectoryFSubTemplate(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cwd, "input.tpl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := buildRuntimeSuiteFromSource(t, cwd, `
+jbs_name = "bench"
+
+do run
+        fsub "input.tpl" { "TOKEN": "ok" }
+{
+        echo ok
+}
+`, "")
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("expected regular-file planning error, got %v", err)
 	}
 }
 
