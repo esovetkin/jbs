@@ -132,6 +132,7 @@ func TestParseTopLevelIfMalformedSyntax(t *testing.T) {
 		{name: "missing open brace", src: "if true\nx = 1\n", code: "E080"},
 		{name: "missing close brace", src: "if true { x = 1\n", code: "E025"},
 		{name: "else if rejected", src: "if true { x = 1 } else if false { x = 2 }\n", code: "E080"},
+		{name: "else missing open brace", src: "if true { x = 1 } else x = 2\n", code: "E080"},
 		{name: "stray elif", src: "elif true { x = 1 }\n", code: "E080"},
 		{name: "missing elif open brace", src: "if true { x = 1 } elif false\nx = 2\n", code: "E080"},
 		{name: "missing elif close brace", src: "if true { x = 1 } elif false { x = 2\n", code: "E025"},

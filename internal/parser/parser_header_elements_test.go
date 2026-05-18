@@ -190,6 +190,7 @@ func TestClassifyHeaderElemKind(t *testing.T) {
 		{code: "after a", want: ast.HeaderElemAfter},
 		{code: "use p", want: ast.HeaderElemUnknown},
 		{code: "with p", want: ast.HeaderElemWith},
+		{code: `fsub "input.tpl" {`, want: ast.HeaderElemFSub},
 		{code: "afterx p", want: ast.HeaderElemUnknown},
 		{code: "usex p", want: ast.HeaderElemUnknown},
 		{code: "nproc 4", want: ast.HeaderElemOption},
@@ -258,5 +259,54 @@ func TestParseHeaderElementsCommentOnlySpanAndTrim(t *testing.T) {
 	wantEnd := diag.NewPos(49, 8, 9)
 	if elems[0].Span.End != wantEnd {
 		t.Fatalf("unexpected comment span end: got=%+v want=%+v", elems[0].Span.End, wantEnd)
+	}
+}
+
+func TestParseHeaderElementsFSubDepthSkipsBody(t *testing.T) {
+	raw := `fsub "input.tpl" { # generate input
+  "OPEN": "{"
+  "CLOSE": "}"
+}}
+with cases
+`
+	elems := parseHeaderElements("head.jbs", raw, diag.NewPos(0, 1, 1))
+	if len(elems) != 2 {
+		t.Fatalf("expected fsub and with header elements, got %#v", elems)
+	}
+	if elems[0].Kind != ast.HeaderElemFSub || elems[0].Text != `fsub "input.tpl" {` {
+		t.Fatalf("unexpected fsub element: %#v", elems[0])
+	}
+	if elems[0].Inline == nil || elems[0].Inline.Text != "generate input" {
+		t.Fatalf("expected inline fsub comment, got %#v", elems[0].Inline)
+	}
+	if elems[1].Kind != ast.HeaderElemWith || elems[1].Text != "with cases" {
+		t.Fatalf("expected with element after skipped fsub body, got %#v", elems[1])
+	}
+}
+
+func TestParseHeaderElementsFSubImmediateNegativeDepth(t *testing.T) {
+	elems := parseHeaderElements("head.jbs", `fsub "input.tpl" }`, diag.NewPos(0, 1, 1))
+	if len(elems) != 1 {
+		t.Fatalf("expected one fsub element, got %#v", elems)
+	}
+	if elems[0].Kind != ast.HeaderElemFSub {
+		t.Fatalf("expected fsub element, got %#v", elems[0])
+	}
+}
+
+func TestHeaderBraceDelta(t *testing.T) {
+	tests := []struct {
+		line string
+		want int
+	}{
+		{line: `{`, want: 1},
+		{line: `}`, want: -1},
+		{line: `{ "}" '{' }`, want: 0},
+		{line: `"{\"}" '{\'}' {`, want: 1},
+	}
+	for _, tt := range tests {
+		if got := headerBraceDelta(tt.line); got != tt.want {
+			t.Fatalf("headerBraceDelta(%q)=%d, want %d", tt.line, got, tt.want)
+		}
 	}
 }

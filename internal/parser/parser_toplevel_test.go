@@ -383,3 +383,70 @@ func TestParseUseStmtUnexpectedTrailingTokensMessage(t *testing.T) {
 		t.Fatalf("expected trailing-token message, got: %s", diags.String())
 	}
 }
+
+func TestParseControlConditionAtEOF(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser("if", diags)
+	p.consumeWord()
+
+	cond, ok := p.parseControlCondition("if")
+	if ok {
+		t.Fatalf("expected condition parse to fail at EOF")
+	}
+	if cond == nil {
+		t.Fatalf("expected placeholder condition")
+	}
+	if !hasDiag(diags, "E080") {
+		t.Fatalf("expected E080, got: %s", diags.String())
+	}
+}
+
+func TestParseControlConditionExprErrors(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		cond := parseControlConditionExpr("in.jbs", "", diag.NewPos(0, 1, 1), "while", diags)
+		if cond != nil {
+			t.Fatalf("expected nil condition, got %#v", cond)
+		}
+		if !hasDiag(diags, "E080") {
+			t.Fatalf("expected E080, got: %s", diags.String())
+		}
+	})
+
+	t.Run("trailing tokens", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		cond := parseControlConditionExpr("in.jbs", "x y", diag.NewPos(0, 1, 1), "if", diags)
+		if cond == nil {
+			t.Fatalf("expected parsed condition")
+		}
+		if !hasDiag(diags, "E061") {
+			t.Fatalf("expected E061, got: %s", diags.String())
+		}
+	})
+}
+
+func TestParseForHeaderTokensMissingTargetAndInAtEOF(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	name, expr := parseForHeaderTokens("in.jbs", "", diag.NewPos(0, 1, 1), diags)
+	if name != "" || expr != nil {
+		t.Fatalf("expected empty malformed header, got name=%q expr=%#v", name, expr)
+	}
+	if !hasDiag(diags, "E080") {
+		t.Fatalf("expected E080, got: %s", diags.String())
+	}
+}
+
+func TestFindControlBodyBraceSkipsStringsCommentsAndNestedDelimiters(t *testing.T) {
+	src := `'\'{single}' + "\"{double}" + f([{nested}]) # {comment
+ok {`
+	p := newTopLevelParser(src, &diag.Diagnostics{})
+	got, ok := p.findControlBodyBrace(func(header string, start diag.Position, diags *diag.Diagnostics) bool {
+		return strings.HasSuffix(header, "ok ")
+	})
+	if !ok {
+		t.Fatalf("expected body brace to be found")
+	}
+	if want := strings.LastIndex(src, "{"); got != want {
+		t.Fatalf("unexpected body brace offset: got %d want %d", got, want)
+	}
+}

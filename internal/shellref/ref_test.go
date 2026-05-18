@@ -104,6 +104,50 @@ func TestCollectDollarParity(t *testing.T) {
 	}
 }
 
+func TestCollectSkipsCommentsAndInvalidDollarForms(t *testing.T) {
+	text := "# $first\n" +
+		"echo $1 $- $\n" +
+		"echo ${unterminated\n" +
+		"run ;# $second\n" +
+		"echo $ok\n"
+
+	refs := Collect(text, diag.NewPos(0, 1, 1), "in.jbs")
+	got := refNames(refs)
+	want := []string{"ok"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected refs: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestCollectDoubleQuoteBackslashHandling(t *testing.T) {
+	text := `echo "\$skip" "$take" "trail\`
+
+	refs := Collect(text, diag.NewPos(0, 1, 1), "in.jbs")
+	got := refNames(refs)
+	want := []string{"take"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected refs: got=%#v want=%#v", got, want)
+	}
+}
+
+func TestCollectSpanUsesBasePosition(t *testing.T) {
+	refs := Collect("α\n  $name tail", diag.NewPos(20, 7, 5), "script.jbs")
+	if len(refs) != 1 {
+		t.Fatalf("expected one ref, got %#v", refs)
+	}
+	want := Ref{
+		Name: "name",
+		Span: diag.NewSpan(
+			"script.jbs",
+			diag.NewPos(24, 8, 3),
+			diag.NewPos(29, 8, 8),
+		),
+	}
+	if !reflect.DeepEqual(refs[0], want) {
+		t.Fatalf("unexpected ref: got=%#v want=%#v", refs[0], want)
+	}
+}
+
 func TestParseHelpers(t *testing.T) {
 	if end, ok := parseBareVarName([]rune("abc123 rest"), 0); !ok || end != 6 {
 		t.Fatalf("parseBareVarName valid case = (%d,%v), want (6,true)", end, ok)
@@ -127,6 +171,7 @@ func TestParseHelpers(t *testing.T) {
 		{expr: "${}", start: 2, wantOK: false},
 		{expr: "${#1}", start: 2, wantOK: false},
 		{expr: "${x", start: 2, wantOK: false},
+		{expr: "$", start: 1, wantOK: false},
 	}
 	for _, tc := range tests {
 		gotName, gotEnd, gotOK := parseBracedVarRef([]rune(tc.expr), tc.start)

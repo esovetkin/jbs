@@ -24,6 +24,34 @@ func TestReplValueListTupleFormatting(t *testing.T) {
 	}
 }
 
+func TestReplValueNormalizesOptionsAndLeavesStringsUnquoted(t *testing.T) {
+	got := ReplValueWithOptions(eval.String("plain"), Options{NRow: -1, Width: 0})
+	if got != "plain" {
+		t.Fatalf("unexpected top-level string: %q", got)
+	}
+}
+
+func TestReplValueEmptyContainersAndNilTable(t *testing.T) {
+	cases := []struct {
+		name  string
+		value eval.Value
+		want  string
+	}{
+		{name: "list", value: eval.List(nil), want: "[]"},
+		{name: "tuple", value: eval.Tuple(nil), want: "()"},
+		{name: "dict", value: eval.Value{Kind: eval.KindDict}, want: "{}"},
+		{name: "table", value: eval.CombValue(nil), want: "| |\n|-|"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ReplValue(tc.value); got != tc.want {
+				t.Fatalf("unexpected %s preview:\ngot:\n%s\nwant:\n%s", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReplValueSequenceNRowBudget(t *testing.T) {
 	got := ReplValueWithOptions(eval.List(intValues(20)), Options{NRow: 2, Width: 10})
 	lines := strings.Split(got, "\n")
@@ -58,6 +86,27 @@ func TestReplValueSequenceDoesNotSplitStrings(t *testing.T) {
 	}
 }
 
+func TestReplValueNestedTupleAndEmptyInlineContainers(t *testing.T) {
+	value := eval.List([]eval.Value{
+		eval.Tuple([]eval.Value{eval.Int(1)}),
+		eval.List(nil),
+		eval.DictValue(nil),
+	})
+	want := "[(1,), [], {}]"
+	if got := ReplValue(value); got != want {
+		t.Fatalf("unexpected nested preview:\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+func TestReplValueWrappedSingleTupleKeepsTrailingComma(t *testing.T) {
+	long := strings.Repeat("x", 30)
+	got := ReplValueWithOptions(eval.Tuple([]eval.Value{eval.String(long)}), Options{NRow: 10, Width: 20})
+	want := `("` + long + `",)`
+	if got != want {
+		t.Fatalf("unexpected wrapped single tuple:\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
 func TestReplValueDictionaryPretty(t *testing.T) {
 	dict := eval.DictValue([]eval.DictEntry{
 		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "a"}, Value: eval.Int(1)},
@@ -66,6 +115,18 @@ func TestReplValueDictionaryPretty(t *testing.T) {
 	want := "{\"a\": 1,\n \"b\": [0, 1, 2, 3, 4]}"
 	if got := ReplValue(dict); got != want {
 		t.Fatalf("unexpected dictionary preview:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestReplValueDictionaryKeyKinds(t *testing.T) {
+	dict := eval.DictValue([]eval.DictEntry{
+		{Key: eval.DictKey{Kind: eval.DictKeyInt, I: 2}, Value: eval.String("two")},
+		{Key: eval.DictKey{Kind: eval.DictKeyBool, B: true}, Value: eval.Bool(false)},
+		{Key: eval.DictKey{Kind: eval.DictKeyBool, B: false}, Value: eval.Bool(true)},
+	})
+	want := "{2: \"two\",\n true: false,\n false: true}"
+	if got := ReplValue(dict); got != want {
+		t.Fatalf("unexpected dictionary keys:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 
@@ -182,6 +243,28 @@ func TestReplValueTableFallbackColumnOrderAndMissingCells(t *testing.T) {
 	}
 }
 
+func TestReplValueTableNonScalarCellsAreCompact(t *testing.T) {
+	table := eval.CombValue(&eval.Comb{
+		Order: []string{"list", "tuple", "dict", "table"},
+		Rows: []eval.Row{{
+			Values: map[string]eval.Cell{
+				"list":  {Value: eval.List([]eval.Value{eval.String("x"), eval.Int(2)})},
+				"tuple": {Value: eval.Tuple([]eval.Value{eval.String("y")})},
+				"dict": {Value: eval.DictValue([]eval.DictEntry{
+					{Key: eval.DictKey{Kind: eval.DictKeyString, S: "a"}, Value: eval.Int(1)},
+				})},
+				"table": {Value: eval.CombValue(&eval.Comb{Order: []string{"id"}})},
+			},
+		}},
+	})
+	got := ReplValue(table)
+	for _, want := range []string{`["x", 2]`, `("y",)`, `{"a": 1}`, `table(rows=0, cols=[id])`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected table output to contain %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestReplValueFunctionPlaceholder(t *testing.T) {
 	got := ReplValue(eval.Function(&eval.FunctionValue{}))
 	if got != "<function>" {
@@ -235,6 +318,70 @@ func TestPrintLineQuotesTableStringCells(t *testing.T) {
 	got := PrintLine([]eval.Value{table})
 	if !strings.Contains(got, `| "x"   |`) {
 		t.Fatalf("expected quoted string cell:\n%s", got)
+	}
+}
+
+func TestFormattingHelperBranches(t *testing.T) {
+	if got := formatValue(eval.Int(5), DefaultOptions(), formatContext{Inline: true}); got != "5" {
+		t.Fatalf("unexpected inline format: %q", got)
+	}
+	if got, ok := joinSequenceInline("[", "]", false, nil, 80); !ok || got != "[]" {
+		t.Fatalf("unexpected empty inline join: got %q ok %v", got, ok)
+	}
+	if got := compactSequenceParts("[", "]", false, []string{`"xxxxxxxx"`, `"yyyyyyyy"`}, 16); got != `["xxxxxxxx", ...]` {
+		t.Fatalf("unexpected compact truncation: %q", got)
+	}
+	if got := finishTruncatedSequence(nil, "]", 80); got != "...]" {
+		t.Fatalf("unexpected empty truncation: %q", got)
+	}
+	if got := finishTruncatedSequence([]string{"[abcdefghij"}, "]", 5); got != "[abcdefghij, ...]" {
+		t.Fatalf("unexpected no-comma truncation: %q", got)
+	}
+	if got := formatNestedValue(eval.List([]eval.Value{eval.Int(1)}), DefaultOptions(), formatContext{Depth: 2}); got != "[1]" {
+		t.Fatalf("unexpected deep nested format: %q", got)
+	}
+	if got := compactDict(eval.DictValue(nil).D, 0); got != "{}" {
+		t.Fatalf("unexpected compact empty dict: %q", got)
+	}
+	if got := formatDictKey(eval.DictKey{}); got != `""` {
+		t.Fatalf("unexpected fallback dict key: %q", got)
+	}
+	if cols := tableColumns(nil); cols != nil {
+		t.Fatalf("unexpected nil table columns: %#v", cols)
+	}
+}
+
+func TestCompactValueDepthLimit(t *testing.T) {
+	cases := []struct {
+		name  string
+		value eval.Value
+		want  string
+	}{
+		{name: "list", value: eval.List(nil), want: "[...]"},
+		{name: "tuple", value: eval.Tuple(nil), want: "(...)"},
+		{name: "dict", value: eval.DictValue(nil), want: "{...}"},
+		{name: "table", value: eval.CombValue(nil), want: "table(rows=0, cols=[])"},
+		{name: "string", value: eval.String("x"), want: `"x"`},
+		{name: "int", value: eval.Int(7), want: "7"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := compactValueDepth(tc.value, 3); got != tc.want {
+				t.Fatalf("unexpected compact value:\ngot:  %s\nwant: %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompactDictionaryTruncatesLongOutput(t *testing.T) {
+	dict := eval.DictValue([]eval.DictEntry{
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "first"}, Value: eval.String(strings.Repeat("x", 60))},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "second"}, Value: eval.String("y")},
+	})
+	got := compactDict(dict.D, 0)
+	if !strings.HasSuffix(got, ", ...}") {
+		t.Fatalf("expected compact dictionary truncation, got:\n%s", got)
 	}
 }
 

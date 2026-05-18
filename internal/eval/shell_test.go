@@ -2,6 +2,7 @@ package eval
 
 import (
 	"errors"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -90,6 +91,45 @@ func TestEvalShellCallArgumentErrors(t *testing.T) {
 			expr: shellCall(ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(702, 1)}),
 		},
 		{
+			name: "two positional commands",
+			expr: shellCall(
+				ast.StringExpr{Value: "true", Span: spanAt(702, 10)},
+				ast.StringExpr{Value: "false", Span: spanAt(702, 20)},
+			),
+		},
+		{
+			name: "positional after named command",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "shell", Span: spanAt(702, 30)},
+				Args: []ast.CallArg{
+					namedArg("command", ast.StringExpr{Value: "true", Span: spanAt(702, 40)}),
+					ast.PosCallArg(ast.StringExpr{Value: "false", Span: spanAt(702, 50)}),
+				},
+				Span: spanAt(702, 30),
+			},
+		},
+		{
+			name: "duplicate named command",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "shell", Span: spanAt(702, 60)},
+				Args: []ast.CallArg{
+					namedArg("command", ast.StringExpr{Value: "true", Span: spanAt(702, 70)}),
+					namedArg("command", ast.StringExpr{Value: "false", Span: spanAt(702, 80)}),
+				},
+				Span: spanAt(702, 60),
+			},
+		},
+		{
+			name: "non string named command",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "shell", Span: spanAt(702, 90)},
+				Args: []ast.CallArg{
+					namedArg("command", ast.NumberExpr{Int: true, IntValue: 1, Span: spanAt(702, 100)}),
+				},
+				Span: spanAt(702, 90),
+			},
+		},
+		{
 			name: "unknown named",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "shell", Span: spanAt(703, 1)},
@@ -111,6 +151,18 @@ func TestEvalShellCallArgumentErrors(t *testing.T) {
 				Span: spanAt(704, 1),
 			},
 		},
+		{
+			name: "duplicate strip",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "shell", Span: spanAt(704, 40)},
+				Args: []ast.CallArg{
+					ast.PosCallArg(ast.StringExpr{Value: "true", Span: spanAt(704, 50)}),
+					namedArg("strip", ast.BoolExpr{Value: true, Span: spanAt(704, 60)}),
+					namedArg("strip", ast.BoolExpr{Value: false, Span: spanAt(704, 70)}),
+				},
+				Span: spanAt(704, 40),
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -129,6 +181,32 @@ func TestEvalShellCallArgumentErrors(t *testing.T) {
 				t.Fatalf("expected E106, got: %s", diags.String())
 			}
 		})
+	}
+}
+
+func TestEvalShellCallStopsBeforeRunnerWhenEnvResolutionErrors(t *testing.T) {
+	frame := NewRootFrame(nil)
+	frame.Resolve = func(name string, at diag.Span, diags *diag.Diagnostics) (Value, bool) {
+		if name != "x" {
+			return Null(), false
+		}
+		diags.AddError(diag.CodeE100, "cannot resolve "+name, at, "resolver failed")
+		return String("value"), true
+	}
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(shellCall(ast.StringExpr{Value: "echo $x"}), nil, diags, ExprOptions{
+		Frame: frame,
+		ShellRunner: func(ShellCommand) ([]byte, error) {
+			t.Fatal("shell runner should not be called after resolution errors")
+			return nil, nil
+		},
+	})
+	if got.Kind != KindNull {
+		t.Fatalf("expected null, got %#v", got)
+	}
+	if diagCount(diags, "E100") != 1 {
+		t.Fatalf("expected resolver error, got: %s", diags.String())
 	}
 }
 
@@ -262,6 +340,74 @@ func TestEvalShellCallRunnerErrors(t *testing.T) {
 	})
 }
 
+func TestEvalShellDefaultRunnerAndErrors(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is required for default shell runner coverage")
+	}
+
+	t.Run("eval uses default runner and working directory", func(t *testing.T) {
+		cwd := t.TempDir()
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(shellCall(ast.StringExpr{Value: "pwd"}), nil, diags, ExprOptions{
+			Files: &FileAccess{BaseDir: cwd},
+		})
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+		if got.Kind != KindString || got.S != cwd {
+			t.Fatalf("unexpected default shell result: %#v, want %q", got, cwd)
+		}
+	})
+
+	t.Run("exit error records code and stderr", func(t *testing.T) {
+		_, err := defaultShellRunner(ShellCommand{Command: "printf 'bad stderr' >&2; exit 9"})
+		var shellErr ShellError
+		if !errors.As(err, &shellErr) {
+			t.Fatalf("expected ShellError, got %#v", err)
+		}
+		if shellErr.ExitCode == nil || *shellErr.ExitCode != 9 || shellErr.Stderr != "bad stderr" {
+			t.Fatalf("unexpected shell error: %#v", shellErr)
+		}
+	})
+}
+
+func TestDefaultShellRunnerReportsMissingBash(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := defaultShellRunner(ShellCommand{Command: "true"})
+	var shellErr ShellError
+	if !errors.As(err, &shellErr) {
+		t.Fatalf("expected ShellError, got %#v", err)
+	}
+	if shellErr.ExitCode != nil || !strings.Contains(shellErr.Error(), "find bash") {
+		t.Fatalf("unexpected missing bash error: %#v", shellErr)
+	}
+}
+
+func TestShellErrorHelpersAndDiagnostics(t *testing.T) {
+	if got := (ShellError{}).Error(); got != "" {
+		t.Fatalf("nil ShellError.Error() = %q, want empty string", got)
+	}
+	wrapped := errors.New("wrapped")
+	if got := (ShellError{Err: wrapped}).Unwrap(); got != wrapped {
+		t.Fatalf("ShellError.Unwrap() = %#v, want %#v", got, wrapped)
+	}
+
+	code := 4
+	diags := &diag.Diagnostics{}
+	addShellError(ShellError{Err: errors.New("exit status 4"), ExitCode: &code}, spanAt(705, 1), diags)
+	text := diags.String()
+	if diagCount(diags, "E106") != 1 || !strings.Contains(text, "exit code 4") || !strings.Contains(text, "exit status 4") {
+		t.Fatalf("expected exit diagnostic without stderr fallback, got: %s", text)
+	}
+
+	diags = &diag.Diagnostics{}
+	addShellError(errors.New("plain failure"), spanAt(705, 2), diags)
+	if diagCount(diags, "E106") != 1 || !strings.Contains(diags.String(), "shell() command failed") {
+		t.Fatalf("expected generic shell diagnostic, got: %s", diags.String())
+	}
+}
+
 func TestStripOneTrailingNewline(t *testing.T) {
 	tests := map[string]string{
 		"":      "",
@@ -300,7 +446,7 @@ func envMap(env []string) map[string]string {
 }
 
 func TestMergeEnvOverrideOrder(t *testing.T) {
-	got := mergeEnv([]string{"b=old", "a=keep", "b=older"}, map[string]string{"b": "new", "c": "next"})
+	got := mergeEnv([]string{"b=old", "ignored", "a=keep", "b=older"}, map[string]string{"b": "new", "c": "next"})
 	if !slices.Equal(got, []string{"a=keep", "b=new", "c=next"}) {
 		t.Fatalf("unexpected merged env: %#v", got)
 	}

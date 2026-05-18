@@ -90,6 +90,7 @@ func TestParseLoopMalformedSyntax(t *testing.T) {
 		{name: "missing in", src: "for x xs {}\n", code: "E080"},
 		{name: "missing iterable", src: "for x in {}\n", code: "E080"},
 		{name: "missing open brace", src: "for x in xs\n", code: "E080"},
+		{name: "while missing open brace", src: "while true\nx = 1\n", code: "E080"},
 		{name: "missing close brace", src: "while true { x = 1\n", code: "E025"},
 		{name: "break outside loop", src: "break\n", code: "E080"},
 		{name: "continue outside loop", src: "continue\n", code: "E080"},

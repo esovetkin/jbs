@@ -243,6 +243,40 @@ func TestParseGroupedExpressionSpansIncludeParentheses(t *testing.T) {
 	}
 }
 
+func TestExprWithSpanCoversExpressionVariants(t *testing.T) {
+	span := diag.NewSpan("expr.jbs", diag.NewPos(10, 2, 1), diag.NewPos(20, 2, 11))
+	leaf := ast.IdentExpr{Name: "x"}
+	cases := []ast.Expr{
+		ast.IdentExpr{Name: "x"},
+		ast.QualifiedIdentExpr{Namespace: "pkg", Name: "x"},
+		ast.MemberExpr{Base: leaf, Name: "x"},
+		ast.IndexExpr{Base: leaf, Items: []ast.Expr{leaf}},
+		ast.StringExpr{Value: "x"},
+		ast.NumberExpr{Raw: "1", Int: true, IntValue: 1},
+		ast.BoolExpr{Value: true},
+		ast.ListExpr{Items: []ast.Expr{leaf}},
+		ast.TupleExpr{Items: []ast.Expr{leaf}},
+		ast.DictExpr{Entries: []ast.DictEntryExpr{{Key: leaf, Value: leaf}}},
+		ast.RangeExpr{Start: leaf, Stop: leaf},
+		ast.CallExpr{Callee: leaf},
+		ast.FunctionExpr{},
+		ast.AliasExpr{Expr: leaf, Alias: "y"},
+		ast.UnaryExpr{Op: "-", Expr: leaf},
+		ast.BinaryExpr{Left: leaf, Op: "+", Right: leaf},
+		ast.CompareExpr{Left: leaf, Op: "==", Right: leaf},
+		ast.ConditionalExpr{Then: leaf, Cond: leaf, Else: leaf},
+	}
+	for _, expr := range cases {
+		got := exprWithSpan(expr, span)
+		if got.GetSpan() != span {
+			t.Fatalf("expected rewritten span for %T, got %#v", expr, got.GetSpan())
+		}
+	}
+	if got := exprWithSpan(nil, span); got != nil {
+		t.Fatalf("expected nil fallback to stay nil, got %#v", got)
+	}
+}
+
 func TestParseLogicalOperatorAliasesCanonicalized(t *testing.T) {
 	tests := []struct {
 		src    string
@@ -266,6 +300,12 @@ func TestParseLogicalOperatorAliasesCanonicalized(t *testing.T) {
 		if !ok || bin.Op != tc.wantOp {
 			t.Fatalf("expected canonical op %q for %q, got %#v", tc.wantOp, tc.src, expr)
 		}
+	}
+}
+
+func TestCanonicalLogicalOpRejectsOtherTokens(t *testing.T) {
+	if op, ok := canonicalLogicalOp(lexer.TokenPlus); ok || op != "" {
+		t.Fatalf("expected non-logical token to be rejected, got op=%q ok=%v", op, ok)
 	}
 }
 
@@ -861,6 +901,22 @@ func TestParseDictionaryMissingColonReportsE058(t *testing.T) {
 	}
 }
 
+func TestParseDictionaryConditionalKeyUsesNoRangeParser(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`{a if ok else b: 1}`, diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	dict, ok := expr.(ast.DictExpr)
+	if !ok || len(dict.Entries) != 1 {
+		t.Fatalf("expected one-entry dictionary, got %#v", expr)
+	}
+	if _, ok := dict.Entries[0].Key.(ast.ConditionalExpr); !ok {
+		t.Fatalf("expected conditional key, got %#v", dict.Entries[0].Key)
+	}
+}
+
 func TestParsePostfixChainedQualifiedIdentifier(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseExprTP("a.b.c", diags)
@@ -1194,22 +1250,45 @@ func TestParseFunctionRestParameters(t *testing.T) {
 }
 
 func TestParseFunctionRestParameterDiagnostics(t *testing.T) {
-	tests := []string{
-		"function(*args, x) { x }",
-		"function(**kwargs, x) { x }",
-		"function(*args, *more) { args }",
-		"function(**a, **b) { a }",
-		"function(*args = []) { args }",
+	tests := []struct {
+		src  string
+		code string
+	}{
+		{src: "function(*args, x) { x }", code: "E058"},
+		{src: "function(**kwargs, x) { x }", code: "E058"},
+		{src: "function(**kwargs, *args) { args }", code: "E058"},
+		{src: "function(*args, *more) { args }", code: "E058"},
+		{src: "function(**a, **b) { a }", code: "E058"},
+		{src: "function(*args = []) { args }", code: "E058"},
+		{src: "function(a = 1, b) { b }", code: "E058"},
+		{src: "function(a, a) { a }", code: "E058"},
+		{src: "function(,) { 1 }", code: "E050"},
 	}
-	for _, src := range tests {
-		t.Run(src, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.src, func(t *testing.T) {
 			diags := &diag.Diagnostics{}
-			tp := parseExprTP(src, diags)
+			tp := parseExprTP(tc.src, diags)
 			_ = tp.parseExpr()
-			if !hasCode(diags, "E058") {
-				t.Fatalf("expected E058 for %q, got: %s", src, diags.String())
+			if !hasCode(diags, tc.code) {
+				t.Fatalf("expected %s for %q, got: %s", tc.code, tc.src, diags.String())
 			}
 		})
+	}
+}
+
+func TestParseFunctionParameterTrailingComma(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function(a,) { a }", diags)
+	expr := tp.parseExpr()
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.String())
+	}
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression, got %#v", expr)
+	}
+	if len(fn.Params) != 1 || fn.Params[0].Name != "a" {
+		t.Fatalf("expected one parameter a, got %#v", fn.Params)
 	}
 }
 
@@ -1282,6 +1361,44 @@ func TestParseFunctionBodyRejectsUnsupportedStatements(t *testing.T) {
 	_ = tp.parseExpr()
 	if !hasCode(diags, "E058") {
 		t.Fatalf("expected E058 for unsupported function body statement, got: %s", diags.String())
+	}
+}
+
+func TestParseFunctionBodyMalformedStatementTails(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		code string
+	}{
+		{name: "else without brace and not if", src: "function() { if true { 1 } else x }", code: "E080"},
+		{name: "else missing closing brace preserves previous span", src: "function() { if true { 1 } else { 2 ", code: "E025"},
+		{name: "break with trailing expression", src: "function() { while true { break 1 } }", code: "E061"},
+		{name: "assignment with trailing expression", src: "function() { x = 1 2 }", code: "E061"},
+		{name: "return with trailing expression", src: "function() { return 1 2 }", code: "E061"},
+		{name: "expression with trailing expression", src: "function() { x y }", code: "E061"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseExprTP(tc.src, diags)
+			_ = tp.parseExpr()
+			if !hasCode(diags, tc.code) {
+				t.Fatalf("expected %s for %q, got: %s", tc.code, tc.src, diags.String())
+			}
+		})
+	}
+}
+
+func TestParseLocalAssignStmtReportsMissingOperatorWhenCalledDirectly(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("x y", diags)
+	stmt := tp.parseLocalAssignStmt()
+	assign, ok := stmt.(ast.LocalAssignStmt)
+	if !ok || assign.Name != "x" || assign.Expr != nil {
+		t.Fatalf("expected fallback local assignment, got %#v", stmt)
+	}
+	if !hasCode(diags, "E051") {
+		t.Fatalf("expected E051 for missing local assignment operator, got: %s", diags.String())
 	}
 }
 

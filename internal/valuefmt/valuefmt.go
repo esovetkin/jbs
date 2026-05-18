@@ -370,9 +370,6 @@ func formatTable(c *eval.Comb, opts Options) string {
 	dataLimit := len(c.Rows)
 	if opts.NRow > 0 {
 		allowedData := opts.NRow - 1
-		if allowedData < 0 {
-			allowedData = 0
-		}
 		if dataLimit > allowedData {
 			dataLimit = allowedData
 		}
