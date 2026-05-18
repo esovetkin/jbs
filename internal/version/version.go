@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var Version = "v0.1.1"
+var Version = "v0.1.2"
 
 var (
 	readBuildInfo = debug.ReadBuildInfo
