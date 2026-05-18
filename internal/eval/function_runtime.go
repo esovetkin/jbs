@@ -640,7 +640,7 @@ func executeFuncForStmt(stmt ast.FuncForStmt, env map[string]Value, diags *diag.
 			return functionResult{Value: last}
 		}
 		if i >= MaxLoopIterations {
-			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the loop condition or iterable size")
+			diags.AddError(diag.CodeE106, LoopLimitExceededMessage(), stmt.Span, "check the loop condition or iterable size")
 			return functionResult{Value: last}
 		}
 		if ctx != nil && ctx.frame != nil && stmt.Target != "" {
@@ -671,7 +671,7 @@ func executeFuncWhileStmt(stmt ast.FuncWhileStmt, env map[string]Value, diags *d
 			return functionResult{Value: last}
 		}
 		if i >= MaxLoopIterations {
-			diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", stmt.Span, "check the while condition")
+			diags.AddError(diag.CodeE106, LoopLimitExceededMessage(), stmt.Span, "check the while condition")
 			return functionResult{Value: last}
 		}
 		cond, ok := evalBoolConditionWithCtx("while", stmt.Cond, env, diags, opts, ctx)

@@ -343,7 +343,7 @@ func (e *globalSeqEngine) evalForStep(step globalInputStep, guardDeps []string) 
 	loopDeps = e.filterExprDependencies(loopDeps, "")
 	for i, item := range items {
 		if i >= eval.MaxLoopIterations {
-			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.ForStmt.Span, "check the iterable size")
+			e.diags.AddError(diag.CodeE106, eval.LoopLimitExceededMessage(), step.ForStmt.Span, "check the iterable size")
 			return globalStepResult{}
 		}
 		if !e.publishLoopVariable(step.ForStmt.Target, item, step.ForStmt.Span, loopDeps, step) {
@@ -373,7 +373,7 @@ func (e *globalSeqEngine) evalWhileStep(step globalInputStep, guardDeps []string
 	loopDeps = e.filterExprDependencies(loopDeps, "")
 	for i := 0; ; i++ {
 		if i >= eval.MaxLoopIterations {
-			e.diags.AddError(diag.CodeE106, "loop exceeded 100000 iterations", step.WhileStmt.Span, "check the while condition")
+			e.diags.AddError(diag.CodeE106, eval.LoopLimitExceededMessage(), step.WhileStmt.Span, "check the while condition")
 			return globalStepResult{}
 		}
 		cond, ok := eval.EvalBoolConditionFor("while", step.WhileStmt.Cond, nil, e.diags, e.evalOptions(step))

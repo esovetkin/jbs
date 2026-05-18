@@ -2,6 +2,7 @@ package sema
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -125,6 +126,9 @@ func TestAnalyzeLoopErrors(t *testing.T) {
 			_, diags := analyzeLoopSource(t, tc.src)
 			if !hasDiagCode(diags, tc.code) {
 				t.Fatalf("expected %s, got: %s", tc.code, diags.String())
+			}
+			if tc.name == "while infinite" && !strings.Contains(diags.String(), eval.LoopLimitExceededMessage()) {
+				t.Fatalf("expected loop limit %q, got: %s", eval.LoopLimitExceededMessage(), diags.String())
 			}
 		})
 	}

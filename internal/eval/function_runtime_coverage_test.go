@@ -337,7 +337,7 @@ func TestFunctionRuntimeLoopAndAssignmentHelperCoverage(t *testing.T) {
 		Iterable: ident("values"),
 		Span:     spanAt(1702, 1),
 	}, nil, diags, ExprOptions{}, ctx)
-	if result.Value.Kind != KindNull || diagCount(diags, "E106") == 0 || !strings.Contains(diags.String(), "loop exceeded") {
+	if result.Value.Kind != KindNull || diagCount(diags, "E106") == 0 || !strings.Contains(diags.String(), LoopLimitExceededMessage()) {
 		t.Fatalf("expected max-loop diagnostic, got result %#v diagnostics %s", result, diags.String())
 	}
 

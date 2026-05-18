@@ -48,6 +48,10 @@ type DeleteNameFunc func(name string, at diag.Span, diags *diag.Diagnostics) boo
 const MaxLoopIterations = 1000000
 const MaxFunctionCallDepth = 10000
 
+func LoopLimitExceededMessage() string {
+	return fmt.Sprintf("loop exceeded %d iterations", MaxLoopIterations)
+}
+
 func EvalExpr(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics) Value {
 	return EvalExprWithOptions(expr, env, diags, ExprOptions{})
 }
