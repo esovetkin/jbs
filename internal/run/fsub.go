@@ -16,6 +16,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsubutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/patternutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
 )
@@ -28,10 +29,11 @@ type FileSubstitutionPlan struct {
 }
 
 type FileSubstitutionRulePlan struct {
-	Pattern string
-	Regex   *regexp.Regexp
-	Expr    ast.Expr
-	Span    diag.Span
+	Pattern      string
+	RegexPattern string
+	Regex        *regexp.Regexp
+	Expr         ast.Expr
+	Span         diag.Span
 }
 
 type FileSubstitutionWarning struct {
@@ -106,15 +108,20 @@ func resolveFSubTemplatePath(base, raw string) string {
 func compileFSubRules(rules []ast.FileSubstitutionRule) ([]FileSubstitutionRulePlan, error) {
 	out := make([]FileSubstitutionRulePlan, 0, len(rules))
 	for _, rule := range rules {
-		re, err := regexp.Compile(rule.Pattern)
+		normalized, ok := patternutil.NormalizePercentPattern(rule.Pattern)
+		if !ok {
+			return nil, fmt.Errorf("invalid placeholder in fsub regex %q: supported placeholders are %%d, %%f, %%w and %%%% for a literal percent", rule.Pattern)
+		}
+		re, err := regexp.Compile(normalized.Regex)
 		if err != nil {
 			return nil, fmt.Errorf("invalid fsub regex %q: %w", rule.Pattern, err)
 		}
 		out = append(out, FileSubstitutionRulePlan{
-			Pattern: rule.Pattern,
-			Regex:   re,
-			Expr:    rule.Expr,
-			Span:    rule.Span,
+			Pattern:      rule.Pattern,
+			RegexPattern: normalized.Regex,
+			Regex:        re,
+			Expr:         rule.Expr,
+			Span:         rule.Span,
 		})
 	}
 	return out, nil

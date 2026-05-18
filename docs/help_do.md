@@ -49,12 +49,15 @@ Rules:
 `fsub "path" { ... }` copies a template into every workpackage directory for the step, preserves the template's regular permission bits, and applies ordered regular-expression substitutions before `run.sh` starts. Relative template paths are resolved relative to the `.jbs` file that defines the step. The copied filename is the template basename.
 
 ```jbs
-cases = table(x = [1, 2], label = ["a", "b"])
+cases = table(x = [1, 2.5], label = ["a", "b"], i = [7])
 
 # > cat input.template
 # ###X###
 # ###LABEL###
 # tuple: (one, two)
+# id=0
+# x=0.0 label=old
+# literal=%
 
 do run
         with cases
@@ -62,7 +65,11 @@ do run
                 "###X###": x,
                 "###LABEL###": label,
                 # capture groups are replaced from tuple values
-                "tuple: \((\S+), (\S+)\)": (x, label)
+                "tuple: \((\S+), (\S+)\)": (x, label),
+                # %d, %f, %w shortcuts are allowed. % is escaped with %%
+                "id=%d": i,
+                "x=%f label=%w": (x, label),
+                "literal=%%": "literal=%"
         }
 {
         cat input.template
@@ -71,12 +78,12 @@ do run
 
 Rules:
 
-- rule keys are Go regular expressions
+- rule keys are Go regular expressions with analyse-style placeholders: `%d` matches an integer, `%f` matches a floating-point value, `%w` matches a word, and `%%` matches a literal percent
 - rules run in declaration order
 - a rule must match at least once in every workpackage template
 - multiple matches are all replaced, and JBS reports a warning
 - without capture groups, the whole match is replaced by one scalar value
-- with capture groups, provide a tuple or list with one scalar value per group
+- with capture groups, including `%d`, `%f`, and `%w` placeholders, provide a tuple or list with one scalar value per group
 - replacement expressions can use variables visible in the step through `with` or `after`
 - using `fsub "<filepath>" {}` simply copies the file without any replacements
 

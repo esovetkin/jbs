@@ -74,6 +74,16 @@ func TestCompileFSubRulesRejectsInvalidRegex(t *testing.T) {
 	}
 }
 
+func TestCompileFSubRulesRejectsInvalidPercentPlaceholder(t *testing.T) {
+	_, err := compileFSubRules([]ast.FileSubstitutionRule{{
+		Pattern: "x=%x",
+		Expr:    ast.StringExpr{Value: "x"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "supported placeholders") {
+		t.Fatalf("expected invalid placeholder error, got %v", err)
+	}
+}
+
 func TestFileSubBaseDirAndTemplatePathFallbacks(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "base")
 	span := diag.Span{File: "file.jbs"}
@@ -265,6 +275,82 @@ func TestApplyFSubRuleReplacesCaptureGroups(t *testing.T) {
 	}
 	if matches != 1 || got != "x = 42, y = new" {
 		t.Fatalf("replacement = %q matches=%d", got, matches)
+	}
+}
+
+func TestApplyFSubRuleSupportsPercentPlaceholders(t *testing.T) {
+	rules, err := compileFSubRules([]ast.FileSubstitutionRule{{
+		Pattern: `x=%d y=%f label=%w`,
+		Expr: ast.TupleExpr{Items: []ast.Expr{
+			ast.IdentExpr{Name: "x"},
+			ast.IdentExpr{Name: "y"},
+			ast.IdentExpr{Name: "label"},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, matches, err := applyFSubRule(
+		"x=1 y=2.5 label=old",
+		rules[0],
+		map[string]eval.Value{
+			"x":     eval.Int(7),
+			"y":     eval.Float(3.5),
+			"label": eval.String("new_label"),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches != 1 || got != "x=7 y=3.5 label=new_label" {
+		t.Fatalf("replacement = %q matches=%d", got, matches)
+	}
+}
+
+func TestApplyFSubRuleSupportsPercentPlaceholderCaptureReplacement(t *testing.T) {
+	rules, err := compileFSubRules([]ast.FileSubstitutionRule{{
+		Pattern: `x=%d`,
+		Expr:    ast.IdentExpr{Name: "x"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, matches, err := applyFSubRule("x=1", rules[0], map[string]eval.Value{"x": eval.Int(7)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches != 1 || got != "x=7" {
+		t.Fatalf("replacement = %q matches=%d", got, matches)
+	}
+}
+
+func TestApplyFSubRuleSupportsLiteralPercentPlaceholder(t *testing.T) {
+	rules, err := compileFSubRules([]ast.FileSubstitutionRule{{
+		Pattern: `rate=%f%%`,
+		Expr:    ast.IdentExpr{Name: "rate"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, matches, err := applyFSubRule("rate=12.5%", rules[0], map[string]eval.Value{"rate": eval.Int(80)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches != 1 || got != "rate=80%" {
+		t.Fatalf("replacement = %q matches=%d", got, matches)
+	}
+}
+
+func TestApplyFSubRulePercentPlaceholderArityErrors(t *testing.T) {
+	rules, err := compileFSubRules([]ast.FileSubstitutionRule{{
+		Pattern: `x=%d y=%f`,
+		Expr:    ast.IdentExpr{Name: "x"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := applyFSubRule("x=1 y=2.5", rules[0], map[string]eval.Value{"x": eval.Int(7)}); err == nil || !strings.Contains(err.Error(), "2 capture groups") {
+		t.Fatalf("expected capture-count error, got %v", err)
 	}
 }
 

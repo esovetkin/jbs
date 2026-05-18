@@ -8,6 +8,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsubutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/patternutil"
 )
 
 func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
@@ -36,7 +37,18 @@ func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
 				seenDest[dest] = fsub.PathSpan
 			}
 			for _, rule := range fsub.Rules {
-				if _, err := regexp.Compile(rule.Pattern); err != nil {
+				normalized, ok := patternutil.NormalizePercentPattern(rule.Pattern)
+				if !ok {
+					diags.AddError(
+						diag.CodeE220,
+						fmt.Sprintf("invalid placeholder in fsub regex %q", rule.Pattern),
+						rule.PatternSpan,
+						"supported placeholders are %d, %f, %w and %% for a literal percent",
+					)
+					validateFSubExprRefs(block.Name, visible, rule.Expr, diags)
+					continue
+				}
+				if _, err := regexp.Compile(normalized.Regex); err != nil {
 					diags.AddError(
 						diag.CodeE220,
 						fmt.Sprintf("invalid fsub regex %q: %v", rule.Pattern, err),

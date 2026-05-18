@@ -7,75 +7,23 @@ package sema
 
 import (
 	"fmt"
-	"strings"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
-)
-
-const (
-	runtimeIntBody   = `[-+]?[0-9]+`
-	runtimeFloatBody = `[-+]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][-+]?[0-9]+)?`
-	runtimeWordBody  = `[A-Za-z0-9_]+`
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/patternutil"
 )
 
 func normalizePatternRegex(input string) (string, map[string]string, bool) {
-	var out strings.Builder
-	captureTypes := make(map[string]string)
-	usedNames := make(map[string]struct{})
-	counter := 0
-	runes := []rune(input)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		if r != '%' {
-			out.WriteRune(r)
-			continue
-		}
-		if i+1 >= len(runes) {
-			return "", nil, false
-		}
-		next := runes[i+1]
-		switch next {
-		case '%':
-			out.WriteRune('%')
-		case 'd':
-			name := nextAnalyseCaptureName(input, usedNames, "int", &counter)
-			out.WriteString(namedAnalyseCapture(name, runtimeIntBody))
-			captureTypes[name] = "int"
-		case 'f':
-			name := nextAnalyseCaptureName(input, usedNames, "float", &counter)
-			out.WriteString(namedAnalyseCapture(name, runtimeFloatBody))
-			captureTypes[name] = "float"
-		case 'w':
-			name := nextAnalyseCaptureName(input, usedNames, "string", &counter)
-			out.WriteString(namedAnalyseCapture(name, runtimeWordBody))
-			captureTypes[name] = "string"
-		default:
-			return "", nil, false
-		}
-		i++
+	normalized, ok := patternutil.NormalizePercentPattern(input)
+	if !ok {
+		return "", nil, false
 	}
-	return out.String(), captureTypes, true
-}
-
-func namedAnalyseCapture(name, body string) string {
-	return `(?P<` + name + `>` + body + `)`
-}
-
-func nextAnalyseCaptureName(input string, used map[string]struct{}, kind string, counter *int) string {
-	for {
-		name := fmt.Sprintf("JBS_CAPTURE_%s_%d", strings.ToUpper(kind), *counter)
-		*counter = *counter + 1
-		if strings.Contains(input, name) {
-			continue
-		}
-		if _, ok := used[name]; ok {
-			continue
-		}
-		used[name] = struct{}{}
-		return name
+	captureTypes := make(map[string]string, len(normalized.CaptureTypesByName))
+	for name, kind := range normalized.CaptureTypesByName {
+		captureTypes[name] = string(kind)
 	}
+	return normalized.Regex, captureTypes, true
 }
 
 func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOptions, diags *diag.Diagnostics) *AnalyseSpec {

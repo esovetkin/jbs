@@ -63,7 +63,7 @@ do run
 
 func TestValidateFileSubstitutionsCountAsImportUsage(t *testing.T) {
 	src := `
-cases = table(x = [1])
+	cases = table(x = [1])
 
 do run
         with cases["x"]
@@ -78,6 +78,44 @@ do run
 	}
 	if countDiagCode(diags, string(diag.CodeW313)) != 0 {
 		t.Fatalf("did not expect unused-import warning for fsub-only ref: %s", diags.String())
+	}
+}
+
+func TestValidateFileSubstitutionsAcceptsPercentPlaceholders(t *testing.T) {
+	src := `
+	cases = table(x = [1], y = [1.5], label = ["case"])
+
+	do run
+	        with cases
+	        fsub "input.tpl" {
+	                "x=%d": x,
+	                "y=%f label=%w": (y, label),
+	                "literal=%%": "literal=%"
+	        }
+	{
+	        :
+	}
+	`
+	diags := analyzeFSubValidationSource(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestValidateFileSubstitutionsRejectsInvalidPercentPlaceholder(t *testing.T) {
+	src := `
+	do run
+	        fsub "input.tpl" { "x=%x": "bad" }
+	{
+	        :
+	}
+	`
+	diags := analyzeFSubValidationSource(t, src)
+	if countDiagCode(diags, string(diag.CodeE220)) != 1 {
+		t.Fatalf("expected one fsub diagnostic, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "supported placeholders are %d, %f, %w and %%") {
+		t.Fatalf("missing supported-placeholder diagnostic: %s", diags.String())
 	}
 }
 

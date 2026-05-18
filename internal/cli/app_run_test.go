@@ -1793,6 +1793,55 @@ func TestRunCommandFSubCreatesSubstitutedFilesAndWarnings(t *testing.T) {
 	}
 }
 
+func TestRunCommandFSubSupportsPercentPlaceholders(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	template := "x=0\ny=0.0 label=old\nrate=12.5%\n"
+	if err := os.WriteFile(filepath.Join(cwd, "input.tpl"), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[7], y=[3.5], label=["new_label"], rate=[80])`,
+		`do run`,
+		`        with cases`,
+		`        fsub "input.tpl" {`,
+		`                "x=%d": x,`,
+		`                "y=%f label=%w": (y, label),`,
+		`                "rate=%f%%": rate,`,
+		`        }`,
+		`{`,
+		`cat input.tpl`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	workDir := filepath.Join(cwd, "bench", "000000", "run", "000000")
+	want := "x=7\ny=3.5 label=new_label\nrate=80%\n"
+	if got := readFileString(t, filepath.Join(workDir, "input.tpl")); got != want {
+		t.Fatalf("substituted file = %q", got)
+	}
+	if got := readFileString(t, filepath.Join(workDir, "stdout")); got != want {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
 func TestRunCommandFSubDryRunContinueAndTemplateHash(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
