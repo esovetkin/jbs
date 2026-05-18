@@ -9,39 +9,6 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-var specialBuiltinCallNames = map[string]struct{}{
-	"all":      {},
-	"any":      {},
-	"bool":     {},
-	"delete":   {},
-	"dict":     {},
-	"env":      {},
-	"filter":   {},
-	"float":    {},
-	"get":      {},
-	"head":     {},
-	"int":      {},
-	"len":      {},
-	"map":      {},
-	"names":    {},
-	"order":    {},
-	"prod":     {},
-	"print":    {},
-	"read_csv": {},
-	"rbind":    {},
-	"reduce":   {},
-	"rename":   {},
-	"rows":     {},
-	"shell":    {},
-	"sort":     {},
-	"str":      {},
-	"sum":      {},
-	"table":    {},
-	"tail":     {},
-	"t":        {},
-	"update":   {},
-}
-
 var builtinFunctionValues struct {
 	once   sync.Once
 	values map[string]Value
@@ -71,119 +38,30 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		diags.AddError(diag.CodeE199, "expression is not callable", callee.GetSpan(), "call a function value or supported builtin")
 		return Null()
 	}
-	switch name {
-	case "table", "t":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalTableValueCall(args, at, diags)
-	case "dict":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalDictValueCall(args, at, diags)
-	case "delete":
-		return evalDeleteCall(rawArgs, env, at, diags, opts, ctx)
-	case "env":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalEnvValueCall(args, at, diags, opts)
-	case "get":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalDictGetValueCall(args, at, diags)
-	case "names":
-		return evalNamesDirectCall(rawArgs, env, at, diags, opts, ctx)
-	case "map":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalMapValueCall(args, env, at, diags, opts, ctx)
-	case "reduce":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalReduceValueCall(args, env, at, diags, opts, ctx)
-	case "rename":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalRenameValueCall(args, at, diags)
-	case "order":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalOrderValueCall(args, env, at, diags, opts, ctx)
-	case "rbind":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalRbindValueCall(args, at, diags)
-	case "filter":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalFilterValueCall(args, env, at, diags, opts, ctx)
-	case "head", "tail":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalHeadTailValueCall(name, args, at, diags)
-	case "sum":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalFoldOperatorValueCall("sum", "+", args, at, diags, opts, ctx)
-	case "prod":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalFoldOperatorValueCall("prod", "*", args, at, diags, opts, ctx)
-	case "sort":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalSortValueCall(args, env, at, diags, opts, ctx)
-	case "rows":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalRowsValueCall(args, at, diags)
-	case "shell":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalShellValueCall(args, env, at, diags, opts, ctx)
-	case "update":
-		args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
-		if !ok {
-			return Null()
-		}
-		return evalUpdateValueCall(args, at, diags)
+	spec, ok := lookupBuiltinSpec(name)
+	if !ok {
+		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), callee.GetSpan(), "use a supported builtin or define a function value before calling it")
+		return Null()
+	}
+	if !checkBuiltinContext(spec, at, diags, opts) {
+		return Null()
+	}
+	if spec.DirectMode == builtinRawArgs {
+		return spec.Direct(rawArgs, env, at, diags, opts, ctx)
 	}
 	args, ok := evalCallValueArgs(rawArgs, env, diags, opts, ctx)
 	if !ok {
 		return Null()
 	}
-	return evalBuiltinValueCall(name, args, env, at, diags, opts, ctx)
+	return callBuiltinSpec(spec, builtinCallContext{
+		Name:  name,
+		Args:  args,
+		Env:   env,
+		At:    at,
+		Diags: diags,
+		Opts:  opts,
+		Ctx:   ctx,
+	})
 }
 
 func lookupLocalOrCapturedValue(name string, env map[string]Value, at diag.Span, diags *diag.Diagnostics, ctx *evalCtx) (Value, bool, bool) {
@@ -286,23 +164,14 @@ func builtinCallName(callee ast.Expr) (string, bool) {
 }
 
 func IsBuiltinCallName(name string) bool {
-	if _, ok := kernelFuncs[name]; ok {
-		return true
-	}
-	_, ok := specialBuiltinCallNames[name]
+	_, ok := lookupBuiltinSpec(name)
 	return ok
 }
 
 func BuiltinCallNames() []string {
-	seen := make(map[string]struct{}, len(kernelFuncs)+len(specialBuiltinCallNames))
-	for name := range kernelFuncs {
-		seen[name] = struct{}{}
-	}
-	for name := range specialBuiltinCallNames {
-		seen[name] = struct{}{}
-	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
+	specs := builtinSpecs()
+	names := make([]string, 0, len(specs))
+	for name := range specs {
 		names = append(names, name)
 	}
 	slices.Sort(names)

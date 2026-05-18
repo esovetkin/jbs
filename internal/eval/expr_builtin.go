@@ -1,58 +1,11 @@
 package eval
 
 import (
-	"fmt"
 	"unicode/utf8"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
-
-type kernelFunc struct {
-	allowed map[EvalContext]struct{}
-	eval    func(args []Value, at diag.Span, diags *diag.Diagnostics) Value
-}
-
-var kernelFuncs = map[string]kernelFunc{
-	"range": {
-		allowed: map[EvalContext]struct{}{
-			EvalCtxBindingAssign: {},
-		},
-		eval: evalRangeCall,
-	},
-	"rev": {
-		allowed: map[EvalContext]struct{}{
-			EvalCtxBindingAssign: {},
-		},
-		eval: evalRevCall,
-	},
-	"tuple": {
-		eval: evalTupleCall,
-	},
-	"list": {
-		eval: evalListCall,
-	},
-}
-
-func evalKernelCall(name string, args []Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) Value {
-	fn, ok := kernelFuncs[name]
-	if !ok {
-		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), at, "use a supported kernel function")
-		return Null()
-	}
-	if len(fn.allowed) > 0 {
-		if _, ok := fn.allowed[opts.Context]; !ok {
-			diags.AddError(
-				diag.CodeE199,
-				fmt.Sprintf("function '%s' is only allowed in top-level global assignments", name),
-				at,
-				"use this function only in top-level global assignment expressions",
-			)
-			return Null()
-		}
-	}
-	return fn.eval(args, at, diags)
-}
 
 func evalNamesCall(rawArgs []ast.Expr, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
 	if len(rawArgs) > 1 {
