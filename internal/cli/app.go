@@ -42,6 +42,32 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
+	return runWithProfiles(flags, stderr, func() int {
+		return runParsed(flags, stdout, stderr)
+	})
+}
+
+func runWithProfiles(flags Flags, stderr io.Writer, run func() int) (code int) {
+	if flags.CPUProf == "" && flags.MemProf == "" {
+		return run()
+	}
+	session, err := startProfiles(flags)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			fmt.Fprintln(stderr, err)
+			if code == 0 {
+				code = 1
+			}
+		}
+	}()
+	return run()
+}
+
+func runParsed(flags Flags, stdout, stderr io.Writer) int {
 	if flags.Repl {
 		return runReplFn(stdout, stderr)
 	}

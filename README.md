@@ -106,6 +106,12 @@ Options:
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
+Profiling:
+  --cpuprof[=<file>]
+                 Write a CPU pprof profile; default: cpu.pprof
+  --memprof[=<file>]
+                 Write a heap pprof profile at command exit; default: mem.pprof
+
 Archive benchmark directory:
   jbs archive <file.jbs|benchmark-dir>
 
@@ -125,6 +131,13 @@ Interactive mode:
 ```
 
 `jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs status` prints the latest run status (see [docs/help_status.md](docs/help_status.md)), `jbs tree` prints the planned job tree (see [docs/help_tree.md](docs/help_tree.md)), and `jbs ls-analyse` lists generated analyse outputs (see [docs/help_ls_analyse.md](docs/help_ls_analyse.md)). `jbs fwait` waits for files to appear or change (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use (see [docs/help_param.md](docs/help_param.md)).
+
+`--cpuprof` and `--memprof` profile the JBS process. They are useful for debugging parsing, semantic analysis, planning, scheduling, and CLI overhead. They do not profile shell commands launched by `do` blocks. Inspect profiles with `go tool pprof`:
+
+```sh
+go tool pprof -http=:8080 ./jbs cpu.pprof
+go tool pprof -http=:8080 ./jbs mem.pprof
+```
 
 ## Variable Types, Tables, and Parameter Spaces
 

@@ -439,6 +439,82 @@ func TestParseFlagsBenchmarkEqualsAllowsDashValue(t *testing.T) {
 	}
 }
 
+func TestParseFlagsProfileOptions(t *testing.T) {
+	cases := []struct {
+		name        string
+		args        []string
+		wantCPUProf string
+		wantMemProf string
+		wantInput   string
+		wantRun     bool
+		wantHelp    bool
+		wantParam   bool
+		wantRepl    bool
+	}{
+		{
+			name:        "before command defaults",
+			args:        []string{"--cpuprof", "--memprof", "run", "input.jbs"},
+			wantCPUProf: defaultCPUProfilePath,
+			wantMemProf: defaultMemProfilePath,
+			wantInput:   "input.jbs",
+			wantRun:     true,
+		},
+		{
+			name:        "after command custom paths",
+			args:        []string{"run", "--cpuprof=cpu.out", "--memprof=mem.out", "input.jbs"},
+			wantCPUProf: "cpu.out",
+			wantMemProf: "mem.out",
+			wantInput:   "input.jbs",
+			wantRun:     true,
+		},
+		{
+			name:        "default run shorthand",
+			args:        []string{"--cpuprof=cpu.out", "input.jbs"},
+			wantCPUProf: "cpu.out",
+			wantInput:   "input.jbs",
+			wantRun:     true,
+		},
+		{
+			name:        "help is profileable",
+			args:        []string{"help", "--cpuprof"},
+			wantCPUProf: defaultCPUProfilePath,
+			wantHelp:    true,
+		},
+		{
+			name:        "param is profileable",
+			args:        []string{"param", "--memprof=mem.out", "input.jbs"},
+			wantMemProf: "mem.out",
+			wantInput:   "input.jbs",
+			wantParam:   true,
+		},
+		{
+			name:        "repl is profileable",
+			args:        []string{"--memprof", "repl"},
+			wantMemProf: defaultMemProfilePath,
+			wantRepl:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := mustParseFlags(t, tc.args)
+			if got.CPUProf != tc.wantCPUProf {
+				t.Fatalf("CPUProf = %q, want %q", got.CPUProf, tc.wantCPUProf)
+			}
+			if got.MemProf != tc.wantMemProf {
+				t.Fatalf("MemProf = %q, want %q", got.MemProf, tc.wantMemProf)
+			}
+			if got.Input != tc.wantInput {
+				t.Fatalf("Input = %q, want %q", got.Input, tc.wantInput)
+			}
+			if got.Run != tc.wantRun || got.Help != tc.wantHelp || got.Param != tc.wantParam || got.Repl != tc.wantRepl {
+				t.Fatalf("unexpected mode: %#v", got)
+			}
+		})
+	}
+}
+
 func TestParseFlagsNoArgMode(t *testing.T) {
 	f := mustParseFlags(t, nil)
 	if !f.Repl || f.Help || f.HelpTopic != "" {
@@ -646,6 +722,11 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "check_rejects_no_strict", args: []string{"--check", "--no-strict", "input.jbs"}},
 		{name: "check_rejects_benchmark", args: []string{"--check", "-b", "small", "input.jbs"}},
 		{name: "check_rejects_help", args: []string{"--check", "--help", "input.jbs"}},
+		{name: "duplicate_cpuprof", args: []string{"--cpuprof", "--cpuprof", "input.jbs"}},
+		{name: "duplicate_memprof", args: []string{"--memprof", "--memprof=mem.out", "input.jbs"}},
+		{name: "empty_cpuprof_path", args: []string{"--cpuprof=", "input.jbs"}},
+		{name: "empty_memprof_path", args: []string{"--memprof=", "input.jbs"}},
+		{name: "same_profile_path", args: []string{"--cpuprof=p.out", "--memprof=p.out", "input.jbs"}},
 		{name: "param_rejects_unknown_check_option", args: []string{"param", "--check", "input.jbs"}},
 		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
 		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},

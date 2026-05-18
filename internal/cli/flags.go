@@ -29,7 +29,14 @@ type Flags struct {
 	PrintType         string
 	Help              bool
 	HelpTopic         string
+	CPUProf           string
+	MemProf           string
 }
+
+const (
+	defaultCPUProfilePath = "cpu.pprof"
+	defaultMemProfilePath = "mem.pprof"
+)
 
 type UsageError struct {
 	Message string
@@ -40,6 +47,62 @@ func (e UsageError) Error() string {
 }
 
 func ParseFlags(args []string) (Flags, error) {
+	profiles, rest, err := extractProfileOptions(args)
+	if err != nil {
+		return Flags{}, err
+	}
+	cfg, err := parseFlagsWithoutProfileOptions(rest)
+	if err != nil {
+		return Flags{}, err
+	}
+	cfg.CPUProf = profiles.CPUProf
+	cfg.MemProf = profiles.MemProf
+	return cfg, nil
+}
+
+type profileFlagValues struct {
+	CPUProf string
+	MemProf string
+}
+
+func extractProfileOptions(args []string) (profileFlagValues, []string, error) {
+	var profiles profileFlagValues
+	rest := make([]string, 0, len(args))
+	for _, arg := range args {
+		switch {
+		case arg == "--cpuprof":
+			if profiles.CPUProf != "" {
+				return profileFlagValues{}, nil, UsageError{Message: profileUsageMessage()}
+			}
+			profiles.CPUProf = defaultCPUProfilePath
+		case strings.HasPrefix(arg, "--cpuprof="):
+			value := strings.TrimPrefix(arg, "--cpuprof=")
+			if value == "" || profiles.CPUProf != "" {
+				return profileFlagValues{}, nil, UsageError{Message: profileUsageMessage()}
+			}
+			profiles.CPUProf = value
+		case arg == "--memprof":
+			if profiles.MemProf != "" {
+				return profileFlagValues{}, nil, UsageError{Message: profileUsageMessage()}
+			}
+			profiles.MemProf = defaultMemProfilePath
+		case strings.HasPrefix(arg, "--memprof="):
+			value := strings.TrimPrefix(arg, "--memprof=")
+			if value == "" || profiles.MemProf != "" {
+				return profileFlagValues{}, nil, UsageError{Message: profileUsageMessage()}
+			}
+			profiles.MemProf = value
+		default:
+			rest = append(rest, arg)
+		}
+	}
+	if profiles.CPUProf != "" && profiles.CPUProf == profiles.MemProf {
+		return profileFlagValues{}, nil, UsageError{Message: "--cpuprof and --memprof must use different output files"}
+	}
+	return profiles, rest, nil
+}
+
+func parseFlagsWithoutProfileOptions(args []string) (Flags, error) {
 	cfg := Flags{Output: "-"}
 	if len(args) == 0 {
 		cfg.Repl = true
@@ -181,6 +244,12 @@ Options:
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
+Profiling:
+  --cpuprof[=<file>]
+                 Write a CPU pprof profile; default: cpu.pprof
+  --memprof[=<file>]
+                 Write a heap pprof profile at command exit; default: mem.pprof
+
 Archive benchmark directory:
   jbs archive <file.jbs|benchmark-dir>
 
@@ -319,6 +388,10 @@ func defaultRunUsageMessage() string {
 
 func checkUsageMessage() string {
 	return "usage: jbs -c|--check <file.jbs>"
+}
+
+func profileUsageMessage() string {
+	return "usage: jbs [--cpuprof[=<file>]] [--memprof[=<file>]] <command>"
 }
 
 func parseContinueArgs(args []string) (Flags, error) {
