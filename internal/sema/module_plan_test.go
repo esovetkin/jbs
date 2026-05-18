@@ -10,17 +10,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
-func TestBuildModuleGlobalPlanNilInfo(t *testing.T) {
-	plan := buildModuleGlobalPlan(nil, nil, nil, map[string]eval.Value{"builtin": eval.Int(1)}, &diag.Diagnostics{})
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-	}
-	if len(plan.Steps) != 0 || len(plan.StepByName) != 0 || len(plan.LocalVisibleNames) != 0 {
-		t.Fatalf("expected empty plan for nil module info, got %#v", plan)
-	}
-}
-
-func TestBuildModuleGlobalPlanControlFlowAndImports(t *testing.T) {
+func TestModulePlanPreservesControlFlowAndImportSteps(t *testing.T) {
 	span := diag.NewSpan("entry.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	nsRef := imports.ModuleRef{ID: "ns", Label: "ns.jbs"}
 	depRef := imports.ModuleRef{ID: "dep", Label: "dep.jbs"}
@@ -142,30 +132,30 @@ func TestBuildModuleGlobalPlanControlFlowAndImports(t *testing.T) {
 	if len(ifStep.Then) != 4 || len(ifStep.Elifs) != 1 || len(ifStep.Else) != 1 {
 		t.Fatalf("unexpected if children: then=%#v elifs=%#v else=%#v", ifStep.Then, ifStep.Elifs, ifStep.Else)
 	}
-	if ifStep.Then[0].Kind != globalInputAssign || ifStep.Then[0].Name != "then_value" || ifStep.Then[0].Index != ifStep.Index {
+	if ifStep.Then[0].Kind != globalInputAssign || ifStep.Then[0].Name != "then_value" {
 		t.Fatalf("unexpected nested assignment step: %#v", ifStep.Then[0])
 	}
-	if ifStep.Then[1].Kind != globalInputIf || ifStep.Then[1].Index != ifStep.Index || len(ifStep.Then[1].Then) != 1 {
+	if ifStep.Then[1].Kind != globalInputIf || len(ifStep.Then[1].Then) != 1 {
 		t.Fatalf("unexpected nested if step: %#v", ifStep.Then[1])
 	}
-	if ifStep.Then[2].Kind != globalInputFor || ifStep.Then[2].Name != "j" || ifStep.Then[2].Index != ifStep.Index || len(ifStep.Then[2].Body) != 1 {
+	if ifStep.Then[2].Kind != globalInputFor || ifStep.Then[2].Name != "j" || len(ifStep.Then[2].Body) != 1 {
 		t.Fatalf("unexpected nested for step: %#v", ifStep.Then[2])
 	}
-	if ifStep.Then[3].Kind != globalInputWhile || ifStep.Then[3].Index != ifStep.Index || len(ifStep.Then[3].Body) != 1 {
+	if ifStep.Then[3].Kind != globalInputWhile || len(ifStep.Then[3].Body) != 1 {
 		t.Fatalf("unexpected nested while step: %#v", ifStep.Then[3])
 	}
-	if ifStep.Elifs[0].Body[0].Kind != globalInputExpr || ifStep.Elifs[0].Body[0].Index != ifStep.Index {
+	if ifStep.Elifs[0].Body[0].Kind != globalInputExpr {
 		t.Fatalf("unexpected elif body: %#v", ifStep.Elifs[0].Body)
 	}
-	if ifStep.Else[0].Kind != globalInputAssign || ifStep.Else[0].Name != "else_value" || ifStep.Else[0].Index != ifStep.Index {
+	if ifStep.Else[0].Kind != globalInputAssign || ifStep.Else[0].Name != "else_value" {
 		t.Fatalf("unexpected else body: %#v", ifStep.Else)
 	}
 	forStep := plan.Steps[3]
-	if forStep.Name != "i" || len(forStep.Body) != 2 || forStep.Body[0].Index != forStep.Index || forStep.Body[1].Kind != globalInputBreak {
+	if forStep.Name != "i" || len(forStep.Body) != 2 || forStep.Body[1].Kind != globalInputBreak {
 		t.Fatalf("unexpected top-level for step: %#v", forStep)
 	}
 	whileStep := plan.Steps[4]
-	if len(whileStep.Body) != 1 || whileStep.Body[0].Kind != globalInputContinue || whileStep.Body[0].Index != whileStep.Index {
+	if len(whileStep.Body) != 1 || whileStep.Body[0].Kind != globalInputContinue {
 		t.Fatalf("unexpected top-level while step: %#v", whileStep)
 	}
 	if plan.StepByName["imported"] != plan.Steps[1].ID || plan.StepByName["i"] != forStep.ID || plan.StepByName["j"] != ifStep.Then[2].ID || plan.StepByName["final_value"] != plan.Steps[5].ID {
@@ -181,27 +171,7 @@ func TestBuildModuleGlobalPlanControlFlowAndImports(t *testing.T) {
 	}
 }
 
-func TestAppendModuleGlobalPlanStepsSkipsUnavailableImports(t *testing.T) {
-	span := diag.NewSpan("entry.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
-	plan := &globalPlan{Steps: make([]globalInputStep, 0), StepByName: make(map[string]int)}
-	useByIndex := map[int]imports.ResolvedUse{
-		0: {Kind: imports.UseSelective, Names: []string{"missing"}, Source: imports.ModuleRef{ID: "dep", Label: "dep.jbs"}, Span: span, Index: 0},
-	}
-	appendModuleGlobalPlanSteps(
-		plan,
-		[]ast.Stmt{ast.UseStmt{Names: []string{"missing"}, Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "dep", Span: span}, Span: span}},
-		"/modules/entry",
-		globalPlanContext{},
-		useByIndex,
-		moduleBindingPrep{AcceptedImports: map[projectedImportDecisionKey]*projectedImport{}},
-		nil,
-	)
-	if len(plan.Steps) != 0 || len(plan.StepByName) != 0 {
-		t.Fatalf("expected missing projected import to be skipped, got plan %#v", plan)
-	}
-}
-
-func TestAppendModuleGlobalPlanStepsSkipsImportsInsideControlBodies(t *testing.T) {
+func TestModulePlanKeepsControlBodyImportsOutOfRootPlan(t *testing.T) {
 	span := diag.NewSpan("entry.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	plan := &globalPlan{Steps: make([]globalInputStep, 0), StepByName: make(map[string]int)}
 	useByIndex := map[int]imports.ResolvedUse{

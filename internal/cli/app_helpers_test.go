@@ -165,3 +165,68 @@ func TestRunDryRunRejectsAnalyseWithTableBindingPrecisely(t *testing.T) {
 		t.Fatalf("expected precise analyse with diagnostic %q, got %q", want, errText)
 	}
 }
+
+func TestParamCommandReportsRenderWriteAndAnalysisErrors(t *testing.T) {
+	dir := t.TempDir()
+	input := writeCLIFile(t, dir, "input.jbs", strings.Join([]string{
+		`do s {`,
+		`  echo ok`,
+		`}`,
+		``,
+	}, "\n"))
+
+	t.Run("writes_output_file", func(t *testing.T) {
+		output := filepath.Join(dir, "params.csv")
+		var stdout, stderr bytes.Buffer
+		code := runParam(Flags{Input: input, PrintType: "csv", Output: output}, &stdout, &stderr)
+		if code != 0 {
+			t.Fatalf("expected param success, code=%d stderr=%s", code, stderr.String())
+		}
+		if stdout.String() != "" {
+			t.Fatalf("expected file output only, got %q", stdout.String())
+		}
+		data := readFileString(t, output)
+		if !strings.Contains(data, "do: s") {
+			t.Fatalf("expected param output file, got %q", data)
+		}
+	})
+
+	t.Run("render_error", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runParam(Flags{Input: input, PrintType: "json", Output: "-"}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("expected render failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "failed to render param output") {
+			t.Fatalf("expected render error, got %q", stderr.String())
+		}
+	})
+
+	t.Run("write_error", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runParam(Flags{Input: input, PrintType: "pretty", Output: dir}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("expected write failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "failed to write output") {
+			t.Fatalf("expected write error, got %q", stderr.String())
+		}
+	})
+
+	t.Run("analysis_error", func(t *testing.T) {
+		bad := writeCLIFile(t, dir, "bad.jbs", strings.Join([]string{
+			`do s after missing {`,
+			`  echo ok`,
+			`}`,
+			``,
+		}, "\n"))
+		var stdout, stderr bytes.Buffer
+		code := runParam(Flags{Input: bad, PrintType: "pretty", Output: "-"}, &stdout, &stderr)
+		if code != 1 {
+			t.Fatalf("expected analysis failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "ERROR") {
+			t.Fatalf("expected diagnostics, got %q", stderr.String())
+		}
+	})
+}

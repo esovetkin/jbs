@@ -13,21 +13,6 @@ type tableColumnInput struct {
 	Span   diag.Span
 }
 
-func evalTableCall(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	if len(rawArgs) == 0 {
-		diags.AddError(diag.CodeE106, "table() expects named column arguments, one dictionary argument, or one list of dictionaries", at, "use table(id = ids), table(dict_value), or table(rows(table_value))")
-		return Null()
-	}
-	if len(rawArgs) == 1 && rawArgs[0].Name == "" {
-		return evalTableFromPositionalArg(rawArgs[0], env, at, diags, opts, ctx)
-	}
-	if hasPositionalArg(rawArgs) {
-		diags.AddError(diag.CodeE106, "table() positional argument must be a dictionary or list of dictionaries", firstPositionalSpan(rawArgs), "use table(dict_value), table(rows(table_value)), or named columns such as table(id = ids)")
-		return Null()
-	}
-	return evalNamedTableColumns(rawArgs, env, at, diags, opts, ctx)
-}
-
 func evalTableValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(args) == 0 {
 		diags.AddError(diag.CodeE106, "table() expects named column arguments, one dictionary argument, or one list of dictionaries", at, "use table(id = ids), table(dict_value), or table(rows(table_value))")
@@ -41,36 +26,6 @@ func evalTableValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnosti
 		return Null()
 	}
 	return evalNamedTableValueColumns(args, at, diags)
-}
-
-func evalNamedTableColumns(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	seen := make(map[string]struct{}, len(rawArgs))
-	columns := make([]tableColumnInput, 0, len(rawArgs))
-	for _, arg := range rawArgs {
-		if _, exists := seen[arg.Name]; exists {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() duplicate column name '%s'", arg.Name), arg.Span, "use each column name at most once")
-			return Null()
-		}
-		if !isValidCombColumnName(arg.Name) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid column name '%s'", arg.Name), arg.Span, "use valid table column names such as x, system_name, or ns.value")
-			return Null()
-		}
-		seen[arg.Name] = struct{}{}
-		value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return Null()
-		}
-		if IsComb(value) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() column '%s' cannot be a table value", arg.Name), arg.Span, "pass a scalar, tuple, or list column value")
-			return Null()
-		}
-		columns = append(columns, tableColumnInput{
-			Name:   arg.Name,
-			Values: ToSeries(value),
-			Span:   arg.Span,
-		})
-	}
-	return buildTableFromColumns(columns, at, diags)
 }
 
 func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
@@ -97,14 +52,6 @@ func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.D
 		})
 	}
 	return buildTableFromColumns(columns, at, diags)
-}
-
-func evalTableFromPositionalArg(arg ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	value := evalExprWithCtx(arg.Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return Null()
-	}
-	return tableFromPositionalValue(value, arg.Span, diags)
 }
 
 func evalTableFromPositionalValueArg(arg CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
@@ -344,15 +291,6 @@ func buildTableFromColumns(columns []tableColumnInput, at diag.Span, diags *diag
 	return CombValue(&Comb{Order: order, Rows: rows})
 }
 
-func hasPositionalArg(args []ast.CallArg) bool {
-	for _, arg := range args {
-		if arg.Name == "" {
-			return true
-		}
-	}
-	return false
-}
-
 func hasPositionalValueArg(args []CallValueArg) bool {
 	for _, arg := range args {
 		if arg.Name == "" {
@@ -360,15 +298,6 @@ func hasPositionalValueArg(args []CallValueArg) bool {
 		}
 	}
 	return false
-}
-
-func firstPositionalSpan(args []ast.CallArg) diag.Span {
-	for _, arg := range args {
-		if arg.Name == "" {
-			return arg.Span
-		}
-	}
-	return diag.Span{}
 }
 
 func firstPositionalValueSpan(args []CallValueArg) diag.Span {

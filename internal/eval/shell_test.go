@@ -372,7 +372,7 @@ func TestEvalShellCallRunnerErrors(t *testing.T) {
 
 func TestEvalShellDefaultRunnerAndErrors(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is required for default shell runner coverage")
+		t.Skip("bash is required for the default shell runner test")
 	}
 
 	t.Run("eval uses default runner and working directory", func(t *testing.T) {

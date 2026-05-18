@@ -612,7 +612,7 @@ func TestEvalRangeFloatBranches(t *testing.T) {
 	}
 }
 
-func TestBinaryNeedsRelaxedCombEvalCoverage(t *testing.T) {
+func TestBinaryNeedsRelaxedCombEvalRecognizesExpressionShapes(t *testing.T) {
 	cases := []struct {
 		name string
 		expr ast.Expr
@@ -640,7 +640,7 @@ func TestBinaryNeedsRelaxedCombEvalCoverage(t *testing.T) {
 	}
 }
 
-func TestCombRowsHelpersCoverage(t *testing.T) {
+func TestCombRowsHelpersPreserveRowValues(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}
 	env := map[string]Value{

@@ -8,7 +8,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexCoverage(t *testing.T) {
+func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexBehavior(t *testing.T) {
 	t.Run("qualified comb single-row returns scalar", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		comb := CombValue(&Comb{
@@ -178,7 +178,7 @@ func TestEvalExprWithCtxCombBinaryPaths(t *testing.T) {
 	})
 }
 
-func TestBinaryNeedsRelaxedCombEvalAdditionalBranches(t *testing.T) {
+func TestBinaryNeedsRelaxedCombEvalRecognizesAliasOperands(t *testing.T) {
 	tests := []struct {
 		name string
 		expr ast.Expr
@@ -244,20 +244,12 @@ func TestBinaryNeedsRelaxedCombEvalAdditionalBranches(t *testing.T) {
 	}
 }
 
-func TestEvalTableBuiltinsCoverage(t *testing.T) {
+func TestEvalTableBuiltinsValidateConstructionAndSelection(t *testing.T) {
 	span := spanAt(519, 1)
-	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}
 
 	t.Run("table requires named args", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		got := evalTableCall(
-			[]ast.CallArg{{Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: span}, Span: span}},
-			map[string]Value{},
-			span,
-			diags,
-			ExprOptions{},
-			ctx,
-		)
+		got := EvalExprWithOptions(callExpr(ident("table"), posArg(intExpr(1))), nil, diags, ExprOptions{})
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected table() named-arg error, got value=%#v diags=%s", got, diags.String())
 		}
@@ -265,35 +257,20 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 
 	t.Run("table rejects duplicate names and broadcasts mismatched lengths", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		got := evalTableCall(
-			[]ast.CallArg{
-				{Name: "x", Expr: ast.NumberExpr{Int: true, IntValue: 1, Span: span}, Span: span},
-				{Name: "x", Expr: ast.NumberExpr{Int: true, IntValue: 2, Span: span}, Span: span},
-			},
-			map[string]Value{},
-			span,
-			diags,
-			ExprOptions{},
-			ctx,
-		)
+		got := EvalExprWithOptions(callExpr(ident("table"), namedArg("x", intExpr(1)), namedArg("x", intExpr(2))), nil, diags, ExprOptions{})
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected duplicate-name error, got value=%#v diags=%s", got, diags.String())
 		}
 
 		diags = &diag.Diagnostics{}
-		got = evalTableCall(
-			[]ast.CallArg{
-				{Name: "x", Expr: ast.IdentExpr{Name: "xs", Span: span}, Span: span},
-				{Name: "y", Expr: ast.IdentExpr{Name: "ys", Span: span}, Span: span},
-			},
+		got = EvalExprWithOptions(
+			callExpr(ident("table"), namedArg("x", ident("xs")), namedArg("y", ident("ys"))),
 			map[string]Value{
 				"xs": Tuple([]Value{Int(1), Int(2)}),
 				"ys": Tuple([]Value{Int(3)}),
 			},
-			span,
 			diags,
 			ExprOptions{},
-			ctx,
 		)
 		if diags.HasErrors() || diagCount(diags, "W101") != 0 {
 			t.Fatalf("expected clean broadcast, got value=%#v diags=%s", got, diags.String())
@@ -305,20 +282,16 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 
 	t.Run("table rejects table-valued columns", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
-		got := evalTableCall(
-			[]ast.CallArg{
-				{Name: "x", Expr: ast.IdentExpr{Name: "grid", Span: span}, Span: span},
-			},
+		got := EvalExprWithOptions(
+			callExpr(ident("table"), namedArg("x", ident("grid"))),
 			map[string]Value{
 				"grid": CombValue(&Comb{
 					Order: []string{"x"},
 					Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
 				}),
 			},
-			span,
 			diags,
 			ExprOptions{},
-			ctx,
 		)
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected table-valued column error, got value=%#v diags=%s", got, diags.String())
@@ -355,7 +328,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 			span,
 			diags,
 			ExprOptions{},
-			ctx,
+			&evalCtx{overflowWarned: map[string]struct{}{}},
 		)
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected product() duplicate-column error, got value=%#v diags=%s", got, diags.String())
@@ -378,7 +351,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 			span,
 			diags,
 			ExprOptions{},
-			ctx,
+			&evalCtx{overflowWarned: map[string]struct{}{}},
 		)
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected select() selector-shape error, got value=%#v diags=%s", got, diags.String())
@@ -394,7 +367,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 			span,
 			diags,
 			ExprOptions{},
-			ctx,
+			&evalCtx{overflowWarned: map[string]struct{}{}},
 		)
 		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
 			t.Fatalf("expected select() unknown-column error, got value=%#v diags=%s", got, diags.String())
@@ -402,7 +375,7 @@ func TestEvalTableBuiltinsCoverage(t *testing.T) {
 	})
 }
 
-func TestEvalBinaryVectorAndCompareCoverage(t *testing.T) {
+func TestEvalBinaryVectorAndCompareBehaviors(t *testing.T) {
 	span := spanAt(520, 1)
 	ctx := &evalCtx{overflowWarned: map[string]struct{}{}}
 

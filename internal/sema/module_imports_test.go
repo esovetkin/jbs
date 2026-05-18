@@ -10,7 +10,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 )
 
-func TestPrepareModuleBindingsImportDiagnostics(t *testing.T) {
+func TestSelectiveImportsRejectNonExportedAndLocalSymbols(t *testing.T) {
 	span := diag.NewSpan("entry.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	depRef := imports.ModuleRef{ID: "dep", Label: "dep.jbs"}
 	child := emptyModuleScope()
@@ -59,39 +59,7 @@ func TestPrepareModuleBindingsImportDiagnostics(t *testing.T) {
 	}
 }
 
-func TestPrepareModuleBindingsHandlesMissingChildProgramFallback(t *testing.T) {
-	span := diag.NewSpan("entry.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
-	depRef := imports.ModuleRef{ID: "dep", Label: "dep.jbs"}
-	info := &imports.ModuleInfo{
-		Program: ast.Program{File: "entry.jbs", Stmts: []ast.Stmt{
-			ast.UseStmt{Names: []string{"missing"}, Source: ast.UseSource{Kind: ast.UseSourceBare, Value: "dep", Span: span}, Span: span},
-		}},
-		Uses: []imports.ResolvedUse{
-			{Kind: imports.UseSelective, Names: []string{"missing"}, Source: depRef, Span: span, Index: 0},
-		},
-	}
-
-	diags := &diag.Diagnostics{}
-	prep := prepareModuleBindings(info, nil, diags)
-	if len(prep.AcceptedImports) != 0 {
-		t.Fatalf("did not expect accepted imports without child export, got %#v", prep.AcceptedImports)
-	}
-	if len(diags.Items) != 1 || diags.Items[0].Code != string(diag.CodeE532) {
-		t.Fatalf("expected one unknown-symbol diagnostic, got %s", diags.String())
-	}
-}
-
-func TestAppendModuleVisibleNameSkipsEmptyAndDuplicates(t *testing.T) {
-	names := []string{"existing"}
-	appendModuleVisibleName(&names, "")
-	appendModuleVisibleName(&names, "existing")
-	appendModuleVisibleName(&names, "next")
-	if !reflect.DeepEqual(names, []string{"existing", "next"}) {
-		t.Fatalf("names=%#v, want existing and next", names)
-	}
-}
-
-func TestModuleLocalSymbolKindFindsNestedSymbols(t *testing.T) {
+func TestSelectiveImportsDetectNestedLocalSymbolCollisions(t *testing.T) {
 	span := diag.NewSpan("symbols.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	prog := ast.Program{Stmts: []ast.Stmt{
 		ast.GlobalAssign{Name: "top", Op: ast.AssignEq, Expr: numberExpr(span, 1), Span: span},

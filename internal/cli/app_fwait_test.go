@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,6 +101,19 @@ func TestFWaitCommandExitExistingReturnsImmediately(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+}
+
+func TestFwaitFilesReportsMissingTargets(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := fwaitFiles(nil, false, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected missing-target failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected no stdout, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "fwait requires at least one target") {
+		t.Fatalf("expected missing-target error, got %q", stderr.String())
 	}
 }
 

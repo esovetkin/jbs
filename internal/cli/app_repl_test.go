@@ -2,8 +2,12 @@ package cli
 
 import (
 	"io"
+	"slices"
 	"strings"
 	"testing"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 )
 
 func TestRunNoArgsDispatchesToRepl(t *testing.T) {
@@ -47,5 +51,23 @@ func TestRunReplCommandDispatchesToRepl(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected repl dispatcher to be called")
+	}
+}
+
+func TestReplCompletionNamesIncludeGlobals(t *testing.T) {
+	if got := replCompletionNames(nil); got != nil {
+		t.Fatalf("nil result completions = %#v", got)
+	}
+
+	names := replCompletionNames(&sema.Result{
+		Globals: sema.GlobalState{Values: map[string]eval.Value{
+			"":         eval.Int(0),
+			"mod.name": eval.Int(1),
+			"b":        eval.Int(2),
+			"a":        eval.Int(3),
+		}},
+	})
+	if !slices.Equal(names, []string{"a", "b"}) {
+		t.Fatalf("completion names = %#v", names)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
 
-func TestBuiltinValueCallDispatchCoverage(t *testing.T) {
+func TestBuiltinValueCallDispatchesFunctionValues(t *testing.T) {
 	span := spanAt(1800, 1)
 
 	t.Run("env", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestBuiltinRegistryExposesFunctionValuesForEveryBuiltin(t *testing.T) {
 	}
 }
 
-func TestBuiltinRegistryDirectAndFunctionValueDispatchMatch(t *testing.T) {
+func TestBuiltinFunctionValuesMatchDirectCalls(t *testing.T) {
 	tests := []struct {
 		name string
 		args []ast.CallArg
@@ -285,7 +285,7 @@ func TestBuiltinRegistryPreservesKernelContextRestrictions(t *testing.T) {
 	})
 }
 
-func TestBindRangeBuiltinValuesNamedErrorCoverage(t *testing.T) {
+func TestBindRangeBuiltinValuesRejectsTrailingPositionalAfterNamed(t *testing.T) {
 	span := spanAt(1802, 1)
 	diags := &diag.Diagnostics{}
 	values, ok := bindRangeBuiltinValues([]CallValueArg{
