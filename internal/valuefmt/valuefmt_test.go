@@ -195,11 +195,22 @@ func TestPrintLine(t *testing.T) {
 		eval.List([]eval.Value{eval.Int(1), eval.Int(2), eval.Int(3), eval.Int(4)}),
 		eval.Function(&eval.FunctionValue{}),
 	}
-	if got := PrintLine(values); got != "x [1, 2, 3, 4] <function>" {
+	if got := PrintLine(values); got != "\"x\" [1, 2, 3, 4] <function>" {
 		t.Fatalf("unexpected print line: %q", got)
 	}
 	if got := PrintLine(nil); got != "" {
 		t.Fatalf("expected blank print line, got %q", got)
+	}
+}
+
+func TestPrintLineQuotesTopLevelStrings(t *testing.T) {
+	got := PrintLine([]eval.Value{
+		eval.String("a\nb"),
+		eval.String(`quote: "`),
+	})
+	want := `"a\nb" "quote: \""`
+	if got != want {
+		t.Fatalf("unexpected quoted strings: got %q want %q", got, want)
 	}
 }
 
@@ -208,9 +219,22 @@ func TestPrintLineWithMultilineValue(t *testing.T) {
 		Order: []string{"id"},
 		Rows:  []eval.Row{{Values: map[string]eval.Cell{"id": {Value: eval.Int(1)}}}},
 	})
-	want := "cases\n| id |\n|----|\n| 1  |"
+	want := "\"cases\"\n| id |\n|----|\n| 1  |"
 	if got := PrintLine([]eval.Value{eval.String("cases"), table}); got != want {
 		t.Fatalf("unexpected multiline print:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestPrintLineQuotesTableStringCells(t *testing.T) {
+	table := eval.CombValue(&eval.Comb{
+		Order: []string{"label"},
+		Rows: []eval.Row{
+			{Values: map[string]eval.Cell{"label": {Value: eval.String("x")}}},
+		},
+	})
+	got := PrintLine([]eval.Value{table})
+	if !strings.Contains(got, `| "x"   |`) {
+		t.Fatalf("expected quoted string cell:\n%s", got)
 	}
 }
 

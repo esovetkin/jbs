@@ -16,8 +16,9 @@ const (
 )
 
 type Options struct {
-	NRow  int
-	Width int
+	NRow         int
+	Width        int
+	QuoteStrings bool
 }
 
 type formatContext struct {
@@ -45,8 +46,9 @@ func PrintLineWithOptions(values []eval.Value, opts Options) string {
 	parts := make([]string, 0, len(values))
 	multiline := false
 	opts = normalizeOptions(opts)
+	opts.QuoteStrings = true
 	for _, value := range values {
-		part := ReplValueWithOptions(value, opts)
+		part := formatValue(value, opts, formatContext{})
 		if strings.Contains(part, "\n") {
 			multiline = true
 		}
@@ -77,6 +79,11 @@ func formatValue(v eval.Value, opts Options, ctx formatContext) string {
 		return formatInlineValue(v, opts, ctx)
 	}
 	switch v.Kind {
+	case eval.KindString:
+		if opts.QuoteStrings {
+			return strconv.Quote(v.S)
+		}
+		return v.String()
 	case eval.KindList:
 		return formatSequence("[", "]", false, v.L, opts, ctx)
 	case eval.KindTuple:
@@ -373,7 +380,7 @@ func formatTable(c *eval.Comb, opts Options) string {
 	rows := make([][]string, 0, dataLimit+1)
 	rows = append(rows, cols)
 	for i := 0; i < dataLimit; i++ {
-		rows = append(rows, formatTableRow(c.Rows[i], cols))
+		rows = append(rows, formatTableRow(c.Rows[i], cols, opts))
 	}
 	widths := tableWidths(rows)
 	var b strings.Builder
@@ -417,7 +424,7 @@ func tableColumns(c *eval.Comb) []string {
 	return cols
 }
 
-func formatTableRow(row eval.Row, cols []string) []string {
+func formatTableRow(row eval.Row, cols []string, opts Options) []string {
 	out := make([]string, 0, len(cols))
 	for _, col := range cols {
 		cell, ok := row.Values[col]
@@ -425,12 +432,15 @@ func formatTableRow(row eval.Row, cols []string) []string {
 			out = append(out, "")
 			continue
 		}
-		out = append(out, tableCellString(cell.Value))
+		out = append(out, tableCellString(cell.Value, opts))
 	}
 	return out
 }
 
-func tableCellString(v eval.Value) string {
+func tableCellString(v eval.Value, opts Options) string {
+	if v.Kind == eval.KindString && opts.QuoteStrings {
+		return strconv.Quote(v.S)
+	}
 	if v.IsScalar() {
 		return v.String()
 	}

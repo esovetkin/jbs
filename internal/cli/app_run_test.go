@@ -447,7 +447,7 @@ func TestRunCommandPrintsJBSPrintOutput(t *testing.T) {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.HasPrefix(out, "starting [1, 2, 3, 4] {\"name\": \"case\"}\n") {
+	if !strings.HasPrefix(out, "\"starting\" [1, 2, 3, 4] {\"name\": \"case\"}\n") {
 		t.Fatalf("expected print output before progress, got %q", out)
 	}
 	workOut := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "000000", "stdout"))
@@ -520,7 +520,7 @@ func TestRunCommandSupportsEnvFunction(t *testing.T) {
 	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
-	if !strings.HasPrefix(stdout.String(), "from-run\n") {
+	if !strings.HasPrefix(stdout.String(), "\"from-run\"\n") {
 		t.Fatalf("expected env print output before progress, got %q", stdout.String())
 	}
 }
@@ -594,7 +594,7 @@ func TestDefaultRunPrintsJBSPrintOutput(t *testing.T) {
 	if code := Run([]string{input}, &stdout, &stderr); code != 0 {
 		t.Fatalf("default run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
-	if !strings.HasPrefix(stdout.String(), "default\n") {
+	if !strings.HasPrefix(stdout.String(), "\"default\"\n") {
 		t.Fatalf("expected default run print output, got %q", stdout.String())
 	}
 }

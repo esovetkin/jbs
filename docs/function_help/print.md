@@ -1,6 +1,6 @@
 # `print(...)`
 
-Prints its arguments to command stdout using REPL value rendering:
+Prints its arguments to command stdout using print value rendering:
 
 ## Arguments
 
@@ -23,4 +23,9 @@ print(values = ["case", [1, 2, 3, 4]])
 print(range(100), nrow = 2)
 ```
 
-`print(...)` writes explicit output using the same value rendering as the REPL. Lists and tuples are wrapped to screen rows, dictionaries are printed one key/value pair per line, and tables are printed as aligned tables. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.
+```text
+jbs> print("case", [1, 2, 3, 4])
+"case" [1, 2, 3, 4]
+```
+
+`print(...)` writes explicit output using print value rendering. Strings are rendered as double-quoted literals, lists and tuples are wrapped to screen rows, dictionaries are printed one key/value pair per line, and tables are printed as aligned tables. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.

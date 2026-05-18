@@ -179,7 +179,7 @@ func TestCommitReplChunkEmitsPrintOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected no print errors, diag=%q", commit.DiagText)
 	}
-	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "x" {
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != `"x"` {
 		t.Fatalf("unexpected print output: %#v", commit.ExprOutput)
 	}
 
@@ -251,7 +251,7 @@ func TestCommitReplChunkMergesPrintAndExpressionOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
 	}
-	want := []string{"a", "1", "b"}
+	want := []string{`"a"`, "1", `"b"`}
 	if strings.Join(commit.ExprOutput, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("unexpected merged output: got=%#v want=%#v", commit.ExprOutput, want)
 	}
@@ -273,7 +273,7 @@ func TestCommitReplChunkPrintInsideFunctionUsesCallChunk(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected function call to succeed, diag=%q", second.DiagText)
 	}
-	want := []string{"x", "7"}
+	want := []string{`"x"`, "7"}
 	if strings.Join(second.ExprOutput, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("unexpected function print output: got=%#v want=%#v", second.ExprOutput, want)
 	}
