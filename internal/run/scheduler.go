@@ -155,10 +155,11 @@ func (s *Scheduler) Run(ctx context.Context) SchedulerResult {
 }
 
 func (s *Scheduler) progressFlushTicker() *time.Ticker {
-	if s.progress == nil || s.progress.w == nil || s.progress.mode == ProgressSilent || s.progress.throttle <= 0 {
+	interval := s.progress.flushInterval()
+	if interval <= 0 {
 		return nil
 	}
-	return time.NewTicker(s.progress.throttle)
+	return time.NewTicker(interval)
 }
 
 func schedulerError(err error) SchedulerResult {

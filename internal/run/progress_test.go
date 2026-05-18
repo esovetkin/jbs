@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -123,4 +124,62 @@ func TestInterruptedProgressBarDoesNotForceComplete(t *testing.T) {
 	if !strings.Contains(got, "2/10") {
 		t.Fatalf("interrupted progress should show terminal count: %q", got)
 	}
+}
+
+func TestProgressConcurrentUpdateFlushClose(t *testing.T) {
+	var buf lockedProgressBuffer
+	p := NewProgressWithOptions(&buf, ProgressOptions{
+		Mode:     ProgressLines,
+		Throttle: time.Hour,
+	})
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 50; j++ {
+				p.Update(ProgressSnapshot{
+					Total:    100,
+					Running:  worker,
+					Finished: j,
+				})
+				p.Flush()
+			}
+		}(i)
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 20; i++ {
+			p.Close(StatusInterrupted)
+		}
+	}()
+
+	close(start)
+	wg.Wait()
+
+	if got := buf.String(); got == "" {
+		t.Fatal("progress output is empty")
+	}
+}
+
+type lockedProgressBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedProgressBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedProgressBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

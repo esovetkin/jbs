@@ -1,10 +1,13 @@
-.PHONY: build test fmt coverage clean staticcheck all
+.PHONY: build test testrace fmt coverage clean staticcheck all
 
 build:
 	go build -buildvcs=true -o jbs .
 
 test:
 	go test ./...
+
+testrace:
+	go test -race ./...
 
 fmt:
 	go fmt ./...

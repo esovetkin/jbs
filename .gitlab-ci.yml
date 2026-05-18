@@ -30,6 +30,7 @@ test:
   stage: test
   script:
     - make test
+    - make testrace
 
 coverage:
   extends: .checks_job_template

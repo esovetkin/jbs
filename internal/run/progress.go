@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/schollz/progressbar/v3"
@@ -40,6 +41,8 @@ type ProgressOptions struct {
 }
 
 type Progress struct {
+	mu sync.Mutex
+
 	w        io.Writer
 	mode     ProgressMode
 	width    int
@@ -85,26 +88,37 @@ func (p *Progress) Update(s ProgressSnapshot) {
 	if p == nil || p.w == nil {
 		return
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.latestSeen && s == p.latest {
 		return
 	}
 	p.latestSeen = true
 	p.latest = s
-	if p.shouldRenderNow(s, false) {
-		p.renderLatest()
+	if p.shouldRenderNowLocked(s, false) {
+		p.renderLatestLocked()
 		return
 	}
 	p.pending = true
 }
 
 func (p *Progress) Flush() {
-	if p == nil || p.w == nil || !p.latestSeen || !p.pending {
+	if p == nil || p.w == nil {
 		return
 	}
-	p.renderLatest()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.latestSeen || !p.pending {
+		return
+	}
+	p.renderLatestLocked()
 }
 
-func (p *Progress) shouldRenderNow(s ProgressSnapshot, force bool) bool {
+func (p *Progress) shouldRenderNowLocked(s ProgressSnapshot, force bool) bool {
 	if force || !p.renderedSeen {
 		return true
 	}
@@ -123,13 +137,13 @@ func (p *Progress) shouldRenderNow(s ProgressSnapshot, force bool) bool {
 	return time.Since(p.lastRenderAt) >= p.throttle
 }
 
-func (p *Progress) renderLatest() {
+func (p *Progress) renderLatestLocked() {
 	s := p.latest
 	switch p.mode {
 	case ProgressBar:
-		p.updateBar(s)
+		p.updateBarLocked(s)
 	case ProgressLines:
-		p.updateLine(s)
+		p.updateLineLocked(s)
 	}
 	p.rendered = s
 	p.renderedSeen = true
@@ -138,10 +152,16 @@ func (p *Progress) renderLatest() {
 }
 
 func (p *Progress) Close(final Status) {
-	if p == nil {
+	if p == nil || p.w == nil {
 		return
 	}
-	p.Flush()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.latestSeen && p.pending {
+		p.renderLatestLocked()
+	}
 	if p.bar == nil {
 		return
 	}
@@ -152,13 +172,27 @@ func (p *Progress) Close(final Status) {
 	fmt.Fprintln(p.w)
 }
 
-func (p *Progress) updateBar(s ProgressSnapshot) {
-	p.ensureBar(s.Total)
+func (p *Progress) flushInterval() time.Duration {
+	if p == nil {
+		return 0
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.w == nil || p.mode == ProgressSilent || p.throttle <= 0 {
+		return 0
+	}
+	return p.throttle
+}
+
+func (p *Progress) updateBarLocked(s ProgressSnapshot) {
+	p.ensureBarLocked(s.Total)
 	p.bar.Describe(progressSuffix(s))
 	_ = p.bar.Set(s.Done())
 }
 
-func (p *Progress) ensureBar(total int) {
+func (p *Progress) ensureBarLocked(total int) {
 	if p.bar != nil {
 		return
 	}
@@ -182,7 +216,7 @@ func (p *Progress) ensureBar(total int) {
 	)
 }
 
-func (p *Progress) updateLine(s ProgressSnapshot) {
+func (p *Progress) updateLineLocked(s ProgressSnapshot) {
 	pct := 0
 	if s.Total > 0 {
 		pct = int(math.Round(float64(s.Done()) * 100 / float64(s.Total)))
