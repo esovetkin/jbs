@@ -285,6 +285,37 @@ func TestArchiveRootIncludesComponentRuns(t *testing.T) {
 	}
 }
 
+func TestArchiveRootIncludesMixedDirectAndComponentRuns(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	archive := filepath.Join(dir, "bench.tar.gz")
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"run/000000/stdout": "direct\n"})
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	createArchiveRun(t, filepath.Join(root, "large"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "large\n"})
+
+	result, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RunCount != 3 {
+		t.Fatalf("RunCount = %d, want 3", result.RunCount)
+	}
+
+	entries := readTarGzEntries(t, archive)
+	for _, name := range []string{
+		"20260508T140000.000000000Z/bench/000000/status",
+		"20260508T140000.000000000Z/bench/small/000000/status",
+		"20260508T140000.000000000Z/bench/large/000000/status",
+	} {
+		if _, ok := entries[name]; !ok {
+			t.Fatalf("archive missing %q; entries=%v", name, sortedArchiveNames(entries))
+		}
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("expected original root to be removed, stat error: %v", err)
+	}
+}
+
 func TestArchiveRootRejectsLockedComponentRoot(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "bench")

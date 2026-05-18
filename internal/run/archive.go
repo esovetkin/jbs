@@ -148,22 +148,20 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 		return archiveRunInventory{}, err
 	}
 	runs := make([]string, 0)
-	for _, entry := range entries {
-		if !entry.IsDir() || !numericRunDir.MatchString(entry.Name()) {
-			continue
-		}
-		runs = append(runs, entry.Name())
-	}
-	if len(runs) > 0 {
-		slices.Sort(runs)
-		return archiveRunInventory{Runs: runs}, nil
-	}
 	componentRoots := make([]string, 0)
-	for _, component := range entries {
-		if !component.IsDir() || strings.HasPrefix(component.Name(), ".") || numericRunDir.MatchString(component.Name()) {
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
-		componentDir := filepath.Join(root, component.Name())
+		name := entry.Name()
+		if numericRunDir.MatchString(name) {
+			runs = append(runs, name)
+			continue
+		}
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		componentDir := filepath.Join(root, name)
 		componentEntries, err := os.ReadDir(componentDir)
 		if err != nil {
 			return archiveRunInventory{}, err
@@ -173,12 +171,12 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 			if !run.IsDir() || !numericRunDir.MatchString(run.Name()) {
 				continue
 			}
-			rel := filepath.Join(component.Name(), run.Name())
+			rel := filepath.Join(name, run.Name())
 			runs = append(runs, rel)
 			hadRuns = true
 		}
 		if hadRuns {
-			componentRoots = append(componentRoots, component.Name())
+			componentRoots = append(componentRoots, name)
 		}
 	}
 	slices.Sort(runs)
