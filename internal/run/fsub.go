@@ -26,6 +26,7 @@ type FileSubstitutionPlan struct {
 	DestName   string
 	Rules      []FileSubstitutionRulePlan
 	Span       diag.Span
+	snapshot   *fsubTemplateSnapshot
 }
 
 type FileSubstitutionRulePlan struct {
@@ -139,31 +140,43 @@ func cloneFileSubstitutionPlans(in []FileSubstitutionPlan) []FileSubstitutionPla
 	return out
 }
 
-func sourceHashWithFileSubs(sources map[string]string, fileSubs map[string][]FileSubstitutionPlan) (string, []TemplateHash, error) {
+func cloneFileSubstitutionPlansByStep(in map[string][]FileSubstitutionPlan) map[string][]FileSubstitutionPlan {
+	out := make(map[string][]FileSubstitutionPlan, len(in))
+	for step, specs := range in {
+		out[step] = cloneFileSubstitutionPlans(specs)
+	}
+	return out
+}
+
+func snapshotFileSubTemplates(sources map[string]string, fileSubs map[string][]FileSubstitutionPlan) (string, []TemplateHash, map[string][]FileSubstitutionPlan, error) {
 	bundle := maps.Clone(sources)
 	if bundle == nil {
 		bundle = make(map[string]string)
 	}
+	snapSubs := cloneFileSubstitutionPlansByStep(fileSubs)
 	hashes := make([]TemplateHash, 0)
-	for _, step := range slices.Sorted(maps.Keys(fileSubs)) {
-		for _, spec := range fileSubs[step] {
-			snap, err := readFSubTemplateSnapshot(spec.SourcePath)
+	for _, step := range slices.Sorted(maps.Keys(snapSubs)) {
+		specs := snapSubs[step]
+		for i := range specs {
+			snap, err := readFSubTemplateSnapshot(specs[i].SourcePath)
 			if err != nil {
-				return "", nil, err
+				return "", nil, nil, err
 			}
-			sourcePath := filepath.Clean(spec.SourcePath)
-			label := "fsub:" + step + ":" + spec.DestName + ":" + sourcePath
+			specs[i].snapshot = &snap
+			sourcePath := filepath.Clean(specs[i].SourcePath)
+			label := "fsub:" + step + ":" + specs[i].DestName + ":" + sourcePath
 			bundle[label] = string(snap.Data)
 			hashes = append(hashes, TemplateHash{
 				Step:       step,
 				SourcePath: sourcePath,
-				DestName:   spec.DestName,
+				DestName:   specs[i].DestName,
 				SHA256:     sha256Hex(snap.Data),
 				Mode:       formatTemplatePerm(snap.Perm),
 			})
 		}
+		snapSubs[step] = specs
 	}
-	return SourceBundleHash(bundle), hashes, nil
+	return SourceBundleHash(bundle), hashes, snapSubs, nil
 }
 
 func readFSubTemplateSnapshot(path string) (fsubTemplateSnapshot, error) {
@@ -236,7 +249,7 @@ func workValuesByKey(wp workplan.Plan) map[string]map[string]eval.Value {
 func materializeFileSubstitutions(workDir string, work ManifestWork, specs []FileSubstitutionPlan, env map[string]eval.Value) ([]FileSubstitutionWarning, error) {
 	warnings := make([]FileSubstitutionWarning, 0)
 	for _, spec := range specs {
-		snap, err := readFSubTemplateSnapshot(spec.SourcePath)
+		snap, err := fileSubTemplateSnapshotForMaterialization(spec)
 		if err != nil {
 			return nil, err
 		}
@@ -263,6 +276,13 @@ func materializeFileSubstitutions(workDir string, work ManifestWork, specs []Fil
 		}
 	}
 	return warnings, nil
+}
+
+func fileSubTemplateSnapshotForMaterialization(spec FileSubstitutionPlan) (fsubTemplateSnapshot, error) {
+	if spec.snapshot == nil {
+		return fsubTemplateSnapshot{}, fmt.Errorf("fsub template %s was not snapshotted before materialization", spec.SourcePath)
+	}
+	return *spec.snapshot, nil
 }
 
 func evalFSubReplacement(expr ast.Expr, env map[string]eval.Value) (eval.Value, error) {

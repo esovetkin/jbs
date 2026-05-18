@@ -466,15 +466,15 @@ func TestPopulateRunTreeReportsFilesystemErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("fsub template missing", func(t *testing.T) {
+	t.Run("fsub template snapshot missing", func(t *testing.T) {
 		staging := filepath.Join(temp, "fsub-error")
 		if err := os.Mkdir(staging, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		fileSubs := map[string][]FileSubstitutionPlan{"step": {{SourcePath: filepath.Join(temp, "missing-template"), DestName: "out.txt"}}}
 		_, err := populateRunTree(staging, final, source, testPopulateManifest(), map[string]string{"step": "true"}, fileSubs, workplan.Plan{}, nil, false)
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Fatalf("error = %v, want fsub missing-template error", err)
+		if err == nil || !strings.Contains(err.Error(), "was not snapshotted") {
+			t.Fatalf("error = %v, want fsub missing-snapshot error", err)
 		}
 	})
 

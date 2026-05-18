@@ -256,7 +256,7 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 			fileSubs[step.Name] = cloneFileSubstitutionPlans(entries)
 		}
 	}
-	sourceHash, templateHashes, err := sourceHashWithFileSubs(inputs.Sources, fileSubs)
+	sourceHash, templateHashes, fileSubs, err := snapshotFileSubTemplates(inputs.Sources, fileSubs)
 	if err != nil {
 		return runtimePlan{}, err
 	}

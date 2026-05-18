@@ -133,7 +133,7 @@ func TestCloneFileSubstitutionPlansCopiesRules(t *testing.T) {
 	}
 }
 
-func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testing.T) {
+func TestSnapshotFileSubTemplatesIncludesTemplatesAndRejectsInvalidSource(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "input.tpl")
 	if err := os.WriteFile(template, []byte("X\n"), 0o755); err != nil {
@@ -143,7 +143,7 @@ func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testi
 		t.Fatal(err)
 	}
 
-	hash, templates, err := sourceHashWithFileSubs(map[string]string{"main.jbs": "do s {}"}, map[string][]FileSubstitutionPlan{
+	hash, templates, snapSubs, err := snapshotFileSubTemplates(map[string]string{"main.jbs": "do s {}"}, map[string][]FileSubstitutionPlan{
 		"s": {{
 			SourcePath: template,
 			DestName:   "input.tpl",
@@ -161,8 +161,11 @@ func TestSourceHashWithFileSubsIncludesTemplatesAndRejectsInvalidSource(t *testi
 	if templates[0].Mode != "0755" {
 		t.Fatalf("template mode = %q, want 0755", templates[0].Mode)
 	}
+	if len(snapSubs["s"]) != 1 || snapSubs["s"][0].snapshot == nil || string(snapSubs["s"][0].snapshot.Data) != "X\n" {
+		t.Fatalf("snapshotted file substitutions = %#v", snapSubs)
+	}
 
-	_, _, err = sourceHashWithFileSubs(nil, map[string][]FileSubstitutionPlan{
+	_, _, _, err = snapshotFileSubTemplates(nil, map[string][]FileSubstitutionPlan{
 		"s": {{SourcePath: filepath.Join(dir, "missing.tpl"), DestName: "missing.tpl"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -479,14 +482,12 @@ func TestMaterializeFileSubstitutionsWritesOutputAndWarnings(t *testing.T) {
 	if err := os.Mkdir(workDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	specs := []FileSubstitutionPlan{{
-		SourcePath: template,
-		DestName:   "input.tpl",
-		Rules: []FileSubstitutionRulePlan{
-			{Pattern: "X", Regex: regexp.MustCompile("X"), Expr: ast.IdentExpr{Name: "x"}},
-			{Pattern: "Y", Regex: regexp.MustCompile("Y"), Expr: ast.StringExpr{Value: "done"}},
-		},
-	}}
+	specs := []FileSubstitutionPlan{
+		testFileSubPlan(t, template, "input.tpl",
+			FileSubstitutionRulePlan{Pattern: "X", Regex: regexp.MustCompile("X"), Expr: ast.IdentExpr{Name: "x"}},
+			FileSubstitutionRulePlan{Pattern: "Y", Regex: regexp.MustCompile("Y"), Expr: ast.StringExpr{Value: "done"}},
+		),
+	}
 	warnings, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 3}, specs, map[string]eval.Value{"x": eval.Int(7)})
 	if err != nil {
 		t.Fatal(err)
@@ -512,15 +513,13 @@ func TestMaterializeFileSubstitutionsPreservesTemplatePermissions(t *testing.T) 
 	if err := os.Mkdir(workDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	specs := []FileSubstitutionPlan{{
-		SourcePath: template,
-		DestName:   "tool.sh",
-		Rules: []FileSubstitutionRulePlan{{
+	specs := []FileSubstitutionPlan{
+		testFileSubPlan(t, template, "tool.sh", FileSubstitutionRulePlan{
 			Pattern: "TOKEN",
 			Regex:   regexp.MustCompile("TOKEN"),
 			Expr:    ast.StringExpr{Value: "ok"},
-		}},
-	}}
+		}),
+	}
 	if _, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, specs, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -543,21 +542,34 @@ func TestMaterializeFileSubstitutionsRejectsZeroMatches(t *testing.T) {
 	if err := os.Mkdir(workDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	specs := []FileSubstitutionPlan{{
-		SourcePath: template,
-		DestName:   "input.tpl",
-		Rules: []FileSubstitutionRulePlan{{
+	specs := []FileSubstitutionPlan{
+		testFileSubPlan(t, template, "input.tpl", FileSubstitutionRulePlan{
 			Pattern: "missing",
 			Regex:   regexp.MustCompile("missing"),
 			Expr:    ast.StringExpr{Value: "x"},
-		}},
-	}}
+		}),
+	}
 	if _, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, specs, nil); err == nil || !strings.Contains(err.Error(), "did not match") {
 		t.Fatalf("expected zero-match error, got %v", err)
 	}
 }
 
-func TestMaterializeFileSubstitutionsReportsReadAndWriteErrors(t *testing.T) {
+func TestMaterializeFileSubstitutionsRequiresTemplateSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	workDir := filepath.Join(dir, "work")
+	if err := os.Mkdir(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{{
+		SourcePath: filepath.Join(dir, "input.tpl"),
+		DestName:   "input.tpl",
+	}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "was not snapshotted") {
+		t.Fatalf("expected missing-snapshot error, got %v", err)
+	}
+}
+
+func TestMaterializeFileSubstitutionsReportsWriteErrors(t *testing.T) {
 	dir := t.TempDir()
 	workDir := filepath.Join(dir, "work")
 	if err := os.Mkdir(workDir, 0o755); err != nil {
@@ -569,39 +581,119 @@ func TestMaterializeFileSubstitutionsReportsReadAndWriteErrors(t *testing.T) {
 		Expr:    ast.StringExpr{Value: "ok"},
 	}
 
-	_, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{{
-		SourcePath: filepath.Join(dir, "missing.tpl"),
-		DestName:   "input.tpl",
-		Rules:      []FileSubstitutionRulePlan{rule},
-	}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected missing-template error, got %v", err)
-	}
-
-	directoryTemplate := filepath.Join(dir, "directory.tpl")
-	if err := os.Mkdir(directoryTemplate, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, err = materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{{
-		SourcePath: directoryTemplate,
-		DestName:   "input.tpl",
-		Rules:      []FileSubstitutionRulePlan{rule},
-	}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("expected regular-file error, got %v", err)
-	}
-
 	template := filepath.Join(dir, "input.tpl")
 	if err := os.WriteFile(template, []byte("X\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{{
-		SourcePath: template,
-		DestName:   filepath.Join("missing", "input.tpl"),
-		Rules:      []FileSubstitutionRulePlan{rule},
-	}}, nil)
+	_, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, []FileSubstitutionPlan{
+		testFileSubPlan(t, template, filepath.Join("missing", "input.tpl"), rule),
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "write fsub output") {
 		t.Fatalf("expected write error, got %v", err)
+	}
+}
+
+func TestFSubMaterializationUsesPlannedTemplateSnapshot(t *testing.T) {
+	cwd := t.TempDir()
+	template := filepath.Join(cwd, "input.tpl")
+	if err := os.WriteFile(template, []byte("TOKEN v1\n"), 0o751); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(template, 0o751); err != nil {
+		t.Fatal(err)
+	}
+
+	suite, err := buildRuntimeSuiteFromSource(t, cwd, `
+jbs_name = "bench"
+
+do run
+        fsub "input.tpl" { "TOKEN": "value" }
+{
+        echo ok
+}
+`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := suite.Plans[0]
+
+	if err := os.WriteFile(template, []byte("TOKEN v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(template, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, _, err := CreateRunDirectoryWithInitial(filepath.Join(cwd, "jbs_benchmark"), plan, StatusNotStarted)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	step := store.Manifest.Steps[0]
+	work := store.Manifest.Work[0]
+	outPath := filepath.Join(store.RunDir, step.Dir, work.Dir, "input.tpl")
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "value v1\n" {
+		t.Fatalf("materialized template = %q, want planned snapshot", data)
+	}
+
+	info, err := os.Stat(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o751 {
+		t.Fatalf("mode = %04o, want planned 0751", got)
+	}
+	if got := store.Manifest.TemplateHashes[0].SHA256; got != sha256Hex([]byte("TOKEN v1\n")) {
+		t.Fatalf("template hash = %s, want v1 hash", got)
+	}
+}
+
+func TestFSubMaterializationUsesPlannedTemplateSnapshotForAllRows(t *testing.T) {
+	cwd := t.TempDir()
+	template := filepath.Join(cwd, "input.tpl")
+	if err := os.WriteFile(template, []byte("TOKEN planned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	suite, err := buildRuntimeSuiteFromSource(t, cwd, `
+jbs_name = "bench"
+testcases = table(x = (1, 2, 3))
+
+do run with testcases
+        fsub "input.tpl" { "TOKEN": x }
+{
+        echo ok
+}
+`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := suite.Plans[0]
+
+	if err := os.WriteFile(template, []byte("TOKEN changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, _, err := CreateRunDirectoryWithInitial(filepath.Join(cwd, "jbs_benchmark"), plan, StatusNotStarted)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	step := store.Manifest.Steps[0]
+	if len(store.Manifest.Work) != 3 {
+		t.Fatalf("work packages = %d, want 3", len(store.Manifest.Work))
+	}
+	for _, work := range store.Manifest.Work {
+		outPath := filepath.Join(store.RunDir, step.Dir, work.Dir, "input.tpl")
+		got := readRunTestFile(t, outPath)
+		want := work.Values["x"] + " planned\n"
+		if got != want {
+			t.Fatalf("row %d template = %q, want %q", work.Row, got, want)
+		}
 	}
 }
 
@@ -682,6 +774,20 @@ func buildRuntimeSuiteFromSource(t *testing.T, cwd, source, benchmark string) (r
 		ProgramFile: filepath.Join(cwd, "test.jbs"),
 		Benchmark:   benchmark,
 	}, diags)
+}
+
+func testFileSubPlan(t *testing.T, sourcePath, destName string, rules ...FileSubstitutionRulePlan) FileSubstitutionPlan {
+	t.Helper()
+	snap, err := readFSubTemplateSnapshot(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return FileSubstitutionPlan{
+		SourcePath: sourcePath,
+		DestName:   destName,
+		Rules:      rules,
+		snapshot:   &snap,
+	}
 }
 
 func readRunTestFile(t *testing.T, path string) string {
