@@ -58,7 +58,7 @@ release:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
     - when: never
   script:
-    - make build
+    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make build
   artifacts:
     name: "jbs-${CI_COMMIT_TAG}"
     expire_in: never
