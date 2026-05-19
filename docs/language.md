@@ -265,16 +265,14 @@ jbs> table(rows(cases))
 | 2 | b |
 jbs> # if a longer column length is not divisible by a shorter one, JBS emits a warning because the cycling is uneven
 jbs> # warning: cyclic broadcast 3 -> 10
-jbs> table(x = [1, 2, 3], y = range(10))
+jbs> x = table(x = [1, 2, 3], y = range(10))
+jbs> filter(x, function(x) {x["x"] == 1})
 | x | y |
 |---|---|
 | 1 | 0 |
-| 2 | 1 |
-| 3 | 2 |
 | 1 | 3 |
-| 2 | 4 |
-| 3 | 5 |
-...
+| 1 | 6 |
+| 1 | 9 |
 ```
 
 Reading CSV/TSV tables:
