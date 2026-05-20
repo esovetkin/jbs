@@ -123,6 +123,18 @@ func TestParseAssignmentBranches(t *testing.T) {
 	})
 }
 
+func TestParseRegexStringOutsideAnalyseFileTargetReportsError(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`re"job.*"`, diags)
+	expr := tp.parseExpr()
+	if _, ok := expr.(ast.StringExpr); !ok {
+		t.Fatalf("expected fallback string expression, got %T", expr)
+	}
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 for regex string outside analyse file target, got %s", diags.String())
+	}
+}
+
 func TestParseExprPrecedenceAndAssociativity(t *testing.T) {
 	tests := []struct {
 		name  string

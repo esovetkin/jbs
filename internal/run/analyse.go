@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,6 +29,19 @@ const (
 	analyseValueBool   AnalyseValueKind = "bool"
 )
 
+type AnalyseFileTargetKind string
+
+const (
+	analyseFileExact AnalyseFileTargetKind = "exact"
+	analyseFileRegex AnalyseFileTargetKind = "regex"
+)
+
+type AnalyseFileTargetPlan struct {
+	Kind     AnalyseFileTargetKind
+	Value    string
+	Compiled *regexp.Regexp
+}
+
 type AnalysePlan struct {
 	Step        string
 	CSV         string
@@ -38,16 +52,18 @@ type AnalysePlan struct {
 }
 
 type AnalyseColumnPlan struct {
-	Kind       AnalyseColumnKind
-	Source     string
-	Title      string
-	GroupCount int
-	GroupTypes []AnalyseValueKind
+	Kind            AnalyseColumnKind
+	Source          string
+	Title           string
+	GroupCount      int
+	GroupTypes      []AnalyseValueKind
+	IncludeFileName bool
 }
 
 type AnalysePatternPlan struct {
 	Name         string
 	File         string
+	FileTarget   AnalyseFileTargetPlan
 	Regex        string
 	GroupCount   int
 	GroupTypes   []AnalyseValueKind
@@ -331,31 +347,129 @@ func valuesForColumn(work ManifestWork, matches patternMatches, col AnalyseColum
 }
 
 func collectPatternMatches(workDir string, patterns map[string]AnalysePatternPlan) (patternMatches, error) {
-	byFile := make(map[string][]AnalysePatternPlan)
+	exact := make(map[string][]AnalysePatternPlan)
+	regexPatterns := make([]AnalysePatternPlan, 0)
 	for _, p := range patterns {
-		byFile[p.File] = append(byFile[p.File], p)
+		target := patternFileTarget(p)
+		switch target.Kind {
+		case analyseFileRegex:
+			p.FileTarget = target
+			regexPatterns = append(regexPatterns, p)
+		default:
+			p.FileTarget = target
+			exact[target.Value] = append(exact[target.Value], p)
+		}
 	}
 	out := make(patternMatches)
+	if err := collectExactPatternMatches(workDir, exact, out); err != nil {
+		return nil, err
+	}
+	if err := collectRegexPatternMatches(workDir, regexPatterns, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func patternFileTarget(p AnalysePatternPlan) AnalyseFileTargetPlan {
+	if p.FileTarget.Kind != "" {
+		return p.FileTarget
+	}
+	return AnalyseFileTargetPlan{Kind: analyseFileExact, Value: p.File}
+}
+
+func collectExactPatternMatches(workDir string, byFile map[string][]AnalysePatternPlan, out patternMatches) error {
 	for rel, ps := range byFile {
 		path, err := analyseFilePath(workDir, rel)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read analyse file %q: %w", rel, err)
+			return fmt.Errorf("read analyse file %q: %w", rel, err)
 		}
-		text := string(data)
-		for _, p := range ps {
-			raw := p.CompiledExpr.FindAllStringSubmatch(text, -1)
-			groups, err := submatchGroups(raw, groupTypesForCount(p.GroupCount, p.GroupTypes))
-			if err != nil {
-				return nil, fmt.Errorf("pattern %q in %q: %w", p.Name, rel, err)
-			}
-			out[p.Name] = groups
+		if err := collectMatchesFromText(out, ps, rel, string(data), ""); err != nil {
+			return err
 		}
 	}
-	return out, nil
+	return nil
+}
+
+func collectRegexPatternMatches(workDir string, patterns []AnalysePatternPlan, out patternMatches) error {
+	if len(patterns) == 0 {
+		return nil
+	}
+	files, err := analyseCandidateFiles(workDir)
+	if err != nil {
+		return err
+	}
+	for _, rel := range files {
+		ps := regexPatternsForFile(rel, patterns)
+		if len(ps) == 0 {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(rel)))
+		if err != nil {
+			return fmt.Errorf("read analyse file %q: %w", rel, err)
+		}
+		if err := collectMatchesFromText(out, ps, rel, string(data), rel); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func analyseCandidateFiles(workDir string) ([]string, error) {
+	files := make([]string, 0)
+	err := fs.WalkDir(os.DirFS(workDir), ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		rel := filepath.ToSlash(path)
+		if rel == "." {
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+func regexPatternsForFile(rel string, patterns []AnalysePatternPlan) []AnalysePatternPlan {
+	out := make([]AnalysePatternPlan, 0)
+	for _, p := range patterns {
+		target := patternFileTarget(p)
+		if target.Compiled != nil && target.Compiled.MatchString(rel) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func collectMatchesFromText(out patternMatches, ps []AnalysePatternPlan, rel, text, filename string) error {
+	for _, p := range ps {
+		raw := p.CompiledExpr.FindAllStringSubmatch(text, -1)
+		groups, err := submatchGroups(raw, groupTypesForCount(p.GroupCount, p.GroupTypes))
+		if err != nil {
+			return fmt.Errorf("pattern %q in %q: %w", p.Name, rel, err)
+		}
+		if patternFileTarget(p).Kind == analyseFileRegex {
+			for i := range groups {
+				groups[i] = append([]AnalyseCell{stringAnalyseCell(filename)}, groups[i]...)
+			}
+		}
+		out[p.Name] = append(out[p.Name], groups...)
+	}
+	return nil
 }
 
 func analyseFilePath(workDir, rel string) (string, error) {

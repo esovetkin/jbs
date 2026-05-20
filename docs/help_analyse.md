@@ -10,10 +10,12 @@ analyse <step_name>
 {
         helper = <expr>
 
-        p0 = <pattern_expr> in "<file>"
-        p1 = <pattern_expr> in "<file>"
+	    p0 = <pattern_expr> in "<file>"
+	    p1 = <pattern_expr> in re"<file-regex>"
 
-        (p0, p1 as "Title", <pattern_expr> in "<file>" as "Title", ...)
+	    (p0, p1 as "Title",
+         <pattern_expr> in "<file>" as "Title",
+         <pattern_expr> in re"<file-regex>" as "Title", ...)
 }
 ```
 
@@ -22,9 +24,12 @@ Rules:
 - `<step_name>` must be a declared `do` block.
 - The final tuple is required and defines the result-table columns.
 - `as "..."` sets a custom column heading.
-- The final tuple may reference a step-visible variable, an extraction alias, or a direct extraction pattern written as `<pattern_expr> in "<file>"`.
+- The final tuple may reference a step-visible variable, an extraction alias, or a direct extraction pattern written as `<pattern_expr> in "<file>"` or `<pattern_expr> in re"<file-regex>"`.
 - If a direct pattern in the final tuple omits `as "..."`, the evaluated pattern string is used as the column heading.
 - Extraction strings use Go regular expression syntax. For example, `p = "(.*)" in "stdout"` captures complete lines from stdout.
+- File targets written as strings are exact relative paths. For example, `"job.*"` names the literal file `job.*`.
+- File targets written as `re"..."` scan all regular files in the workpackage whose slash-normalized relative path matches the Go regular expression.
+- Regex file targets add a `<column>.file` result column containing the matching relative filename.
 - One capture group writes one column.
 - Multiple capture groups write suffixed columns such as `value.0`, `value.1`.
 - Multiple matches in one workpackage produce multiple result rows.
@@ -64,8 +69,10 @@ do s
 analyse s
         with pat_number
 {
-        n = pat_number in "en"
-        (a, x, i, n as "parsed_number", "Zahl: %f" in "de" as "zahl")
+    n = pat_number in "en"
+    (a, x, i, n as "parsed_number",
+     "Zahl: %f" in "de" as "zahl",
+     "Number: %d" in re"^en$" as "n_from_regex")
 }
 ```
 
@@ -75,3 +82,4 @@ In that example:
 - `pat_number` is imported explicitly through `analyse with ...`.
 - `n` is a result value extracted from the `en` file.
 - `"Zahl: %f" in "de" as "zahl"` is a direct pattern in the final tuple.
+- `"Number: %d" in re"^en$" as "n_from_regex"` uses a regex file target and adds an `n_from_regex.file` column before the captured value.

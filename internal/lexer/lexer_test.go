@@ -256,6 +256,65 @@ func TestLexStringKeepsBackslashNLiteral(t *testing.T) {
 	}
 }
 
+func TestLexRegexStringTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		src       string
+		wantTypes []TokenType
+		wantValue string
+		wantErr   string
+	}{
+		{name: "double quoted", src: `re"job.*"`, wantTypes: []TokenType{TokenRegexString}, wantValue: "job.*"},
+		{name: "single quoted", src: `re'job.*'`, wantTypes: []TokenType{TokenRegexString}, wantValue: "job.*"},
+		{name: "spaced prefix", src: `re "job.*"`, wantTypes: []TokenType{TokenIdent, TokenString}},
+		{name: "ordinary string", src: `"job.*"`, wantTypes: []TokenType{TokenString}, wantValue: "job.*"},
+		{name: "unterminated", src: `re"job.*`, wantTypes: []TokenType{TokenRegexString}, wantValue: "job.*", wantErr: "E001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tokens := Lex("in.jbs", tt.src, diags)
+			got := make([]TokenType, 0, len(tokens))
+			var value string
+			for _, tok := range tokens {
+				if tok.Type == TokenEOF {
+					continue
+				}
+				got = append(got, tok.Type)
+				if tok.Type == TokenRegexString || tok.Type == TokenString {
+					value = tok.Value
+				}
+			}
+			if len(got) != len(tt.wantTypes) {
+				t.Fatalf("tokens = %#v, want %#v", got, tt.wantTypes)
+			}
+			for i := range got {
+				if got[i] != tt.wantTypes[i] {
+					t.Fatalf("token %d = %s, want %s (all %#v)", i, got[i], tt.wantTypes[i], got)
+				}
+			}
+			if tt.wantValue != "" && value != tt.wantValue {
+				t.Fatalf("value = %q, want %q", value, tt.wantValue)
+			}
+			if tt.wantErr == "" && diags.HasErrors() {
+				t.Fatalf("unexpected lexer errors: %s", diags.String())
+			}
+			if tt.wantErr != "" && !hasLexerCode(diags, tt.wantErr) {
+				t.Fatalf("expected %s, got %s", tt.wantErr, diags.String())
+			}
+		})
+	}
+}
+
+func hasLexerCode(diags *diag.Diagnostics, code string) bool {
+	for _, item := range diags.Items {
+		if item.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLexSingleQuotedStringWithEscapedQuote(t *testing.T) {
 	src := "x = 'a\\'b'\n"
 	diags := &diag.Diagnostics{}

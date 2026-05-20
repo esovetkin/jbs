@@ -57,7 +57,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 		diags.AddError(diag.CodeE416,
 			"malformed analyse statement; expected 'name = expression' or 'name = expression in \"file\"'",
 			stmtStart.Span,
-			"use syntax: name = expression [in \"filename\"]",
+			"use syntax: name = expression [in \"filename\" | in re\"file-regex\"]",
 		)
 		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
@@ -69,7 +69,7 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 		diags.AddError(diag.CodeE416,
 			"malformed analyse statement; expected assignment operator after variable name",
 			nameTok.Span,
-			"use syntax: name = expression [in \"filename\"]",
+			"use syntax: name = expression [in \"filename\" | in re\"file-regex\"]",
 		)
 		tp.consumeUntilStmtEnd()
 		return ast.AnalyseAssign{}
@@ -78,22 +78,24 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	expr := tp.parseExpr()
 
 	fileName := ""
+	var fileTarget ast.AnalyseFileTarget
 	span := diag.Merge(nameTok.Span, expr.GetSpan())
 	if tp.peek().Type == lexer.TokenIn {
 		tp.next()
-		fileTok := tp.peek()
-		if fileTok.Type != lexer.TokenString {
-			diags.AddError(diag.CodeE416,
-				"malformed analyse extraction; expected quoted file name after 'in'",
-				fileTok.Span,
-				"use syntax: alias = expression in \"filename\"",
-			)
+		target, ok := parseAnalyseFileTarget(
+			tp,
+			diag.CodeE416,
+			"malformed analyse extraction; expected quoted file name or regex file target after 'in'",
+			"use syntax: alias = expression in \"filename\" or alias = expression in re\"file-regex\"",
+			diags,
+		)
+		if !ok {
 			tp.consumeUntilStmtEnd()
 			return ast.AnalyseAssign{}
 		}
-		tp.next()
-		fileName = fileTok.Value
-		span = diag.Merge(nameTok.Span, fileTok.Span)
+		fileTarget = target
+		fileName = target.Value
+		span = diag.Merge(nameTok.Span, target.Span)
 	}
 
 	if tp.peek().Type != lexer.TokenEOF &&
@@ -109,11 +111,30 @@ func parseAnalyseAssignment(tp *tokenParser, file string, diags *diag.Diagnostic
 	tp.consumeUntilStmtEnd()
 
 	return ast.AnalyseAssign{
-		Name: nameTok.Value,
-		Op:   op,
-		Expr: expr,
-		File: fileName,
-		Span: span,
+		Name:       nameTok.Value,
+		Op:         op,
+		Expr:       expr,
+		File:       fileName,
+		FileTarget: fileTarget,
+		Span:       span,
+	}
+}
+
+func parseAnalyseFileTarget(tp *tokenParser, code diag.Code, message, hint string, diags *diag.Diagnostics) (ast.AnalyseFileTarget, bool) {
+	tok := tp.peek()
+	switch tok.Type {
+	case lexer.TokenString:
+		tp.next()
+		return ast.ExactAnalyseFile(tok.Value, tok.Span), true
+	case lexer.TokenRegexString:
+		tp.next()
+		return ast.RegexAnalyseFile(tok.Value, tok.Span), true
+	default:
+		if tok.Type == lexer.TokenIdent && tok.Value == "re" {
+			hint = `write regex file targets without whitespace, for example re"job.*"`
+		}
+		diags.AddError(code, message, tok.Span, hint)
+		return ast.AnalyseFileTarget{}, false
 	}
 }
 
@@ -258,28 +279,29 @@ func parseAnalyseInlinePatternAfterExpr(tp *tokenParser, expr ast.Expr, span dia
 	}
 	tp.next()
 
-	fileTok := tp.peek()
-	if fileTok.Type != lexer.TokenString {
-		diags.AddError(diag.CodeE417,
-			"expected quoted file name after 'in' in analyse result tuple",
-			fileTok.Span,
-			"use syntax: (\"pattern %f\" in \"file\")",
-		)
+	target, ok := parseAnalyseFileTarget(
+		tp,
+		diag.CodeE417,
+		"expected quoted file name or regex file target after 'in' in analyse result tuple",
+		"use syntax: (\"pattern %f\" in \"file\") or (\"pattern %f\" in re\"file-regex\")",
+		diags,
+	)
+	if !ok {
 		tp.consumeUntilNewline()
 		return ast.AnalyseColumn{}, false
 	}
-	tp.next()
 
-	title, itemSpan, ok := parseOptionalAnalyseColumnTitle(tp, diag.Merge(span, fileTok.Span), diags)
+	title, itemSpan, ok := parseOptionalAnalyseColumnTitle(tp, diag.Merge(span, target.Span), diags)
 	if !ok {
 		return ast.AnalyseColumn{}, false
 	}
 	return ast.AnalyseColumn{
-		Kind:  ast.AnalyseColumnInlinePattern,
-		Expr:  expr,
-		File:  fileTok.Value,
-		Title: title,
-		Span:  itemSpan,
+		Kind:       ast.AnalyseColumnInlinePattern,
+		Expr:       expr,
+		File:       target.Value,
+		FileTarget: target,
+		Title:      title,
+		Span:       itemSpan,
 	}, true
 }
 

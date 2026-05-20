@@ -399,6 +399,14 @@ func (p *tokenParser) parsePrimaryAtom() ast.Expr {
 	case lexer.TokenString:
 		p.next()
 		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
+	case lexer.TokenRegexString:
+		p.diags.AddError(diag.CodeE058,
+			"regex string literals are only valid as analyse file targets",
+			tok.Span,
+			`use re"..." only after 'in' in an analyse extraction file target`,
+		)
+		p.next()
+		return ast.StringExpr{Value: tok.Value, Span: tok.Span}
 	case lexer.TokenNumber:
 		p.next()
 		if isDecimalIntegerLiteral(tok.Value) {

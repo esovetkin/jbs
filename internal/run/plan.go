@@ -479,6 +479,10 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 			continue
 		}
 		label := analyseAssignmentLabel(assign)
+		target, err := buildAnalyseFileTarget(assign)
+		if err != nil {
+			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q has invalid file target: %w", spec.Name, label, err)
+		}
 		re, err := regexp.Compile(assign.Template.Regex)
 		if err != nil {
 			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q is invalid: %w", spec.Name, label, err)
@@ -490,7 +494,8 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 		groupTypes := patternGroupTypes(re, assign.Template.CaptureTypesByName)
 		patterns[assign.Name] = AnalysePatternPlan{
 			Name:         assign.Name,
-			File:         assign.File,
+			File:         target.Value,
+			FileTarget:   target,
 			Regex:        assign.Template.Regex,
 			GroupCount:   groups,
 			GroupTypes:   groupTypes,
@@ -516,15 +521,23 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 			title = col.Name
 		}
 		if p, ok := patterns[source]; ok {
+			groupCount := p.GroupCount
+			groupTypes := append([]AnalyseValueKind(nil), p.GroupTypes...)
+			includeFile := p.FileTarget.Kind == analyseFileRegex
+			if includeFile {
+				groupCount++
+				groupTypes = append([]AnalyseValueKind{analyseValueString}, groupTypes...)
+			}
 			plan.Columns = append(plan.Columns, AnalyseColumnPlan{
-				Kind:       analyseColumnPattern,
-				Source:     source,
-				Title:      title,
-				GroupCount: p.GroupCount,
-				GroupTypes: append([]AnalyseValueKind(nil), p.GroupTypes...),
+				Kind:            analyseColumnPattern,
+				Source:          source,
+				Title:           title,
+				GroupCount:      groupCount,
+				GroupTypes:      groupTypes,
+				IncludeFileName: includeFile,
 			})
-			plan.Header = appendExpandedHeader(plan.Header, title, p.GroupCount)
-			plan.ColumnTypes = append(plan.ColumnTypes, p.GroupTypes...)
+			plan.Header = appendPatternHeader(plan.Header, title, p.GroupCount, includeFile)
+			plan.ColumnTypes = append(plan.ColumnTypes, groupTypes...)
 			continue
 		}
 		kind := analyseValueString
@@ -545,6 +558,25 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 		return AnalysePlan{}, err
 	}
 	return plan, nil
+}
+
+func buildAnalyseFileTarget(assign sema.AnalyseAssignmentSpec) (AnalyseFileTargetPlan, error) {
+	target := assign.FileTarget
+	if target.Kind == "" && assign.File != "" {
+		target = sema.AnalyseFileTargetSpec{Kind: sema.AnalyseFileExact, Value: assign.File, Span: assign.Span}
+	}
+	switch target.Kind {
+	case sema.AnalyseFileExact:
+		return AnalyseFileTargetPlan{Kind: analyseFileExact, Value: target.Value}, nil
+	case sema.AnalyseFileRegex:
+		re, err := regexp.Compile(target.Value)
+		if err != nil {
+			return AnalyseFileTargetPlan{}, fmt.Errorf("file regex %q is invalid: %w", target.Value, err)
+		}
+		return AnalyseFileTargetPlan{Kind: analyseFileRegex, Value: target.Value, Compiled: re}, nil
+	default:
+		return AnalyseFileTargetPlan{}, fmt.Errorf("analyse file target is missing")
+	}
 }
 
 func analyseAssignmentLabel(assign sema.AnalyseAssignmentSpec) string {
@@ -654,6 +686,13 @@ func appendExpandedHeader(header []string, title string, groupCount int) []strin
 		header = append(header, fmt.Sprintf("%s.%d", title, i))
 	}
 	return header
+}
+
+func appendPatternHeader(header []string, title string, captureCount int, includeFile bool) []string {
+	if includeFile {
+		header = append(header, title+".file")
+	}
+	return appendExpandedHeader(header, title, captureCount)
 }
 
 func duplicateHeader(header []string) string {

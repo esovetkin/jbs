@@ -12,6 +12,7 @@ const (
 	TokenIdent        TokenType = "IDENT"
 	TokenNumber       TokenType = "NUMBER"
 	TokenString       TokenType = "STRING"
+	TokenRegexString  TokenType = "REGEX_STRING"
 	TokenComma        TokenType = ","
 	TokenColon        TokenType = ":"
 	TokenSemicolon    TokenType = ";"

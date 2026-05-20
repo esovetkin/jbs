@@ -179,6 +179,20 @@ type PatternTemplate struct {
 	Span               diag.Span
 }
 
+type AnalyseFileKind string
+
+const (
+	AnalyseFileNone  AnalyseFileKind = ""
+	AnalyseFileExact AnalyseFileKind = "exact"
+	AnalyseFileRegex AnalyseFileKind = "regex"
+)
+
+type AnalyseFileTargetSpec struct {
+	Kind  AnalyseFileKind
+	Value string
+	Span  diag.Span
+}
+
 type AnalyseSpec struct {
 	Name        string
 	Block       ast.AnalyseBlock
@@ -193,6 +207,7 @@ type AnalyseAssignmentSpec struct {
 	Name        string
 	DisplayName string
 	File        string
+	FileTarget  AnalyseFileTargetSpec
 	Template    PatternTemplate
 	Span        diag.Span
 }

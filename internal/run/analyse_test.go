@@ -121,6 +121,83 @@ func TestCollectPatternMatchesRejectsUnsafePath(t *testing.T) {
 	}
 }
 
+func TestAnalyseWorkPackageRegexFileTargetMultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	for rel, data := range map[string]string{
+		"job.1.out":     "Runtime: 1.7\n",
+		"job.0.out":     "Runtime: 1.5\n",
+		"ignored.txt":   "Runtime: 9.9\n",
+		"logs/job.out":  "Runtime: 3.0\n",
+		"logs/skip.log": "Runtime: 4.0\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	plan := testAnalysePlan([]AnalyseColumnPlan{
+		{Kind: analyseColumnPattern, Source: "runtime", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueFloat}, IncludeFileName: true},
+		{Kind: analyseColumnPattern, Source: "nested", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueFloat}, IncludeFileName: true},
+	}, map[string]AnalysePatternPlan{
+		"runtime": testRegexFilePatternWithTypes("runtime", `^job\.[0-9]+\.out$`, `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+		"nested":  testRegexFilePatternWithTypes("nested", `^logs/.*\.out$`, `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+	})
+	rows, err := analyseWorkPackage(dir, ManifestWork{Dir: "000000"}, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCellRows(t, rows, [][]string{
+		{"000000", "job.0.out", "1.5", "logs/job.out", "3.0"},
+		{"000000", "job.1.out", "1.7", "", ""},
+	})
+	if _, ok := rows[0][2].SQLiteValue().(float64); !ok {
+		t.Fatalf("regex capture should be typed float, got %#v", rows[0][2])
+	}
+}
+
+func TestAnalyseWorkPackageExactFileTargetDoesNotUseRegex(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "job.*"), []byte("Runtime: 2.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "job.out"), []byte("Runtime: 9.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := testAnalysePlan([]AnalyseColumnPlan{
+		{Kind: analyseColumnPattern, Source: "runtime", GroupCount: 1, GroupTypes: []AnalyseValueKind{analyseValueFloat}},
+	}, map[string]AnalysePatternPlan{
+		"runtime": testPatternWithTypes("runtime", "job.*", `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+	})
+	rows, err := analyseWorkPackage(dir, ManifestWork{Dir: "000000"}, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCellRows(t, rows, [][]string{{"000000", "2.0"}})
+}
+
+func TestAnalyseWorkPackageRegexFileTargetNoMatchingFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ignored.txt"), []byte("Runtime: 9.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := testAnalysePlan([]AnalyseColumnPlan{
+		{Kind: analyseColumnPattern, Source: "runtime", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueFloat}, IncludeFileName: true},
+	}, map[string]AnalysePatternPlan{
+		"runtime": testRegexFilePatternWithTypes("runtime", `^job\..*$`, `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+	})
+	rows, err := analyseWorkPackage(dir, ManifestWork{Dir: "000000"}, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no rows for no matching regex files, got %#v", rows)
+	}
+}
+
 func TestValuesForColumnUnknownKind(t *testing.T) {
 	got, err := valuesForColumn(ManifestWork{}, nil, AnalyseColumnPlan{Kind: AnalyseColumnKind("other")}, 0)
 	if err != nil {
@@ -228,6 +305,21 @@ func TestValuesForColumnMissingTypedPatternCells(t *testing.T) {
 	}
 }
 
+func TestValuesForColumnMissingRegexFilePatternCells(t *testing.T) {
+	got, err := valuesForColumn(
+		ManifestWork{},
+		patternMatches{},
+		AnalyseColumnPlan{Kind: analyseColumnPattern, Source: "missing", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueInt}, IncludeFileName: true},
+		0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Valid || got[1].Valid || got[0].SQLiteValue() != nil || got[1].SQLiteValue() != nil {
+		t.Fatalf("missing regex-file cells = %#v", got)
+	}
+}
+
 func TestRunAnalysesCSVWritesTable(t *testing.T) {
 	store, plan := testCSVAnalyseStore(t, StatusFinished)
 	if err := RunAnalyses(store, map[string]AnalysePlan{"run": plan}); err != nil {
@@ -258,6 +350,27 @@ func TestRunAnalysesCSVWeakWritesMissingRowsForFailedWork(t *testing.T) {
 		{"000000", "a", "7", "FINISHED"},
 		{"000001", "", "", "ERROR"},
 		{"000002", "", "", "BLOCKED"},
+	})
+}
+
+func TestRunAnalysesCSVWeakWritesMissingRegexFilenameCells(t *testing.T) {
+	store, plan := testCSVAnalyseStoreWithRunStatuses(t, []Status{StatusError})
+	plan.Header = []string{"run_id", "runtime.file", "runtime"}
+	plan.ColumnTypes = []AnalyseValueKind{analyseValueString, analyseValueString, analyseValueFloat}
+	plan.Columns = []AnalyseColumnPlan{
+		{Kind: analyseColumnPattern, Source: "runtime", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueFloat}, IncludeFileName: true},
+	}
+	plan.Patterns = map[string]AnalysePatternPlan{
+		"runtime": testRegexFilePatternWithTypes("runtime", `^job\..*$`, `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+	}
+
+	if err := RunAnalysesWithOptions(store, map[string]AnalysePlan{"run": plan}, AnalyseRunOptions{Weak: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows := readCSVRows(t, filepath.Join(store.RunDir, "run", "analyse.csv"))
+	assertRows(t, rows, [][]string{
+		{"run_id", "runtime.file", "runtime", "jbs_status"},
+		{"000000", "", "", "ERROR"},
 	})
 }
 
@@ -462,6 +575,57 @@ func TestRunAnalysesSQLiteWritesTypedPatternColumns(t *testing.T) {
 	if numberType != "integer" || ratioType != "real" {
 		t.Fatalf("sqlite value types = %s/%s, want integer/real", numberType, ratioType)
 	}
+}
+
+func TestRunAnalysesSQLiteWritesRegexFilenameColumnAsText(t *testing.T) {
+	runDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "regex-file.sqlite")
+	manifest := Manifest{
+		AnalyseDatabasePath: dbPath,
+		Steps: []ManifestStep{{
+			Name:         "run",
+			Dir:          "run",
+			AnalyseTable: "bench_000000_run",
+		}},
+		Work: []ManifestWork{{
+			Step: "run",
+			Row:  0,
+			Dir:  "000000",
+		}},
+	}
+	store := NewStore(runDir, manifest, nil)
+	work := manifest.Work[0]
+	workDir := store.WorkDir(work)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "job.0.out"), []byte("Runtime: 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteWorkStatus(work, WorkStatus{Schema: 1, Status: StatusFinished, Step: work.Step, Row: work.Row}); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := AnalysePlan{
+		Step:        "run",
+		Header:      []string{"run_id", "runtime.file", "runtime"},
+		ColumnTypes: []AnalyseValueKind{analyseValueString, analyseValueString, analyseValueFloat},
+		Columns: []AnalyseColumnPlan{
+			{Kind: analyseColumnPattern, Source: "runtime", GroupCount: 2, GroupTypes: []AnalyseValueKind{analyseValueString, analyseValueFloat}, IncludeFileName: true},
+		},
+		Patterns: map[string]AnalysePatternPlan{
+			"runtime": testRegexFilePatternWithTypes("runtime", `^job\.[0-9]+\.out$`, `Runtime: ([0-9.]+)`, []AnalyseValueKind{analyseValueFloat}),
+		},
+	}
+	if err := RunAnalyses(store, map[string]AnalysePlan{"run": plan}); err != nil {
+		t.Fatal(err)
+	}
+	assertAnalyseTable(t, dbPath, "bench_000000_run", plan.Header, [][]string{{"000000", "job.0.out", "1.25"}})
+	assertRows(t, readSQLiteColumnTypes(t, dbPath, "bench_000000_run"), [][]string{
+		{"run_id", "TEXT"},
+		{"runtime.file", "TEXT"},
+		{"runtime", "REAL"},
+	})
 }
 
 func TestRunAnalysesSQLiteWritesTypedWorkValueColumns(t *testing.T) {
@@ -843,6 +1007,16 @@ func testPatternWithTypes(name, file, expr string, groupTypes []AnalyseValueKind
 		GroupTypes:   groupTypes,
 		CompiledExpr: re,
 	}
+}
+
+func testRegexFilePatternWithTypes(name, fileRegex, expr string, groupTypes []AnalyseValueKind) AnalysePatternPlan {
+	p := testPatternWithTypes(name, fileRegex, expr, groupTypes)
+	p.FileTarget = AnalyseFileTargetPlan{
+		Kind:     analyseFileRegex,
+		Value:    fileRegex,
+		Compiled: regexp.MustCompile(fileRegex),
+	}
+	return p
 }
 
 func testCSVAnalyseStore(t *testing.T, status Status) (*Store, AnalysePlan) {

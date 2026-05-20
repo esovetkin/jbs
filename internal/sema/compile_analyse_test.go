@@ -573,6 +573,67 @@ func TestCompileAnalyseBlockInlinePatternColumns(t *testing.T) {
 	}
 }
 
+func TestCompileAnalyseBlockPreservesAnalyseFileTargets(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals:        GlobalState{Values: map[string]eval.Value{}},
+		BindingsByName: map[string]*GlobalBinding{},
+		DoBlocks:       []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{
+			"run": {Effective: map[string]VisibleBinding{}},
+		},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Assignments: []ast.AnalyseAssign{
+			{
+				Name:       "exact",
+				Expr:       ast.StringExpr{Value: "Exact %d", Span: span},
+				FileTarget: ast.ExactAnalyseFile("job.out", span),
+				Span:       span,
+			},
+			{
+				Name:       "regex",
+				Expr:       ast.StringExpr{Value: "Regex %f", Span: span},
+				FileTarget: ast.RegexAnalyseFile(`^job\.[0-9]+\.out$`, span),
+				Span:       span,
+			},
+		},
+		Columns: []ast.AnalyseColumn{
+			{Name: "exact", Span: span},
+			{
+				Kind:       ast.AnalyseColumnInlinePattern,
+				Expr:       ast.StringExpr{Value: "Inline %d", Span: span},
+				FileTarget: ast.RegexAnalyseFile(`^inline\..*$`, span),
+				Title:      "inline",
+				Span:       span,
+			},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(spec.Assignments) != 3 {
+		t.Fatalf("expected three extraction assignments, got %#v", spec.Assignments)
+	}
+	if spec.Assignments[0].FileTarget.Kind != AnalyseFileExact || spec.Assignments[0].FileTarget.Value != "job.out" {
+		t.Fatalf("unexpected exact file target: %#v", spec.Assignments[0])
+	}
+	if spec.Assignments[1].FileTarget.Kind != AnalyseFileRegex || spec.Assignments[1].FileTarget.Value != `^job\.[0-9]+\.out$` {
+		t.Fatalf("unexpected regex file target: %#v", spec.Assignments[1])
+	}
+	if spec.Assignments[2].FileTarget.Kind != AnalyseFileRegex || spec.Assignments[2].FileTarget.Value != `^inline\..*$` {
+		t.Fatalf("unexpected inline regex file target: %#v", spec.Assignments[2])
+	}
+	if len(spec.Columns) != 2 || spec.Columns[1].Title != "inline" || spec.Columns[1].Source != spec.Assignments[2].Name {
+		t.Fatalf("unexpected columns: %#v", spec.Columns)
+	}
+}
+
 func TestCompileAnalyseBlockInlinePatternDiagnostics(t *testing.T) {
 	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	res := &Result{

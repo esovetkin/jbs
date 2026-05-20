@@ -200,14 +200,51 @@ func (a AnalyseBlock) stmtNode()          {}
 func (a AnalyseBlock) GetSpan() diag.Span { return a.Span }
 
 type AnalyseAssign struct {
-	Name string
-	Op   AssignOp
-	Expr Expr
-	File string
-	Span diag.Span
+	Name       string
+	Op         AssignOp
+	Expr       Expr
+	File       string
+	FileTarget AnalyseFileTarget
+	Span       diag.Span
 }
 
 func (a AnalyseAssign) GetSpan() diag.Span { return a.Span }
+
+type AnalyseFileKind string
+
+const (
+	AnalyseFileNone  AnalyseFileKind = ""
+	AnalyseFileExact AnalyseFileKind = "exact"
+	AnalyseFileRegex AnalyseFileKind = "regex"
+)
+
+type AnalyseFileTarget struct {
+	Kind  AnalyseFileKind
+	Value string
+	Span  diag.Span
+}
+
+func (t AnalyseFileTarget) IsSet() bool {
+	return t.Kind != AnalyseFileNone
+}
+
+func ExactAnalyseFile(value string, span diag.Span) AnalyseFileTarget {
+	return AnalyseFileTarget{Kind: AnalyseFileExact, Value: value, Span: span}
+}
+
+func RegexAnalyseFile(value string, span diag.Span) AnalyseFileTarget {
+	return AnalyseFileTarget{Kind: AnalyseFileRegex, Value: value, Span: span}
+}
+
+func (a AnalyseAssign) EffectiveFileTarget() AnalyseFileTarget {
+	if a.FileTarget.IsSet() {
+		return a.FileTarget
+	}
+	if a.File != "" {
+		return ExactAnalyseFile(a.File, a.Span)
+	}
+	return AnalyseFileTarget{}
+}
 
 type AnalyseColumnKind string
 
@@ -217,15 +254,26 @@ const (
 )
 
 type AnalyseColumn struct {
-	Kind  AnalyseColumnKind
-	Name  string
-	Expr  Expr
-	File  string
-	Title string
-	Span  diag.Span
+	Kind       AnalyseColumnKind
+	Name       string
+	Expr       Expr
+	File       string
+	FileTarget AnalyseFileTarget
+	Title      string
+	Span       diag.Span
 }
 
 func (a AnalyseColumn) GetSpan() diag.Span { return a.Span }
+
+func (a AnalyseColumn) EffectiveFileTarget() AnalyseFileTarget {
+	if a.FileTarget.IsSet() {
+		return a.FileTarget
+	}
+	if a.File != "" {
+		return ExactAnalyseFile(a.File, a.Span)
+	}
+	return AnalyseFileTarget{}
+}
 
 type DoBlock struct {
 	Name      string

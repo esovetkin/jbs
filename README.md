@@ -211,16 +211,17 @@ See more in [docs/help_do.md](docs/help_do.md) or `jbs help do`.
 ```jbs
 analyse <step_name>
         [with <scalar_value>, ...]
-{
-        # Match a pattern inside a workpackage output file.
-        <pattern_name> = "<pattern>" in "<file>"
+	{
+	        # Match a pattern inside a workpackage output file.
+	        <pattern_name> = "<pattern>" in "<file>"
+	        <pattern_name> = "<pattern>" in re"<file-regex>"
 
-        # The final tuple defines result columns.
-        (<variable_name> as "column 0", <pattern_name> as "column 1", "<pattern>" in "<file>" as "column 2")
-}
-```
+	        # The final tuple defines result columns.
+	        (<variable_name> as "column 0", <pattern_name> as "column 1", "<pattern>" in re"<file-regex>" as "column 2")
+	}
+	```
 
-Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of optional pattern assignments and a final tuple that defines the resulting table structure. The final tuple may include step-visible variables, extraction aliases, or direct pattern expressions written as `<pattern_expr> in "<file>"`. If a direct pattern omits `as "<column name>"`, the evaluated pattern string is used as the column name. Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
+Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of optional pattern assignments and a final tuple that defines the resulting table structure. The final tuple may include step-visible variables, extraction aliases, or direct pattern expressions written as `<pattern_expr> in "<file>"` or `<pattern_expr> in re"<file-regex>"`. If a direct pattern omits `as "<column name>"`, the evaluated pattern string is used as the column name. Pattern expressions are regular expressions. File targets are exact relative paths when written as strings; use `re"..."` to match all regular files whose workpackage-relative path matches a Go regular expression. Regex file targets add a `<column>.file` result column containing the matching relative filename. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
 
 Multiple matches produce multiple rows in the resulting table. Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
 

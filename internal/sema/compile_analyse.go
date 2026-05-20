@@ -94,7 +94,8 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 		}
 		seenAssignments[assign.Name] = assign.Span
 
-		if assign.File == "" {
+		fileTarget := assign.EffectiveFileTarget()
+		if !fileTarget.IsSet() {
 			if existing, ok := spec.StepVars[assign.Name]; ok {
 				diags.AddWarning(
 					diag.CodeW320,
@@ -136,7 +137,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 			)
 			continue
 		}
-		compiled, _, ok := compileAnalyseExtraction(assign.Name, assign.Name, assign.File, effectiveExpr, assign.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
+		compiled, _, ok := compileAnalyseExtraction(assign.Name, assign.Name, fileTarget, effectiveExpr, assign.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
 		if !ok {
 			continue
 		}
@@ -152,7 +153,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 		}
 		if kind == ast.AnalyseColumnInlinePattern {
 			source := nextInlineAnalyseSource(&inlineIndex, seenAssignments)
-			compiled, patternText, ok := compileAnalyseExtraction(source, "inline pattern", col.File, col.Expr, col.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
+			compiled, patternText, ok := compileAnalyseExtraction(source, "inline pattern", col.EffectiveFileTarget(), col.Expr, col.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
 			if !ok {
 				continue
 			}
@@ -199,7 +200,7 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 	return spec
 }
 
-func compileAnalyseExtraction(name, diagnosticName, file string, expr ast.Expr, span diag.Span, env map[string]eval.Value, res *Result, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions, diags *diag.Diagnostics) (AnalyseAssignmentSpec, string, bool) {
+func compileAnalyseExtraction(name, diagnosticName string, target ast.AnalyseFileTarget, expr ast.Expr, span diag.Span, env map[string]eval.Value, res *Result, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions, diags *diag.Diagnostics) (AnalyseAssignmentSpec, string, bool) {
 	if diagnosticName == "" {
 		diagnosticName = name
 	}
@@ -238,8 +239,9 @@ func compileAnalyseExtraction(name, diagnosticName, file string, expr ast.Expr, 
 	}
 
 	return AnalyseAssignmentSpec{
-		Name: name,
-		File: file,
+		Name:       name,
+		File:       target.Value,
+		FileTarget: analyseFileTargetSpec(target),
 		Template: PatternTemplate{
 			Regex:              regex,
 			CaptureTypesByName: captureTypes,
@@ -247,6 +249,17 @@ func compileAnalyseExtraction(name, diagnosticName, file string, expr ast.Expr, 
 		},
 		Span: span,
 	}, value.S, true
+}
+
+func analyseFileTargetSpec(target ast.AnalyseFileTarget) AnalyseFileTargetSpec {
+	switch target.Kind {
+	case ast.AnalyseFileRegex:
+		return AnalyseFileTargetSpec{Kind: AnalyseFileRegex, Value: target.Value, Span: target.Span}
+	case ast.AnalyseFileExact:
+		return AnalyseFileTargetSpec{Kind: AnalyseFileExact, Value: target.Value, Span: target.Span}
+	default:
+		return AnalyseFileTargetSpec{}
+	}
 }
 
 func nextInlineAnalyseSource(index *int, used map[string]diag.Span) string {

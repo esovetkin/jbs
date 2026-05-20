@@ -202,6 +202,43 @@ func TestParseAnalyseAssignmentQualifiedReference(t *testing.T) {
 	}
 }
 
+func TestParseAnalyseAssignmentFileTargets(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		kind ast.AnalyseFileKind
+		file string
+	}{
+		{name: "exact", body: `p0 = "Runtime %f" in "job.out"`, kind: ast.AnalyseFileExact, file: "job.out"},
+		{name: "regex", body: `p0 = "Runtime %f" in re"^job\.[0-9]+\.out$"`, kind: ast.AnalyseFileRegex, file: `^job\.[0-9]+\.out$`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			tp := parseBodyTP("analyse_assign_target.jbs", tt.body, diags)
+			tp.skipStmtSeparators()
+			assign := parseAnalyseAssignment(tp, "analyse_assign_target.jbs", diags)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected parse errors: %s", diags.String())
+			}
+			if assign.FileTarget.Kind != tt.kind || assign.FileTarget.Value != tt.file || assign.File != tt.file {
+				t.Fatalf("unexpected file target: %#v", assign)
+			}
+		})
+	}
+
+	diags := &diag.Diagnostics{}
+	tp := parseBodyTP("analyse_assign_spaced_regex.jbs", `p0 = "Runtime %f" in re "job.*"`, diags)
+	tp.skipStmtSeparators()
+	assign := parseAnalyseAssignment(tp, "analyse_assign_spaced_regex.jbs", diags)
+	if assign.Name != "" {
+		t.Fatalf("malformed spaced regex assignment should be skipped, got %#v", assign)
+	}
+	if !hasCode(diags, "E416") {
+		t.Fatalf("expected E416 for spaced regex marker, got %s", diags.String())
+	}
+}
+
 func TestParseAnalyseAssignmentNoInClauseAndCommentTerminator(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseBodyTP("analyse_assign_plus_eq.jbs", "x += ns.value # keep comment\n", diags)
@@ -313,7 +350,7 @@ func TestParseAnalyseTupleAdditionalBranches(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		tp := parseBodyTP("analyse_tuple_inline.jbs", `("Runtime %f" in "job.out")`, diags)
 		cols := parseAnalyseTuple(tp, "analyse_tuple_inline.jbs", diags)
-		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].File != "job.out" || cols[0].Title != "" {
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].FileTarget.Kind != ast.AnalyseFileExact || cols[0].File != "job.out" || cols[0].Title != "" {
 			t.Fatalf("unexpected inline columns: %#v", cols)
 		}
 		if s, ok := cols[0].Expr.(ast.StringExpr); !ok || s.Value != "Runtime %f" {
@@ -366,6 +403,21 @@ func TestParseAnalyseTupleAdditionalBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("inline regex file target parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_regex_file.jbs", `("Runtime %f" in re"^job\.[0-9]+\.out$" as "runtime")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_regex_file.jbs", diags)
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].FileTarget.Kind != ast.AnalyseFileRegex || cols[0].Title != "runtime" {
+			t.Fatalf("unexpected regex inline columns: %#v", cols)
+		}
+		if cols[0].FileTarget.Value != `^job\.[0-9]+\.out$` {
+			t.Fatalf("unexpected regex file target value: %#v", cols[0].FileTarget)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for regex inline pattern, got: %s", diags.String())
+		}
+	})
+
 	t.Run("mixed named and inline columns parse successfully", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		tp := parseBodyTP("analyse_tuple_mixed.jbs", `(case_id, assigned as "assigned", "Runtime %f" in "job.out" as "runtime")`, diags)
@@ -405,6 +457,18 @@ func TestParseAnalyseTupleAdditionalBranches(t *testing.T) {
 		}
 		if !hasCode(diags, "E417") {
 			t.Fatalf("expected E417 for missing quoted inline file, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline pattern with spaced regex marker reports E417", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_bad_regex_file.jbs", `("Runtime %f" in re "job.*")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_bad_regex_file.jbs", diags)
+		if len(cols) != 0 {
+			t.Fatalf("expected no columns for spaced regex marker, got %#v", cols)
+		}
+		if !hasCode(diags, "E417") {
+			t.Fatalf("expected E417 for spaced regex marker, got: %s", diags.String())
 		}
 	})
 

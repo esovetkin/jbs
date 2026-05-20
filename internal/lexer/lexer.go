@@ -61,6 +61,10 @@ func (l *Lexer) run() {
 			l.lexComment()
 			continue
 		}
+		if r == 'r' && l.peekN(1) == 'e' && (l.peekN(2) == '"' || l.peekN(2) == '\'') {
+			l.lexPrefixedString(TokenRegexString, 2)
+			continue
+		}
 		if unicode.IsLetter(r) || r == '_' {
 			l.lexIdent()
 			continue
@@ -217,6 +221,35 @@ func (l *Lexer) lexString() {
 	}
 	l.diags.AddError(diag.CodeE001, "unterminated string literal", diag.NewSpan(l.file, start, l.pos()), "close the string with matching quote")
 	l.emit(TokenString, string(buf), string(buf), start, l.pos())
+}
+
+func (l *Lexer) lexPrefixedString(tt TokenType, prefixLen int) {
+	start := l.pos()
+	for i := 0; i < prefixLen; i++ {
+		l.advance()
+	}
+	quote := l.advance()
+	buf := make([]rune, 0, 32)
+	for !l.eof() {
+		r := l.advance()
+		if r == quote {
+			text := string(l.src[start.Offset-l.base : l.off])
+			val := l.unescapeString(string(buf))
+			l.emit(tt, text, val, start, l.pos())
+			return
+		}
+		if r == '\\' {
+			if l.eof() {
+				break
+			}
+			n := l.advance()
+			buf = append(buf, '\\', n)
+			continue
+		}
+		buf = append(buf, r)
+	}
+	l.diags.AddError(diag.CodeE001, "unterminated regex string literal", diag.NewSpan(l.file, start, l.pos()), "close the string with matching quote")
+	l.emit(tt, string(l.src[start.Offset-l.base:l.off]), string(buf), start, l.pos())
 }
 
 func (l *Lexer) unescapeString(s string) string {

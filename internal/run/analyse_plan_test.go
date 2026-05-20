@@ -182,6 +182,60 @@ analyse run {
 	}
 }
 
+func TestAnalysePlansByStepBuildsRegexFilePatternColumns(t *testing.T) {
+	plan := buildPlanFromSource(t, `
+jbs_name = "bench"
+do run {
+    echo ok
+}
+analyse run {
+    (
+        "Runtime %f" in "job.*" as "exact",
+        "Runtime %f" in re"^job\.[0-9]+\.out$" as "runtime",
+        "Point %d %f" in re"^point/.*\.out$" as "point",
+    )
+}
+`)
+	analysis := plan.Analyses["run"]
+	wantHeader := []string{"run_id", "exact", "runtime.file", "runtime", "point.file", "point.0", "point.1"}
+	if strings.Join(analysis.Header, "|") != strings.Join(wantHeader, "|") {
+		t.Fatalf("header = %#v, want %#v", analysis.Header, wantHeader)
+	}
+	assertAnalyseKinds(t, analysis.ColumnTypes, []AnalyseValueKind{
+		analyseValueString,
+		analyseValueFloat,
+		analyseValueString,
+		analyseValueFloat,
+		analyseValueString,
+		analyseValueInt,
+		analyseValueFloat,
+	})
+	if analysis.Patterns[analysis.Columns[0].Source].FileTarget.Kind != analyseFileExact {
+		t.Fatalf("exact string file target should remain exact: %#v", analysis.Patterns[analysis.Columns[0].Source])
+	}
+	if analysis.Patterns[analysis.Columns[1].Source].FileTarget.Kind != analyseFileRegex {
+		t.Fatalf("expected regex file target: %#v", analysis.Patterns[analysis.Columns[1].Source])
+	}
+	if !analysis.Columns[1].IncludeFileName || !analysis.Columns[2].IncludeFileName {
+		t.Fatalf("expected regex columns to include filename cells: %#v", analysis.Columns)
+	}
+}
+
+func TestAnalysePlansByStepRejectsInvalidFileRegex(t *testing.T) {
+	_, err := buildPlanFromSourceErr(t, `
+jbs_name = "bench"
+do run {
+    echo ok
+}
+analyse run {
+    ("Runtime %f" in re"[" as "runtime")
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "file regex") || !strings.Contains(err.Error(), "Runtime %f") {
+		t.Fatalf("expected invalid file regex error with pattern label, got %v", err)
+	}
+}
+
 func TestAnalysePlansByStepInlineZeroCaptureUsesPatternTextInError(t *testing.T) {
 	_, err := buildPlanFromSourceErr(t, `
 jbs_name = "bench"
@@ -301,6 +355,22 @@ analyse run {
 `)
 	if err == nil || !strings.Contains(err.Error(), "duplicate result column") {
 		t.Fatalf("expected duplicate SQLite inline column error, got %v", err)
+	}
+}
+
+func TestAnalysePlansByStepRejectsDuplicateSQLiteRegexFilenameHeaders(t *testing.T) {
+	_, err := buildPlanFromSourceErr(t, `
+jbs_name = "bench"
+jbs_database = "results.sqlite"
+do run {
+    echo ok
+}
+analyse run {
+    ("Runtime %f" in re"^a.*" as "runtime", "Runtime %f" in re"^b.*" as "runtime")
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "duplicate result column") {
+		t.Fatalf("expected duplicate SQLite regex filename column error, got %v", err)
 	}
 }
 
