@@ -13,7 +13,7 @@ analyse <step_name>
         p0 = <pattern_expr> in "<file>"
         p1 = <pattern_expr> in "<file>"
 
-        (p0, p1 as "Title", ...)
+        (p0, p1 as "Title", <pattern_expr> in "<file>" as "Title", ...)
 }
 ```
 
@@ -22,6 +22,8 @@ Rules:
 - `<step_name>` must be a declared `do` block.
 - The final tuple is required and defines the result-table columns.
 - `as "..."` sets a custom column heading.
+- The final tuple may reference a step-visible variable, an extraction alias, or a direct extraction pattern written as `<pattern_expr> in "<file>"`.
+- If a direct pattern in the final tuple omits `as "..."`, the evaluated pattern string is used as the column heading.
 - Extraction strings use Go regular expression syntax. For example, `p = "(.*)" in "stdout"` captures complete lines from stdout.
 - One capture group writes one column.
 - Multiple capture groups write suffixed columns such as `value.0`, `value.1`.
@@ -63,7 +65,7 @@ analyse s
         with pat_number
 {
         n = pat_number in "en"
-        (a, x, i, n as "parsed_number")
+        (a, x, i, n as "parsed_number", "Zahl: %f" in "de" as "zahl")
 }
 ```
 
@@ -72,3 +74,4 @@ In that example:
 - `a`, `x`, and `i` come from the target step's visible variables.
 - `pat_number` is imported explicitly through `analyse with ...`.
 - `n` is a result value extracted from the `en` file.
+- `"Zahl: %f" in "de" as "zahl"` is a direct pattern in the final tuple.

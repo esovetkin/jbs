@@ -478,13 +478,14 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 		if _, ok := selected[assign.Name]; !ok {
 			continue
 		}
+		label := analyseAssignmentLabel(assign)
 		re, err := regexp.Compile(assign.Template.Regex)
 		if err != nil {
-			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q is invalid: %w", spec.Name, assign.Name, err)
+			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q is invalid: %w", spec.Name, label, err)
 		}
 		groups := re.NumSubexp()
 		if groups == 0 {
-			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q must contain at least one capture group", spec.Name, assign.Name)
+			return AnalysePlan{}, fmt.Errorf("analyse %q pattern %q must contain at least one capture group", spec.Name, label)
 		}
 		groupTypes := patternGroupTypes(re, assign.Template.CaptureTypesByName)
 		patterns[assign.Name] = AnalysePatternPlan{
@@ -544,6 +545,13 @@ func buildAnalysePlan(spec *sema.AnalyseSpec, workKinds map[string]AnalyseValueK
 		return AnalysePlan{}, err
 	}
 	return plan, nil
+}
+
+func analyseAssignmentLabel(assign sema.AnalyseAssignmentSpec) string {
+	if assign.DisplayName != "" {
+		return assign.DisplayName
+	}
+	return assign.Name
 }
 
 func analyseWorkValueKindsByStep(wp workplan.Plan) map[string]map[string]AnalyseValueKind {

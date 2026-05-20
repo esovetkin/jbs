@@ -216,11 +216,11 @@ analyse <step_name>
         <pattern_name> = "<pattern>" in "<file>"
 
         # The final tuple defines result columns.
-        (<variable_name> as "column 0", <pattern_name> as "column 1")
+        (<variable_name> as "column 0", <pattern_name> as "column 1", "<pattern>" in "<file>" as "column 2")
 }
 ```
 
-Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of pattern assignments and a final tuple that defines the resulting table structure. Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
+Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of optional pattern assignments and a final tuple that defines the resulting table structure. The final tuple may include step-visible variables, extraction aliases, or direct pattern expressions written as `<pattern_expr> in "<file>"`. If a direct pattern omits `as "<column name>"`, the evaluated pattern string is used as the column name. Patterns are regular expressions. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
 
 Multiple matches produce multiple rows in the resulting table. Patterns support multiple capture groups, which produce multiple suffixed columns in the resulting table.
 

@@ -209,8 +209,18 @@ type AnalyseAssign struct {
 
 func (a AnalyseAssign) GetSpan() diag.Span { return a.Span }
 
+type AnalyseColumnKind string
+
+const (
+	AnalyseColumnNamed         AnalyseColumnKind = "named"
+	AnalyseColumnInlinePattern AnalyseColumnKind = "inline_pattern"
+)
+
 type AnalyseColumn struct {
+	Kind  AnalyseColumnKind
 	Name  string
+	Expr  Expr
+	File  string
 	Title string
 	Span  diag.Span
 }

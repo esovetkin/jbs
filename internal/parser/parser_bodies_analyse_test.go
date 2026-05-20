@@ -308,4 +308,115 @@ func TestParseAnalyseTupleAdditionalBranches(t *testing.T) {
 			t.Fatalf("did not expect errors for titled deep dotted tuple item, got: %s", diags.String())
 		}
 	})
+
+	t.Run("inline string pattern parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline.jbs", `("Runtime %f" in "job.out")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline.jbs", diags)
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].File != "job.out" || cols[0].Title != "" {
+			t.Fatalf("unexpected inline columns: %#v", cols)
+		}
+		if s, ok := cols[0].Expr.(ast.StringExpr); !ok || s.Value != "Runtime %f" {
+			t.Fatalf("unexpected inline expression: %#v", cols[0].Expr)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for inline pattern, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline string pattern with title parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_title.jbs", `("Runtime %f" in "job.out" as "runtime")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_title.jbs", diags)
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].Title != "runtime" {
+			t.Fatalf("unexpected titled inline columns: %#v", cols)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for titled inline pattern, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline identifier pattern parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_ident.jbs", `(runtime_pattern in "job.out" as "runtime")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_ident.jbs", diags)
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].File != "job.out" || cols[0].Title != "runtime" {
+			t.Fatalf("unexpected identifier inline columns: %#v", cols)
+		}
+		if id, ok := cols[0].Expr.(ast.IdentExpr); !ok || id.Name != "runtime_pattern" {
+			t.Fatalf("unexpected identifier inline expression: %#v", cols[0].Expr)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for identifier inline pattern, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline qualified identifier pattern parses successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_qualified.jbs", `(pkg.ns.value in "job.out")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_qualified.jbs", diags)
+		if len(cols) != 1 || cols[0].Kind != ast.AnalyseColumnInlinePattern || cols[0].File != "job.out" {
+			t.Fatalf("unexpected qualified inline columns: %#v", cols)
+		}
+		if q, ok := cols[0].Expr.(ast.QualifiedIdentExpr); !ok || q.Namespace != "pkg.ns" || q.Name != "value" {
+			t.Fatalf("unexpected qualified inline expression: %#v", cols[0].Expr)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for qualified inline pattern, got: %s", diags.String())
+		}
+	})
+
+	t.Run("mixed named and inline columns parse successfully", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_mixed.jbs", `(case_id, assigned as "assigned", "Runtime %f" in "job.out" as "runtime")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_mixed.jbs", diags)
+		if len(cols) != 3 {
+			t.Fatalf("expected three columns, got %#v", cols)
+		}
+		if cols[0].Name != "case_id" || cols[1].Name != "assigned" || cols[1].Title != "assigned" {
+			t.Fatalf("unexpected named columns in mixed tuple: %#v", cols)
+		}
+		if cols[2].Kind != ast.AnalyseColumnInlinePattern || cols[2].Title != "runtime" {
+			t.Fatalf("unexpected inline column in mixed tuple: %#v", cols[2])
+		}
+		if diags.HasErrors() {
+			t.Fatalf("did not expect errors for mixed tuple, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline pattern without in reports E417", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_no_in.jbs", `("Runtime %f")`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_no_in.jbs", diags)
+		if len(cols) != 0 {
+			t.Fatalf("expected no columns for malformed inline pattern, got %#v", cols)
+		}
+		if !hasCode(diags, "E417") {
+			t.Fatalf("expected E417 for missing inline in-clause, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline pattern without quoted file reports E417", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_bad_file.jbs", `("Runtime %f" in out)`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_bad_file.jbs", diags)
+		if len(cols) != 0 {
+			t.Fatalf("expected no columns for malformed inline file, got %#v", cols)
+		}
+		if !hasCode(diags, "E417") {
+			t.Fatalf("expected E417 for missing quoted inline file, got: %s", diags.String())
+		}
+	})
+
+	t.Run("inline pattern without quoted title reports E417", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseBodyTP("analyse_tuple_inline_bad_title.jbs", `("Runtime %f" in "job.out" as runtime)`, diags)
+		cols := parseAnalyseTuple(tp, "analyse_tuple_inline_bad_title.jbs", diags)
+		if len(cols) != 0 {
+			t.Fatalf("expected no columns for malformed inline title, got %#v", cols)
+		}
+		if !hasCode(diags, "E417") {
+			t.Fatalf("expected E417 for missing quoted inline title, got: %s", diags.String())
+		}
+	})
 }

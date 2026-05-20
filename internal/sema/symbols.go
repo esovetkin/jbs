@@ -190,10 +190,11 @@ type AnalyseSpec struct {
 }
 
 type AnalyseAssignmentSpec struct {
-	Name     string
-	File     string
-	Template PatternTemplate
-	Span     diag.Span
+	Name        string
+	DisplayName string
+	File        string
+	Template    PatternTemplate
+	Span        diag.Span
 }
 
 type AnalyseColumnSpec struct {

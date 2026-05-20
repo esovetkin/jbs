@@ -2731,6 +2731,46 @@ func TestRunCommandPopulatesAnalyseWithPatterns(t *testing.T) {
 	}
 }
 
+func TestRunCommandPopulatesAnalyseWithInlineTuplePattern(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo "Runtime 1.5" > job.out`,
+		`}`,
+		`analyse run {`,
+		`("Runtime %f" in "job.out" as "runtime")`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	wantCSV := "run_id,runtime\n000000,1.5\n"
+	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "run", "analyse.csv")); got != wantCSV {
+		t.Fatalf("analyse csv = %q, want %q", got, wantCSV)
+	}
+	if !strings.Contains(stdout.String(), "bench/000000/run/analyse.csv") ||
+		!strings.Contains(stdout.String(), "|     1 |     2 |") {
+		t.Fatalf("analyse summary missing\nstdout:\n%s", stdout.String())
+	}
+}
+
 func TestRunCommandAnalysisFailureMarksRootError(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

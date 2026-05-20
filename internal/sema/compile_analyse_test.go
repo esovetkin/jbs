@@ -502,3 +502,114 @@ func TestCompileAnalyseBlockRejectsFunctionValuedHelpers(t *testing.T) {
 		t.Fatalf("expected one function-valued analyse-helper diagnostic, got %d: %s", countDiagCode(diags, "E412"), diags.String())
 	}
 }
+
+func TestCompileAnalyseBlockInlinePatternColumns(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"prefix": eval.String("Count "),
+			},
+		},
+		BindingsByName: map[string]*GlobalBinding{},
+		DoBlocks:       []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{
+			"run": {Effective: map[string]VisibleBinding{}},
+		},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Columns: []ast.AnalyseColumn{
+			{
+				Kind: ast.AnalyseColumnInlinePattern,
+				Expr: ast.StringExpr{Value: "Runtime %f", Span: span},
+				File: "job.out",
+				Span: span,
+			},
+			{
+				Kind: ast.AnalyseColumnInlinePattern,
+				Expr: ast.BinaryExpr{
+					Left:  ast.IdentExpr{Name: "prefix", Span: span},
+					Op:    "+",
+					Right: ast.StringExpr{Value: "%d", Span: span},
+					Span:  span,
+				},
+				File:  "job.out",
+				Title: "count",
+				Span:  span,
+			},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if len(spec.Assignments) != 2 {
+		t.Fatalf("expected two synthetic inline assignments, got %#v", spec.Assignments)
+	}
+	if spec.Assignments[0].Name == "Runtime %f" || spec.Assignments[0].Name == spec.Assignments[1].Name {
+		t.Fatalf("unexpected synthetic assignment names: %#v", spec.Assignments)
+	}
+	if spec.Assignments[0].DisplayName != "Runtime %f" || spec.Assignments[1].DisplayName != "Count %d" {
+		t.Fatalf("unexpected display names: %#v", spec.Assignments)
+	}
+	if strings.Join(normalizedCaptureTypes(t, spec.Assignments[0].Template.Regex, spec.Assignments[0].Template.CaptureTypesByName), ",") != "float" {
+		t.Fatalf("unexpected first inline capture types: %#v", spec.Assignments[0])
+	}
+	if strings.Join(normalizedCaptureTypes(t, spec.Assignments[1].Template.Regex, spec.Assignments[1].Template.CaptureTypesByName), ",") != "int" {
+		t.Fatalf("unexpected second inline capture types: %#v", spec.Assignments[1])
+	}
+	if len(spec.Columns) != 2 {
+		t.Fatalf("expected two inline columns, got %#v", spec.Columns)
+	}
+	if spec.Columns[0].Title != "Runtime %f" || spec.Columns[0].Source != spec.Assignments[0].Name {
+		t.Fatalf("unexpected default-title inline column: %#v", spec.Columns[0])
+	}
+	if spec.Columns[1].Title != "count" || spec.Columns[1].Source != spec.Assignments[1].Name {
+		t.Fatalf("unexpected explicit-title inline column: %#v", spec.Columns[1])
+	}
+}
+
+func TestCompileAnalyseBlockInlinePatternDiagnostics(t *testing.T) {
+	span := diag.NewSpan("analyse.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		Globals: GlobalState{
+			Values: map[string]eval.Value{
+				"helperFn": eval.Function(&eval.FunctionValue{}),
+			},
+		},
+		BindingsByName: map[string]*GlobalBinding{},
+		DoBlocks:       []ast.DoBlock{{Name: "run", Span: span}},
+		StepScopeByName: map[string]*StepScopePlan{
+			"run": {Effective: map[string]VisibleBinding{}},
+		},
+	}
+	block := ast.AnalyseBlock{
+		StepName: "run",
+		Columns: []ast.AnalyseColumn{
+			{Kind: ast.AnalyseColumnInlinePattern, Expr: ast.NumberExpr{Int: true, IntValue: 1, Raw: "1", Span: span}, File: "job.out", Span: span},
+			{Kind: ast.AnalyseColumnInlinePattern, Expr: ast.IdentExpr{Name: "helperFn", Span: span}, File: "job.out", Span: span},
+			{Kind: ast.AnalyseColumnInlinePattern, Expr: ast.StringExpr{Value: "bad %x", Span: span}, File: "job.out", Span: span},
+			{Name: "missing", Span: span},
+		},
+		Span: span,
+	}
+
+	diags := &diag.Diagnostics{}
+	spec := compileAnalyseBlock(block, res, AnalyzeOptions{}, diags)
+	if len(spec.Assignments) != 0 || len(spec.Columns) != 0 {
+		t.Fatalf("expected invalid inline columns to be skipped, got assignments=%#v columns=%#v", spec.Assignments, spec.Columns)
+	}
+	if countDiagCode(diags, "E412") != 2 {
+		t.Fatalf("expected two non-string inline diagnostics, got %d: %s", countDiagCode(diags, "E412"), diags.String())
+	}
+	if countDiagCode(diags, "E402") != 1 {
+		t.Fatalf("expected one invalid-placeholder inline diagnostic, got %d: %s", countDiagCode(diags, "E402"), diags.String())
+	}
+	if countDiagCode(diags, "E415") != 1 {
+		t.Fatalf("expected one unknown named-column diagnostic, got %d: %s", countDiagCode(diags, "E415"), diags.String())
+	}
+}

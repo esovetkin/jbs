@@ -143,6 +143,60 @@ analyse run {
 	})
 }
 
+func TestAnalysePlansByStepBuildsInlinePatternColumns(t *testing.T) {
+	plan := buildPlanFromSource(t, `
+jbs_name = "bench"
+do run {
+    echo ok
+}
+analyse run {
+    (
+        "Runtime %f" in "job.out",
+        "Runtime %f" in "job.out" as "runtime",
+        "Point %d %f" in "job.out" as "point",
+    )
+}
+`)
+	analysis := plan.Analyses["run"]
+	wantHeader := []string{"run_id", "Runtime %f", "runtime", "point.0", "point.1"}
+	if strings.Join(analysis.Header, "|") != strings.Join(wantHeader, "|") {
+		t.Fatalf("header = %#v, want %#v", analysis.Header, wantHeader)
+	}
+	assertAnalyseKinds(t, analysis.ColumnTypes, []AnalyseValueKind{
+		analyseValueString,
+		analyseValueFloat,
+		analyseValueFloat,
+		analyseValueInt,
+		analyseValueFloat,
+	})
+	if len(analysis.Columns) != 3 {
+		t.Fatalf("columns = %#v", analysis.Columns)
+	}
+	for _, col := range analysis.Columns {
+		if col.Kind != analyseColumnPattern {
+			t.Fatalf("expected inline pattern columns, got %#v", analysis.Columns)
+		}
+	}
+	if len(analysis.Patterns) != 3 {
+		t.Fatalf("patterns = %#v", analysis.Patterns)
+	}
+}
+
+func TestAnalysePlansByStepInlineZeroCaptureUsesPatternTextInError(t *testing.T) {
+	_, err := buildPlanFromSourceErr(t, `
+jbs_name = "bench"
+do run {
+    echo ok
+}
+analyse run {
+    ("literal" in "out.log")
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "literal") || strings.Contains(err.Error(), "__analyse_inline") {
+		t.Fatalf("expected inline zero-capture error with display pattern, got %v", err)
+	}
+}
+
 func TestMergeAnalyseValueKinds(t *testing.T) {
 	tests := []struct {
 		name string
@@ -231,6 +285,22 @@ analyse run {
 `)
 	if err == nil || !strings.Contains(err.Error(), "duplicate result column") {
 		t.Fatalf("expected duplicate SQLite column error, got %v", err)
+	}
+}
+
+func TestAnalysePlansByStepRejectsDuplicateSQLiteInlineDefaultHeaders(t *testing.T) {
+	_, err := buildPlanFromSourceErr(t, `
+jbs_name = "bench"
+jbs_database = "results.sqlite"
+do run {
+    echo ok
+}
+analyse run {
+    ("Runtime %f" in "a.out", "Runtime %f" in "b.out")
+}
+`)
+	if err == nil || !strings.Contains(err.Error(), "duplicate result column") {
+		t.Fatalf("expected duplicate SQLite inline column error, got %v", err)
 	}
 }
 

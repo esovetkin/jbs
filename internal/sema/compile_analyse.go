@@ -136,54 +136,40 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 			)
 			continue
 		}
-		before := len(diags.Items)
-		value := eval.EvalExprWithOptions(effectiveExpr, env, diags, analyseEvalOptions(res, assign, visibleNamesFromEnv(env), analyseNamespaces, opts))
-		if value.Kind != eval.KindString {
-			if hasErrorCodeSince(diags, before, diag.CodeE100) {
-				continue
-			}
-			if value.Kind == eval.KindFunction {
-				diags.AddError(
-					diag.CodeE412,
-					fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string data, not function", assign.Name),
-					assign.Span,
-					"use a string-valued expression, not a function-valued global",
-				)
-				continue
-			}
-			diags.AddError(
-				diag.CodeE412,
-				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", assign.Name),
-				assign.Span,
-				"use a string expression such as an imported global or a quoted regex pattern",
-			)
-			continue
-		}
-		regex, captureTypes, ok := normalizePatternRegex(value.S)
+		compiled, _, ok := compileAnalyseExtraction(assign.Name, assign.Name, assign.File, effectiveExpr, assign.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
 		if !ok {
-			diags.AddError(
-				diag.CodeE402,
-				fmt.Sprintf("invalid placeholder in analyse extraction expression for '%s'", assign.Name),
-				assign.Span,
-				"supported placeholders are %d, %f, %w and %% for a literal percent",
-			)
 			continue
 		}
-
-		spec.Assignments = append(spec.Assignments, AnalyseAssignmentSpec{
-			Name: assign.Name,
-			File: assign.File,
-			Template: PatternTemplate{
-				Regex:              regex,
-				CaptureTypesByName: captureTypes,
-				Span:               assign.Span,
-			},
-			Span: assign.Span,
-		})
+		spec.Assignments = append(spec.Assignments, compiled)
 		assignmentVars[assign.Name] = assign.Span
 	}
 
+	inlineIndex := 0
 	for _, col := range block.Columns {
+		kind := col.Kind
+		if kind == "" {
+			kind = ast.AnalyseColumnNamed
+		}
+		if kind == ast.AnalyseColumnInlinePattern {
+			source := nextInlineAnalyseSource(&inlineIndex, seenAssignments)
+			compiled, patternText, ok := compileAnalyseExtraction(source, "inline pattern", col.File, col.Expr, col.Span, env, res, visibleNamesFromEnv(env), analyseNamespaces, opts, diags)
+			if !ok {
+				continue
+			}
+			compiled.DisplayName = patternText
+			spec.Assignments = append(spec.Assignments, compiled)
+			title := col.Title
+			if title == "" {
+				title = patternText
+			}
+			spec.Columns = append(spec.Columns, AnalyseColumnSpec{
+				Name:   title,
+				Title:  title,
+				Source: source,
+				Span:   col.Span,
+			})
+			continue
+		}
 		if _, ok := spec.StepVars[col.Name]; ok {
 			spec.Columns = append(spec.Columns, AnalyseColumnSpec{
 				Name:   col.Name,
@@ -213,11 +199,77 @@ func compileAnalyseBlock(block ast.AnalyseBlock, res *Result, opts AnalyzeOption
 	return spec
 }
 
+func compileAnalyseExtraction(name, diagnosticName, file string, expr ast.Expr, span diag.Span, env map[string]eval.Value, res *Result, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions, diags *diag.Diagnostics) (AnalyseAssignmentSpec, string, bool) {
+	if diagnosticName == "" {
+		diagnosticName = name
+	}
+	before := len(diags.Items)
+	value := eval.EvalExprWithOptions(expr, env, diags, analyseEvalOptionsForSpan(res, span, visible, namespaces, opts))
+	if value.Kind != eval.KindString {
+		if hasErrorCodeSince(diags, before, diag.CodeE100) {
+			return AnalyseAssignmentSpec{}, "", false
+		}
+		if value.Kind == eval.KindFunction {
+			diags.AddError(
+				diag.CodeE412,
+				fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string data, not function", diagnosticName),
+				span,
+				"use a string-valued expression, not a function-valued global",
+			)
+			return AnalyseAssignmentSpec{}, "", false
+		}
+		diags.AddError(
+			diag.CodeE412,
+			fmt.Sprintf("analyse extraction expression for '%s' must evaluate to string", diagnosticName),
+			span,
+			"use a string expression such as an imported global or a quoted regex pattern",
+		)
+		return AnalyseAssignmentSpec{}, "", false
+	}
+	regex, captureTypes, ok := normalizePatternRegex(value.S)
+	if !ok {
+		diags.AddError(
+			diag.CodeE402,
+			fmt.Sprintf("invalid placeholder in analyse extraction expression for '%s'", diagnosticName),
+			span,
+			"supported placeholders are %d, %f, %w and %% for a literal percent",
+		)
+		return AnalyseAssignmentSpec{}, "", false
+	}
+
+	return AnalyseAssignmentSpec{
+		Name: name,
+		File: file,
+		Template: PatternTemplate{
+			Regex:              regex,
+			CaptureTypesByName: captureTypes,
+			Span:               span,
+		},
+		Span: span,
+	}, value.S, true
+}
+
+func nextInlineAnalyseSource(index *int, used map[string]diag.Span) string {
+	for {
+		name := fmt.Sprintf("__analyse_inline_%d", *index)
+		*index = *index + 1
+		if _, exists := used[name]; exists {
+			continue
+		}
+		used[name] = diag.Span{}
+		return name
+	}
+}
+
 func analyseEvalOptions(res *Result, assign ast.AnalyseAssign, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions) eval.ExprOptions {
+	return analyseEvalOptionsForSpan(res, assign.Span, visible, namespaces, opts)
+}
+
+func analyseEvalOptionsForSpan(res *Result, span diag.Span, visible []string, namespaces map[string]*Namespace, opts AnalyzeOptions) eval.ExprOptions {
 	return eval.ExprOptions{
 		Context:     eval.EvalCtxAnalyseAssign,
 		Names:       scopeNameCatalog(visible, namespaces),
-		Files:       fileAccessForSpan(res.BaseDirByFile, assign.Span),
+		Files:       fileAccessForSpan(res.BaseDirByFile, span),
 		ShellRunner: opts.ShellRunner,
 		Environ:     opts.Environ,
 	}

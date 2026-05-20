@@ -141,41 +141,20 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 			tp.next()
 			return columns
 		}
-		if tok.Type != lexer.TokenIdent {
+		if tok.Type == lexer.TokenComma {
 			diags.AddError(diag.CodeE417,
 				"expected column identifier in analyse result tuple",
 				tok.Span,
-				"use syntax: (name, other as \"Title\")",
+				"use syntax: (name, other as \"Title\", \"pattern %f\" in \"file\" as \"Title\")",
 			)
 			tp.next()
 			continue
 		}
 
-		nameTok := tp.next()
-		name, span := tp.parseQualifiedNameAfterFirst(nameTok, diag.CodeE417, "expected identifier after '.' in analyse result tuple")
-		title := ""
-		if tp.peek().Type == lexer.TokenAs {
-			tp.next()
-			titleTok := tp.peek()
-			if titleTok.Type != lexer.TokenString {
-				diags.AddError(diag.CodeE417,
-					"expected quoted title after 'as' in analyse result tuple",
-					titleTok.Span,
-					"use syntax: name as \"Title\"",
-				)
-				tp.consumeUntilNewline()
-				return columns
-			}
-			tp.next()
-			title = titleTok.Value
-			span = diag.Merge(span, titleTok.Span)
+		col, ok := parseAnalyseTupleColumn(tp, file, diags)
+		if ok {
+			columns = append(columns, col)
 		}
-
-		columns = append(columns, ast.AnalyseColumn{
-			Name:  name,
-			Title: title,
-			Span:  span,
-		})
 
 		tp.skipNewlines()
 		if tp.peek().Type == lexer.TokenComma {
@@ -200,6 +179,127 @@ func parseAnalyseTuple(tp *tokenParser, file string, diags *diag.Diagnostics) []
 		tp.consumeUntilNewline()
 		return columns
 	}
+}
+
+func parseAnalyseTupleColumn(tp *tokenParser, file string, diags *diag.Diagnostics) (ast.AnalyseColumn, bool) {
+	if col, ok := parseAnalyseNamedColumnIfPresent(tp, diags); ok {
+		return col, true
+	}
+	return parseAnalyseInlinePatternColumn(tp, file, diags)
+}
+
+func parseAnalyseNamedColumnIfPresent(tp *tokenParser, diags *diag.Diagnostics) (ast.AnalyseColumn, bool) {
+	mark := tp.idx
+	first := tp.peek()
+	if first.Type != lexer.TokenIdent {
+		return ast.AnalyseColumn{}, false
+	}
+
+	nameTok := tp.next()
+	name, span := tp.parseQualifiedNameAfterFirst(nameTok, diag.CodeE417, "expected identifier after '.' in analyse result tuple")
+	switch tp.peek().Type {
+	case lexer.TokenAs, lexer.TokenComma, lexer.TokenRParen:
+		title, itemSpan, ok := parseOptionalAnalyseColumnTitle(tp, span, diags)
+		if !ok {
+			return ast.AnalyseColumn{}, false
+		}
+		return ast.AnalyseColumn{
+			Kind:  ast.AnalyseColumnNamed,
+			Name:  name,
+			Title: title,
+			Span:  itemSpan,
+		}, true
+	case lexer.TokenIn, lexer.TokenLParen, lexer.TokenLBracket, lexer.TokenColon,
+		lexer.TokenPlus, lexer.TokenMinus, lexer.TokenStar, lexer.TokenSlash, lexer.TokenPercent,
+		lexer.TokenAmp, lexer.TokenAnd, lexer.TokenPipe, lexer.TokenOr,
+		lexer.TokenEqEq, lexer.TokenNeq, lexer.TokenLT, lexer.TokenGT, lexer.TokenLE, lexer.TokenGE,
+		lexer.TokenIf:
+		tp.idx = mark
+		return ast.AnalyseColumn{}, false
+	default:
+		return ast.AnalyseColumn{
+			Kind: ast.AnalyseColumnNamed,
+			Name: name,
+			Span: span,
+		}, true
+	}
+}
+
+func parseAnalyseInlinePatternColumn(tp *tokenParser, file string, diags *diag.Diagnostics) (ast.AnalyseColumn, bool) {
+	tok := tp.peek()
+	if tok.Type == lexer.TokenRParen || tok.Type == lexer.TokenComma || tok.Type == lexer.TokenEOF {
+		diags.AddError(diag.CodeE417,
+			"expected column identifier or inline pattern in analyse result tuple",
+			tok.Span,
+			"use syntax: (name, other as \"Title\", \"pattern %f\" in \"file\" as \"Title\")",
+		)
+		if tok.Type != lexer.TokenEOF {
+			tp.next()
+		}
+		return ast.AnalyseColumn{}, false
+	}
+
+	expr := tp.parseExpr()
+	if expr == nil {
+		return ast.AnalyseColumn{}, false
+	}
+	return parseAnalyseInlinePatternAfterExpr(tp, expr, expr.GetSpan(), file, diags)
+}
+
+func parseAnalyseInlinePatternAfterExpr(tp *tokenParser, expr ast.Expr, span diag.Span, file string, diags *diag.Diagnostics) (ast.AnalyseColumn, bool) {
+	inTok := tp.peek()
+	if inTok.Type != lexer.TokenIn {
+		diags.AddError(diag.CodeE417,
+			"expected 'in' after inline analyse pattern expression",
+			inTok.Span,
+			"use syntax: (\"pattern %f\" in \"file\" as \"Title\")",
+		)
+		return ast.AnalyseColumn{}, false
+	}
+	tp.next()
+
+	fileTok := tp.peek()
+	if fileTok.Type != lexer.TokenString {
+		diags.AddError(diag.CodeE417,
+			"expected quoted file name after 'in' in analyse result tuple",
+			fileTok.Span,
+			"use syntax: (\"pattern %f\" in \"file\")",
+		)
+		tp.consumeUntilNewline()
+		return ast.AnalyseColumn{}, false
+	}
+	tp.next()
+
+	title, itemSpan, ok := parseOptionalAnalyseColumnTitle(tp, diag.Merge(span, fileTok.Span), diags)
+	if !ok {
+		return ast.AnalyseColumn{}, false
+	}
+	return ast.AnalyseColumn{
+		Kind:  ast.AnalyseColumnInlinePattern,
+		Expr:  expr,
+		File:  fileTok.Value,
+		Title: title,
+		Span:  itemSpan,
+	}, true
+}
+
+func parseOptionalAnalyseColumnTitle(tp *tokenParser, span diag.Span, diags *diag.Diagnostics) (string, diag.Span, bool) {
+	if tp.peek().Type != lexer.TokenAs {
+		return "", span, true
+	}
+	tp.next()
+	titleTok := tp.peek()
+	if titleTok.Type != lexer.TokenString {
+		diags.AddError(diag.CodeE417,
+			"expected quoted title after 'as' in analyse result tuple",
+			titleTok.Span,
+			"use syntax: name as \"Title\" or \"pattern\" in \"file\" as \"Title\"",
+		)
+		tp.consumeUntilNewline()
+		return "", span, false
+	}
+	tp.next()
+	return titleTok.Value, diag.Merge(span, titleTok.Span), true
 }
 
 func (p *tokenParser) parseQualifiedNameAfterFirst(first lexer.Token, code diag.Code, message string) (string, diag.Span) {

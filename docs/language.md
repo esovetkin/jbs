@@ -627,7 +627,9 @@ analyse_block   = "analyse" IDENT { with_clause } "{" analyse_body "}" ;
 analyse_body    = { sep | analyse_assign } analyse_result_tuple { sep } ;
 analyse_assign  = IDENT assign_op expr [ "in" STRING ] ;
 analyse_result_tuple = "(" [ analyse_column { "," analyse_column } [ "," ] ] ")" ;
-analyse_column  = IDENT [ "." IDENT ] [ "as" STRING ] ;
+analyse_column  = analyse_named_column | analyse_inline_pattern ;
+analyse_named_column = IDENT [ "." IDENT ] [ "as" STRING ] ;
+analyse_inline_pattern = expr "in" STRING [ "as" STRING ] ;
 
 expr            = conditional ;
 
