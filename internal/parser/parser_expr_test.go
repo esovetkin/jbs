@@ -315,6 +315,7 @@ func TestParseRangeExprShortcut(t *testing.T) {
 		hasStep bool
 	}{
 		{src: "1:10"},
+		{src: "-1:2"},
 		{src: "1:10:2", hasStep: true},
 		{src: "10:-2:-2", hasStep: true},
 		{src: "0.1:10:0.5", hasStep: true},
@@ -339,6 +340,103 @@ func TestParseRangeExprShortcut(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseRangeExprPrecedence(t *testing.T) {
+	t.Run("binds tighter than product", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("0:2 * 4", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		top, ok := expr.(ast.BinaryExpr)
+		if !ok || top.Op != "*" {
+			t.Fatalf("expected top-level multiplication, got %#v", expr)
+		}
+		if _, ok := top.Left.(ast.RangeExpr); !ok {
+			t.Fatalf("expected range on multiplication lhs, got %#v", top.Left)
+		}
+		if _, ok := top.Right.(ast.NumberExpr); !ok {
+			t.Fatalf("expected number on multiplication rhs, got %#v", top.Right)
+		}
+	})
+
+	t.Run("grouped range still binds as product lhs", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("(0:2) * 4", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		top, ok := expr.(ast.BinaryExpr)
+		if !ok || top.Op != "*" {
+			t.Fatalf("expected top-level multiplication, got %#v", expr)
+		}
+		if _, ok := top.Left.(ast.RangeExpr); !ok {
+			t.Fatalf("expected grouped range on multiplication lhs, got %#v", top.Left)
+		}
+	})
+
+	t.Run("index applies to completed range", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("0:10[0:10:2]", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected top-level index expression, got %#v", expr)
+		}
+		if _, ok := idx.Base.(ast.RangeExpr); !ok {
+			t.Fatalf("expected indexed base to be range expression, got %#v", idx.Base)
+		}
+		if len(idx.Items) != 1 {
+			t.Fatalf("expected one index selector, got %d", len(idx.Items))
+		}
+		item, ok := idx.Items[0].(ast.RangeExpr)
+		if !ok || item.Step == nil {
+			t.Fatalf("expected stepped range index selector, got %#v", idx.Items[0])
+		}
+	})
+
+	t.Run("range bound keeps call suffix", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("0:len(xs)", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		r, ok := expr.(ast.RangeExpr)
+		if !ok {
+			t.Fatalf("expected range expression, got %#v", expr)
+		}
+		call, ok := r.Stop.(ast.CallExpr)
+		if !ok {
+			t.Fatalf("expected call as range stop, got %#v", r.Stop)
+		}
+		callee, ok := call.Callee.(ast.IdentExpr)
+		if !ok || callee.Name != "len" {
+			t.Fatalf("expected len call stop, got %#v", call.Callee)
+		}
+	})
+
+	t.Run("parenthesized indexed bound remains range stop", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("0:(xs[0])", diags)
+		expr := tp.parseExpr()
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+		r, ok := expr.(ast.RangeExpr)
+		if !ok {
+			t.Fatalf("expected range expression, got %#v", expr)
+		}
+		if _, ok := r.Stop.(ast.IndexExpr); !ok {
+			t.Fatalf("expected indexed stop bound, got %#v", r.Stop)
+		}
+	})
 }
 
 func TestParseRangeExprInPostfixAndCalls(t *testing.T) {

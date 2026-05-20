@@ -139,6 +139,26 @@ func TestEvalRangeShortcutFloatValues(t *testing.T) {
 	}
 }
 
+func TestEvalRangeShortcutPrecedence(t *testing.T) {
+	tests := []struct {
+		src  string
+		want Value
+	}{
+		{src: "0:2 * 4", want: List([]Value{Int(0), Int(4)})},
+		{src: "(0:2) * 4", want: List([]Value{Int(0), Int(4)})},
+		{src: "0:10[0:10:2]", want: List([]Value{Int(0), Int(2), Int(4), Int(6), Int(8)})},
+		{src: "(0:10)[0:10:2]", want: List([]Value{Int(0), Int(2), Int(4), Int(6), Int(8)})},
+	}
+	for _, tc := range tests {
+		t.Run(tc.src, func(t *testing.T) {
+			got := evalParsedExprForTest(t, tc.src)
+			if !Equal(got, tc.want) {
+				t.Fatalf("got %#v want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEvalRangeErrors(t *testing.T) {
 	tests := []struct {
 		name string

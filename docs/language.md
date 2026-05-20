@@ -143,6 +143,10 @@ jbs> range(0,1,0.2)
 jbs> # `:` is an equivalent syntax
 jbs> 5:1
 [5, 4, 3, 2]
+jbs> 0:2 * 4
+[0, 4]
+jbs> 0:10[0:10:2]
+[0, 2, 4, 6, 8]
 ```
 
 ### Dictionaries
@@ -621,10 +625,14 @@ conjunction     = comparison { "&" comparison } ;
 comparison      = sum [ comp_op sum ] ;
 comp_op         = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
 sum             = product { ( "+" | "-" ) product } ;
-product         = unary { ( "*" | "/" | "%" ) unary } ;
+product         = range_expr { ( "*" | "/" | "%" ) range_expr } ;
+range_expr      = unary [ ":" range_bound [ ":" range_bound ] ] { postfix_suffix } ;
+range_bound     = ( "+" | "-" | "!" ) range_bound
+                | primary { "." IDENT | call | alias } ;
 unary           = ( "+" | "-" | "!" ) unary | postfix ;
 
-postfix         = primary { "." IDENT | call | index | alias } ;
+postfix         = primary { postfix_suffix } ;
+postfix_suffix  = "." IDENT | call | index | alias ;
 call            = "(" [ call_args [ "," ] ] ")" ;
 call_args       = positional_args [ "," named_args ] | named_args ;
 positional_args = expr { "," expr } ;

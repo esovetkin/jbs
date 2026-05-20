@@ -9,6 +9,8 @@
 - Shortcut forms: `start:stop` and `start:stop:step`.
 - One-argument and two-argument forms require integers.
 - `range(...)` is only allowed in top-level global assignment expressions.
+- Shortcut ranges bind before arithmetic, so `0:2 * 4` means `(0:2) * 4`.
+- An index after a shortcut range applies to the completed range, so `0:10[0:10:2]` means `(0:10)[0:10:2]`. Parenthesize the bound if the bound itself is indexed, for example `0:(xs[0])`.
 
 ## Returns
 
@@ -27,4 +29,6 @@ range(0,1,0.02) == [0,0.02,0.04,0.06,0.08]
 1:5 == [1,2,3,4]
 5:1 == [5,4,3,2]
 0.1:1:0.2 == [0.1,0.3,0.5,0.7,0.9]
+0:2 * 4 == [0,4]
+0:10[0:10:2] == [0,2,4,6,8]
 ```

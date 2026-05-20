@@ -31,6 +31,24 @@ func (ctx functionParseContext) nestedLoop() functionParseContext {
 	return ctx
 }
 
+type exprParseMode struct {
+	AllowRange bool
+}
+
+var (
+	exprModeDefault = exprParseMode{AllowRange: true}
+	exprModeNoRange = exprParseMode{AllowRange: false}
+)
+
+type postfixParseMode struct {
+	AllowIndex bool
+}
+
+var (
+	postfixModeFull    = postfixParseMode{AllowIndex: true}
+	postfixModeNoIndex = postfixParseMode{AllowIndex: false}
+)
+
 func isAssignToken(tt lexer.TokenType) bool {
 	return tt == lexer.TokenEqual ||
 		tt == lexer.TokenPlusEqual ||
@@ -166,82 +184,30 @@ func (p *tokenParser) parseAssignment() ast.Assignment {
 }
 
 func (p *tokenParser) parseExpr() ast.Expr {
-	return p.parseConditional()
-}
-
-func (p *tokenParser) parseConditional() ast.Expr {
-	thenExpr := p.parseRange()
-	if p.peek().Type == lexer.TokenIf {
-		ifTok := p.next()
-		cond := p.parseRange()
-		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
-		elseExpr := p.parseConditional()
-		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
-		span = diag.Merge(span, ifTok.Span)
-		return ast.ConditionalExpr{
-			Then: thenExpr,
-			Cond: cond,
-			Else: elseExpr,
-			Span: span,
-		}
-	}
-	return thenExpr
-}
-
-func (p *tokenParser) parseConditionalNoRange() ast.Expr {
-	thenExpr := p.parsePipe()
-	if p.peek().Type == lexer.TokenIf {
-		ifTok := p.next()
-		cond := p.parsePipe()
-		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
-		elseExpr := p.parseConditionalNoRange()
-		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
-		span = diag.Merge(span, ifTok.Span)
-		return ast.ConditionalExpr{
-			Then: thenExpr,
-			Cond: cond,
-			Else: elseExpr,
-			Span: span,
-		}
-	}
-	return thenExpr
+	return p.parseConditional(exprModeDefault)
 }
 
 func (p *tokenParser) parseExprNoRange() ast.Expr {
-	return p.parseConditionalNoRange()
+	return p.parseConditional(exprModeNoRange)
 }
 
-func (p *tokenParser) parseRange() ast.Expr {
-	start := p.parsePipe()
-	if p.peek().Type != lexer.TokenColon {
-		return start
-	}
-
-	firstColon := p.next()
-	stop := p.parsePipe()
-	if stop == nil {
-		p.diags.AddError(diag.CodeE058, "expected range stop after ':'", firstColon.Span, "use start:stop or start:stop:step")
-		return start
-	}
-
-	var step ast.Expr
-	end := stop.GetSpan()
-	if p.peek().Type == lexer.TokenColon {
-		secondColon := p.next()
-		step = p.parsePipe()
-		if step == nil {
-			p.diags.AddError(diag.CodeE058, "expected range step after ':'", secondColon.Span, "use start:stop:step")
-			return ast.RangeExpr{Start: start, Stop: stop, Span: diag.Merge(start.GetSpan(), end)}
+func (p *tokenParser) parseConditional(mode exprParseMode) ast.Expr {
+	thenExpr := p.parsePipe(mode)
+	if p.peek().Type == lexer.TokenIf {
+		ifTok := p.next()
+		cond := p.parsePipe(mode)
+		p.expect(lexer.TokenElse, diag.CodeE052, "expected 'else' in conditional expression")
+		elseExpr := p.parseConditional(mode)
+		span := diag.Merge(thenExpr.GetSpan(), elseExpr.GetSpan())
+		span = diag.Merge(span, ifTok.Span)
+		return ast.ConditionalExpr{
+			Then: thenExpr,
+			Cond: cond,
+			Else: elseExpr,
+			Span: span,
 		}
-		end = step.GetSpan()
 	}
-
-	return ast.RangeExpr{
-		Start: start,
-		Stop:  stop,
-		Step:  step,
-		Span:  diag.Merge(start.GetSpan(), end),
-	}
+	return thenExpr
 }
 
 func canonicalLogicalOp(tt lexer.TokenType) (string, bool) {
@@ -255,8 +221,8 @@ func canonicalLogicalOp(tt lexer.TokenType) (string, bool) {
 	}
 }
 
-func (p *tokenParser) parsePipe() ast.Expr {
-	left := p.parseAmp()
+func (p *tokenParser) parsePipe(mode exprParseMode) ast.Expr {
+	left := p.parseAmp(mode)
 	for {
 		tt := p.peek().Type
 		if tt != lexer.TokenPipe && tt != lexer.TokenOr {
@@ -264,7 +230,7 @@ func (p *tokenParser) parsePipe() ast.Expr {
 		}
 		op := p.next()
 		opText, _ := canonicalLogicalOp(op.Type)
-		right := p.parseAmp()
+		right := p.parseAmp(mode)
 		left = ast.BinaryExpr{
 			Left:  left,
 			Op:    opText,
@@ -275,8 +241,8 @@ func (p *tokenParser) parsePipe() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseAmp() ast.Expr {
-	left := p.parseCompare()
+func (p *tokenParser) parseAmp(mode exprParseMode) ast.Expr {
+	left := p.parseCompare(mode)
 	for {
 		tt := p.peek().Type
 		if tt != lexer.TokenAmp && tt != lexer.TokenAnd {
@@ -284,7 +250,7 @@ func (p *tokenParser) parseAmp() ast.Expr {
 		}
 		op := p.next()
 		opText, _ := canonicalLogicalOp(op.Type)
-		right := p.parseCompare()
+		right := p.parseCompare(mode)
 		left = ast.BinaryExpr{
 			Left:  left,
 			Op:    opText,
@@ -295,12 +261,12 @@ func (p *tokenParser) parseAmp() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseCompare() ast.Expr {
-	left := p.parseAdd()
+func (p *tokenParser) parseCompare(mode exprParseMode) ast.Expr {
+	left := p.parseAdd(mode)
 	t := p.peek().Type
 	if t == lexer.TokenEqEq || t == lexer.TokenNeq || t == lexer.TokenLT || t == lexer.TokenGT || t == lexer.TokenLE || t == lexer.TokenGE {
 		op := p.next()
-		right := p.parseAdd()
+		right := p.parseAdd(mode)
 		return ast.CompareExpr{
 			Left:  left,
 			Op:    op.Text,
@@ -311,15 +277,15 @@ func (p *tokenParser) parseCompare() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseAdd() ast.Expr {
-	left := p.parseMul()
+func (p *tokenParser) parseAdd(mode exprParseMode) ast.Expr {
+	left := p.parseMul(mode)
 	for {
 		t := p.peek().Type
 		if t != lexer.TokenPlus && t != lexer.TokenMinus {
 			break
 		}
 		op := p.next()
-		right := p.parseMul()
+		right := p.parseMul(mode)
 		left = ast.BinaryExpr{
 			Left:  left,
 			Op:    op.Text,
@@ -330,15 +296,15 @@ func (p *tokenParser) parseAdd() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseMul() ast.Expr {
-	left := p.parseUnary()
+func (p *tokenParser) parseMul(mode exprParseMode) ast.Expr {
+	left := p.parseRangeTerm(mode)
 	for {
 		t := p.peek().Type
 		if t != lexer.TokenStar && t != lexer.TokenSlash && t != lexer.TokenPercent {
 			break
 		}
 		op := p.next()
-		right := p.parseUnary()
+		right := p.parseRangeTerm(mode)
 		left = ast.BinaryExpr{
 			Left:  left,
 			Op:    op.Text,
@@ -349,23 +315,60 @@ func (p *tokenParser) parseMul() ast.Expr {
 	return left
 }
 
-func (p *tokenParser) parseUnary() ast.Expr {
+func (p *tokenParser) parseRangeTerm(mode exprParseMode) ast.Expr {
+	start := p.parseUnary(mode, postfixModeFull)
+	if !mode.AllowRange || p.peek().Type != lexer.TokenColon {
+		return start
+	}
+
+	firstColon := p.next()
+	stop := p.parseRangeBound(mode)
+	if stop == nil {
+		p.diags.AddError(diag.CodeE058, "expected range stop after ':'", firstColon.Span, "use start:stop or start:stop:step")
+		return start
+	}
+
+	var step ast.Expr
+	end := stop.GetSpan()
+	if p.peek().Type == lexer.TokenColon {
+		secondColon := p.next()
+		step = p.parseRangeBound(mode)
+		if step == nil {
+			p.diags.AddError(diag.CodeE058, "expected range step after ':'", secondColon.Span, "use start:stop:step")
+			return p.parsePostfix(ast.RangeExpr{Start: start, Stop: stop, Span: diag.Merge(start.GetSpan(), end)}, postfixModeFull)
+		}
+		end = step.GetSpan()
+	}
+
+	return p.parsePostfix(ast.RangeExpr{
+		Start: start,
+		Stop:  stop,
+		Step:  step,
+		Span:  diag.Merge(start.GetSpan(), end),
+	}, postfixModeFull)
+}
+
+func (p *tokenParser) parseRangeBound(mode exprParseMode) ast.Expr {
+	return p.parseUnary(mode, postfixModeNoIndex)
+}
+
+func (p *tokenParser) parseUnary(mode exprParseMode, postfixMode postfixParseMode) ast.Expr {
 	t := p.peek().Type
 	if t == lexer.TokenPlus || t == lexer.TokenMinus || t == lexer.TokenBang {
 		op := p.next()
-		expr := p.parseUnary()
+		expr := p.parseUnary(mode, postfixMode)
 		return ast.UnaryExpr{
 			Op:   op.Text,
 			Expr: expr,
 			Span: diag.Merge(op.Span, expr.GetSpan()),
 		}
 	}
-	return p.parsePrimary()
+	return p.parsePrimary(postfixMode)
 }
 
-func (p *tokenParser) parsePrimary() ast.Expr {
+func (p *tokenParser) parsePrimary(postfixMode postfixParseMode) ast.Expr {
 	expr := p.parsePrimaryAtom()
-	return p.parsePostfix(expr)
+	return p.parsePostfix(expr, postfixMode)
 }
 
 func (p *tokenParser) parsePrimaryAtom() ast.Expr {
@@ -528,7 +531,7 @@ func (p *tokenParser) parseDictExpr() ast.Expr {
 	return ast.DictExpr{Entries: entries, Span: diag.Merge(open.Span, close.Span)}
 }
 
-func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {
+func (p *tokenParser) parsePostfix(base ast.Expr, mode postfixParseMode) ast.Expr {
 	expr := base
 	for {
 		switch p.peek().Type {
@@ -559,6 +562,9 @@ func (p *tokenParser) parsePostfix(base ast.Expr) ast.Expr {
 		case lexer.TokenLParen:
 			expr = p.parseCallExpr(expr)
 		case lexer.TokenLBracket:
+			if !mode.AllowIndex {
+				return expr
+			}
 			expr = p.parseIndexExpr(expr)
 		case lexer.TokenAs:
 			asTok := p.next()
