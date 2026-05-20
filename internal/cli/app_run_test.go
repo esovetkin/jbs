@@ -1000,6 +1000,11 @@ func TestRunCommandMarksDependentsBlockedAndPrintsStatusSummary(t *testing.T) {
 	if status := readWorkStatus(t, filepath.Join(runDir, "run", "000000", "status")); status.Status != jbsrun.StatusBlocked {
 		t.Fatalf("run status = %#v, want BLOCKED", status)
 	}
+	failedDir := filepath.Join(runDir, "prep", "000000")
+	blockedDir := filepath.Join(runDir, "run", "000000")
+	if !filepath.IsAbs(failedDir) {
+		t.Fatalf("failedDir is not absolute: %q", failedDir)
+	}
 	out := stdout.String()
 	for _, want := range []string{
 		"BLOCKED",
@@ -1007,13 +1012,13 @@ func TestRunCommandMarksDependentsBlockedAndPrintsStatusSummary(t *testing.T) {
 		"└── run",
 		"total:",
 		"failed workpackage directories:",
-		filepath.Join("bench", "000000", "prep", "000000"),
+		failedDir,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status summary missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, filepath.Join("bench", "000000", "run", "000000")) {
+	if strings.Contains(out, blockedDir) {
 		t.Fatalf("blocked work directory should not be listed as failed:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(runDir, "run", "000000", "exitcode")); !os.IsNotExist(err) {
@@ -1394,6 +1399,9 @@ func TestStatusCommandPrintsFailedWorkDirectories(t *testing.T) {
 	}
 
 	failedDir := filepath.Join(cwd, "bench", "000000", "s", "000000")
+	if !filepath.IsAbs(failedDir) {
+		t.Fatalf("failedDir is not absolute: %q", failedDir)
+	}
 	writeWorkStatus(t, filepath.Join(failedDir, "status"), jbsrun.WorkStatus{
 		Schema: 1,
 		Status: jbsrun.StatusError,
@@ -1410,7 +1418,7 @@ func TestStatusCommandPrintsFailedWorkDirectories(t *testing.T) {
 	if !strings.Contains(out, "failed workpackage directories:") {
 		t.Fatalf("status output missing failed directory header:\n%s", out)
 	}
-	if !strings.Contains(out, filepath.Join("bench", "000000", "s", "000000")) {
+	if !strings.Contains(out, failedDir) {
 		t.Fatalf("status output missing failed directory path:\n%s", out)
 	}
 }
@@ -2905,8 +2913,12 @@ func TestRunCommandWeakWritesAnalyseCSVAfterFailedJobs(t *testing.T) {
 		{"000000", "1", "1", "FINISHED"},
 		{"000001", "", "", "ERROR"},
 	})
+	failedDir := filepath.Join(runDir, "run", "000001")
+	if !filepath.IsAbs(failedDir) {
+		t.Fatalf("failedDir is not absolute: %q", failedDir)
+	}
 	out := stdout.String()
-	for _, want := range []string{"failed workpackage directories:", "analyse.csv", "nrows", "ncols"} {
+	for _, want := range []string{"failed workpackage directories:", failedDir, "analyse.csv", "nrows", "ncols"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("weak run stdout missing %q:\n%s", want, out)
 		}

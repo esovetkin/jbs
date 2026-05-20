@@ -100,10 +100,19 @@ func TestPrintJobTreeSummaryRendersTable(t *testing.T) {
 	}
 }
 
-func TestBuildStatusSummaryCollectsFailedWorkDirectories(t *testing.T) {
-	runDir := t.TempDir()
+func TestBuildStatusSummaryCollectsAbsoluteFailedWorkDirectories(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
 	manifest := statusSummaryManifest()
-	store := NewStore(runDir, manifest, nil)
+	store := NewStore(filepath.Join("bench", "000000"), manifest, nil)
 	writeStatusSummaryStatuses(t, store, map[string]Status{
 		"step1/000000": StatusFinished,
 		"step1/000001": StatusError,
@@ -120,9 +129,9 @@ func TestBuildStatusSummaryCollectsFailedWorkDirectories(t *testing.T) {
 	if len(summary.FailedWork) != 1 {
 		t.Fatalf("failed paths = %#v, want one ERROR workpackage", summary.FailedWork)
 	}
-	want := store.WorkDir(manifest.Work[1])
-	if summary.FailedWork[0].Path != want {
-		t.Fatalf("failed path = %q, want %q", summary.FailedWork[0].Path, want)
+	want := filepath.Join(cwd, "bench", "000000", "step1", "000001")
+	if got := summary.FailedWork[0].Path; got != want || !filepath.IsAbs(got) {
+		t.Fatalf("failed path = %q, want absolute %q", got, want)
 	}
 	if summary.FailedWork[0].Step != "step1" || summary.FailedWork[0].Row != 1 {
 		t.Fatalf("failed work metadata = %#v", summary.FailedWork[0])

@@ -13,7 +13,7 @@ jbs status -b small bench
 The table groups workpackage counts by the `do` step dependency tree and includes
 `FINISHED`, `ERROR`, `BLOCKED`, `NOTSTARTED`, `RUNNING`, and `INTERRUPTED`.
 If any workpackage has status `ERROR`, `jbs status` also prints the corresponding
-workpackage directory paths after the overview table.
+absolute workpackage directory paths after the overview table.
 
 When the input is a JBS file, the command parses the source to find the
 benchmark output directory. When the input is a benchmark directory, the command

@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,10 +69,14 @@ func BuildStatusSummary(store *Store) (RunStatusSummary, error) {
 		byStep[work.Step] = counts
 		addStatusCount(&total, status.Status)
 		if status.Status == StatusError {
+			path, err := failedWorkDisplayPath(store, work)
+			if err != nil {
+				return RunStatusSummary{}, err
+			}
 			failed = append(failed, FailedWorkDirectory{
 				Step: work.Step,
 				Row:  work.Row,
-				Path: store.WorkDir(work),
+				Path: path,
 			})
 		}
 	}
@@ -81,6 +86,14 @@ func BuildStatusSummary(store *Store) (RunStatusSummary, error) {
 		Total:      total,
 		FailedWork: failed,
 	}, nil
+}
+
+func failedWorkDisplayPath(store *Store, work ManifestWork) (string, error) {
+	path, err := filepath.Abs(store.WorkDir(work))
+	if err != nil {
+		return "", fmt.Errorf("resolve failed workpackage directory %s/%s: %w", work.Step, work.Dir, err)
+	}
+	return filepath.Clean(path), nil
 }
 
 func addStatusCount(c *StatusCounts, status Status) {
