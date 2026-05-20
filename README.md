@@ -85,8 +85,8 @@ Read examples/help:
   jbs help [analyse|archive|continue|do|fwait|globals|ls-analyse|param|repl|status|tree|use]
 
 Run:
-  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
-  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
+  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
   jbs continue <file.jbs> [-b|--benchmark <name>]
 
 Check syntax:
@@ -101,6 +101,8 @@ List generated analyse tables:
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
   -w, --weak     Generate analyse outputs even when some workpackages fail
+  -l, --limit <n>
+                 Create and run only the first n selected DAG branches
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
@@ -130,7 +132,7 @@ Interactive mode:
   jbs repl
 ```
 
-`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs run` workpackages inherit environment, where `jbs` was started. `jbs status` prints the latest run status (see [docs/help_status.md](docs/help_status.md)), `jbs tree` prints the planned job tree (see [docs/help_tree.md](docs/help_tree.md)), and `jbs ls-analyse` lists generated analyse outputs (see [docs/help_ls_analyse.md](docs/help_ls_analyse.md)). `jbs fwait` waits for files to appear or change (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use (see [docs/help_param.md](docs/help_param.md)).
+`jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs run` workpackages inherit environment, where `jbs` was started. Pass `--limit <n>` or `-l <n>` to create and run only the first `n` selected DAG branches; a branch is a target workpackage plus the dependency workpackages it needs. Configured benchmark components are limited independently. `jbs status` prints the latest run status (see [docs/help_status.md](docs/help_status.md)), `jbs tree` prints the planned job tree (see [docs/help_tree.md](docs/help_tree.md)), and `jbs ls-analyse` lists generated analyse outputs (see [docs/help_ls_analyse.md](docs/help_ls_analyse.md)). `jbs fwait` waits for files to appear or change (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use (see [docs/help_param.md](docs/help_param.md)).
 
 `--cpuprof` and `--memprof` profile the JBS process. They are useful for debugging parsing, semantic analysis, planning, scheduling, and CLI overhead. They do not profile shell commands launched by `do` blocks. Inspect profiles with `go tool pprof`:
 

@@ -119,6 +119,10 @@ Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`,
 
 Pass `--weak` or `-w` to generate analyse outputs even when some workpackages fail. The benchmark still ends with status `ERROR`, and the command still exits non-zero, but analyse tables are written for selected analyse steps. Weak mode does not apply to interrupted runs.
 
+Pass `--limit <n>` or `-l <n>` to run only the first `n` selected DAG branches. A branch is a target workpackage plus all dependency workpackages needed by that target. If analyses are selected, the analysed steps are the branch targets; otherwise JBS uses terminal steps in the selected benchmark component. Configured benchmark components are limited independently.
+
+`--limit` reduces created workpackage directories and scheduler work. It does not guarantee exactly `n` analyse rows when one workpackage emits multiple pattern matches or no matches. Workpackage row IDs are preserved, so limited runs may contain gaps in complex DAGs.
+
 Create the directory structure without starting work:
 
 ```bash
@@ -126,7 +130,11 @@ jbs run --dry-run do.jbs
 jbs run -n do.jbs
 jbs run --weak do.jbs
 jbs run -w do.jbs
+jbs run --limit 1 do.jbs
+jbs run -l 1 do.jbs
+jbs run -n -l 1 do.jbs
 jbs -n do.jbs
+jbs -l 1 do.jbs
 jbs do.jbs -n
 jbs continue do.jbs
 ```

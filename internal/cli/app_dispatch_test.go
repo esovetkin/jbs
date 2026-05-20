@@ -52,7 +52,7 @@ func TestCommandHelpersReportLoadFailures(t *testing.T) {
 		run  func(*bytes.Buffer, *bytes.Buffer) int
 	}{
 		{name: "run", run: func(stdout, stderr *bytes.Buffer) int {
-			return runBenchmark(missing, false, false, false, "", stdout, stderr)
+			return runBenchmark(missing, false, false, false, "", 0, stdout, stderr)
 		}},
 		{name: "continue", run: func(stdout, stderr *bytes.Buffer) int {
 			return continueBenchmark(missing, "", stdout, stderr)

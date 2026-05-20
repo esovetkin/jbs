@@ -74,6 +74,197 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	}
 }
 
+func TestRunCommandLimitRunsOneAnalysedBranch(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[1, 2, 3])`,
+		`do run with cases {`,
+		`echo "value: $x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-l", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000000")); err != nil {
+		t.Fatalf("expected selected workpackage: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000001")); !os.IsNotExist(err) {
+		t.Fatalf("pruned workpackage exists, stat error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "100% (1/1)") {
+		t.Fatalf("expected limited progress total, got %q", stdout.String())
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "value"},
+		{"000000", "1", "1"},
+	})
+	manifest := readManifest(t, filepath.Join(runDir, "manifest.json"))
+	if manifest.WorkLimit != 1 {
+		t.Fatalf("manifest work limit = %d, want 1", manifest.WorkLimit)
+	}
+	if len(manifest.Work) != 1 || manifest.Work[0].Step != "run" || manifest.Work[0].Row != 0 {
+		t.Fatalf("unexpected limited manifest work: %#v", manifest.Work)
+	}
+}
+
+func TestRunCommandLimitDryRunCreatesOnlyLimitedWork(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[1, 2])`,
+		`do run with cases {`,
+		`echo "value: $x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "-n", "-l", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("dry run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	status := readWorkStatus(t, filepath.Join(runDir, "run", "000000", "status"))
+	if status.Status != jbsrun.StatusNotStarted {
+		t.Fatalf("dry-run work status = %#v, want NOTSTARTED", status)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000001")); !os.IsNotExist(err) {
+		t.Fatalf("pruned workpackage exists, stat error: %v", err)
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "value"},
+	})
+}
+
+func TestRunCommandLimitKeepsDependencySymlinks(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[1, 2])`,
+		`extra = table(y=["a", "b"])`,
+		`do prep with cases {`,
+		`echo "$x" > prepared.txt`,
+		`}`,
+		`do run after prep with extra {`,
+		`cat prep/prepared.txt`,
+		`echo "$y"`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--limit", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	runWorkDir := filepath.Join(runDir, "run", "000000")
+	if got := readFileString(t, filepath.Join(runWorkDir, "stdout")); got != "1\na\n" {
+		t.Fatalf("unexpected limited dependency stdout: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(runWorkDir, "prep", "prepared.txt")); err != nil {
+		t.Fatalf("dependency symlink does not resolve: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "prep", "000001")); !os.IsNotExist(err) {
+		t.Fatalf("pruned dependency workpackage exists, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000001")); !os.IsNotExist(err) {
+		t.Fatalf("pruned child workpackage exists, stat error: %v", err)
+	}
+}
+
+func TestRunCommandWeakLimitWritesOneFailedAnalyseRow(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[1, 2])`,
+		`do run with cases {`,
+		`false`,
+		`}`,
+		`analyse run {`,
+		`value = "value: %d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", "--weak", "-l", "1", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected weak run to keep non-zero exit\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "value", "jbs_status"},
+		{"000000", "", "", "ERROR"},
+	})
+	if _, err := os.Stat(filepath.Join(runDir, "run", "000001")); !os.IsNotExist(err) {
+		t.Fatalf("pruned failed workpackage exists, stat error: %v", err)
+	}
+}
+
 func TestRunCommandCreatesConfiguredBenchmarkComponents(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -3356,6 +3547,19 @@ func readRootStatus(t *testing.T, path string) jbsrun.RootStatus {
 		t.Fatal(err)
 	}
 	return status
+}
+
+func readManifest(t *testing.T, path string) jbsrun.Manifest {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest jbsrun.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest
 }
 
 func writeMultiBenchmarkInput(t *testing.T, cwd string, extra ...string) string {

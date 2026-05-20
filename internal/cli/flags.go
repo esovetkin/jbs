@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
@@ -20,6 +21,7 @@ type Flags struct {
 	FWaitPaths        []string
 	DryRun            bool
 	Weak              bool
+	Limit             int
 	NoStrict          bool
 	Benchmark         string
 	Output            string
@@ -166,6 +168,14 @@ func parseFlagsWithoutProfileOptions(args []string) (Flags, error) {
 			i = next
 			continue
 		}
+		next, consumed, err = consumeRunLimitOption(&cfg, args, i, defaultRunUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
 
 		arg := args[i]
 		switch {
@@ -202,12 +212,12 @@ func parseFlagsWithoutProfileOptions(args []string) (Flags, error) {
 		}
 	}
 	if cfg.Check {
-		if cfg.Input == "" || cfg.Help || cfg.DryRun || cfg.Weak || cfg.NoStrict || cfg.Benchmark != "" {
+		if cfg.Input == "" || cfg.Help || cfg.DryRun || cfg.Weak || cfg.Limit != 0 || cfg.NoStrict || cfg.Benchmark != "" {
 			return Flags{}, UsageError{Message: checkUsageMessage()}
 		}
 		return cfg, nil
 	}
-	if (cfg.NoStrict || cfg.DryRun || cfg.Weak || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
+	if (cfg.NoStrict || cfg.DryRun || cfg.Weak || cfg.Limit != 0 || cfg.Benchmark != "") && (cfg.Help || cfg.Input == "") {
 		return Flags{}, UsageError{Message: defaultRunUsageMessage()}
 	}
 	if cfg.Input != "" && !cfg.Help {
@@ -223,8 +233,8 @@ Read examples/help:
   jbs help [%s]
 
 Run:
-  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
-  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>]
+  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
+  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
   jbs continue <file.jbs> [-b|--benchmark <name>]
 
 Check syntax:
@@ -239,6 +249,8 @@ List generated analyse tables:
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
   -w, --weak     Generate analyse outputs even when some workpackages fail
+  -l, --limit <n>
+                 Create and run only the first n selected DAG branches
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
@@ -345,6 +357,14 @@ func parseRunArgs(args []string) (Flags, error) {
 			i = next
 			continue
 		}
+		next, consumed, err = consumeRunLimitOption(&cfg, args, i, runUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
 
 		arg := args[i]
 		switch {
@@ -379,11 +399,11 @@ func parseRunArgs(args []string) (Flags, error) {
 }
 
 func runUsageMessage() string {
-	return "usage: jbs run [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs run [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func defaultRunUsageMessage() string {
-	return "usage: jbs [-n|--dry-run] [-w|--weak] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func checkUsageMessage() string {
@@ -497,6 +517,52 @@ func consumeBenchmarkOption(cfg *Flags, args []string, i int, usage string) (int
 	default:
 		return i, false, nil
 	}
+}
+
+func consumeRunLimitOption(cfg *Flags, args []string, i int, usage string) (int, bool, error) {
+	arg := args[i]
+	switch {
+	case arg == "--limit" || arg == "-l":
+		if cfg.Limit != 0 || i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			return i, true, UsageError{Message: usage}
+		}
+		limit, err := parsePositiveLimit(args[i+1])
+		if err != nil {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Limit = limit
+		return i + 1, true, nil
+	case strings.HasPrefix(arg, "--limit="):
+		if cfg.Limit != 0 {
+			return i, true, UsageError{Message: usage}
+		}
+		limit, err := parsePositiveLimit(strings.TrimPrefix(arg, "--limit="))
+		if err != nil {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Limit = limit
+		return i, true, nil
+	case strings.HasPrefix(arg, "-l="):
+		if cfg.Limit != 0 {
+			return i, true, UsageError{Message: usage}
+		}
+		limit, err := parsePositiveLimit(strings.TrimPrefix(arg, "-l="))
+		if err != nil {
+			return i, true, UsageError{Message: usage}
+		}
+		cfg.Limit = limit
+		return i, true, nil
+	default:
+		return i, false, nil
+	}
+}
+
+func parsePositiveLimit(raw string) (int, error) {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid limit")
+	}
+	return n, nil
 }
 
 func helpTopics() []string {

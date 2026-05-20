@@ -93,7 +93,7 @@ func runParsed(flags Flags, stdout, stderr io.Writer) int {
 		return fwaitFiles(flags.FWaitPaths, flags.FWaitExitExisting, stdout, stderr)
 	}
 	if flags.Run {
-		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Weak, flags.Benchmark, stdout, stderr)
+		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Weak, flags.Benchmark, flags.Limit, stdout, stderr)
 	}
 	if flags.Continue {
 		return continueBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
@@ -115,7 +115,7 @@ func runParsed(flags Flags, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, UsageText())
 		return 2
 	}
-	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Weak, flags.Benchmark, stdout, stderr)
+	return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Weak, flags.Benchmark, flags.Limit, stdout, stderr)
 }
 
 func fwaitFiles(paths []string, exitExisting bool, stdout, stderr io.Writer) int {
@@ -150,7 +150,7 @@ func checkInputSyntax(path string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runBenchmark(path string, noStrict bool, dryRun bool, weak bool, benchmark string, stdout, stderr io.Writer) int {
+func runBenchmark(path string, noStrict bool, dryRun bool, weak bool, benchmark string, limit int, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInputWithOptions(path, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
@@ -171,6 +171,7 @@ func runBenchmark(path string, noStrict bool, dryRun bool, weak bool, benchmark 
 		Benchmark:   benchmark,
 		NoStrict:    noStrict,
 		Weak:        weak,
+		Limit:       limit,
 		PrintEvents: bundle.Result.PrintEvents,
 		Stdout:      stdout,
 		Stderr:      stderr,

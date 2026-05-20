@@ -15,6 +15,7 @@ type Options struct {
 	Benchmark   string
 	NoStrict    bool
 	Weak        bool
+	Limit       int
 	PrintEvents []sema.PrintEvent
 	Stdout      io.Writer
 	Stderr      io.Writer
@@ -69,6 +70,7 @@ type Manifest struct {
 	GlobalNProc         int            `json:"global_nproc"`
 	AnalyseDatabase     string         `json:"analyse_database,omitempty"`
 	AnalyseDatabasePath string         `json:"analyse_database_path,omitempty"`
+	WorkLimit           int            `json:"work_limit,omitempty"`
 	TemplateHashes      []TemplateHash `json:"template_hashes,omitempty"`
 	CreatedAt           time.Time      `json:"created_at"`
 	Steps               []ManifestStep `json:"steps"`

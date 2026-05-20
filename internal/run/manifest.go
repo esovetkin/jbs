@@ -39,6 +39,9 @@ func finalizeRunManifest(manifest Manifest, runID string) (Manifest, error) {
 }
 
 func validateRunManifest(manifest Manifest) error {
+	if manifest.WorkLimit < 0 {
+		return fmt.Errorf("manifest work_limit must be non-negative")
+	}
 	if manifest.RunID == "" {
 		return fmt.Errorf("manifest is missing run_id")
 	}

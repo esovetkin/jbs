@@ -32,6 +32,7 @@ type runtimeInputs struct {
 	Analyses            map[string]AnalysePlan
 	SourceDir           string
 	NoStrict            bool
+	Limit               int
 	AnalyseDatabase     string
 	AnalyseDatabasePath string
 }
@@ -154,6 +155,7 @@ func buildRuntimeInputs(opts Options, diags *diag.Diagnostics) (runtimeInputs, e
 		Analyses:            analyses,
 		SourceDir:           sourceDir,
 		NoStrict:            opts.NoStrict,
+		Limit:               opts.Limit,
 		AnalyseDatabase:     database.Display,
 		AnalyseDatabasePath: database.Path,
 	}, nil
@@ -240,6 +242,17 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 			analyses[name] = plan
 		}
 	}
+	if inputs.Limit > 0 {
+		targets := limitTargetSteps(wp, analyses)
+		var err error
+		wp, err = workplan.LimitBranches(wp, workplan.LimitOptions{
+			Limit:       inputs.Limit,
+			TargetSteps: targets,
+		})
+		if err != nil {
+			return runtimePlan{}, err
+		}
+	}
 
 	usedDirs := make(map[string]struct{})
 	stepDirs := make(map[string]string, len(wp.Steps))
@@ -269,6 +282,7 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		GlobalNProc:         wp.GlobalNProc,
 		AnalyseDatabase:     inputs.AnalyseDatabase,
 		AnalyseDatabasePath: inputs.AnalyseDatabasePath,
+		WorkLimit:           inputs.Limit,
 		TemplateHashes:      templateHashes,
 		Steps:               make([]ManifestStep, 0, len(wp.Steps)),
 		Work:                make([]ManifestWork, 0, len(wp.Work)),
@@ -333,6 +347,19 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		AnalyseDatabase:     inputs.AnalyseDatabase,
 		AnalyseDatabasePath: inputs.AnalyseDatabasePath,
 	}, nil
+}
+
+func limitTargetSteps(wp workplan.Plan, analyses map[string]AnalysePlan) []string {
+	if len(analyses) == 0 {
+		return workplan.TerminalSteps(wp)
+	}
+	out := make([]string, 0, len(analyses))
+	for _, step := range wp.Steps {
+		if _, ok := analyses[step.Name]; ok {
+			out = append(out, step.Name)
+		}
+	}
+	return out
 }
 
 func sourceDirForRun(opts Options) (string, error) {

@@ -34,6 +34,7 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 		wantFWaitPaths        []string
 		wantDryRun            bool
 		wantWeak              bool
+		wantLimit             int
 		wantNoStrict          bool
 		wantBenchmark         string
 		wantCheck             bool
@@ -166,6 +167,46 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantRun:    true,
 			wantDryRun: true,
 			wantWeak:   true,
+		},
+		{
+			name:       "run_command_limit_long",
+			args:       []string{"run", "--limit", "1", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  1,
+		},
+		{
+			name:       "run_command_limit_long_equals",
+			args:       []string{"run", "--limit=2", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  2,
+		},
+		{
+			name:       "run_command_limit_short",
+			args:       []string{"run", "-l", "3", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  3,
+		},
+		{
+			name:       "run_command_limit_short_equals",
+			args:       []string{"run", "-l=4", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  4,
+		},
+		{
+			name:       "run_command_limit_after_input",
+			args:       []string{"run", "input.jbs", "-l", "5"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  5,
 		},
 		{
 			name:         "run_command_dry_run_no_strict",
@@ -333,6 +374,38 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantWeak:   true,
 		},
 		{
+			name:       "default_run_limit_long",
+			args:       []string{"--limit", "1", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  1,
+		},
+		{
+			name:       "default_run_limit_long_after_input",
+			args:       []string{"input.jbs", "--limit=2"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  2,
+		},
+		{
+			name:       "default_run_limit_short",
+			args:       []string{"-l", "3", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  3,
+		},
+		{
+			name:       "default_run_limit_short_after_input",
+			args:       []string{"input.jbs", "-l=4"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantRun:    true,
+			wantLimit:  4,
+		},
+		{
 			name:         "default_run_no_strict_after_input",
 			args:         []string{"input.jbs", "--no-strict"},
 			wantInput:    "input.jbs",
@@ -405,6 +478,9 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			}
 			if f.Weak != tc.wantWeak {
 				t.Fatalf("unexpected weak flag: got=%v want=%v", f.Weak, tc.wantWeak)
+			}
+			if f.Limit != tc.wantLimit {
+				t.Fatalf("unexpected limit: got=%d want=%d", f.Limit, tc.wantLimit)
 			}
 			if f.NoStrict != tc.wantNoStrict {
 				t.Fatalf("unexpected no-strict flag: got=%v want=%v", f.NoStrict, tc.wantNoStrict)
@@ -719,6 +795,8 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "check_missing_input", args: []string{"--check"}},
 		{name: "check_duplicate", args: []string{"--check", "-c", "input.jbs"}},
 		{name: "check_rejects_dry_run", args: []string{"--check", "-n", "input.jbs"}},
+		{name: "check_rejects_limit_long", args: []string{"--check", "--limit", "1", "input.jbs"}},
+		{name: "check_rejects_limit_short", args: []string{"--check", "-l", "1", "input.jbs"}},
 		{name: "check_rejects_no_strict", args: []string{"--check", "--no-strict", "input.jbs"}},
 		{name: "check_rejects_benchmark", args: []string{"--check", "-b", "small", "input.jbs"}},
 		{name: "check_rejects_help", args: []string{"--check", "--help", "input.jbs"}},
@@ -736,6 +814,19 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "run_duplicate_weak", args: []string{"run", "--weak", "-w", "input.jbs"}},
 		{name: "run_dry_run_missing_input", args: []string{"run", "--dry-run"}},
 		{name: "run_weak_missing_input", args: []string{"run", "--weak"}},
+		{name: "run_limit_missing_input", args: []string{"run", "--limit", "1"}},
+		{name: "run_limit_short_missing_input", args: []string{"run", "-l", "1"}},
+		{name: "run_limit_missing_value", args: []string{"run", "--limit"}},
+		{name: "run_limit_short_missing_value", args: []string{"run", "-l"}},
+		{name: "run_limit_empty_value", args: []string{"run", "--limit=", "input.jbs"}},
+		{name: "run_limit_short_empty_value", args: []string{"run", "-l=", "input.jbs"}},
+		{name: "run_limit_zero", args: []string{"run", "--limit", "0", "input.jbs"}},
+		{name: "run_limit_short_zero", args: []string{"run", "-l", "0", "input.jbs"}},
+		{name: "run_limit_negative", args: []string{"run", "--limit", "-1", "input.jbs"}},
+		{name: "run_limit_non_integer", args: []string{"run", "--limit", "abc", "input.jbs"}},
+		{name: "run_duplicate_limit_long", args: []string{"run", "--limit", "1", "--limit", "2", "input.jbs"}},
+		{name: "run_duplicate_limit_short", args: []string{"run", "-l", "1", "-l", "2", "input.jbs"}},
+		{name: "run_duplicate_limit_mixed", args: []string{"run", "-l", "1", "--limit", "2", "input.jbs"}},
 		{name: "run_duplicate_no_strict", args: []string{"run", "--no-strict", "--no-strict", "input.jbs"}},
 		{name: "run_no_strict_missing_input", args: []string{"run", "--no-strict"}},
 		{name: "run_duplicate_benchmark", args: []string{"run", "-b", "small", "--benchmark", "large", "input.jbs"}},
@@ -746,6 +837,8 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
 		{name: "continue_rejects_weak", args: []string{"continue", "input.jbs", "--weak"}},
+		{name: "continue_rejects_limit_long", args: []string{"continue", "--limit", "1", "input.jbs"}},
+		{name: "continue_rejects_limit_short", args: []string{"continue", "-l", "1", "input.jbs"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},
 		{name: "continue_duplicate_benchmark", args: []string{"continue", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "continue_benchmark_missing_value", args: []string{"continue", "-b"}},
@@ -754,18 +847,22 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "status_benchmark_missing_value", args: []string{"status", "-b"}},
 		{name: "status_rejects_option", args: []string{"status", "-o", "out.yaml", "input.jbs"}},
 		{name: "status_rejects_weak", args: []string{"status", "--weak", "input.jbs"}},
+		{name: "status_rejects_limit", args: []string{"status", "--limit", "1", "input.jbs"}},
+		{name: "status_rejects_limit_short", args: []string{"status", "-l", "1", "input.jbs"}},
 		{name: "status_extra_argument", args: []string{"status", "input.jbs", "extra"}},
 		{name: "tree_missing_input", args: []string{"tree"}},
 		{name: "tree_duplicate_benchmark", args: []string{"tree", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "tree_benchmark_missing_value", args: []string{"tree", "-b"}},
 		{name: "tree_rejects_option", args: []string{"tree", "-o", "out.yaml", "input.jbs"}},
 		{name: "tree_rejects_weak", args: []string{"tree", "--weak", "input.jbs"}},
+		{name: "tree_rejects_limit", args: []string{"tree", "-l", "1", "input.jbs"}},
 		{name: "tree_extra_argument", args: []string{"tree", "input.jbs", "extra"}},
 		{name: "ls_analyse_missing_input", args: []string{"ls-analyse"}},
 		{name: "ls_analyse_duplicate_benchmark", args: []string{"ls-analyse", "-b", "small", "-b", "large", "input.jbs"}},
 		{name: "ls_analyse_benchmark_missing_value", args: []string{"ls-analyse", "-b"}},
 		{name: "ls_analyse_rejects_option", args: []string{"ls-analyse", "-o", "out.yaml", "input.jbs"}},
 		{name: "ls_analyse_rejects_weak", args: []string{"ls-analyse", "--weak", "input.jbs"}},
+		{name: "ls_analyse_rejects_limit", args: []string{"ls-analyse", "-l", "1", "input.jbs"}},
 		{name: "ls_analyse_extra_argument", args: []string{"ls-analyse", "input.jbs", "extra"}},
 		{name: "old_stats_command_removed", args: []string{"stats", "input.jbs"}},
 		{name: "archive_missing_input", args: []string{"archive"}},
@@ -783,6 +880,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "default_duplicate_weak", args: []string{"--weak", "-w", "input.jbs"}},
 		{name: "default_dry_run_missing_input", args: []string{"-n"}},
 		{name: "default_weak_missing_input", args: []string{"--weak"}},
+		{name: "default_limit_missing_input", args: []string{"--limit", "1"}},
+		{name: "default_limit_short_missing_input", args: []string{"-l", "1"}},
+		{name: "default_duplicate_limit", args: []string{"--limit", "1", "-l", "2", "input.jbs"}},
 		{name: "default_duplicate_no_strict", args: []string{"--no-strict", "--no-strict", "input.jbs"}},
 		{name: "default_no_strict_missing_input", args: []string{"--no-strict"}},
 		{name: "default_duplicate_benchmark", args: []string{"-b", "small", "-b", "large", "input.jbs"}},
