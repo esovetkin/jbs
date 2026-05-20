@@ -127,6 +127,42 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkIdentifierEqualityExpression(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", strings.Join([]string{
+		"x = [1, 2, 3]",
+		"y = [1, 2, 3]",
+		"x == y",
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "[true, true, true]" {
+		t.Fatalf("unexpected expression output: %#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkScalarIdentifierEqualityExpression(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "x = 1")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "x == 1")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "true" {
+		t.Fatalf("unexpected expression output: %#v", second.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkStringExpressionUsesPrintFormatting(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", `"a"*5`)

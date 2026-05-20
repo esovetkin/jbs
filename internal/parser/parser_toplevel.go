@@ -146,7 +146,7 @@ func (p *Parser) isTopLevelAssignmentStart() bool {
 			continue
 		}
 		if r == '=' {
-			return true
+			return !(i+1 < len(p.src) && p.src[i+1] == '=')
 		}
 		if (r == '+' || r == '-' || r == '*' || r == '/' || r == '%') && i+1 < len(p.src) && p.src[i+1] == '=' {
 			return true

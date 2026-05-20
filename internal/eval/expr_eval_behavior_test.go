@@ -501,6 +501,21 @@ func TestEvalBinaryVectorAndCompareBehaviors(t *testing.T) {
 		}
 	})
 
+	t.Run("compare list equality elementwise", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := evalCompare("==", List([]Value{Int(1), Int(2), Int(3)}), List([]Value{Int(1), Int(2), Int(3)}), span, diags)
+		want := List([]Value{Bool(true), Bool(true), Bool(true)})
+		if !Equal(got, want) {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+
+		got = evalCompare("==", List([]Value{Int(1), Int(2), Int(3)}), List([]Value{Int(1), Int(0), Int(3)}), span, diags)
+		want = List([]Value{Bool(true), Bool(false), Bool(true)})
+		if !Equal(got, want) {
+			t.Fatalf("got %#v, want %#v", got, want)
+		}
+	})
+
 	t.Run("any with all false values returns false", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		got := evalAllAnyCall("any", []Value{List([]Value{Bool(false), Bool(false)})}, span, diags)

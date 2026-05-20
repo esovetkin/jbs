@@ -49,7 +49,13 @@ func TestIsTopLevelAssignmentStart(t *testing.T) {
 		{src: `jbs_name *= "x"`, want: true},
 		{src: `jbs_name /= "x"`, want: true},
 		{src: `jbs_name %= "x"`, want: true},
+		{src: `jbs_name == "x"`, want: false},
+		{src: `jbs_name != "x"`, want: false},
+		{src: `jbs_name <= "x"`, want: false},
+		{src: `jbs_name >= "x"`, want: false},
 		{src: `jbs_name + "x"`, want: false},
+		{src: `jbs_name("x")`, want: false},
+		{src: `jbs_name[0]`, want: false},
 		{src: `param p {`, want: false},
 		{src: `do run {`, want: false},
 		{src: `unknown run {`, want: false},
@@ -66,6 +72,24 @@ func TestIsTopLevelAssignmentStart(t *testing.T) {
 		if got := p.isTopLevelAssignmentStart(); got != tt.want {
 			t.Fatalf("isTopLevelAssignmentStart(%q)=%v, want %v", tt.src, got, tt.want)
 		}
+	}
+}
+
+func TestParseTopLevelIdentifierEqualityExpression(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	prog := Parse("in.jbs", "x == y\n", diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected errors: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %d", len(prog.Stmts))
+	}
+	stmt, ok := prog.Stmts[0].(ast.ExprStmt)
+	if !ok {
+		t.Fatalf("expected expression statement, got %T", prog.Stmts[0])
+	}
+	if _, ok := stmt.Expr.(ast.CompareExpr); !ok {
+		t.Fatalf("expected compare expression, got %#v", stmt.Expr)
 	}
 }
 
