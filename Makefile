@@ -18,7 +18,7 @@ coverage:
 	go tool cover -func=coverage.out | awk '/^total:/ {print "Overall coverage: " $$3}'
 
 clean:
-	rm jbs coverage.out coverage.html
+	rm -f jbs coverage.out coverage.html
 
 staticcheck:
 	staticcheck ./...
