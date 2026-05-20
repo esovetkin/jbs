@@ -29,12 +29,12 @@ func TestFilterDiagnosticsBySeverity(t *testing.T) {
 func TestFormatReplValueListTupleTruncation(t *testing.T) {
 	list := eval.List([]eval.Value{eval.Int(0), eval.Int(1), eval.Int(2), eval.Int(3)})
 	if got := valuefmt.ReplValue(list); got != "[0, 1, 2, 3]" {
-		t.Fatalf("unexpected list preview: %q", got)
+		t.Fatalf("unexpected list formatting: %q", got)
 	}
 
 	tuple := eval.Tuple([]eval.Value{eval.String("a"), eval.String("b")})
 	if got := valuefmt.ReplValue(tuple); got != "(\"a\", \"b\")" {
-		t.Fatalf("unexpected tuple preview: %q", got)
+		t.Fatalf("unexpected tuple formatting: %q", got)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestFormatReplValueDictionaryPreview(t *testing.T) {
 	})
 	want := "{\"name\": \"case\",\n 2: [1, 2, 3, 4],\n true: false,\n \"extra\": 9}"
 	if got := valuefmt.ReplValue(dict); got != want {
-		t.Fatalf("unexpected dictionary preview: %q", got)
+		t.Fatalf("unexpected dictionary formatting: %q", got)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestFormatReplValueTableSummary(t *testing.T) {
 		},
 	})
 	got := valuefmt.ReplValue(comb)
-	if !strings.Contains(got, "| a | b |") || !strings.Contains(got, "| 4 | w |") {
+	if !strings.Contains(got, "| a | b   |") || !strings.Contains(got, `| 4 | "w" |`) {
 		t.Fatalf("expected pretty table, got: %q", got)
 	}
 }
@@ -85,7 +85,7 @@ func TestFormatReplValueTableFallbackColumnOrder(t *testing.T) {
 func TestFormatReplValueFunctionPlaceholder(t *testing.T) {
 	got := valuefmt.ReplValue(eval.Function(&eval.FunctionValue{}))
 	if got != "<function>" {
-		t.Fatalf("unexpected function preview: %q", got)
+		t.Fatalf("unexpected function formatting: %q", got)
 	}
 }
 
@@ -127,6 +127,20 @@ func TestCommitReplChunkEmitsTopLevelExprOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkStringExpressionUsesPrintFormatting(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", `"a"*5`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != `"aaaaa"` {
+		t.Fatalf("unexpected expression output: %#v", commit.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkEmitsExpandedListOutput(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "range(10)")
@@ -150,7 +164,7 @@ func TestCommitReplChunkEmitsPrettyTableOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected no expression errors, diag=%q", commit.DiagText)
 	}
-	want := "| id | label |\n|----|-------|\n| 1  | a     |\n| 2  | bbb   |"
+	want := "| id | label |\n|----|-------|\n| 1  | \"a\"   |\n| 2  | \"bbb\" |"
 	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != want {
 		t.Fatalf("unexpected table output:\n%#v", commit.ExprOutput)
 	}
@@ -204,7 +218,7 @@ func TestCommitReplChunkShellExpressionOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected shell expression to succeed, diag=%q", commit.DiagText)
 	}
-	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "hi" {
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != `"hi"` {
 		t.Fatalf("unexpected shell expression output: %#v", commit.ExprOutput)
 	}
 }
@@ -219,7 +233,7 @@ func TestCommitReplChunkEnvExpressionOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected env expression to succeed, diag=%q", commit.DiagText)
 	}
-	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "from-repl" {
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != `"from-repl"` {
 		t.Fatalf("unexpected env expression output: %#v", commit.ExprOutput)
 	}
 
@@ -233,7 +247,7 @@ func TestCommitReplChunkEnvExpressionOutput(t *testing.T) {
 	if commit.HasErrors {
 		t.Fatalf("expected env fallback expression to succeed, diag=%q", commit.DiagText)
 	}
-	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != "fallback" {
+	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != `"fallback"` {
 		t.Fatalf("unexpected env fallback output: %#v", commit.ExprOutput)
 	}
 }
@@ -731,7 +745,7 @@ func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
 	if len(commit.ExprOutput) != 5 {
 		t.Fatalf("expected 5 expr outputs, got %#v", commit.ExprOutput)
 	}
-	want := []string{"42", "1.0", "[1,2]", "false", "true"}
+	want := []string{"42", "1.0", `"[1,2]"`, "false", "true"}
 	if !slices.Equal(commit.ExprOutput, want) {
 		t.Fatalf("unexpected conversion expr output: %#v", commit.ExprOutput)
 	}
@@ -795,7 +809,7 @@ func TestCommitReplChunkWithNamespaceImport(t *testing.T) {
 	if second.HasErrors {
 		t.Fatalf("expected namespace expr to succeed, diag=%q", second.DiagText)
 	}
-	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "ok" {
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != `"ok"` {
 		t.Fatalf("unexpected namespace expr output: %#v", second.ExprOutput)
 	}
 }

@@ -48,7 +48,7 @@ jbs> print(range(100), nrow = 1)
 
 ```text
 jbs> shell("printf hi")
-hi
+"hi"
 ```
 
 ## Multi-Line Input

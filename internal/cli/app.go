@@ -14,6 +14,7 @@ import (
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/filewait"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/imports"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
@@ -508,8 +509,11 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 			continue
 		}
 		events = append(events, replOutputEvent{
-			Seq:  expr.Seq,
-			Text: valuefmt.ReplValue(expr.Value),
+			Seq: expr.Seq,
+			Text: valuefmt.PrintLineWithOptions([]eval.Value{expr.Value}, valuefmt.Options{
+				NRow:  valuefmt.DefaultNRow,
+				Width: valuefmt.DefaultWidth,
+			}),
 		})
 	}
 	sort.SliceStable(events, func(i, j int) bool {

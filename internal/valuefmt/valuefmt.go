@@ -35,7 +35,7 @@ func ReplValue(v eval.Value) string {
 }
 
 func ReplValueWithOptions(v eval.Value, opts Options) string {
-	return formatValue(v, normalizeOptions(opts), formatContext{})
+	return PrintLineWithOptions([]eval.Value{v}, opts)
 }
 
 func PrintLine(values []eval.Value) string {

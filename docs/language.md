@@ -244,25 +244,25 @@ The main constructor is `table(...)`, also available as `t(...)`.
 jbs> # column values can be scalars, lists, or tuples
 jbs> # when columns have different non-empty lengths, JBS broadcasts shorter columns cyclically to the longest column
 jbs> table(x = [1, 2], y = ("a", "b"), z = 0.1)
-| x | y | z   |
-|---|---|-----|
-| 1 | a | 0.1 |
-| 2 | b | 0.1 |
+| x | y   | z   |
+|---|-----|-----|
+| 1 | "a" | 0.1 |
+| 2 | "b" | 0.1 |
 jbs> # tables can also be built from row dictionaries
 jbs> cases = table([dict(x = 1, y = "a"), dict(x = 2, y = "b")])
 jbs> cases
-| x | y |
-|---|---|
-| 1 | a |
-| 2 | b |
+| x | y   |
+|---|-----|
+| 1 | "a" |
+| 2 | "b" |
 jbs> # `rows` converts a table to row dictionaries, and table(rows(...)) converts it back
 jbs> rows(cases)
 [{"x": 1, "y": "a"}, {"x": 2, "y": "b"}]
 jbs> table(rows(cases))
-| x | y |
-|---|---|
-| 1 | a |
-| 2 | b |
+| x | y   |
+|---|-----|
+| 1 | "a" |
+| 2 | "b" |
 jbs> # if a longer column length is not divisible by a shorter one, JBS emits a warning because the cycling is uneven
 jbs> # warning: cyclic broadcast 3 -> 10
 jbs> x = table(x = [1, 2, 3], y = range(10))
@@ -288,10 +288,10 @@ cases = read_csv("cases.csv")
 
 ```jbs
 jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # row-wise merge
-| x | y |
-|---|---|
-| 1 | a |
-| 2 | b |
+| x | y   |
+|---|-----|
+| 1 | "a" |
+| 2 | "b" |
 jbs> cases = t(x = [1, 2]) * t(y = [3, 4]) # Cartesian product
 jbs> cases
 | x | y |
@@ -316,8 +316,8 @@ jbs> cases = table(id = [1, 2, 3], group = ["a", "b", "a"])
 jbs> filter(cases, function(row) { row["group"] == "a" })
 | id | group |
 |----|-------|
-| 1  | a     |
-| 3  | a     |
+| 1  | "a"   |
+| 3  | "a"   |
 ```
 
 Useful functions:

@@ -10,24 +10,42 @@ import (
 func TestReplValueListTupleFormatting(t *testing.T) {
 	list := eval.List(intValues(10))
 	if got := ReplValue(list); got != "[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]" {
-		t.Fatalf("unexpected list preview: %q", got)
+		t.Fatalf("unexpected list formatting: %q", got)
 	}
 
 	tuple := eval.Tuple([]eval.Value{eval.String("a"), eval.String("b")})
 	if got := ReplValue(tuple); got != "(\"a\", \"b\")" {
-		t.Fatalf("unexpected tuple preview: %q", got)
+		t.Fatalf("unexpected tuple formatting: %q", got)
 	}
 
 	single := eval.Tuple([]eval.Value{eval.String("a")})
 	if got := ReplValue(single); got != "(\"a\",)" {
-		t.Fatalf("unexpected one-item tuple preview: %q", got)
+		t.Fatalf("unexpected one-item tuple formatting: %q", got)
 	}
 }
 
-func TestReplValueNormalizesOptionsAndLeavesStringsUnquoted(t *testing.T) {
+func TestReplValueMatchesPrintLineForString(t *testing.T) {
 	got := ReplValueWithOptions(eval.String("plain"), Options{NRow: -1, Width: 0})
-	if got != "plain" {
+	if got != `"plain"` {
 		t.Fatalf("unexpected top-level string: %q", got)
+	}
+}
+
+func TestReplValueMatchesSingleValuePrintLine(t *testing.T) {
+	values := []eval.Value{
+		eval.String("x"),
+		eval.List([]eval.Value{eval.String("a"), eval.Int(1)}),
+		eval.DictValue([]eval.DictEntry{
+			{Key: eval.DictKey{Kind: eval.DictKeyString, S: "k"}, Value: eval.String("v")},
+		}),
+	}
+
+	for _, value := range values {
+		got := ReplValue(value)
+		want := PrintLine([]eval.Value{value})
+		if got != want {
+			t.Fatalf("ReplValue(%#v) = %q, want %q", value, got, want)
+		}
 	}
 }
 
@@ -46,7 +64,7 @@ func TestReplValueEmptyContainersAndNilTable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ReplValue(tc.value); got != tc.want {
-				t.Fatalf("unexpected %s preview:\ngot:\n%s\nwant:\n%s", tc.name, got, tc.want)
+				t.Fatalf("unexpected %s formatting:\ngot:\n%s\nwant:\n%s", tc.name, got, tc.want)
 			}
 		})
 	}
@@ -94,7 +112,7 @@ func TestReplValueNestedTupleAndEmptyInlineContainers(t *testing.T) {
 	})
 	want := "[(1,), [], {}]"
 	if got := ReplValue(value); got != want {
-		t.Fatalf("unexpected nested preview:\ngot:  %s\nwant: %s", got, want)
+		t.Fatalf("unexpected nested formatting:\ngot:  %s\nwant: %s", got, want)
 	}
 }
 
@@ -114,7 +132,7 @@ func TestReplValueDictionaryPretty(t *testing.T) {
 	})
 	want := "{\"a\": 1,\n \"b\": [0, 1, 2, 3, 4]}"
 	if got := ReplValue(dict); got != want {
-		t.Fatalf("unexpected dictionary preview:\ngot:\n%s\nwant:\n%s", got, want)
+		t.Fatalf("unexpected dictionary formatting:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 
@@ -174,7 +192,7 @@ func TestReplValueTablePretty(t *testing.T) {
 			{Values: map[string]eval.Cell{"a": {Value: eval.Int(4)}, "b": {Value: eval.String("w")}}},
 		},
 	})
-	want := "| a | b |\n|---|---|\n| 1 | x |\n| 2 | y |\n| 3 | z |\n| 4 | w |"
+	want := "| a | b   |\n|---|-----|\n| 1 | \"x\" |\n| 2 | \"y\" |\n| 3 | \"z\" |\n| 4 | \"w\" |"
 	if got := ReplValue(comb); got != want {
 		t.Fatalf("unexpected table:\ngot:\n%s\nwant:\n%s", got, want)
 	}
@@ -268,7 +286,7 @@ func TestReplValueTableNonScalarCellsAreCompact(t *testing.T) {
 func TestReplValueFunctionPlaceholder(t *testing.T) {
 	got := ReplValue(eval.Function(&eval.FunctionValue{}))
 	if got != "<function>" {
-		t.Fatalf("unexpected function preview: %q", got)
+		t.Fatalf("unexpected function formatting: %q", got)
 	}
 }
 
