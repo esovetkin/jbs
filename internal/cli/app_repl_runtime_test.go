@@ -155,6 +155,24 @@ func TestCommitReplChunkEmitsExpandedListOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkFloatRangePrintsWithShortestFloatFormat(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "0:0.012:(1/1000)")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 {
+		t.Fatalf("unexpected output count: %#v", commit.ExprOutput)
+	}
+	out := commit.ExprOutput[0]
+	if !strings.Contains(out, "0.001") || strings.Contains(out, "0.001000000000000000") {
+		t.Fatalf("unexpected float range output: %q", out)
+	}
+}
+
 func TestCommitReplChunkEmitsPrettyTableOutput(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", `table(id = [1, 2], label = ["a", "bbb"])`)
@@ -745,7 +763,7 @@ func TestCommitReplChunkEmitsConversionOutputs(t *testing.T) {
 	if len(commit.ExprOutput) != 5 {
 		t.Fatalf("expected 5 expr outputs, got %#v", commit.ExprOutput)
 	}
-	want := []string{"42", "1.0", `"[1,2]"`, "false", "true"}
+	want := []string{"42", "1", `"[1,2]"`, "false", "true"}
 	if !slices.Equal(commit.ExprOutput, want) {
 		t.Fatalf("unexpected conversion expr output: %#v", commit.ExprOutput)
 	}

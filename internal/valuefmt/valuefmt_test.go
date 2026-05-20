@@ -1,6 +1,7 @@
 package valuefmt
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -28,6 +29,27 @@ func TestReplValueMatchesPrintLineForString(t *testing.T) {
 	got := ReplValueWithOptions(eval.String("plain"), Options{NRow: -1, Width: 0})
 	if got != `"plain"` {
 		t.Fatalf("unexpected top-level string: %q", got)
+	}
+}
+
+func TestReplValueFloatUsesShortestRoundTrip(t *testing.T) {
+	values := []float64{
+		0,
+		1,
+		0.001,
+		1.0 / 3.0,
+		1.2e-7,
+	}
+	for _, value := range values {
+		got := ReplValue(eval.Float(value))
+		want := strconv.FormatFloat(value, 'g', -1, 64)
+		if got != want {
+			t.Fatalf("ReplValue(Float(%v)) = %q, want %q", value, got, want)
+		}
+		parsed, err := strconv.ParseFloat(got, 64)
+		if err != nil || parsed != value {
+			t.Fatalf("formatted value %q did not round-trip to %#v: parsed=%#v err=%v", got, value, parsed, err)
+		}
 	}
 }
 
@@ -113,6 +135,23 @@ func TestReplValueNestedTupleAndEmptyInlineContainers(t *testing.T) {
 	want := "[(1,), [], {}]"
 	if got := ReplValue(value); got != want {
 		t.Fatalf("unexpected nested formatting:\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+func TestFloatFormattingAppliesInsideContainers(t *testing.T) {
+	value := eval.DictValue([]eval.DictEntry{
+		{
+			Key:   eval.DictKey{Kind: eval.DictKeyString, S: "xs"},
+			Value: eval.List([]eval.Value{eval.Float(0.001), eval.Float(1)}),
+		},
+		{
+			Key:   eval.DictKey{Kind: eval.DictKeyString, S: "pair"},
+			Value: eval.Tuple([]eval.Value{eval.Float(2), eval.Float(1.0 / 3.0)}),
+		},
+	})
+	want := "{\"xs\": [0.001, 1],\n \"pair\": (2, 0.3333333333333333)}"
+	if got := ReplValue(value); got != want {
+		t.Fatalf("unexpected nested float formatting:\ngot:  %s\nwant: %s", got, want)
 	}
 }
 
@@ -283,6 +322,24 @@ func TestReplValueTableNonScalarCellsAreCompact(t *testing.T) {
 	}
 }
 
+func TestTableFloatCellsUsePrintFloatFormatting(t *testing.T) {
+	table := eval.CombValue(&eval.Comb{
+		Order: []string{"x"},
+		Rows: []eval.Row{{
+			Values: map[string]eval.Cell{
+				"x": {Value: eval.Float(1)},
+			},
+		}},
+	})
+	got := ReplValue(table)
+	if strings.Contains(got, "1.0") {
+		t.Fatalf("table float cell kept non-short suffix:\n%s", got)
+	}
+	if !strings.Contains(got, "| 1 |") {
+		t.Fatalf("table float cell missing shortest value:\n%s", got)
+	}
+}
+
 func TestReplValueFunctionPlaceholder(t *testing.T) {
 	got := ReplValue(eval.Function(&eval.FunctionValue{}))
 	if got != "<function>" {
@@ -380,6 +437,7 @@ func TestCompactValueDepthLimit(t *testing.T) {
 		{name: "dict", value: eval.DictValue(nil), want: "{...}"},
 		{name: "table", value: eval.CombValue(nil), want: "table(rows=0, cols=[])"},
 		{name: "string", value: eval.String("x"), want: `"x"`},
+		{name: "float", value: eval.Float(1), want: "1"},
 		{name: "int", value: eval.Int(7), want: "7"},
 	}
 

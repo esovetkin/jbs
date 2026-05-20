@@ -74,6 +74,10 @@ func (c formatContext) child() formatContext {
 	return formatContext{Depth: c.Depth + 1, Inline: true}
 }
 
+func formatFloat(f float64) string {
+	return strconv.FormatFloat(f, 'g', -1, 64)
+}
+
 func formatValue(v eval.Value, opts Options, ctx formatContext) string {
 	if ctx.Inline {
 		return formatInlineValue(v, opts, ctx)
@@ -84,6 +88,8 @@ func formatValue(v eval.Value, opts Options, ctx formatContext) string {
 			return strconv.Quote(v.S)
 		}
 		return v.String()
+	case eval.KindFloat:
+		return formatFloat(v.F)
 	case eval.KindList:
 		return formatSequence("[", "]", false, v.L, opts, ctx)
 	case eval.KindTuple:
@@ -101,6 +107,8 @@ func formatInlineValue(v eval.Value, opts Options, ctx formatContext) string {
 	switch v.Kind {
 	case eval.KindString:
 		return strconv.Quote(v.S)
+	case eval.KindFloat:
+		return formatFloat(v.F)
 	case eval.KindList:
 		return compactSequence("[", "]", false, v.L, opts, ctx)
 	case eval.KindTuple:
@@ -277,6 +285,8 @@ func compactValueDepth(v eval.Value, depth int) string {
 			return compactTable(v.C)
 		case eval.KindString:
 			return strconv.Quote(v.S)
+		case eval.KindFloat:
+			return formatFloat(v.F)
 		default:
 			return v.String()
 		}
@@ -284,6 +294,8 @@ func compactValueDepth(v eval.Value, depth int) string {
 	switch v.Kind {
 	case eval.KindString:
 		return strconv.Quote(v.S)
+	case eval.KindFloat:
+		return formatFloat(v.F)
 	case eval.KindList:
 		parts := make([]string, 0, len(v.L))
 		for _, item := range v.L {
@@ -437,6 +449,9 @@ func formatTableRow(row eval.Row, cols []string, opts Options) []string {
 func tableCellString(v eval.Value, opts Options) string {
 	if v.Kind == eval.KindString && opts.QuoteStrings {
 		return strconv.Quote(v.S)
+	}
+	if v.Kind == eval.KindFloat {
+		return formatFloat(v.F)
 	}
 	if v.IsScalar() {
 		return v.String()

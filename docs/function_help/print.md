@@ -28,4 +28,4 @@ jbs> print("case", [1, 2, 3, 4])
 "case" [1, 2, 3, 4]
 ```
 
-`print(...)` writes explicit output using print value rendering. Strings are rendered as double-quoted literals, lists and tuples are wrapped to screen rows, dictionaries are printed one key/value pair per line, and tables are printed as aligned tables. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.
+`print(...)` writes explicit output using print value rendering. Strings are rendered as double-quoted literals, floats use the shortest decimal representation that round-trips to the same `float64`, lists and tuples are wrapped to screen rows, dictionaries are printed one key/value pair per line, and tables are printed as aligned tables. Range values produced by repeated floating-point addition may still show binary floating-point artifacts when those digits are required for exact round-trip rendering. During `jbs run file.jbs`, print output is written to command stdout before benchmark work starts; shell stdout from `run.sh` is still captured in workpackage `stdout` files.

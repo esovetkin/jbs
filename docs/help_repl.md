@@ -28,6 +28,11 @@ jbs> x + 2
 3
 ```
 
+Floats are printed with the shortest decimal representation that round-trips to
+the same `float64`; repeated floating-point range steps may still show binary
+floating-point artifacts when those digits are required for exact round-trip
+rendering.
+
 `names()` is useful for inspecting the current scope:
 
 ```text

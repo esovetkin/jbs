@@ -54,6 +54,8 @@ Scalar values are the atomic values that can be used as workpackage shell variab
 - Floats are 64-bit floating-point values.
 
   `1.0`, `.5`, `1e-3`, and `2.5E6` are all supported forms.
+  Print and REPL output render floats with the shortest decimal representation
+  that round-trips to the same `float64`.
 
   **Not supported** syntax: `1.`
 
@@ -139,7 +141,7 @@ jbs> filter([0, 1, 2, 3], function(x) { x > 1 })
 jbs> range(5)
 [0, 1, 2, 3, 4]
 jbs> range(0,1,0.2)
-[0.0, 0.2, 0.4, 0.6, 0.8]
+[0, 0.2, 0.4, 0.6000000000000001, 0.8]
 jbs> # `:` is an equivalent syntax
 jbs> 5:1
 [5, 4, 3, 2]
