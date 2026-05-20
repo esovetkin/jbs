@@ -407,6 +407,8 @@ values = map(int, ["1", "2"])
 to_text = str
 labels = map(to_text, (1, 2))
 total = sum([1, 2, 3])
+also_total = sum(1, 2, 3)
+from_reduce = reduce(sum, [0, 1, 2, 3])
 scaled = prod((2, 3, 4))
 first_rows = head(table(id = range(10)))
 last_rows = tail(table(id = range(10)), n = 3)

@@ -516,6 +516,26 @@ func TestSumProdBuiltins(t *testing.T) {
 		wantKind Kind
 	}{
 		{
+			name: "sum zero args identity",
+			expr: callExpr(ident("sum")),
+			want: Int(0),
+		},
+		{
+			name: "prod zero args identity",
+			expr: callExpr(ident("prod")),
+			want: Int(1),
+		},
+		{
+			name: "sum scalar singleton",
+			expr: callExpr(ident("sum"), posArg(intExpr(10))),
+			want: Int(10),
+		},
+		{
+			name: "prod scalar singleton",
+			expr: callExpr(ident("prod"), posArg(intExpr(10))),
+			want: Int(10),
+		},
+		{
 			name: "sum int list",
 			expr: callExpr(ident("sum"), posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))),
 			want: Int(6),
@@ -542,9 +562,29 @@ func TestSumProdBuiltins(t *testing.T) {
 			want: String("x"),
 		},
 		{
+			name: "sum empty list identity",
+			expr: callExpr(ident("sum"), posArg(listExpr())),
+			want: Int(0),
+		},
+		{
 			name: "sum named values",
 			expr: callExpr(ident("sum"), namedArg("values", listExpr(intExpr(1), intExpr(2)))),
 			want: Int(3),
+		},
+		{
+			name: "sum named scalar",
+			expr: callExpr(ident("sum"), namedArg("values", intExpr(10))),
+			want: Int(10),
+		},
+		{
+			name: "sum variadic values",
+			expr: callExpr(ident("sum"), posArg(intExpr(1)), posArg(intExpr(2)), posArg(intExpr(3)), posArg(intExpr(4))),
+			want: Int(10),
+		},
+		{
+			name: "sum positional spread",
+			expr: callExpr(ident("sum"), posSpreadArg(listExpr(intExpr(0), intExpr(1), intExpr(2), intExpr(3), intExpr(4)))),
+			want: Int(10),
 		},
 		{
 			name: "prod int list",
@@ -573,9 +613,24 @@ func TestSumProdBuiltins(t *testing.T) {
 			want: String("x"),
 		},
 		{
+			name: "prod empty tuple identity",
+			expr: callExpr(ident("prod"), posArg(tupleExpr())),
+			want: Int(1),
+		},
+		{
 			name: "prod named values",
 			expr: callExpr(ident("prod"), namedArg("values", tupleExpr(intExpr(2), intExpr(3)))),
 			want: Int(6),
+		},
+		{
+			name: "prod named scalar",
+			expr: callExpr(ident("prod"), namedArg("values", intExpr(10))),
+			want: Int(10),
+		},
+		{
+			name: "prod variadic values",
+			expr: callExpr(ident("prod"), posArg(intExpr(2)), posArg(intExpr(3)), posArg(intExpr(4))),
+			want: Int(24),
 		},
 	}
 
@@ -613,8 +668,8 @@ func TestSumProdBuiltinFunctionValues(t *testing.T) {
 		frame.AssignLocal("sum_fn", sumValue, diag.Span{})
 		frame.AssignLocal("prod_fn", prodValue, diag.Span{})
 		diags := &diag.Diagnostics{}
-		sumGot := EvalExprWithOptions(callExpr(ident("sum_fn"), posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))), nil, diags, ExprOptions{Frame: frame})
-		prodGot := EvalExprWithOptions(callExpr(ident("prod_fn"), posArg(listExpr(intExpr(2), intExpr(3), intExpr(4)))), nil, diags, ExprOptions{Frame: frame})
+		sumGot := EvalExprWithOptions(callExpr(ident("sum_fn"), posArg(intExpr(1)), posArg(intExpr(2)), posArg(intExpr(3))), nil, diags, ExprOptions{Frame: frame})
+		prodGot := EvalExprWithOptions(callExpr(ident("prod_fn"), posArg(intExpr(2)), posArg(intExpr(3)), posArg(intExpr(4))), nil, diags, ExprOptions{Frame: frame})
 		if !Equal(sumGot, Int(6)) || !Equal(prodGot, Int(24)) {
 			t.Fatalf("unexpected assigned builtin results: sum=%#v prod=%#v", sumGot, prodGot)
 		}
@@ -650,6 +705,20 @@ func TestSumProdBuiltinFunctionValues(t *testing.T) {
 		}
 	})
 
+	t.Run("reduce can use variadic sum as reducer", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(callExpr(ident("reduce"),
+			posArg(ident("sum")),
+			posArg(listExpr(intExpr(0), intExpr(1), intExpr(2), intExpr(3), intExpr(4))),
+		), nil, diags, ExprOptions{})
+		if !Equal(got, Int(10)) {
+			t.Fatalf("unexpected reduce(sum, ...) result: %#v", got)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected diagnostics: %s", diags.String())
+		}
+	})
+
 	t.Run("containers and str preserve function values", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		listValue := EvalExprWithOptions(listExpr(ident("sum"), ident("prod")), nil, diags, ExprOptions{})
@@ -674,58 +743,16 @@ func TestSumProdBuiltinsReportErrors(t *testing.T) {
 		wantText string
 	}{
 		{
-			name:     "sum wrong arity zero",
-			expr:     callExpr(ident("sum")),
-			wantCode: "E106",
-			wantText: "sum() expects arguments",
-		},
-		{
-			name:     "sum wrong arity two",
-			expr:     callExpr(ident("sum"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
-			wantCode: "E106",
-			wantText: "sum() received too many positional arguments",
-		},
-		{
-			name:     "sum rejects scalar",
-			expr:     callExpr(ident("sum"), posArg(intExpr(1))),
-			wantCode: "E106",
-			wantText: "sum() expects list or tuple as first argument",
-		},
-		{
-			name:     "sum rejects empty",
-			expr:     callExpr(ident("sum"), posArg(listExpr())),
-			wantCode: "E106",
-			wantText: "sum() cannot operate on an empty list/tuple",
-		},
-		{
 			name:     "sum impossible operator",
 			expr:     callExpr(ident("sum"), posArg(listExpr(fnExpr(nil, exprStmt(intExpr(1))), intExpr(2)))),
 			wantCode: "E106",
 			wantText: "operator '+' does not accept function values",
 		},
 		{
-			name:     "prod wrong arity zero",
-			expr:     callExpr(ident("prod")),
+			name:     "sum rejects unknown named argument",
+			expr:     callExpr(ident("sum"), namedArg("value", listExpr(intExpr(1)))),
 			wantCode: "E106",
-			wantText: "prod() expects arguments",
-		},
-		{
-			name:     "prod wrong arity two",
-			expr:     callExpr(ident("prod"), posArg(listExpr(intExpr(1))), posArg(listExpr(intExpr(2)))),
-			wantCode: "E106",
-			wantText: "prod() received too many positional arguments",
-		},
-		{
-			name:     "prod rejects scalar",
-			expr:     callExpr(ident("prod"), posArg(intExpr(1))),
-			wantCode: "E106",
-			wantText: "prod() expects list or tuple as first argument",
-		},
-		{
-			name:     "prod rejects empty",
-			expr:     callExpr(ident("prod"), posArg(tupleExpr())),
-			wantCode: "E106",
-			wantText: "prod() cannot operate on an empty list/tuple",
+			wantText: "unknown named argument 'value' for sum()",
 		},
 		{
 			name:     "prod impossible operator",

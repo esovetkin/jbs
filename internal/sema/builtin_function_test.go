@@ -65,9 +65,15 @@ values = map(int, ["1"])
 func TestAnalyzeSumProdBuiltins(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 values = sum([1, 2, 3])
+direct = sum(1, 2, 3, 4)
+zero = sum()
+from_range = sum(range(5))
+spread_range = sum(*range(5))
 product_value = prod((2, 3, 4))
+product_direct = prod(2, 3, 4)
+reduced = reduce(sum, [0, 1, 2, 3, 4])
 mapped = map(sum, [[1, 2], [3, 4]])
-`)
+	`)
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
@@ -75,15 +81,39 @@ mapped = map(sum, [[1, 2], [3, 4]])
 	if values == nil || !eval.Equal(values.Value, eval.Int(6)) {
 		t.Fatalf("unexpected values global: %#v", values)
 	}
+	direct := res.GlobalVarByName["direct"]
+	if direct == nil || !eval.Equal(direct.Value, eval.Int(10)) {
+		t.Fatalf("unexpected direct global: %#v", direct)
+	}
+	zero := res.GlobalVarByName["zero"]
+	if zero == nil || !eval.Equal(zero.Value, eval.Int(0)) {
+		t.Fatalf("unexpected zero global: %#v", zero)
+	}
+	fromRange := res.GlobalVarByName["from_range"]
+	if fromRange == nil || !eval.Equal(fromRange.Value, eval.Int(10)) {
+		t.Fatalf("unexpected from_range global: %#v", fromRange)
+	}
+	spreadRange := res.GlobalVarByName["spread_range"]
+	if spreadRange == nil || !eval.Equal(spreadRange.Value, eval.Int(10)) {
+		t.Fatalf("unexpected spread_range global: %#v", spreadRange)
+	}
 	productValue := res.GlobalVarByName["product_value"]
 	if productValue == nil || !eval.Equal(productValue.Value, eval.Int(24)) {
 		t.Fatalf("unexpected product_value global: %#v", productValue)
+	}
+	productDirect := res.GlobalVarByName["product_direct"]
+	if productDirect == nil || !eval.Equal(productDirect.Value, eval.Int(24)) {
+		t.Fatalf("unexpected product_direct global: %#v", productDirect)
+	}
+	reduced := res.GlobalVarByName["reduced"]
+	if reduced == nil || !eval.Equal(reduced.Value, eval.Int(10)) {
+		t.Fatalf("unexpected reduced global: %#v", reduced)
 	}
 	mapped := res.GlobalVarByName["mapped"]
 	if mapped == nil || !eval.Equal(mapped.Value, eval.List([]eval.Value{eval.Int(3), eval.Int(7)})) {
 		t.Fatalf("unexpected mapped global: %#v", mapped)
 	}
-	for _, gv := range []*GlobalVar{values, productValue, mapped} {
+	for _, gv := range []*GlobalVar{values, direct, zero, fromRange, spreadRange, productValue, productDirect, reduced, mapped} {
 		for _, dep := range []string{"sum", "prod"} {
 			if slices.Contains(gv.DependsOn, dep) {
 				t.Fatalf("unshadowed builtin %q should not be recorded as dependency for %s: %#v", dep, gv.Name, gv.DependsOn)

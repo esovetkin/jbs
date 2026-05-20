@@ -205,25 +205,35 @@ func evalFilterPredicate(fn *FunctionValue, arg Value, argSpan diag.Span, env ma
 }
 
 func evalFoldOperatorValueCall(name, op string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	bound, ok := bindBuiltinArgs(name, args, builtinSignature{
-		Name:   name,
-		Params: []builtinParam{{Name: "values", Required: true}},
-	}, at, diags)
+	boundArgs, ok := bindFoldOperatorArgs(name, args, at, diags)
 	if !ok {
 		return Null()
 	}
-	valueArg := bound.ByName["values"]
-	return evalFoldOperator(name, op, valueArg.Value, valueArg.Span, at, diags, opts, ctx)
+	return evalFoldOperatorArgs(name, op, boundArgs, at, diags, opts, ctx)
 }
 
-func evalFoldOperator(name, op string, value Value, valueSpan diag.Span, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	items, _, ok := sequenceItemsForArg(name, "first", value, valueSpan, diags)
+func bindFoldOperatorArgs(name string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics) ([]CallValueArg, bool) {
+	bound, ok := bindBuiltinArgs(name, args, builtinSignature{
+		Name:        name,
+		Params:      []builtinParam{{Name: "values"}},
+		Varargs:     "items",
+		AllowNoArgs: true,
+	}, at, diags)
 	if !ok {
-		return Null()
+		return nil, false
 	}
+	inputs := make([]CallValueArg, 0, 1+len(bound.Varargs))
+	if valueArg, exists := bound.ByName["values"]; exists {
+		inputs = append(inputs, valueArg)
+	}
+	inputs = append(inputs, bound.Varargs...)
+	return inputs, true
+}
+
+func evalFoldOperatorArgs(name, op string, args []CallValueArg, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
+	items := foldOperatorInputs(args)
 	if len(items) == 0 {
-		diags.AddError(diag.CodeE106, name+"() cannot operate on an empty list/tuple", at, "use a non-empty list/tuple")
-		return Null()
+		return foldOperatorIdentity(name)
 	}
 	if len(items) == 1 {
 		return items[0]
@@ -237,6 +247,27 @@ func evalFoldOperator(name, op string, value Value, valueSpan diag.Span, at diag
 		}
 	}
 	return acc
+}
+
+func foldOperatorInputs(args []CallValueArg) []Value {
+	if len(args) == 1 {
+		switch args[0].Value.Kind {
+		case KindList, KindTuple:
+			return CloneValues(args[0].Value.L)
+		}
+	}
+	values := make([]Value, 0, len(args))
+	for _, arg := range args {
+		values = append(values, CloneValue(arg.Value))
+	}
+	return values
+}
+
+func foldOperatorIdentity(name string) Value {
+	if name == "prod" {
+		return Int(1)
+	}
+	return Int(0)
 }
 
 func diagErrorCount(diags *diag.Diagnostics) int {
