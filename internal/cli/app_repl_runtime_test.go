@@ -155,6 +155,41 @@ func TestCommitReplChunkEmitsExpandedListOutput(t *testing.T) {
 	}
 }
 
+func TestCommitReplChunkSetSeedIsQuiet(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "setseed(1)")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected no errors, diag=%q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 0 {
+		t.Fatalf("expected quiet setseed, got %#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkSeededSampleOutput(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "setseed(3)\nsample(range(10), size = 4)")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	second, err := commitReplChunk(cwd, "", "setseed(3)\nsample(range(10), size = 4)")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if first.HasErrors || second.HasErrors {
+		t.Fatalf("expected no errors, first=%q second=%q", first.DiagText, second.DiagText)
+	}
+	if len(first.ExprOutput) != 1 || len(second.ExprOutput) != 1 {
+		t.Fatalf("expected one sample output each, first=%#v second=%#v", first.ExprOutput, second.ExprOutput)
+	}
+	if first.ExprOutput[0] != second.ExprOutput[0] || !strings.HasPrefix(first.ExprOutput[0], "[") {
+		t.Fatalf("unexpected seeded sample output: first=%#v second=%#v", first.ExprOutput, second.ExprOutput)
+	}
+}
+
 func TestCommitReplChunkFloatRangePrintsWithShortestFloatFormat(t *testing.T) {
 	cwd := t.TempDir()
 	commit, err := commitReplChunk(cwd, "", "0:0.012:(1/1000)")

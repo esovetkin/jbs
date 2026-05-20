@@ -207,6 +207,16 @@ func initBuiltinRegistry() {
 				return evalRowsValueCall(c.Args, c.At, c.Diags)
 			},
 		},
+		"sample": {
+			Value: func(c builtinCallContext) Value {
+				return evalSampleValueCall(c.Args, c.At, c.Diags, c.Opts)
+			},
+		},
+		"setseed": {
+			Value: func(c builtinCallContext) Value {
+				return evalSetSeedValueCall(c.Args, c.At, c.Diags, c.Opts)
+			},
+		},
 		"shell": {
 			Value: func(c builtinCallContext) Value {
 				return evalShellValueCall(c.Args, c.Env, c.At, c.Diags, c.Opts, c.Ctx)

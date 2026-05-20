@@ -131,6 +131,11 @@ Useful functions:
 jbs> rev([1, 2, 3])
 [3, 2, 1]
 ```
+- `sample` randomly selects elements from a list/tuple
+```jbs
+jbs> sample([1], size = 3, replace = true)
+[1, 1, 1]
+```
 - `filter` filters elements
 ```jbs
 jbs> filter([0, 1, 2, 3], function(x) { x > 1 })
@@ -336,6 +341,7 @@ Useful functions:
 - `a * b` Cartesian product in table context
 - `filter(table, function)` filter rows
 - `head(table, n = 5)`/`tail(table, n = 5)` first/last rows
+- `sample(table, size = n)` random rows
 - `len(table)` row count
 - `names(table)` column names
 - `rows(table)` table rows as list of dictionaries
@@ -414,6 +420,8 @@ from_reduce = reduce(sum, [0, 1, 2, 3])
 scaled = prod((2, 3, 4))
 first_rows = head(table(id = range(10)))
 last_rows = tail(table(id = range(10)), n = 3)
+setseed(42)
+random_rows = sample(table(id = range(10)), size = 2)
 ```
 
 ## Built-In Globals

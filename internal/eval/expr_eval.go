@@ -41,6 +41,7 @@ type ExprOptions struct {
 	ShellUse                        func(ShellUseEvent)
 	Environ                         func() []string
 	DeleteName                      DeleteNameFunc
+	Random                          *RandomState
 }
 
 type DeleteNameFunc func(name string, at diag.Span, diags *diag.Diagnostics) bool

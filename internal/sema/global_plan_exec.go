@@ -51,6 +51,7 @@ type globalSeqEngine struct {
 	shellRunner         eval.ShellRunner
 	environ             func() []string
 	shellUses           []string
+	random              *eval.RandomState
 	outputSeq           int
 	res                 *globalExecResult
 }
@@ -96,6 +97,7 @@ func newGlobalSeqEngine(plan *globalPlan, generalSeed map[string]eval.Value, sca
 		collectPrints:       opts.CollectPrints,
 		shellRunner:         opts.ShellRunner,
 		environ:             opts.Environ,
+		random:              eval.NewRandomState(),
 		res:                 res,
 	}
 }
@@ -144,6 +146,7 @@ func (e *globalSeqEngine) evalOptions(step globalInputStep) eval.ExprOptions {
 		ShellUse:                        e.recordShellUse,
 		Environ:                         e.environ,
 		DeleteName:                      e.deleteGlobalName,
+		Random:                          e.random,
 	}
 	if e.collectPrints {
 		opts.Print = e.recordPrintEvent
@@ -495,7 +498,7 @@ func (e *globalSeqEngine) evalExprStep(step globalInputStep) {
 	value := eval.EvalExprWithOptions(step.ExprStmt.Expr, nil, e.diags, e.evalOptions(step))
 	e.takeShellUses()
 	echo := true
-	if value.Kind == eval.KindNull && (e.outputSeq > beforeSeq || isDeleteCallExpr(step.ExprStmt.Expr)) {
+	if value.Kind == eval.KindNull && (e.outputSeq > beforeSeq || isQuietTopLevelCallExpr(step.ExprStmt.Expr)) {
 		echo = false
 	}
 	e.res.TopLevelExprs = append(e.res.TopLevelExprs, TopLevelExprResult{
