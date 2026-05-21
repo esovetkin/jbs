@@ -757,6 +757,41 @@ func TestRunCommandSupportsDeleteBuiltin(t *testing.T) {
 	}
 }
 
+func TestRunExportsWithValuesToChildProcesses(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`x = "visible"`,
+		`do s with x {`,
+		`bash -c 'printf "%s\n" "$x"' > child.txt`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+
+	got := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "child.txt"))
+	if got != "visible\n" {
+		t.Fatalf("child process did not receive exported with value: %q", got)
+	}
+}
+
 func TestDefaultRunPrintsJBSPrintOutput(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()

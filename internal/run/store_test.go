@@ -66,7 +66,7 @@ func TestCreateRunDirectoryWithInitialBuildsAtomicRunTree(t *testing.T) {
 		"export JBS_RUN_DIR='" + filepath.Clean(store.RunDir) + "'",
 		"export JBS_SRC_DIR='" + filepath.Clean(sourceDir) + "'",
 		"export JBS_WORK_DIR='" + filepath.Clean(store.WorkDir(work)) + "'",
-		"x='2'",
+		"export x='2'",
 		"echo child",
 	} {
 		if !strings.Contains(text, want) {

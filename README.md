@@ -138,7 +138,7 @@ Interactive mode:
 
 The `jbs` language defines several data types and operations on them.
 
-[Scalar values](docs/language.md#scalars) (`string`, `int`, `float`, `bool`) are the only values that can be exported as variables in execution steps.
+[Scalar values](docs/language.md#scalars) (`string`, `int`, `float`, `bool`) are the only values that can be exported as environment variables in execution steps.
 
 [Lists and tuples](docs/language.md#lists--tuples) combine scalar values and support several vector arithmetic operations.
 

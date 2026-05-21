@@ -33,6 +33,36 @@ func TestRenderRunScriptUsesFinalAbsolutePathsAndSourceDir(t *testing.T) {
 		"export JBS_SRC_DIR='/tmp/project/cases'",
 		"export JBS_ROW='000001'",
 		"export JBS_STEP='s'",
+		"export x='42'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("script missing %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestRenderRunScriptExportsQuotedWorkValues(t *testing.T) {
+	script, err := renderRunScript(runScriptSpec{
+		RunDir:    "/tmp/project/bench/000000",
+		WorkDir:   "/tmp/project/bench/000000/s/000000",
+		SourceDir: "/tmp/project",
+		StepName:  "s",
+		Work: ManifestWork{
+			Step: "s",
+			Row:  0,
+			Values: map[string]string{
+				"empty": "",
+				"quote": "a'b",
+			},
+		},
+		Body: "true\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"export empty=''",
+		"export quote='a'\"'\"'b'",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("script missing %q:\n%s", want, script)

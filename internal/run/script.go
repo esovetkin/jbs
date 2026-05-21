@@ -52,7 +52,7 @@ func renderRunScript(spec runScriptSpec) (string, error) {
 	}
 	b.WriteString("\n")
 	for _, name := range slices.Sorted(maps.Keys(spec.Work.Values)) {
-		fmt.Fprintf(&b, "%s=%s\n", name, bashQuote(spec.Work.Values[name]))
+		fmt.Fprintf(&b, "export %s=%s\n", name, bashQuote(spec.Work.Values[name]))
 	}
 	b.WriteString("\n")
 	b.WriteString(strings.TrimRight(spec.Body, "\n"))

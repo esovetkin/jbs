@@ -239,8 +239,8 @@ do dict_step with rows {
 			t.Fatal(err)
 		}
 		text := string(script)
-		if !strings.Contains(text, "x='2'") || !strings.Contains(text, "y='b'") {
-			t.Fatalf("run.sh missing dict-derived shell assignments:\n%s", text)
+		if !strings.Contains(text, "export x='2'") || !strings.Contains(text, "export y='b'") {
+			t.Fatalf("run.sh missing exported dict-derived shell assignments:\n%s", text)
 		}
 		return
 	}

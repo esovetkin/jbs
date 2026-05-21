@@ -35,8 +35,9 @@ Examples:
 Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
+- imported values are emitted into generated scripts as exported environment variables
 - importing a scalar creates one workpackage and exposes that scalar under its source name
-- importing a list or tuple creates one workpackage per element; non-scalar elements are exported as `str(value)`, and JBS emits a warning
+- importing a list or tuple creates one workpackage per element; non-scalar elements are exported as environment variables using `str(value)`, and JBS emits a warning
 - importing a table source such as `with cases` exposes all of its columns
 - importing a dictionary acts like `with table(dict_value)` and exposes dictionary keys as table columns
 - importing selected columns such as `with cases["x", "y"]` exposes only those names
