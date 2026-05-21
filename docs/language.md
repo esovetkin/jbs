@@ -427,7 +427,7 @@ random_rows = sample(table(id = range(10)), size = 2)
 ## Built-In Globals
 
 - `jbs_name="jbs_benchmark"` defines the name of the benchmark directory.
-- `jbs_benchmarks={}` splits one script into named benchmarks. Use `jbs --benchmark ...` to run individual benchmarks.
+- `jbs_benchmarks={}` splits one script into named benchmarks. Use `jbs --benchmark ...` to run individual benchmarks. In a non-empty `jbs_benchmarks` dictionary, target `"*"` selects every `do` step and every `analyse` block for that component.
 - `jbs_nproc=0` sets the global concurrency limit. The default `0` uses all available CPUs.
 - `jbs_database=""` uses CSV analysis output. A non-empty value enables SQLite database output.
 

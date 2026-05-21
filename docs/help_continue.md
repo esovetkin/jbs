@@ -4,6 +4,7 @@ Resume the latest non-running run directory for a benchmark:
 
 ```bash
 jbs continue input.jbs
+jbs continue -w input.jbs
 jbs continue -b small input.jbs
 ```
 
@@ -12,6 +13,8 @@ Continue only works when the benchmark status is not `RUNNING` and the current s
 `jbs continue` also starts a run that was prepared with `jbs run --dry-run`, `jbs run -n`, or the `jbs -n input.jbs` shorthand. It can retry workpackages previously marked `ERROR`, `INTERRUPTED`, or `BLOCKED`; blocked work starts once its dependencies finish successfully.
 
 When `jbs_benchmarks` is configured, `jbs continue input.jbs` resumes every configured component. Use `-b` or `--benchmark` to resume only one component. A selected component must exist in `jbs_benchmarks`.
+
+Pass `--weak` or `-w` to generate analyse outputs during continuation even when some workpackages remain failed. The benchmark still ends with status `ERROR`, and the command still exits non-zero, but weak analyse tables are written with missing values for failed or blocked workpackages. Weak mode does not run analyses after interrupted runs.
 
 Source identity includes every loaded `.jbs` source file's content and loader label, plus the contents of any `fsub` templates used by the selected benchmark. For new runs, `jbs continue` also verifies the preserved fsub template permission bits recorded in the manifest. For file modules, the loader label is the cleaned absolute path used to load the file. It is not resolved through symbolic links.
 

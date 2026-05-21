@@ -102,3 +102,28 @@ analyse run {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 }
+
+func TestAnalyzeAcceptsConfiguredBenchmarkWildcardTarget(t *testing.T) {
+	src := `
+jbs_benchmarks = {"all": "*"}
+x = 1
+
+do prepare {
+        echo prepare
+}
+
+do run after prepare with x {
+        echo run
+}
+
+analyse run {
+        (x)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("benchmarks.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}

@@ -23,16 +23,27 @@ func Render(t Table, rt RenderType) (string, error) {
 }
 
 func renderPretty(t Table) string {
-	headers := append([]string{}, t.Columns...)
+	headers := make([]string, 0, len(t.Columns)+2)
+	if t.BenchmarkColumn {
+		headers = append(headers, "benchmark")
+	}
+	headers = append(headers, t.Columns...)
 	headers = append(headers, "step")
 	widths := make([]int, len(headers))
 	for i, header := range headers {
 		widths[i] = len(header)
 	}
 	for _, row := range t.Rows {
+		offset := 0
+		if t.BenchmarkColumn {
+			if n := len(row.Benchmark); n > widths[0] {
+				widths[0] = n
+			}
+			offset = 1
+		}
 		for i, col := range t.Columns {
-			if n := len(row.Values[col]); n > widths[i] {
-				widths[i] = n
+			if n := len(row.Values[col]); n > widths[i+offset] {
+				widths[i+offset] = n
 			}
 		}
 		if n := len(stepLabel(row)); n > widths[len(widths)-1] {
@@ -45,6 +56,9 @@ func renderPretty(t Table) string {
 	writePrettySeparator(&b, widths)
 	for _, row := range t.Rows {
 		cells := make([]string, 0, len(headers))
+		if t.BenchmarkColumn {
+			cells = append(cells, row.Benchmark)
+		}
 		for _, col := range t.Columns {
 			cells = append(cells, row.Values[col])
 		}
@@ -83,13 +97,20 @@ func padRight(s string, width int) string {
 func renderCSV(t Table) (string, error) {
 	buf := &bytes.Buffer{}
 	w := csv.NewWriter(buf)
-	headers := append([]string{}, t.Columns...)
+	headers := make([]string, 0, len(t.Columns)+2)
+	if t.BenchmarkColumn {
+		headers = append(headers, "benchmark")
+	}
+	headers = append(headers, t.Columns...)
 	headers = append(headers, "step")
 	if err := w.Write(headers); err != nil {
 		return "", err
 	}
 	for _, row := range t.Rows {
 		record := make([]string, 0, len(headers))
+		if t.BenchmarkColumn {
+			record = append(record, row.Benchmark)
+		}
 		for _, col := range t.Columns {
 			record = append(record, row.Values[col])
 		}

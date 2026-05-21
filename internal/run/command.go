@@ -218,7 +218,7 @@ func runPreparedStores(ctx context.Context, opts Options, prepared []preparedSto
 			}
 			fmt.Fprintf(opts.Stdout, "[%s]\n", item.Plan.ComponentName)
 		}
-		result := runOneStore(ctx, item, continuing, opts.Weak && !continuing, opts.Stdout)
+		result := runOneStore(ctx, item, continuing, opts.Weak, opts.Stdout)
 		results = append(results, result)
 		if result.Final == StatusInterrupted {
 			break

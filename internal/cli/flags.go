@@ -235,7 +235,7 @@ Read examples/help:
 Run:
   jbs <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
   jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
-  jbs continue <file.jbs> [-b|--benchmark <name>]
+  jbs continue <file.jbs> [-w|--weak] [-b|--benchmark <name>]
 
 Check syntax:
   jbs -c|--check <file.jbs>
@@ -272,7 +272,7 @@ Inspect job dependencies:
   jbs tree <file.jbs> [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs param [-t pretty|csv] [-o <outputfile>] <file.jbs>
+  jbs param [-t pretty|csv] [-o <outputfile>] [-b|--benchmark <name>] <file.jbs>
   defaults: -t pretty, -o - (stdout)
 
 Interactive mode:
@@ -283,6 +283,15 @@ Interactive mode:
 func parseParamArgs(args []string) (Flags, error) {
 	cfg := Flags{Param: true, Output: "-", PrintType: "pretty"}
 	for i := 0; i < len(args); i++ {
+		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, paramUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+
 		arg := args[i]
 		switch {
 		case arg == "-t" || arg == "--type":
@@ -325,7 +334,7 @@ func parseParamArgs(args []string) (Flags, error) {
 }
 
 func paramUsageMessage() string {
-	return "usage: jbs param [-t pretty|csv] [-o <outputfile>] <file.jbs>"
+	return "usage: jbs param [-t pretty|csv] [-o <outputfile>] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func parseFWaitArgs(args []string) (Flags, error) {
@@ -428,6 +437,11 @@ func parseContinueArgs(args []string) (Flags, error) {
 
 		arg := args[i]
 		switch {
+		case arg == "-w" || arg == "--weak":
+			if cfg.Weak {
+				return Flags{}, UsageError{Message: continueUsageMessage()}
+			}
+			cfg.Weak = true
 		case strings.HasPrefix(arg, "-"):
 			return Flags{}, UsageError{Message: continueUsageMessage()}
 		default:
@@ -444,7 +458,7 @@ func parseContinueArgs(args []string) (Flags, error) {
 }
 
 func continueUsageMessage() string {
-	return "usage: jbs continue [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs continue [-w|--weak] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {

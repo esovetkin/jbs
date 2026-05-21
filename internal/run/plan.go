@@ -53,6 +53,16 @@ type runtimePlan struct {
 	AnalyseDatabasePath string
 }
 
+type ParameterPlan struct {
+	ComponentName string
+	WorkPlan      workplan.Plan
+}
+
+type ParameterPlanSuite struct {
+	Configured bool
+	Plans      []ParameterPlan
+}
+
 func buildRuntimePlan(opts Options, diags *diag.Diagnostics) (runtimePlan, error) {
 	suite, err := buildRuntimeSuitePlan(opts, diags)
 	if err != nil {
@@ -87,6 +97,33 @@ func buildRuntimeSuitePlan(opts Options, diags *diag.Diagnostics) (runtimeSuiteP
 		return suiteForSingleBenchmark(inputs)
 	}
 	return suiteForBenchmarkSpecs(inputs, cfg, cfg.Specs, "")
+}
+
+func BuildParameterPlanSuite(opts Options, diags *diag.Diagnostics) (ParameterPlanSuite, error) {
+	inputs, err := buildRuntimeInputs(opts, diags)
+	if err != nil {
+		return ParameterPlanSuite{}, err
+	}
+	cfg, err := runtimeBenchmarkConfig(opts.Result)
+	if err != nil {
+		return ParameterPlanSuite{}, err
+	}
+	selections, configured, err := parameterComponentSelections(inputs, cfg, opts.Benchmark)
+	if err != nil {
+		return ParameterPlanSuite{}, err
+	}
+	plans := make([]ParameterPlan, 0, len(selections))
+	for _, sel := range selections {
+		wp, err := selectedWorkPlanForComponent(inputs.WorkPlan, sel)
+		if err != nil {
+			return ParameterPlanSuite{}, err
+		}
+		plans = append(plans, ParameterPlan{
+			ComponentName: sel.ComponentName,
+			WorkPlan:      wp,
+		})
+	}
+	return ParameterPlanSuite{Configured: configured, Plans: plans}, nil
 }
 
 func buildRuntimeInputs(opts Options, diags *diag.Diagnostics) (runtimeInputs, error) {
@@ -191,14 +228,7 @@ func suiteForSingleBenchmark(inputs runtimeInputs) (runtimeSuitePlan, error) {
 func suiteForBenchmarkSpecs(inputs runtimeInputs, cfg benchmarks.Config, specs []benchmarks.Spec, selected string) (runtimeSuitePlan, error) {
 	plans := make([]runtimePlan, 0, len(specs))
 	for _, spec := range specs {
-		plan, err := buildComponentRuntimePlan(inputs, componentSelection{
-			Spec:          spec,
-			Configured:    true,
-			RootDir:       filepath.Join(inputs.RootName, spec.DirName),
-			ComponentName: spec.Name,
-			ComponentDir:  spec.DirName,
-			TablePrefix:   inputs.RootName + "_" + spec.DirName,
-		})
+		plan, err := buildComponentRuntimePlan(inputs, componentSelectionForSpec(inputs, spec))
 		if err != nil {
 			return runtimeSuitePlan{}, err
 		}
@@ -221,30 +251,74 @@ type componentSelection struct {
 	TablePrefix   string
 }
 
-func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (runtimePlan, error) {
-	wp := inputs.WorkPlan
-	analyses := inputs.Analyses
-	if sel.Configured {
-		keep, err := workplan.RequiredStepsForTargets(wp, sel.Spec.Targets)
-		if err != nil {
-			return runtimePlan{}, err
-		}
-		wp, err = workplan.Filter(wp, keep)
-		if err != nil {
-			return runtimePlan{}, err
-		}
-		analyses = make(map[string]AnalysePlan)
-		for _, name := range sel.Spec.Targets {
-			plan, ok := inputs.Analyses[name]
-			if !ok {
-				continue
-			}
-			analyses[name] = plan
-		}
+func componentSelectionForSpec(inputs runtimeInputs, spec benchmarks.Spec) componentSelection {
+	return componentSelection{
+		Spec:          spec,
+		Configured:    true,
+		RootDir:       filepath.Join(inputs.RootName, spec.DirName),
+		ComponentName: spec.Name,
+		ComponentDir:  spec.DirName,
+		TablePrefix:   inputs.RootName + "_" + spec.DirName,
 	}
+}
+
+func parameterComponentSelections(inputs runtimeInputs, cfg benchmarks.Config, selected string) ([]componentSelection, bool, error) {
+	if selected != "" {
+		if !cfg.Configured {
+			return nil, false, fmt.Errorf("--benchmark requires non-empty jbs_benchmarks")
+		}
+		spec, ok := cfg.ByName[selected]
+		if !ok {
+			return nil, false, fmt.Errorf("unknown benchmark %q in --benchmark", selected)
+		}
+		return []componentSelection{componentSelectionForSpec(inputs, spec)}, true, nil
+	}
+	if !cfg.Configured {
+		return []componentSelection{{
+			ComponentName: inputs.RootName,
+		}}, false, nil
+	}
+	selections := make([]componentSelection, 0, len(cfg.Specs))
+	for _, spec := range cfg.Specs {
+		selections = append(selections, componentSelectionForSpec(inputs, spec))
+	}
+	return selections, true, nil
+}
+
+func selectedWorkPlanForComponent(base workplan.Plan, sel componentSelection) (workplan.Plan, error) {
+	if !sel.Configured || sel.Spec.AllSteps {
+		return base, nil
+	}
+	keep, err := workplan.RequiredStepsForTargets(base, sel.Spec.Targets)
+	if err != nil {
+		return workplan.Plan{}, err
+	}
+	return workplan.Filter(base, keep)
+}
+
+func selectedAnalysesForComponent(all map[string]AnalysePlan, sel componentSelection) map[string]AnalysePlan {
+	if !sel.Configured || sel.Spec.AllSteps {
+		return maps.Clone(all)
+	}
+	analyses := make(map[string]AnalysePlan)
+	for _, name := range sel.Spec.Targets {
+		plan, ok := all[name]
+		if !ok {
+			continue
+		}
+		analyses[name] = plan
+	}
+	return analyses
+}
+
+func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (runtimePlan, error) {
+	wp, err := selectedWorkPlanForComponent(inputs.WorkPlan, sel)
+	if err != nil {
+		return runtimePlan{}, err
+	}
+	analyses := selectedAnalysesForComponent(inputs.Analyses, sel)
 	if inputs.Limit > 0 {
 		targets := limitTargetSteps(wp, analyses)
-		var err error
 		wp, err = workplan.LimitBranches(wp, workplan.LimitOptions{
 			Limit:       inputs.Limit,
 			TargetSteps: targets,

@@ -14,47 +14,58 @@ import (
 
 func Build(res *sema.Result, diags *diag.Diagnostics) Table {
 	plan := workplan.Build(res, diags)
+	return BuildFromWorkPlans(res, []ComponentPlan{{WorkPlan: plan}}, false)
+}
+
+func BuildFromWorkPlan(res *sema.Result, plan workplan.Plan) Table {
+	return BuildFromWorkPlans(res, []ComponentPlan{{WorkPlan: plan}}, false)
+}
+
+func BuildFromWorkPlans(res *sema.Result, plans []ComponentPlan, includeBenchmark bool) Table {
 	candidateColumns := collectQualifiedColumns(res.Bindings)
 
 	rows := make([]Row, 0)
 	usedCols := make(map[string]struct{})
-	for _, work := range plan.Work {
-		scopePlan := res.StepScopeByName[work.StepName]
-		vals := make(map[string]string)
-		for name, value := range work.Values {
-			if scopePlan == nil {
-				continue
+	for _, component := range plans {
+		for _, work := range component.WorkPlan.Work {
+			scopePlan := res.StepScopeByName[work.StepName]
+			vals := make(map[string]string)
+			for name, value := range work.Values {
+				if scopePlan == nil {
+					continue
+				}
+				origin, ok := scopePlan.Effective[name]
+				if !ok || origin.Source == "" {
+					continue
+				}
+				sourceVar := name
+				if origin.SourceVar != "" {
+					sourceVar = origin.SourceVar
+				}
+				binding := res.BindingsByKey[origin.SourceKey]
+				if binding == nil {
+					binding = res.BindingsByName[origin.Source]
+				}
+				sourceDisplay := origin.SourceKey.Display()
+				if sourceDisplay == "" {
+					sourceDisplay = origin.Source
+				}
+				key := displayColumnKey(binding, sourceDisplay, sourceVar)
+				vals[key] = value.String()
+				usedCols[key] = struct{}{}
 			}
-			origin, ok := scopePlan.Effective[name]
-			if !ok || origin.Source == "" {
-				continue
-			}
-			sourceVar := name
-			if origin.SourceVar != "" {
-				sourceVar = origin.SourceVar
-			}
-			binding := res.BindingsByKey[origin.SourceKey]
-			if binding == nil {
-				binding = res.BindingsByName[origin.Source]
-			}
-			sourceDisplay := origin.SourceKey.Display()
-			if sourceDisplay == "" {
-				sourceDisplay = origin.Source
-			}
-			key := displayColumnKey(binding, sourceDisplay, sourceVar)
-			vals[key] = value.String()
-			usedCols[key] = struct{}{}
+			rows = append(rows, Row{
+				Benchmark: component.Name,
+				StepKind:  work.StepKind,
+				StepName:  work.StepName,
+				Values:    vals,
+			})
 		}
-		rows = append(rows, Row{
-			StepKind: work.StepKind,
-			StepName: work.StepName,
-			Values:   vals,
-		})
 	}
 
 	columns := filterColumnsByUsage(candidateColumns, usedCols)
 	columns = pruneHeaderOnlyColumns(columns, rows)
-	return Table{Columns: columns, Rows: rows}
+	return Table{Columns: columns, Rows: rows, BenchmarkColumn: includeBenchmark}
 }
 
 func filterColumnsByUsage(candidates []string, used map[string]struct{}) []string {

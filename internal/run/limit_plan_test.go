@@ -123,6 +123,37 @@ analyse run_large {
 	}
 }
 
+func TestBuildRuntimeSuitePlanLimitWildcardBenchmarkUsesFullTargets(t *testing.T) {
+	suite := buildSuiteFromSourceWithOptions(t, `
+jbs_name = "bench"
+jbs_benchmarks = {"all": "*"}
+cases = table(x = [1, 2, 3])
+
+do prep with cases {
+        echo "$x"
+}
+
+do run after prep {
+        echo "$x" > out.log
+}
+
+analyse run {
+        value = "%d" in "out.log"
+        (value)
+}
+`, Options{Benchmark: "all", Limit: 1})
+	plan := suite.Plans[0]
+	if got := manifestStepNames(plan.Manifest); strings.Join(got, ",") != "prep,run" {
+		t.Fatalf("unexpected wildcard limited steps: %#v", got)
+	}
+	if got := len(manifestWorkForStep(plan.Manifest.Work, "prep")); got != 1 {
+		t.Fatalf("prep work count = %d, want 1", got)
+	}
+	if got := len(manifestWorkForStep(plan.Manifest.Work, "run")); got != 1 {
+		t.Fatalf("run work count = %d, want 1", got)
+	}
+}
+
 func TestBuildRuntimeSuitePlanLimitDoOnlyUsesTerminalStep(t *testing.T) {
 	suite := buildSuiteFromSourceWithOptions(t, `
 jbs_name = "bench"

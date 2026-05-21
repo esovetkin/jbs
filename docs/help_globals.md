@@ -15,10 +15,11 @@ jbs_benchmarks = {
         "setup-only": "prepare",
         "small": ["prepare", "run_small", "summary"],
         "large": "run_large",
+        "all": "*",
 }
 ```
 
-Calling `jbs run -b small` executes all dependency steps needed for the `prepare`, `run_small`, and `summary` targets and saves results in `<jbs_name>/<component>/` directories. A do-only target runs the selected step and its dependencies without generating analyse output for that target. A target with an `analyse` block runs the analysed step and its dependencies and writes that analyse output. Dependency analyse blocks are not selected implicitly; list a dependency step explicitly if its analyse output should be generated. You can also run `jbs continue -b small` for an individual benchmark. Without `--benchmark`, `jbs run` runs every configured component.
+Calling `jbs run -b small` executes all dependency steps needed for the `prepare`, `run_small`, and `summary` targets and saves results in `<jbs_name>/<component>/` directories. A do-only target runs the selected step and its dependencies without generating analyse output for that target. A target with an `analyse` block runs the analysed step and its dependencies and writes that analyse output. Dependency analyse blocks are not selected implicitly; list a dependency step explicitly if its analyse output should be generated. Use `"*"` as a target to select the full workplan: every `do` step and every `analyse` block. You can also run `jbs continue -b small` for an individual benchmark. Without `--benchmark`, `jbs run` runs every configured component.
 
 ## `jbs_database`: write results to a SQLite database
 

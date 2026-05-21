@@ -43,6 +43,27 @@ func TestFromValueStringAndListValues(t *testing.T) {
 	if got := cfg.ByName["tuple"].Targets; len(got) != 1 || got[0] != "run_tuple" {
 		t.Fatalf("tuple targets = %#v", got)
 	}
+	if cfg.ByName["small"].AllSteps || cfg.ByName["large"].AllSteps || cfg.ByName["tuple"].AllSteps {
+		t.Fatalf("non-wildcard specs should not select all steps: %#v", cfg.Specs)
+	}
+}
+
+func TestFromValueWildcardTargets(t *testing.T) {
+	value := eval.DictValue([]eval.DictEntry{
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "all"}, Value: eval.String(" * ")},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "list"}, Value: eval.List([]eval.Value{eval.String("*")})},
+		{Key: eval.DictKey{Kind: eval.DictKeyString, S: "tuple"}, Value: eval.Tuple([]eval.Value{eval.String("*")})},
+	})
+	cfg, problems := FromValue(value, nil)
+	if len(problems) != 0 {
+		t.Fatalf("unexpected problems: %#v", problems)
+	}
+	for _, name := range []string{"all", "list", "tuple"} {
+		spec := cfg.ByName[name]
+		if !spec.AllSteps || len(spec.Targets) != 0 {
+			t.Fatalf("%s spec = %#v, want wildcard without targets", name, spec)
+		}
+	}
 }
 
 func TestFromValueRejectsInvalidShapes(t *testing.T) {
@@ -90,6 +111,13 @@ func TestFromValueRejectsInvalidShapes(t *testing.T) {
 				{Key: eval.DictKey{Kind: eval.DictKeyString, S: "bench"}, Value: eval.String(" ")},
 			}),
 			want: "empty target name",
+		},
+		{
+			name: "wildcard_mixed_with_named_target",
+			in: eval.DictValue([]eval.DictEntry{
+				{Key: eval.DictKey{Kind: eval.DictKeyString, S: "bench"}, Value: eval.List([]eval.Value{eval.String("*"), eval.String("run")})},
+			}),
+			want: "cannot be combined",
 		},
 		{
 			name: "invalid_name",

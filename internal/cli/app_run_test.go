@@ -1553,6 +1553,130 @@ func TestTreeCommandSupportsDoOnlyBenchmarkSelection(t *testing.T) {
 	}
 }
 
+func TestParamCommandSupportsBenchmarkSelection(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeParamBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "-b", "small", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("param failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "benchmark") {
+		t.Fatalf("single selected benchmark should not include benchmark column:\n%s", out)
+	}
+	for _, want := range []string{"prep", "run_small", "cases.x", "small_cases.s"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("selected param output missing %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"run_large", "unrelated", "large_cases.l"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("selected param output included %q:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestParamCommandPrintsConfiguredBenchmarksWithBenchmarkColumn(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeParamBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "-t", "csv", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("param failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "benchmark,") {
+		t.Fatalf("csv param output should start with benchmark column:\n%s", out)
+	}
+	for _, want := range []string{"small", "large", "all", "run_small", "run_large", "unrelated"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("multi-benchmark param output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestParamCommandWildcardBenchmarkIncludesAllSteps(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeParamBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "-b", "all", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("param failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"prep", "run_small", "run_large", "unrelated"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("wildcard param output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestParamCommandBenchmarkSelectionErrors(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	input := writeParamBenchmarkInput(t, cwd)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "-b", "missing", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected missing benchmark failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `unknown benchmark "missing"`) {
+		t.Fatalf("missing benchmark stderr = %q", stderr.String())
+	}
+
+	single := filepath.Join(cwd, "single.jbs")
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`do run {`,
+		`echo run`,
+		`}`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(single, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"param", "-b", "small", single}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected benchmark-without-config failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--benchmark requires non-empty jbs_benchmarks") {
+		t.Fatalf("benchmark-without-config stderr = %q", stderr.String())
+	}
+}
+
 func TestLsAnalyseCommandListsCSVOutputs(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -2906,6 +3030,59 @@ func TestRunCommandAnalysisFailureMarksRootError(t *testing.T) {
 	}
 }
 
+func TestContinueCommandWeakWritesAnalyseCSVAfterFailedJobs(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x = [1, 2])`,
+		`do run with cases nproc 1 {`,
+		`if [ "$x" = "2" ]; then exit 2; fi`,
+		`echo "value=$x" > out.log`,
+		`}`,
+		`analyse run {`,
+		`value = "value=%d" in "out.log"`,
+		`(x, value)`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"run", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected initial run failure\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	runDir := filepath.Join(cwd, "bench", "000000")
+	if got := readFileString(t, filepath.Join(runDir, "run", "analyse.csv")); got != "run_id,x,value\n" {
+		t.Fatalf("non-weak failed run should leave only analyse header, got %q", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"continue", "-w", input}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected weak continue to keep failing exit code\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	assertStringRows(t, readCSVFileRows(t, filepath.Join(runDir, "run", "analyse.csv")), [][]string{
+		{"run_id", "x", "value", "jbs_status"},
+		{"000000", "1", "1", "FINISHED"},
+		{"000001", "", "", "ERROR"},
+	})
+	if !strings.Contains(stdout.String(), "analyse.csv") {
+		t.Fatalf("weak continue stdout should include analyse summary:\n%s", stdout.String())
+	}
+}
+
 func TestRunCommandWeakWritesAnalyseCSVAfterFailedJobs(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -3726,6 +3903,35 @@ func writeMultiBenchmarkInput(t *testing.T, cwd string, extra ...string) string 
 		``,
 	)
 	input := filepath.Join(cwd, "multi.jbs")
+	if err := os.WriteFile(input, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return input
+}
+
+func writeParamBenchmarkInput(t *testing.T, cwd string) string {
+	t.Helper()
+	lines := []string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"small": "run_small", "large": "run_large", "all": "*"}`,
+		`cases = table(x = [1, 2])`,
+		`small_cases = table(s = [10])`,
+		`large_cases = table(l = [20])`,
+		`do prep with cases {`,
+		`echo "$x"`,
+		`}`,
+		`do run_small after prep with small_cases {`,
+		`echo "$x $s"`,
+		`}`,
+		`do run_large after prep with large_cases {`,
+		`echo "$x $l"`,
+		`}`,
+		`do unrelated {`,
+		`echo unrelated`,
+		`}`,
+		``,
+	}
+	input := filepath.Join(cwd, "param.jbs")
 	if err := os.WriteFile(input, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -59,6 +59,47 @@ analyse run_large {
 	}
 }
 
+func TestBuildRuntimeSuitePlanConfiguredWildcardBenchmark(t *testing.T) {
+	suite := buildSuiteFromSource(t, `
+jbs_name = "bench"
+jbs_benchmarks = {"small": "run_small", "all": "*"}
+
+do prep {
+        echo prep
+}
+do run_small after prep {
+        echo small
+}
+do run_large after prep {
+        echo large
+}
+do unused {
+        echo unused
+}
+analyse run_small {
+        value = "small: %d" in "out.log"
+        (value)
+}
+analyse run_large {
+        value = "large: %d" in "out.log"
+        (value)
+}
+`, "all")
+	if len(suite.Plans) != 1 || suite.Plans[0].ComponentName != "all" {
+		t.Fatalf("unexpected selected wildcard suite: %#v", suite)
+	}
+	plan := suite.Plans[0]
+	if got := manifestStepNames(plan.Manifest); strings.Join(got, ",") != "prep,run_small,run_large,unused" {
+		t.Fatalf("wildcard steps = %#v", got)
+	}
+	if len(plan.Analyses) != 2 {
+		t.Fatalf("wildcard analyses = %#v, want all analyses", plan.Analyses)
+	}
+	if !plan.Manifest.Steps[1].HasAnalyse() || !plan.Manifest.Steps[2].HasAnalyse() {
+		t.Fatalf("wildcard analyse metadata missing: %#v", plan.Manifest.Steps)
+	}
+}
+
 func TestBuildRuntimeSuitePlanSelectedBenchmark(t *testing.T) {
 	suite := buildSuiteFromSource(t, `
 jbs_name = "bench"

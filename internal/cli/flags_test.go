@@ -25,6 +25,7 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 		wantInput             string
 		wantOutput            string
 		wantRun               bool
+		wantContinue          bool
 		wantStatus            bool
 		wantTree              bool
 		wantLsAnalyse         bool
@@ -270,6 +271,24 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			args:          []string{"continue", "-b", "small", "input.jbs"},
 			wantInput:     "input.jbs",
 			wantOutput:    "-",
+			wantContinue:  true,
+			wantBenchmark: "small",
+		},
+		{
+			name:         "continue_weak_short",
+			args:         []string{"continue", "-w", "input.jbs"},
+			wantInput:    "input.jbs",
+			wantOutput:   "-",
+			wantContinue: true,
+			wantWeak:     true,
+		},
+		{
+			name:          "continue_weak_long_with_benchmark",
+			args:          []string{"continue", "--weak", "-b", "small", "input.jbs"},
+			wantInput:     "input.jbs",
+			wantOutput:    "-",
+			wantContinue:  true,
+			wantWeak:      true,
 			wantBenchmark: "small",
 		},
 		{
@@ -452,6 +471,9 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			if f.Run != tc.wantRun {
 				t.Fatalf("unexpected run flag: got=%v want=%v", f.Run, tc.wantRun)
 			}
+			if f.Continue != tc.wantContinue {
+				t.Fatalf("unexpected continue flag: got=%v want=%v", f.Continue, tc.wantContinue)
+			}
 			if f.Status != tc.wantStatus {
 				t.Fatalf("unexpected status flag: got=%v want=%v", f.Status, tc.wantStatus)
 			}
@@ -503,6 +525,7 @@ func TestParseFlagsBenchmarkEqualsAllowsDashValue(t *testing.T) {
 		{"status", "--benchmark=-dash", "input.jbs"},
 		{"tree", "--benchmark=-dash", "input.jbs"},
 		{"ls-analyse", "--benchmark=-dash", "input.jbs"},
+		{"param", "--benchmark=-dash", "input.jbs"},
 		{"--benchmark=-dash", "input.jbs"},
 	} {
 		args := args
@@ -730,6 +753,7 @@ func TestParseFlagsParamModes(t *testing.T) {
 		wantType      string
 		wantOutput    string
 		wantInput     string
+		wantBenchmark string
 		wantParamMode bool
 	}{
 		{
@@ -764,6 +788,33 @@ func TestParseFlagsParamModes(t *testing.T) {
 			wantInput:     "input.jbs",
 			wantParamMode: true,
 		},
+		{
+			name:          "benchmark_short",
+			args:          []string{"param", "-b", "small", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantBenchmark: "small",
+			wantParamMode: true,
+		},
+		{
+			name:          "benchmark_long_equals_with_csv",
+			args:          []string{"param", "--benchmark=small", "-t", "csv", "input.jbs"},
+			wantType:      "csv",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantBenchmark: "small",
+			wantParamMode: true,
+		},
+		{
+			name:          "benchmark_short_equals_with_output",
+			args:          []string{"param", "-b=small", "-o", "out.txt", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "out.txt",
+			wantInput:     "input.jbs",
+			wantBenchmark: "small",
+			wantParamMode: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -781,6 +832,9 @@ func TestParseFlagsParamModes(t *testing.T) {
 			}
 			if f.Input != tc.wantInput {
 				t.Fatalf("unexpected input: got=%q want=%q", f.Input, tc.wantInput)
+			}
+			if f.Benchmark != tc.wantBenchmark {
+				t.Fatalf("unexpected benchmark: got=%q want=%q", f.Benchmark, tc.wantBenchmark)
 			}
 		})
 	}
@@ -808,6 +862,9 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "param_rejects_unknown_check_option", args: []string{"param", "--check", "input.jbs"}},
 		{name: "param_bad_type", args: []string{"param", "-t", "json", "input.jbs"}},
 		{name: "param_missing_input", args: []string{"param", "-t", "pretty"}},
+		{name: "param_duplicate_benchmark", args: []string{"param", "-b", "small", "--benchmark", "large", "input.jbs"}},
+		{name: "param_benchmark_missing_value", args: []string{"param", "-b"}},
+		{name: "param_benchmark_empty_value", args: []string{"param", "--benchmark=", "input.jbs"}},
 		{name: "old_printparam_command_removed", args: []string{"printparam", "input.jbs"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
 		{name: "run_duplicate_dry_run", args: []string{"run", "-n", "--dry-run", "input.jbs"}},
@@ -836,7 +893,7 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "run_rejects_check_option", args: []string{"run", "-c", "input.jbs"}},
 		{name: "continue_rejects_no_strict", args: []string{"continue", "input.jbs", "--no-strict"}},
 		{name: "continue_rejects_dry_run", args: []string{"continue", "input.jbs", "-n"}},
-		{name: "continue_rejects_weak", args: []string{"continue", "input.jbs", "--weak"}},
+		{name: "continue_duplicate_weak", args: []string{"continue", "input.jbs", "--weak", "-w"}},
 		{name: "continue_rejects_limit_long", args: []string{"continue", "--limit", "1", "input.jbs"}},
 		{name: "continue_rejects_limit_short", args: []string{"continue", "-l", "1", "input.jbs"}},
 		{name: "continue_rejects_option", args: []string{"continue", "-o", "out.yaml", "input.jbs"}},

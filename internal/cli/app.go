@@ -96,7 +96,7 @@ func runParsed(flags Flags, stdout, stderr io.Writer) int {
 		return runBenchmark(flags.Input, flags.NoStrict, flags.DryRun, flags.Weak, flags.Benchmark, flags.Limit, stdout, stderr)
 	}
 	if flags.Continue {
-		return continueBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
+		return continueBenchmark(flags.Input, flags.Benchmark, flags.Weak, stdout, stderr)
 	}
 	if flags.Status {
 		return statusBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
@@ -189,7 +189,7 @@ func runBenchmark(path string, noStrict bool, dryRun bool, weak bool, benchmark 
 	return 0
 }
 
-func continueBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+func continueBenchmark(path string, benchmark string, weak bool, stdout, stderr io.Writer) int {
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeInput(path, diags)
 	if err != nil {
@@ -208,6 +208,7 @@ func continueBenchmark(path string, benchmark string, stdout, stderr io.Writer) 
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
 		Benchmark:   benchmark,
+		Weak:        weak,
 		Stdout:      stdout,
 		Stderr:      stderr,
 	}); err != nil {
@@ -405,13 +406,31 @@ func runParam(flags Flags, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	table := printparam.Build(bundle.Result, diags)
+	suite, err := jbsrun.BuildParameterPlanSuite(jbsrun.Options{
+		Input:       flags.Input,
+		Result:      bundle.Result,
+		Sources:     bundle.Sources,
+		ProgramFile: bundle.Program.File,
+		Benchmark:   flags.Benchmark,
+	}, diags)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	if len(diags.Items) > 0 {
 		fmt.Fprintln(stderr, formatDiagnosticsWithSources(*diags, bundle.Sources, bundle.Program.File))
 	}
 	if diags.HasErrors() {
 		return 1
 	}
+	components := make([]printparam.ComponentPlan, 0, len(suite.Plans))
+	for _, plan := range suite.Plans {
+		components = append(components, printparam.ComponentPlan{
+			Name:     plan.ComponentName,
+			WorkPlan: plan.WorkPlan,
+		})
+	}
+	table := printparam.BuildFromWorkPlans(bundle.Result, components, suite.Configured && len(components) > 1)
 
 	out, err := printparam.Render(table, printparam.RenderType(flags.PrintType))
 	if err != nil {

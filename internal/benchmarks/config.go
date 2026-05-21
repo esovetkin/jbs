@@ -8,9 +8,10 @@ import (
 )
 
 type Spec struct {
-	Name    string
-	DirName string
-	Targets []string
+	Name     string
+	DirName  string
+	Targets  []string
+	AllSteps bool
 }
 
 type Config struct {
@@ -79,12 +80,12 @@ func FromValue(value eval.Value, sanitize func(string) string) (Config, []Proble
 			continue
 		}
 		value := value.D.Entries[key]
-		targets, itemProblems := targetNamesFromValue(rawName, value)
+		targets, itemProblems := targetSpecFromValue(rawName, value)
 		if len(itemProblems) > 0 {
 			problems = append(problems, itemProblems...)
 			continue
 		}
-		spec := Spec{Name: rawName, DirName: dirName, Targets: targets}
+		spec := Spec{Name: rawName, DirName: dirName, Targets: targets.names, AllSteps: targets.allSteps}
 		cfg.Specs = append(cfg.Specs, spec)
 		cfg.ByName[rawName] = spec
 		usedDirs[dirName] = rawName
@@ -95,21 +96,30 @@ func FromValue(value eval.Value, sanitize func(string) string) (Config, []Proble
 	return cfg, nil
 }
 
-func targetNamesFromValue(benchmarkName string, value eval.Value) ([]string, []Problem) {
+type targetSpec struct {
+	names    []string
+	allSteps bool
+}
+
+func targetSpecFromValue(benchmarkName string, value eval.Value) (targetSpec, []Problem) {
 	switch value.Kind {
 	case eval.KindString:
 		name := strings.TrimSpace(value.S)
 		if name == "" {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty target name", benchmarkName)}}
+			return targetSpec{}, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty target name", benchmarkName)}}
 		}
-		return []string{name}, nil
+		if name == "*" {
+			return targetSpec{allSteps: true}, nil
+		}
+		return targetSpec{names: []string{name}}, nil
 	case eval.KindList, eval.KindTuple:
 		if len(value.L) == 0 {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
+			return targetSpec{}, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
 		}
 		names := make([]string, 0, len(value.L))
 		seen := make(map[string]struct{}, len(value.L))
 		problems := make([]Problem, 0)
+		hasWildcard := false
 		for _, item := range value.L {
 			if item.Kind != eval.KindString {
 				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] target names must be strings", benchmarkName)})
@@ -120,6 +130,10 @@ func targetNamesFromValue(benchmarkName string, value eval.Value) ([]string, []P
 				problems = append(problems, Problem{Message: fmt.Sprintf("jbs_benchmarks[%q] contains an empty target name", benchmarkName)})
 				continue
 			}
+			if name == "*" {
+				hasWildcard = true
+				continue
+			}
 			if _, ok := seen[name]; ok {
 				continue
 			}
@@ -127,13 +141,19 @@ func targetNamesFromValue(benchmarkName string, value eval.Value) ([]string, []P
 			names = append(names, name)
 		}
 		if len(problems) > 0 {
-			return nil, problems
+			return targetSpec{}, problems
+		}
+		if hasWildcard && len(names) > 0 {
+			return targetSpec{}, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] wildcard target %q cannot be combined with named targets", benchmarkName, "*")}}
+		}
+		if hasWildcard {
+			return targetSpec{allSteps: true}, nil
 		}
 		if len(names) == 0 {
-			return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
+			return targetSpec{}, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must list at least one benchmark target", benchmarkName)}}
 		}
-		return names, nil
+		return targetSpec{names: names}, nil
 	default:
-		return nil, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must be a string or a list of strings", benchmarkName)}}
+		return targetSpec{}, []Problem{{Message: fmt.Sprintf("jbs_benchmarks[%q] must be a string or a list of strings", benchmarkName)}}
 	}
 }
