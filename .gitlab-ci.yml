@@ -64,3 +64,32 @@ release:
     expire_in: never
     paths:
       - jbs
+
+upload:
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  tags:
+    - public-docker
+  stage: release
+  needs:
+    - job: release
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - when: never
+  script:
+    - test -s jbs
+  artifacts:
+    name: "jbs-${CI_COMMIT_TAG}"
+    expire_in: never
+    paths:
+      - jbs
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "JBS $CI_COMMIT_TAG"
+    description: "JBS $CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: "jbs-linux-amd64"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/raw/jbs"
+          filepath: "/jbs-linux-amd64"
+          link_type: "package"
