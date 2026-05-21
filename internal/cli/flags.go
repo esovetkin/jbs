@@ -256,7 +256,7 @@ Options:
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
-Profiling:
+Profiling of jbs:
   --cpuprof[=<file>]
                  Write a CPU pprof profile; default: cpu.pprof
   --memprof[=<file>]

@@ -108,7 +108,7 @@ Options:
   --no-strict   Do not add set -euo pipefail to generated run.sh
   -c, --check   Parse syntax only; do not evaluate expressions or imports
 
-Profiling:
+Profiling of jbs:
   --cpuprof[=<file>]
                  Write a CPU pprof profile; default: cpu.pprof
   --memprof[=<file>]
@@ -133,13 +133,6 @@ Interactive mode:
 ```
 
 `jbs run` exits with code 0 when all jobs finish successfully and with code 1 if any workpackage fails. `jbs run` workpackages inherit environment, where `jbs` was started. Pass `--limit <n>` or `-l <n>` to create and run only the first `n` selected DAG branches; a branch is a target workpackage plus the dependency workpackages it needs. Configured benchmark components are limited independently. `jbs status` prints the latest run status (see [docs/help_status.md](docs/help_status.md)), `jbs tree` prints the planned job tree (see [docs/help_tree.md](docs/help_tree.md)), and `jbs ls-analyse` lists generated analyse outputs (see [docs/help_ls_analyse.md](docs/help_ls_analyse.md)). `jbs fwait` waits for files to appear or change (see [docs/help_fwait.md](docs/help_fwait.md)). `jbs archive` can clean up generated workpackage directories (see [docs/help_archive.md](docs/help_archive.md)). `jbs param` lets you inspect steps and the parameter sets they use (see [docs/help_param.md](docs/help_param.md)).
-
-`--cpuprof` and `--memprof` profile the JBS process. They are useful for debugging parsing, semantic analysis, planning, scheduling, and CLI overhead. They do not profile shell commands launched by `do` blocks. Inspect profiles with `go tool pprof`:
-
-```sh
-go tool pprof -http=:8080 ./jbs cpu.pprof
-go tool pprof -http=:8080 ./jbs mem.pprof
-```
 
 ## Variable Types, Tables, and Parameter Spaces
 
@@ -211,15 +204,15 @@ See more in [docs/help_do.md](docs/help_do.md) or `jbs help do`.
 ```jbs
 analyse <step_name>
         [with <scalar_value>, ...]
-	{
-	        # Match a pattern inside a workpackage output file.
-	        <pattern_name> = "<pattern>" in "<file>"
-	        <pattern_name> = "<pattern>" in re"<file-regex>"
+{
+        # Match a pattern inside a workpackage output file.
+        <pattern_name> = "<pattern>" in "<file>"
+        <pattern_name> = "<pattern>" in re"<file-regex>"
 
-	        # The final tuple defines result columns.
-	        (<variable_name> as "column 0", <pattern_name> as "column 1", "<pattern>" in re"<file-regex>" as "column 2")
-	}
-	```
+        # The final tuple defines result columns.
+        (<variable_name> as "column 0", <pattern_name> as "column 1", "<pattern>" in re"<file-regex>" as "column 2")
+}
+```
 
 Each `analyse` block inherits variables from all dependent execution steps. An `analyse` block consists of optional pattern assignments and a final tuple that defines the resulting table structure. The final tuple may include step-visible variables, extraction aliases, or direct pattern expressions written as `<pattern_expr> in "<file>"` or `<pattern_expr> in re"<file-regex>"`. If a direct pattern omits `as "<column name>"`, the evaluated pattern string is used as the column name. Pattern expressions are regular expressions. File targets are exact relative paths when written as strings; use `re"..."` to match all regular files whose workpackage-relative path matches a Go regular expression. Regex file targets add a `<column>.file` result column containing the matching relative filename. JBS uses Go regular expressions based on RE2 syntax, not PCRE, so lookahead, lookbehind, and backreferences are not supported. For convenience, JBS includes `%d`, `%f`, and `%w` shortcuts for integer, float, and word captures (see [this example](docs/help_analyse.md#example)).
 
