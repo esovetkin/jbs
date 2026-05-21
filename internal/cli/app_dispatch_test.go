@@ -61,7 +61,7 @@ func TestCommandHelpersReportLoadFailures(t *testing.T) {
 			return statusBenchmark(missing, "", stdout, stderr)
 		}},
 		{name: "tree", run: func(stdout, stderr *bytes.Buffer) int {
-			return treeBenchmark(missing, "", stdout, stderr)
+			return treeBenchmark(missing, "", 0, stdout, stderr)
 		}},
 		{name: "ls_analyse", run: func(stdout, stderr *bytes.Buffer) int {
 			return listAnalyseBenchmark(missing, "", stdout, stderr)

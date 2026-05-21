@@ -322,6 +322,30 @@ func TestParseFlagsDefaultRunCases(t *testing.T) {
 			wantTree:   true,
 		},
 		{
+			name:       "tree_limit_long",
+			args:       []string{"tree", "--limit", "1", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantTree:   true,
+			wantLimit:  1,
+		},
+		{
+			name:       "tree_limit_long_equals",
+			args:       []string{"tree", "--limit=2", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantTree:   true,
+			wantLimit:  2,
+		},
+		{
+			name:       "tree_limit_short",
+			args:       []string{"tree", "-l", "3", "input.jbs"},
+			wantInput:  "input.jbs",
+			wantOutput: "-",
+			wantTree:   true,
+			wantLimit:  3,
+		},
+		{
 			name:          "tree_benchmark_short",
 			args:          []string{"tree", "-b", "small", "input.jbs"},
 			wantInput:     "input.jbs",
@@ -754,6 +778,7 @@ func TestParseFlagsParamModes(t *testing.T) {
 		wantOutput    string
 		wantInput     string
 		wantBenchmark string
+		wantLimit     int
 		wantParamMode bool
 	}{
 		{
@@ -815,6 +840,34 @@ func TestParseFlagsParamModes(t *testing.T) {
 			wantBenchmark: "small",
 			wantParamMode: true,
 		},
+		{
+			name:          "limit_long",
+			args:          []string{"param", "--limit", "1", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantLimit:     1,
+			wantParamMode: true,
+		},
+		{
+			name:          "limit_long_equals",
+			args:          []string{"param", "--limit=2", "input.jbs"},
+			wantType:      "pretty",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantLimit:     2,
+			wantParamMode: true,
+		},
+		{
+			name:          "limit_short_with_benchmark_and_csv",
+			args:          []string{"param", "-t", "csv", "-l", "3", "-b", "small", "input.jbs"},
+			wantType:      "csv",
+			wantOutput:    "-",
+			wantInput:     "input.jbs",
+			wantBenchmark: "small",
+			wantLimit:     3,
+			wantParamMode: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -835,6 +888,9 @@ func TestParseFlagsParamModes(t *testing.T) {
 			}
 			if f.Benchmark != tc.wantBenchmark {
 				t.Fatalf("unexpected benchmark: got=%q want=%q", f.Benchmark, tc.wantBenchmark)
+			}
+			if f.Limit != tc.wantLimit {
+				t.Fatalf("unexpected limit: got=%d want=%d", f.Limit, tc.wantLimit)
 			}
 		})
 	}
@@ -865,6 +921,10 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "param_duplicate_benchmark", args: []string{"param", "-b", "small", "--benchmark", "large", "input.jbs"}},
 		{name: "param_benchmark_missing_value", args: []string{"param", "-b"}},
 		{name: "param_benchmark_empty_value", args: []string{"param", "--benchmark=", "input.jbs"}},
+		{name: "param_limit_missing_value", args: []string{"param", "--limit"}},
+		{name: "param_limit_non_integer", args: []string{"param", "--limit", "nope", "input.jbs"}},
+		{name: "param_limit_zero", args: []string{"param", "--limit", "0", "input.jbs"}},
+		{name: "param_duplicate_limit", args: []string{"param", "--limit", "1", "--limit", "2", "input.jbs"}},
 		{name: "old_printparam_command_removed", args: []string{"printparam", "input.jbs"}},
 		{name: "top_level_output_removed", args: []string{"-o", "out.yaml", "input.jbs"}},
 		{name: "run_duplicate_dry_run", args: []string{"run", "-n", "--dry-run", "input.jbs"}},
@@ -912,7 +972,10 @@ func TestParseFlagsErrors(t *testing.T) {
 		{name: "tree_benchmark_missing_value", args: []string{"tree", "-b"}},
 		{name: "tree_rejects_option", args: []string{"tree", "-o", "out.yaml", "input.jbs"}},
 		{name: "tree_rejects_weak", args: []string{"tree", "--weak", "input.jbs"}},
-		{name: "tree_rejects_limit", args: []string{"tree", "-l", "1", "input.jbs"}},
+		{name: "tree_limit_missing_value", args: []string{"tree", "--limit"}},
+		{name: "tree_limit_zero", args: []string{"tree", "--limit", "0", "input.jbs"}},
+		{name: "tree_limit_negative", args: []string{"tree", "--limit", "-1", "input.jbs"}},
+		{name: "tree_duplicate_limit", args: []string{"tree", "--limit", "1", "--limit", "2", "input.jbs"}},
 		{name: "tree_extra_argument", args: []string{"tree", "input.jbs", "extra"}},
 		{name: "ls_analyse_missing_input", args: []string{"ls-analyse"}},
 		{name: "ls_analyse_duplicate_benchmark", args: []string{"ls-analyse", "-b", "small", "-b", "large", "input.jbs"}},

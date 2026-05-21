@@ -6,6 +6,8 @@ a run directory or starting workpackages.
 ```bash
 jbs param input.jbs
 jbs param -b small input.jbs
+jbs param --limit 1 input.jbs
+jbs param -b small --limit 1 input.jbs
 jbs param -t csv input.jbs
 jbs param -o params.txt input.jbs
 ```
@@ -15,6 +17,7 @@ Options:
 - `-t pretty` or `--type pretty` prints the default aligned table.
 - `-t csv` or `--type csv` prints CSV output.
 - `-o <path>` or `--output <path>` writes output to a file.
+- `-l <n>` or `--limit <n>` prints parameters only for the workpackages that would be created by `jbs run --limit <n>`.
 - `-b <name>` or `--benchmark <name>` prints parameters for one configured benchmark component.
 
 The default output type is `pretty`, and the default output path is stdout.

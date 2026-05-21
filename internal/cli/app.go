@@ -102,7 +102,7 @@ func runParsed(flags Flags, stdout, stderr io.Writer) int {
 		return statusBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
 	}
 	if flags.Tree {
-		return treeBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
+		return treeBenchmark(flags.Input, flags.Benchmark, flags.Limit, stdout, stderr)
 	}
 	if flags.LsAnalyse {
 		return listAnalyseBenchmark(flags.Input, flags.Benchmark, stdout, stderr)
@@ -293,7 +293,7 @@ func statusBenchmark(path string, benchmark string, stdout, stderr io.Writer) in
 	return 0
 }
 
-func treeBenchmark(path string, benchmark string, stdout, stderr io.Writer) int {
+func treeBenchmark(path string, benchmark string, limit int, stdout, stderr io.Writer) int {
 	bundle, ok := analyzeCommandInput(path, stderr)
 	if !ok {
 		return 1
@@ -304,6 +304,7 @@ func treeBenchmark(path string, benchmark string, stdout, stderr io.Writer) int 
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
 		Benchmark:   benchmark,
+		Limit:       limit,
 		Stdout:      stdout,
 		Stderr:      stderr,
 	}); err != nil {
@@ -412,6 +413,7 @@ func runParam(flags Flags, stdout, stderr io.Writer) int {
 		Sources:     bundle.Sources,
 		ProgramFile: bundle.Program.File,
 		Benchmark:   flags.Benchmark,
+		Limit:       flags.Limit,
 	}, diags)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

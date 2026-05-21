@@ -1500,6 +1500,51 @@ func TestTreeCommandPrintsPlannedDependencyTreeWithoutCreatingRunDir(t *testing.
 	}
 }
 
+func TestTreeCommandSupportsLimit(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[101, 202, 303])`,
+		`do prep with cases {`,
+		`echo prep`,
+		`}`,
+		`do run after prep {`,
+		`echo run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"tree", "--limit", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tree failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"└── prep", "└── run", "total:", "2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("limited tree output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "6") {
+		t.Fatalf("limited tree output still appears to show unbounded total:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "bench")); !os.IsNotExist(err) {
+		t.Fatalf("tree should not create benchmark directory, stat error: %v", err)
+	}
+}
+
 func TestTreeCommandSupportsBenchmarkSelection(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1553,6 +1598,50 @@ func TestTreeCommandSupportsDoOnlyBenchmarkSelection(t *testing.T) {
 	}
 }
 
+func TestParamCommandSupportsLimit(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`cases = table(x=[101, 202, 303])`,
+		`do prep with cases {`,
+		`echo prep`,
+		`}`,
+		`do run after prep {`,
+		`echo run`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "--limit", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("param failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"cases.x", "101", "do: prep", "do: run"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("limited param output missing %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"202", "303"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("limited param output included pruned value %q:\n%s", unwanted, out)
+		}
+	}
+}
+
 func TestParamCommandSupportsBenchmarkSelection(t *testing.T) {
 	cwd := t.TempDir()
 	oldwd, err := os.Getwd()
@@ -1581,6 +1670,59 @@ func TestParamCommandSupportsBenchmarkSelection(t *testing.T) {
 	for _, unwanted := range []string{"run_large", "unrelated", "large_cases.l"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatalf("selected param output included %q:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestParamCommandConfiguredBenchmarksSupportLimit(t *testing.T) {
+	cwd := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	src := strings.Join([]string{
+		`jbs_name = "bench"`,
+		`jbs_benchmarks = {"small": "run_small", "large": "run_large"}`,
+		`cases = table(x=[101, 202, 303])`,
+		`small_cases = table(s=[11])`,
+		`large_cases = table(l=[22])`,
+		`do prep with cases {`,
+		`echo "$x"`,
+		`}`,
+		`do run_small after prep with small_cases {`,
+		`echo "$x $s"`,
+		`}`,
+		`do run_large after prep with large_cases {`,
+		`echo "$x $l"`,
+		`}`,
+		``,
+	}, "\n")
+	input := filepath.Join(cwd, "bench.jbs")
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"param", "-t", "csv", "--limit", "1", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("param failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "benchmark,") {
+		t.Fatalf("csv param output should start with benchmark column:\n%s", out)
+	}
+	for _, want := range []string{"small", "large", "run_small", "run_large", "101"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("configured limited param output missing %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"202", "303"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("configured limited param output included pruned value %q:\n%s", unwanted, out)
 		}
 	}
 }

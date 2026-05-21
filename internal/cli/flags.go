@@ -124,13 +124,13 @@ func parseFlagsWithoutProfileOptions(args []string) (Flags, error) {
 		return parseContinueArgs(args[1:])
 	}
 	if args[0] == "status" {
-		return parseBenchmarkInputArgs(args[1:], "status")
+		return parseBenchmarkInputArgs(args[1:], "status", false)
 	}
 	if args[0] == "tree" {
-		return parseBenchmarkInputArgs(args[1:], "tree")
+		return parseBenchmarkInputArgs(args[1:], "tree", true)
 	}
 	if args[0] == "ls-analyse" {
-		return parseBenchmarkInputArgs(args[1:], "ls-analyse")
+		return parseBenchmarkInputArgs(args[1:], "ls-analyse", false)
 	}
 	if args[0] == "archive" {
 		if len(args) == 2 && !strings.HasPrefix(args[1], "-") {
@@ -269,10 +269,10 @@ Wait for files:
   jbs fwait [-e] <path> [path...]
 
 Inspect job dependencies:
-  jbs tree <file.jbs> [-b|--benchmark <name>]
+  jbs tree <file.jbs> [-l|--limit <n>] [-b|--benchmark <name>]
 
 Inspect step parameter expansion:
-  jbs param [-t pretty|csv] [-o <outputfile>] [-b|--benchmark <name>] <file.jbs>
+  jbs param [-t pretty|csv] [-o <outputfile>] [-l|--limit <n>] [-b|--benchmark <name>] <file.jbs>
   defaults: -t pretty, -o - (stdout)
 
 Interactive mode:
@@ -284,6 +284,14 @@ func parseParamArgs(args []string) (Flags, error) {
 	cfg := Flags{Param: true, Output: "-", PrintType: "pretty"}
 	for i := 0; i < len(args); i++ {
 		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, paramUsageMessage())
+		if err != nil {
+			return Flags{}, err
+		}
+		if consumed {
+			i = next
+			continue
+		}
+		next, consumed, err = consumeRunLimitOption(&cfg, args, i, paramUsageMessage())
 		if err != nil {
 			return Flags{}, err
 		}
@@ -334,7 +342,7 @@ func parseParamArgs(args []string) (Flags, error) {
 }
 
 func paramUsageMessage() string {
-	return "usage: jbs param [-t pretty|csv] [-o <outputfile>] [-b|--benchmark <name>] <file.jbs>"
+	return "usage: jbs param [-t pretty|csv] [-o <outputfile>] [-l|--limit <n>] [-b|--benchmark <name>] <file.jbs>"
 }
 
 func parseFWaitArgs(args []string) (Flags, error) {
@@ -461,7 +469,7 @@ func continueUsageMessage() string {
 	return "usage: jbs continue [-w|--weak] [-b|--benchmark <name>] <file.jbs>"
 }
 
-func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
+func parseBenchmarkInputArgs(args []string, command string, allowLimit bool) (Flags, error) {
 	cfg := Flags{Output: "-"}
 	switch command {
 	case "status":
@@ -473,7 +481,7 @@ func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
 	default:
 		return Flags{}, UsageError{Message: fmt.Sprintf("unknown command: %s", command)}
 	}
-	usage := benchmarkInputUsageMessage(command)
+	usage := benchmarkInputUsageMessage(command, allowLimit)
 	for i := 0; i < len(args); i++ {
 		next, consumed, err := consumeBenchmarkOption(&cfg, args, i, usage)
 		if err != nil {
@@ -482,6 +490,16 @@ func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
 		if consumed {
 			i = next
 			continue
+		}
+		if allowLimit {
+			next, consumed, err = consumeRunLimitOption(&cfg, args, i, usage)
+			if err != nil {
+				return Flags{}, err
+			}
+			if consumed {
+				i = next
+				continue
+			}
 		}
 
 		arg := args[i]
@@ -501,7 +519,10 @@ func parseBenchmarkInputArgs(args []string, command string) (Flags, error) {
 	return cfg, nil
 }
 
-func benchmarkInputUsageMessage(command string) string {
+func benchmarkInputUsageMessage(command string, allowLimit bool) string {
+	if command == "tree" && allowLimit {
+		return "usage: jbs tree [-l|--limit <n>] [-b|--benchmark <name>] <file.jbs>"
+	}
 	return fmt.Sprintf("usage: jbs %s [-b|--benchmark <name>] <file.jbs|benchmark-dir>", command)
 }
 

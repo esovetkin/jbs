@@ -118,6 +118,11 @@ func BuildParameterPlanSuite(opts Options, diags *diag.Diagnostics) (ParameterPl
 		if err != nil {
 			return ParameterPlanSuite{}, err
 		}
+		analyses := selectedAnalysesForComponent(inputs.Analyses, sel)
+		wp, err = applyWorkLimit(wp, analyses, inputs.Limit)
+		if err != nil {
+			return ParameterPlanSuite{}, err
+		}
 		plans = append(plans, ParameterPlan{
 			ComponentName: sel.ComponentName,
 			WorkPlan:      wp,
@@ -317,15 +322,9 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		return runtimePlan{}, err
 	}
 	analyses := selectedAnalysesForComponent(inputs.Analyses, sel)
-	if inputs.Limit > 0 {
-		targets := limitTargetSteps(wp, analyses)
-		wp, err = workplan.LimitBranches(wp, workplan.LimitOptions{
-			Limit:       inputs.Limit,
-			TargetSteps: targets,
-		})
-		if err != nil {
-			return runtimePlan{}, err
-		}
+	wp, err = applyWorkLimit(wp, analyses, inputs.Limit)
+	if err != nil {
+		return runtimePlan{}, err
 	}
 
 	usedDirs := make(map[string]struct{})
@@ -421,6 +420,16 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		AnalyseDatabase:     inputs.AnalyseDatabase,
 		AnalyseDatabasePath: inputs.AnalyseDatabasePath,
 	}, nil
+}
+
+func applyWorkLimit(wp workplan.Plan, analyses map[string]AnalysePlan, limit int) (workplan.Plan, error) {
+	if limit <= 0 {
+		return wp, nil
+	}
+	return workplan.LimitBranches(wp, workplan.LimitOptions{
+		Limit:       limit,
+		TargetSteps: limitTargetSteps(wp, analyses),
+	})
 }
 
 func limitTargetSteps(wp workplan.Plan, analyses map[string]AnalysePlan) []string {
