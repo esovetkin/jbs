@@ -336,6 +336,32 @@ func TestReadTopLevelStatementAtEOF(t *testing.T) {
 	}
 }
 
+func TestReadTopLevelStatementConsumesOneRuneOnZeroProgressRecovery(t *testing.T) {
+	p := newTopLevelParser("}", &diag.Diagnostics{})
+	stmt, _ := p.readTopLevelStatement()
+	if stmt != "}" {
+		t.Fatalf("statement = %q, want %q", stmt, "}")
+	}
+	if !p.eof() {
+		t.Fatalf("expected parser to advance past stray brace")
+	}
+}
+
+func TestReadTopLevelStatementLeavesUnmatchedBraceForNextStatement(t *testing.T) {
+	p := newTopLevelParser("x = 1 } y\n", &diag.Diagnostics{})
+	stmt, _ := p.readTopLevelStatement()
+	if stmt != "x = 1 " {
+		t.Fatalf("first statement = %q, want %q", stmt, "x = 1 ")
+	}
+	if got := p.peek(); got != '}' {
+		t.Fatalf("expected parser to stop before unmatched brace, got %q", got)
+	}
+	stmt, _ = p.readTopLevelStatement()
+	if stmt != "}" {
+		t.Fatalf("second statement = %q, want %q", stmt, "}")
+	}
+}
+
 func TestParseUseStmtSelectiveFromPath(t *testing.T) {
 	stmt, diags := parseUseDirect(`use helper, tool from "./lib.jbs"` + "\n")
 	if diags.HasErrors() {

@@ -1,11 +1,34 @@
 package parser
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 )
+
+func parseProgramWithTimeout(t *testing.T, src string) (ast.Program, *diag.Diagnostics) {
+	t.Helper()
+	type parseResult struct {
+		prog  ast.Program
+		diags *diag.Diagnostics
+	}
+	done := make(chan parseResult, 1)
+	go func() {
+		diags := &diag.Diagnostics{}
+		prog := Parse("timeout.jbs", src, diags)
+		done <- parseResult{prog: prog, diags: diags}
+	}()
+	select {
+	case result := <-done:
+		return result.prog, result.diags
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("parser did not return for %q", src)
+		return ast.Program{}, nil
+	}
+}
 
 func TestParseProgramDispatchAndSpan(t *testing.T) {
 	diags := &diag.Diagnostics{}
@@ -48,6 +71,53 @@ func TestParseProgramReportsExpressionErrorsForMalformedTopLevelInput(t *testing
 	}
 	if !hasDiag(diags, "E061") {
 		t.Fatalf("expected E061 for trailing tokens in malformed expr line, got: %s", diags.String())
+	}
+}
+
+func TestParseProgramReportsStrayTopLevelClosingBrace(t *testing.T) {
+	prog, diags := parseProgramWithTimeout(t, "}\n")
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one recovery statement, got %#v", prog.Stmts)
+	}
+	if !hasDiag(diags, "E058") || !strings.Contains(diags.String(), "unexpected closing brace") {
+		t.Fatalf("expected unexpected closing brace diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestParseProgramRecoversAfterStrayTopLevelClosingBrace(t *testing.T) {
+	prog, diags := parseProgramWithTimeout(t, "x = 1\n}\ny = 2\n")
+	if !strings.Contains(diags.String(), "unexpected closing brace") {
+		t.Fatalf("expected unexpected closing brace diagnostic, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 3 {
+		t.Fatalf("expected x assignment, recovery statement, and y assignment, got %#v", prog.Stmts)
+	}
+	first, ok := prog.Stmts[0].(ast.GlobalAssign)
+	if !ok || first.Name != "x" {
+		t.Fatalf("first statement = %#v, want x assignment", prog.Stmts[0])
+	}
+	third, ok := prog.Stmts[2].(ast.GlobalAssign)
+	if !ok || third.Name != "y" {
+		t.Fatalf("third statement = %#v, want y assignment", prog.Stmts[2])
+	}
+}
+
+func TestParseProgramHandlesNestedAndExtraClosingBraces(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	prog := Parse("nested.jbs", "if true {\n  x = 1\n}\n", diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics for valid nested block: %s", diags.String())
+	}
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one if statement, got %#v", prog.Stmts)
+	}
+
+	prog, diags = parseProgramWithTimeout(t, "if true {\n  x = 1\n}}\n")
+	if !strings.Contains(diags.String(), "unexpected closing brace") {
+		t.Fatalf("expected extra closing brace diagnostic, got: %s", diags.String())
+	}
+	if len(prog.Stmts) != 2 {
+		t.Fatalf("expected if statement plus recovery statement, got %#v", prog.Stmts)
 	}
 }
 

@@ -56,6 +56,26 @@ func TestRunCheckReportsParserErrors(t *testing.T) {
 	}
 }
 
+func TestRunCheckReportsStrayClosingBrace(t *testing.T) {
+	dir := t.TempDir()
+	chdirCLITest(t, dir)
+	input := filepath.Join(dir, "stray_close.jbs")
+	if err := os.WriteFile(input, []byte("}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-c", input}, &stdout, &stderr); code != 1 {
+		t.Fatalf("expected parser failure, got code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected no stdout, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "unexpected closing brace") {
+		t.Fatalf("expected stray brace diagnostic, got %q", stderr.String())
+	}
+}
+
 func TestRunCheckReportsReadFailure(t *testing.T) {
 	dir := t.TempDir()
 	chdirCLITest(t, dir)

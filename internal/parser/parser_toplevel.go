@@ -33,8 +33,12 @@ func (p *Parser) parseStmtList(ctx topLevelParseContext, stopAtRBrace bool) []as
 		if p.eof() {
 			break
 		}
-		if stopAtRBrace && p.peek() == '}' {
-			break
+		if p.peek() == '}' {
+			if stopAtRBrace {
+				break
+			}
+			stmts = append(stmts, p.parseUnexpectedClosingBrace())
+			continue
 		}
 		stmts = append(stmts, p.parseTopLevelStmt(ctx))
 	}
@@ -85,6 +89,20 @@ func (p *Parser) parseTopLevelStmt(ctx topLevelParseContext) ast.Stmt {
 		}
 	}
 	return p.parseTopLevelExprStmt(start)
+}
+
+func (p *Parser) parseUnexpectedClosingBrace() ast.ExprStmt {
+	start := p.pos()
+	p.advance()
+	end := p.pos()
+	span := diag.NewSpan(p.file, start, end)
+	p.diags.AddError(
+		diag.CodeE058,
+		"unexpected closing brace",
+		span,
+		"remove the unmatched '}' or add a matching opening '{'",
+	)
+	return ast.ExprStmt{Span: span}
 }
 
 func (p *Parser) parseUnexpectedBranchKeyword(start diag.Position, word string) ast.ExprStmt {
@@ -781,6 +799,12 @@ func (p *Parser) readTopLevelStatement() (string, diag.Position) {
 	startPos := p.pos()
 	startOff := p.off
 	stmtEnd, nextOff := scanTopLevelStatementOffsets(p.src, startOff)
+	if nextOff <= startOff && startOff < len(p.src) {
+		nextOff = startOff + 1
+		if stmtEnd < nextOff {
+			stmtEnd = nextOff
+		}
+	}
 	for p.off < nextOff {
 		p.advance()
 	}
