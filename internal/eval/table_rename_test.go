@@ -56,12 +56,29 @@ func TestRenameMultipleTableColumns(t *testing.T) {
 	}
 }
 
-func TestRenameDottedColumnViaKeywordSpread(t *testing.T) {
+func TestRenameRejectsDottedReplacementName(t *testing.T) {
+	cases := renameTestTable()
+	mapping := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: String("a.b")}})
+	diags := &diag.Diagnostics{}
+
+	got := EvalExprWithOptions(
+		callExpr(ident("rename"), posArg(ident("cases")), kwSpreadArg(ident("mapping"))),
+		map[string]Value{"cases": cases, "mapping": mapping},
+		diags,
+		ExprOptions{},
+	)
+
+	if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+		t.Fatalf("expected invalid replacement diagnostic, got value=%#v diags=%s", got, diags.String())
+	}
+}
+
+func TestRenameRepairsLegacyDottedOldNameViaKeywordSpread(t *testing.T) {
 	cases := CombValue(&Comb{
 		Order: []string{"old.col"},
 		Rows:  []Row{{Values: map[string]Cell{"old.col": {Value: Int(1)}}}},
 	})
-	mapping := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "old.col"}, Value: String("new.col")}})
+	mapping := DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "old.col"}, Value: String("new_col")}})
 	diags := &diag.Diagnostics{}
 
 	got := EvalExprWithOptions(
@@ -74,8 +91,8 @@ func TestRenameDottedColumnViaKeywordSpread(t *testing.T) {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
-	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"new.col"}) || !Equal(got.C.Rows[0].Values["new.col"].Value, Int(1)) {
-		t.Fatalf("unexpected dotted rename result: %#v", got)
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"new_col"}) || !Equal(got.C.Rows[0].Values["new_col"].Value, Int(1)) {
+		t.Fatalf("unexpected legacy rename result: %#v", got)
 	}
 }
 

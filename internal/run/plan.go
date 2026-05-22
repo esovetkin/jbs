@@ -13,6 +13,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
 )
 
@@ -378,7 +379,7 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 	for _, work := range wp.Work {
 		values := make(map[string]string, len(work.Values))
 		for _, name := range slices.Sorted(maps.Keys(work.Values)) {
-			if !shellName.MatchString(name) {
+			if !shellvar.ValidName(name) {
 				return runtimePlan{}, fmt.Errorf("variable %q cannot be emitted as a shell assignment", name)
 			}
 			values[name] = work.Values[name].String()

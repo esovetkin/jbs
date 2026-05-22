@@ -107,7 +107,7 @@ func tableRenameEntries(tableValue Value, mapping Value, mapSpan diag.Span, diag
 			return nil, false
 		}
 		if !isValidCombColumnName(newValue.S) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("rename() invalid new column name '%s'", newValue.S), mapSpan, "use valid table column names such as x, system_name, or ns.value")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("rename() invalid new column name '%s'", newValue.S), mapSpan, "use shell variable names such as x, system_name, or _tmp")
 			return nil, false
 		}
 

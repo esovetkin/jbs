@@ -5,6 +5,7 @@ import (
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 )
 
 type tableColumnInput struct {
@@ -37,7 +38,7 @@ func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.D
 			return Null()
 		}
 		if !isValidCombColumnName(arg.Name) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid column name '%s'", arg.Name), arg.Span, "use valid table column names such as x, system_name, or ns.value")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid column name '%s'", arg.Name), arg.Span, "use shell variable names such as x, system_name, or _tmp")
 			return Null()
 		}
 		seen[arg.Name] = struct{}{}
@@ -120,11 +121,11 @@ func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 
 func tableColumnNameFromDictKey(key DictKey, at diag.Span, diags *diag.Diagnostics) (string, bool) {
 	if key.Kind != DictKeyString {
-		diags.AddError(diag.CodeE106, "table() dictionary keys must be strings", at, "use string keys that are valid table column names")
+		diags.AddError(diag.CodeE106, "table() dictionary keys must be strings", at, "use string keys that are valid shell variable names")
 		return "", false
 	}
 	if !isValidCombColumnName(key.S) {
-		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid dictionary key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid dictionary key '%s'", key.S), at, "use shell variable names such as x, system_name, or _tmp")
 		return "", false
 	}
 	return key.S, true
@@ -229,11 +230,11 @@ func tableRowFromDictValue(value Value, rowIndex int, order []string, expected m
 
 func rowTableColumnName(key DictKey, rowIndex int, at diag.Span, diags *diag.Diagnostics) (string, bool) {
 	if key.Kind != DictKeyString {
-		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d keys must be strings", rowIndex+1), at, "use string keys that are valid table column names")
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d keys must be strings", rowIndex+1), at, "use string keys that are valid shell variable names")
 		return "", false
 	}
 	if !isValidCombColumnName(key.S) {
-		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid row key '%s'", key.S), at, "use valid table column names such as x, system_name, or ns.value")
+		diags.AddError(diag.CodeE106, fmt.Sprintf("table() invalid row key '%s'", key.S), at, "use shell variable names such as x, system_name, or _tmp")
 		return "", false
 	}
 	return key.S, true
@@ -465,17 +466,11 @@ func combineTableOrders(name string, rawArgs []ast.CallArg, tables []Value, diag
 }
 
 func selectorName(expr ast.Expr) (string, bool) {
-	switch e := expr.(type) {
-	case ast.IdentExpr:
-		return e.Name, e.Name != ""
-	case ast.QualifiedIdentExpr:
-		if e.Namespace == "" || e.Name == "" {
-			return "", false
-		}
-		return e.Namespace + "." + e.Name, true
-	default:
+	ident, ok := expr.(ast.IdentExpr)
+	if !ok || !shellvar.ValidName(ident.Name) {
 		return "", false
 	}
+	return ident.Name, true
 }
 
 func tableValueFromOrderedRows(order []string, rows []Row) Value {

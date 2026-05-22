@@ -361,6 +361,22 @@ func TestEvalTableBuiltinsValidateConstructionAndSelection(t *testing.T) {
 		got = evalSelectCall(
 			[]ast.CallArg{
 				{Expr: ast.IdentExpr{Name: "table", Span: span}, Span: span},
+				{Expr: ast.QualifiedIdentExpr{Namespace: "ns", Name: "value", Span: span}, Span: span},
+			},
+			map[string]Value{"table": table},
+			span,
+			diags,
+			ExprOptions{},
+			&evalCtx{overflowWarned: map[string]struct{}{}},
+		)
+		if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+			t.Fatalf("expected select() qualified-selector error, got value=%#v diags=%s", got, diags.String())
+		}
+
+		diags = &diag.Diagnostics{}
+		got = evalSelectCall(
+			[]ast.CallArg{
+				{Expr: ast.IdentExpr{Name: "table", Span: span}, Span: span},
 				{Expr: ast.IdentExpr{Name: "missing", Span: span}, Span: span},
 			},
 			map[string]Value{"table": table},

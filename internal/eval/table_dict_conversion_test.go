@@ -111,6 +111,59 @@ func TestTableKeywordSpreadColumns(t *testing.T) {
 	}
 }
 
+func TestTableRejectsDottedColumnNames(t *testing.T) {
+	tests := []struct {
+		name string
+		expr ast.Expr
+		env  map[string]Value
+	}{
+		{
+			name: "named",
+			expr: callExpr(ident("table"), namedArg("a.b", intExpr(1))),
+			env:  nil,
+		},
+		{
+			name: "keyword spread",
+			expr: callExpr(ident("table"), kwSpreadArg(ident("cols"))),
+			env: map[string]Value{
+				"cols": DictValue([]DictEntry{
+					{Key: DictKey{Kind: DictKeyString, S: "a.b"}, Value: List([]Value{Int(1)})},
+				}),
+			},
+		},
+		{
+			name: "dictionary",
+			expr: callExpr(ident("table"), posArg(ident("cols"))),
+			env: map[string]Value{
+				"cols": DictValue([]DictEntry{
+					{Key: DictKey{Kind: DictKeyString, S: "a.b"}, Value: List([]Value{Int(1)})},
+				}),
+			},
+		},
+		{
+			name: "row dictionary",
+			expr: callExpr(ident("table"), posArg(ident("rows"))),
+			env: map[string]Value{
+				"rows": List([]Value{
+					DictValue([]DictEntry{
+						{Key: DictKey{Kind: DictKeyString, S: "a.b"}, Value: Int(1)},
+					}),
+				}),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{})
+			if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+				t.Fatalf("expected invalid-column diagnostic, got value=%#v diags=%s", got, diags.String())
+			}
+		})
+	}
+}
+
 func TestTableFromRowDictListConversion(t *testing.T) {
 	rows := List([]Value{
 		DictValue([]DictEntry{

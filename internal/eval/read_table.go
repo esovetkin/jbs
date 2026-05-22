@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 )
 
 type FileAccess struct {
@@ -171,7 +171,7 @@ func validateDelimitedHeader(header []string, at diag.Span, diags *diag.Diagnost
 			continue
 		}
 		if !isValidCombColumnName(name) {
-			diags.AddError(diag.CodeE106, fmt.Sprintf("read_csv() invalid table column name '%s'", name), at, "use identifier-like names such as x, system_name, or ns.value")
+			diags.AddError(diag.CodeE106, fmt.Sprintf("read_csv() invalid table column name '%s'", name), at, "use shell variable names such as x, system_name, or _tmp")
 			ok = false
 			continue
 		}
@@ -186,37 +186,7 @@ func validateDelimitedHeader(header []string, at diag.Span, diags *diag.Diagnost
 }
 
 func isValidCombColumnName(name string) bool {
-	if name == "" {
-		return false
-	}
-	parts := strings.Split(name, ".")
-	if len(parts) == 0 {
-		return false
-	}
-	for _, part := range parts {
-		if !isValidIdentifier(part) {
-			return false
-		}
-	}
-	return true
-}
-
-func isValidIdentifier(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i, r := range s {
-		if i == 0 {
-			if !(unicode.IsLetter(r) || r == '_') {
-				return false
-			}
-			continue
-		}
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
-			return false
-		}
-	}
-	return true
+	return shellvar.ValidName(name)
 }
 
 func inferDelimitedColumnKinds(rows [][]string, width int) []tableColumnKind {

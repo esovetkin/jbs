@@ -4,12 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 )
-
-var shellName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type runScriptSpec struct {
 	RunDir    string

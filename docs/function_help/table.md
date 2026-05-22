@@ -11,7 +11,7 @@
 - Shorter non-empty columns are cyclically broadcast to the longest column.
 - Non-divisible broadcasts emit `W101`.
 - Empty columns can only be used when all columns are empty.
-- Dictionary keys must be valid string column names such as `x`, `system_name`, or `ns.value`.
+- Dictionary keys must be valid shell variable names such as `x`, `system_name`, or `_tmp`.
 - Row dictionaries must all have the same key set.
 - Row dictionary values must be scalar: int, float, string, or bool.
 - `table([])` creates an empty table with no columns.

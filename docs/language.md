@@ -240,14 +240,14 @@ table(dict(x = [1, 2], y = ["a", "b"]))
 ```
 
 - keys must be strings
-- string keys must be valid table column names
+- string keys must be valid shell variable names, such as `x`, `system_name`, or `_tmp`
 - values may be scalars, lists, or tuples
 - shorter non-empty columns are cyclically broadcast
 - empty columns are allowed only if all columns are empty
 
 ### Tables
 
-Tables are JBS's main parameter-space data type. A table is an ordered set of named columns, where each row represents one parameter combination. Because column names are used as identifiers in shell scripts, table column names must be valid variable identifiers.
+Tables are JBS's main parameter-space data type. A table is an ordered set of named columns, where each row represents one parameter combination. Because column names are exported into shell scripts, table column names must be valid shell variable names such as `x`, `system_name`, or `_tmp`.
 
 The main constructor is `table(...)`, also available as `t(...)`.
 
@@ -290,7 +290,7 @@ Reading CSV/TSV tables:
 
 ```jbs
 # The first row is the header.
-# Column names must be valid table column names.
+# Column names must be valid shell variable names.
 # JBS infers column types as bool, int, float, or string.
 cases = read_csv("cases.csv")
 ```

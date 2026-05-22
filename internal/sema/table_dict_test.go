@@ -303,6 +303,22 @@ func TestAnalyzeRejectsInvalidTableFromRowDictList(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRejectsDottedTableColumnBeforeRunMaterialization(t *testing.T) {
+	src := `
+cases = table(**{"a.b": [1]})
+
+do s with cases {
+    echo "$a_b"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("in.jbs", src, diags)
+	_ = Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if countDiagCode(diags, "E106") == 0 {
+		t.Fatalf("expected invalid table column diagnostic, got: %s", diags.String())
+	}
+}
+
 func TestAnalyzeDoWithListOfDictsKeepsListImportSemantics(t *testing.T) {
 	src := `
 rows = [dict(x = 1), dict(x = 2)]

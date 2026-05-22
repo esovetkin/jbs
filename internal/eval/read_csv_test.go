@@ -49,8 +49,10 @@ func TestIsValidCombColumnName(t *testing.T) {
 	}{
 		{name: "simple", in: "x", want: true},
 		{name: "underscored", in: "system_name", want: true},
-		{name: "qualified", in: "ns.value", want: true},
-		{name: "nested qualified", in: "outer.inner.value", want: true},
+		{name: "underscore leading", in: "_tmp", want: true},
+		{name: "digit suffix", in: "x1", want: true},
+		{name: "qualified", in: "ns.value", want: false},
+		{name: "nested qualified", in: "outer.inner.value", want: false},
 		{name: "empty", in: "", want: false},
 		{name: "leading digit", in: "1x", want: false},
 		{name: "dash", in: "x-y", want: false},
@@ -170,6 +172,7 @@ func TestEvalReadCSVCallErrors(t *testing.T) {
 	}
 	writeFile("dup.csv", "x,x\n1,2\n")
 	writeFile("invalid.csv", "x-y,z\n1,2\n")
+	writeFile("dotted.csv", "a.b,x\n1,2\n")
 	writeFile("empty.csv", ",z\n1,2\n")
 	writeFile("width.csv", "x,y\n1,2\n3\n")
 
@@ -219,6 +222,12 @@ func TestEvalReadCSVCallErrors(t *testing.T) {
 		{
 			name:     "invalid header",
 			expr:     readCSVCallExpr(span, ast.StringExpr{Value: "./invalid.csv", Span: span}),
+			opts:     ExprOptions{Context: EvalCtxBindingAssign, Files: &FileAccess{BaseDir: cwd}},
+			wantCode: "E106",
+		},
+		{
+			name:     "dotted header",
+			expr:     readCSVCallExpr(span, ast.StringExpr{Value: "./dotted.csv", Span: span}),
 			opts:     ExprOptions{Context: EvalCtxBindingAssign, Files: &FileAccess{BaseDir: cwd}},
 			wantCode: "E106",
 		},
