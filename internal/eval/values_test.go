@@ -33,6 +33,14 @@ func TestEqualListAndTupleAreDifferentKinds(t *testing.T) {
 }
 
 func TestEqual(t *testing.T) {
+	dictAB := DictValue([]DictEntry{
+		{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+		{Key: DictKey{Kind: DictKeyString, S: "b"}, Value: List([]Value{String("x")})},
+	})
+	dictBA := DictValue([]DictEntry{
+		{Key: DictKey{Kind: DictKeyString, S: "b"}, Value: List([]Value{String("x")})},
+		{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+	})
 	tests := []struct {
 		name string
 		a    Value
@@ -112,6 +120,44 @@ func TestEqual(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "dict equal independent of insertion order",
+			a:    dictAB,
+			b:    dictBA,
+			want: true,
+		},
+		{
+			name: "dict missing key differs",
+			a:    dictAB,
+			b: DictValue([]DictEntry{
+				{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+			}),
+			want: false,
+		},
+		{
+			name: "dict different key with same length differs",
+			a:    dictAB,
+			b: DictValue([]DictEntry{
+				{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+				{Key: DictKey{Kind: DictKeyString, S: "c"}, Value: List([]Value{String("x")})},
+			}),
+			want: false,
+		},
+		{
+			name: "dict nested value differs",
+			a:    dictAB,
+			b: DictValue([]DictEntry{
+				{Key: DictKey{Kind: DictKeyString, S: "a"}, Value: Int(1)},
+				{Key: DictKey{Kind: DictKeyString, S: "b"}, Value: List([]Value{String("y")})},
+			}),
+			want: false,
+		},
+		{
+			name: "nil dict payload equals empty dict",
+			a:    Value{Kind: KindDict},
+			b:    DictValue(nil),
+			want: true,
+		},
+		{
 			name: "unknown kind same kind defaults equal",
 			a:    Value{Kind: Kind("custom")},
 			b:    Value{Kind: Kind("custom")},
@@ -134,6 +180,27 @@ func TestEqual(t *testing.T) {
 	}
 }
 
+func TestDictKeyStableString(t *testing.T) {
+	tests := []struct {
+		name string
+		key  DictKey
+		want string
+	}{
+		{name: "string", key: DictKey{Kind: DictKeyString, S: "a b"}, want: `s:"a b"`},
+		{name: "int", key: DictKey{Kind: DictKeyInt, I: -7}, want: "i:-7"},
+		{name: "bool true", key: DictKey{Kind: DictKeyBool, B: true}, want: "b:true"},
+		{name: "bool false", key: DictKey{Kind: DictKeyBool, B: false}, want: "b:false"},
+		{name: "unsupported", key: DictKey{Kind: DictKeyKind("float")}, want: "u:"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.key.StableString(); got != tc.want {
+				t.Fatalf("StableString()=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestValueString(t *testing.T) {
 	tests := []struct {
 		name string
@@ -152,6 +219,18 @@ func TestValueString(t *testing.T) {
 		{name: "empty tuple", in: Tuple(nil), want: "()"},
 		{name: "list", in: List([]Value{Int(1), String("x"), Bool(true)}), want: "[1,x,true]"},
 		{name: "tuple", in: Tuple([]Value{Int(1), String("x"), Bool(false)}), want: "(1,x,false)"},
+		{name: "function", in: Function(&FunctionValue{}), want: "<function>"},
+		{name: "empty dict", in: DictValue(nil), want: "{}"},
+		{
+			name: "dict with scalar keys and nested value",
+			in: DictValue([]DictEntry{
+				{Key: DictKey{Kind: DictKeyString, S: "name"}, Value: String("alice")},
+				{Key: DictKey{Kind: DictKeyString, S: "not simple"}, Value: Float(1.25)},
+				{Key: DictKey{Kind: DictKeyInt, I: 2}, Value: Bool(true)},
+				{Key: DictKey{Kind: DictKeyBool, B: false}, Value: List([]Value{Int(1), Int(2)})},
+			}),
+			want: `{name:alice,"not simple":1.25,2:true,false:[1,2]}`,
+		},
 		{
 			name: "nested list and tuple",
 			in: List([]Value{

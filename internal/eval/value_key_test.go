@@ -3,6 +3,10 @@ package eval
 import "testing"
 
 func TestStableValueKey(t *testing.T) {
+	builtinFn, ok := BuiltinFunctionValue("sum")
+	if !ok {
+		t.Fatalf("missing sum builtin function value")
+	}
 	values := []Value{
 		Null(),
 		Int(7),
@@ -24,6 +28,9 @@ func TestStableValueKey(t *testing.T) {
 				{Values: map[string]Cell{"a": {Value: Int(2)}, "b": {Value: String("y")}}},
 			},
 		}),
+		Value{Kind: KindDict},
+		Function(&FunctionValue{}),
+		builtinFn,
 		Value{Kind: Kind("unknown-kind")},
 	}
 
@@ -34,6 +41,27 @@ func TestStableValueKey(t *testing.T) {
 		if got, again := StableValueKey(value), StableValueKey(value); got != again {
 			t.Fatalf("StableValueKey must be deterministic for %#v: %q != %q", value, got, again)
 		}
+	}
+}
+
+func TestStableDictKeyKeyCoversEveryKeyKind(t *testing.T) {
+	tests := []struct {
+		name string
+		key  DictKey
+		want string
+	}{
+		{name: "string", key: DictKey{Kind: DictKeyString, S: "a:b"}, want: "S3:a:b"},
+		{name: "int", key: DictKey{Kind: DictKeyInt, I: -2}, want: "I2:-2"},
+		{name: "bool true", key: DictKey{Kind: DictKeyBool, B: true}, want: "B1"},
+		{name: "bool false", key: DictKey{Kind: DictKeyBool, B: false}, want: "B0"},
+		{name: "unsupported", key: DictKey{Kind: DictKeyKind("float")}, want: "U5:float"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stableDictKeyKey(tc.key); got != tc.want {
+				t.Fatalf("stableDictKeyKey()=%q want %q", got, tc.want)
+			}
+		})
 	}
 }
 

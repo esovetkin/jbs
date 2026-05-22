@@ -41,6 +41,46 @@ func TestInferDelimitedColumnKind(t *testing.T) {
 	}
 }
 
+func TestDetectDelimiterAndFirstNonEmptyPhysicalLine(t *testing.T) {
+	delimiterTests := []struct {
+		name string
+		path string
+		data string
+		want rune
+	}{
+		{name: "tsv extension", path: "cases.tsv", data: "x,y\n1,2\n", want: '\t'},
+		{name: "csv extension", path: "cases.csv", data: "x\ty\n1\t2\n", want: ','},
+		{name: "no extension tsv sniff", path: "cases", data: "\r\n\nx\ty\n1\t2\n", want: '\t'},
+		{name: "no extension csv fallback", path: "cases", data: "\r\n\nx,y\n1,2\n", want: ','},
+		{name: "blank data fallback", path: "cases", data: "\n\r\n", want: ','},
+	}
+	for _, tc := range delimiterTests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectDelimiter(tc.path, []byte(tc.data)); got != tc.want {
+				t.Fatalf("detectDelimiter()=%q want %q", got, tc.want)
+			}
+		})
+	}
+
+	lineTests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "all blank", text: "\n\r\n", want: ""},
+		{name: "skips blank CRLF", text: "\r\n\nheader,value\r\n1,2\r\n", want: "header,value"},
+		{name: "comment like line is physical line", text: "\n# not a comment\nx,y\n", want: "# not a comment"},
+		{name: "keeps spaces", text: "\n  x,y\n", want: "  x,y"},
+	}
+	for _, tc := range lineTests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := firstNonEmptyPhysicalLine(tc.text); got != tc.want {
+				t.Fatalf("firstNonEmptyPhysicalLine()=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsValidCombColumnName(t *testing.T) {
 	tests := []struct {
 		name string
@@ -66,6 +106,118 @@ func TestIsValidCombColumnName(t *testing.T) {
 				t.Fatalf("isValidCombColumnName(%q)=%v want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseDelimitedTableDirectCases(t *testing.T) {
+	span := spanAt(1203, 1)
+
+	tests := []struct {
+		name      string
+		path      string
+		data      []byte
+		wantOK    bool
+		wantHead  []string
+		wantRows  int
+		wantKinds []tableColumnKind
+	}{
+		{
+			name:   "empty file",
+			path:   "empty.csv",
+			data:   nil,
+			wantOK: false,
+		},
+		{
+			name:   "malformed quote",
+			path:   "bad.csv",
+			data:   []byte("x,y\n\"unterminated,2\n"),
+			wantOK: false,
+		},
+		{
+			name:   "malformed header quote",
+			path:   "bad-header.csv",
+			data:   []byte("\"unterminated\n"),
+			wantOK: false,
+		},
+		{
+			name:   "row width mismatch",
+			path:   "width.csv",
+			data:   []byte("x,y\n1\n"),
+			wantOK: false,
+		},
+		{
+			name:   "invalid header",
+			path:   "invalid.csv",
+			data:   []byte("bad-name,y\n1,2\n"),
+			wantOK: false,
+		},
+		{
+			name:      "bom header",
+			path:      "bom.csv",
+			data:      []byte("\ufeffx,y\n1,2\n"),
+			wantOK:    true,
+			wantHead:  []string{"x", "y"},
+			wantRows:  1,
+			wantKinds: []tableColumnKind{tableColumnInt, tableColumnInt},
+		},
+		{
+			name:      "sniffed tsv without extension",
+			path:      "cases",
+			data:      []byte("\r\nx\ty\n1\ttrue\n"),
+			wantOK:    true,
+			wantHead:  []string{"x", "y"},
+			wantRows:  1,
+			wantKinds: []tableColumnKind{tableColumnInt, tableColumnBool},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got, ok := parseDelimitedTable(tc.path, tc.data, span, diags)
+			if ok != tc.wantOK {
+				t.Fatalf("parseDelimitedTable ok=%v want %v; table=%#v diags=%s", ok, tc.wantOK, got, diags.String())
+			}
+			if !tc.wantOK {
+				if diagCount(diags, "E106") == 0 {
+					t.Fatalf("expected E106, got %s", diags.String())
+				}
+				return
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if !reflect.DeepEqual(got.Header, tc.wantHead) || len(got.Rows) != tc.wantRows || !reflect.DeepEqual(got.Kinds, tc.wantKinds) {
+				t.Fatalf("unexpected parsed table: %#v", got)
+			}
+		})
+	}
+}
+
+func TestConvertDelimitedValueFailuresAndSpecialFloats(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		kind tableColumnKind
+	}{
+		{name: "invalid bool", raw: "yes", kind: tableColumnBool},
+		{name: "invalid int", raw: "1.5", kind: tableColumnInt},
+		{name: "invalid float", raw: "abc", kind: tableColumnFloat},
+		{name: "nan float", raw: "NaN", kind: tableColumnFloat},
+		{name: "inf float", raw: "+Inf", kind: tableColumnFloat},
+		{name: "unknown kind", raw: "x", kind: tableColumnKind("unknown")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, ok := convertDelimitedValue(tc.raw, tc.kind); ok || got.Kind != KindNull {
+				t.Fatalf("expected failed conversion, got value=%#v ok=%v", got, ok)
+			}
+		})
+	}
+
+	got, ok := convertDelimitedValue("2.5", tableColumnFloat)
+	if !ok || got.Kind != KindFloat || got.F != 2.5 {
+		t.Fatalf("expected successful float conversion, got value=%#v ok=%v", got, ok)
 	}
 }
 
