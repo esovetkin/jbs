@@ -125,8 +125,12 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 	if IsComb(l) || IsComb(r) {
 		switch op {
 		case "+", "*":
-			leftRows := orderedRowsFromValue(l, at)
-			rightRows := orderedRowsFromValue(r, at)
+			if !IsComb(l) || !IsComb(r) {
+				addAnonymousTableAlgebraOperandDiag(at, diags)
+				return Null()
+			}
+			leftRows := orderedRowsFromTableValue(l)
+			rightRows := orderedRowsFromTableValue(r)
 			opNode := ast.CombBinary{Op: op, OpSpan: at, Span: at}
 			if op == "+" {
 				return combValueFromOrderedRows(rowWiseMergeOrderedRows(leftRows, rightRows, opNode, diags))

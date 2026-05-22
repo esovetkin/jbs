@@ -303,6 +303,25 @@ jbs> t(x = [1, 2]) + t(y = ["a", "b"]) # row-wise merge
 |---|-----|
 | 1 | "a" |
 | 2 | "b" |
+jbs> x = range(5)
+jbs> t(y = range(10)) + x # simple variables contribute their name as a column
+| y | x |
+|---|---|
+| 0 | 0 |
+| 1 | 1 |
+| 2 | 2 |
+| 3 | 3 |
+| 4 | 4 |
+| 5 | 0 |
+| 6 | 1 |
+| 7 | 2 |
+| 8 | 3 |
+... 1 more rows
+jbs> t(x = [1]) * ([10, 20] as y) # anonymous values need an alias
+| x | y  |
+|---|----|
+| 1 | 10 |
+| 1 | 20 |
 jbs> cases = t(x = [1, 2]) * t(y = [3, 4]) # Cartesian product
 jbs> cases
 | x | y |
@@ -339,6 +358,8 @@ Useful functions:
 - `rename(table, {"old": "new"})` renames columns
 - `a + b` row-wise merge in table context
 - `a * b` Cartesian product in table context
+- simple variable operands in table algebra contribute their variable name as a column
+- anonymous non-table operands in table algebra require `as`, for example `table(x = [1]) * ([10, 20] as y)`
 - `filter(table, function)` filter rows
 - `head(table, n = 5)`/`tail(table, n = 5)` first/last rows
 - `sample(table, size = n)` random rows

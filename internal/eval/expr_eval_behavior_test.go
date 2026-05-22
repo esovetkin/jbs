@@ -6,6 +6,7 @@ import (
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/parser"
 )
 
 func TestEvalExprWithCtxQualifiedCombScalarAliasAndIndexBehavior(t *testing.T) {
@@ -584,6 +585,103 @@ func TestTableConstructorBinaryOperationsPreserveOperandColumnOrder(t *testing.T
 	}
 }
 
+func TestTableBinaryRejectsAnonymousNonTableOperands(t *testing.T) {
+	tests := []string{
+		`t(x=[1]) * [10,20]`,
+		`t(x=[1,2]) + [10,20,30]`,
+		`[10,20] * t(x=[1])`,
+		`[10,20,30] + t(x=[1,2])`,
+	}
+	for _, src := range tests {
+		t.Run(src, func(t *testing.T) {
+			expr := parseBehaviorExpr(t, src)
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(expr, nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if diagCount(diags, "E106") == 0 {
+				t.Fatalf("expected E106, got: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestTableBinaryAcceptsSimpleIdentifierOperand(t *testing.T) {
+	expr := parseBehaviorExpr(t, `t(y=range(10)) + x`)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, map[string]Value{
+		"x": List([]Value{Int(0), Int(1), Int(2), Int(3), Int(4)}),
+	}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"y", "x"}) || len(got.C.Rows) != 10 {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestTableBinaryIdentifierOperandDuplicateColumnErrors(t *testing.T) {
+	expr := parseBehaviorExpr(t, `t(x=range(10)) + x`)
+	diags := &diag.Diagnostics{}
+	_ = EvalExprWithOptions(expr, map[string]Value{
+		"x": List([]Value{Int(0), Int(1), Int(2), Int(3), Int(4)}),
+	}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diagCount(diags, "E042") == 0 {
+		t.Fatalf("expected duplicate/conflicting x diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestTableBinaryAcceptsAliasedNonTableOperand(t *testing.T) {
+	expr := parseBehaviorExpr(t, `t(x=[1]) * ([10,20] as y)`)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x", "y"}) || len(got.C.Rows) != 2 {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestTableBinaryAcceptsSimpleIdentifierAliasOperand(t *testing.T) {
+	expr := parseBehaviorExpr(t, `t(x=range(10)) + x as y`)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, map[string]Value{
+		"x": List([]Value{Int(0), Int(1), Int(2), Int(3), Int(4)}),
+	}, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x", "y"}) || len(got.C.Rows) != 10 {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestTableBinaryAcceptsAllAliasedNonTableOperands(t *testing.T) {
+	expr := parseBehaviorExpr(t, `([1,2] as x) * ([10,20] as y)`)
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(expr, nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !IsComb(got) || !slices.Equal(got.C.Order, []string{"x", "y"}) || len(got.C.Rows) != 4 {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestEvalBinaryRejectsMixedTableAndNonTableWithoutAlias(t *testing.T) {
+	table := CombValue(&Comb{
+		Order: []string{"x"},
+		Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}},
+	})
+	diags := &diag.Diagnostics{}
+	got := evalBinary("*", table, List([]Value{Int(10), Int(20)}), spanAt(524, 1), diags, ExprOptions{}, newEvalCtx(NewRootFrame(nil)))
+	if got.Kind != KindNull || diagCount(diags, "E106") == 0 {
+		t.Fatalf("expected anonymous-operand error, got value=%#v diags=%s", got, diags.String())
+	}
+}
+
 func TestTableBinaryOperationsPreserveOrderForEmptyResults(t *testing.T) {
 	span := spanAt(523, 1)
 	left := CombValue(&Comb{Order: []string{"y"}})
@@ -599,4 +697,17 @@ func TestTableBinaryOperationsPreserveOrderForEmptyResults(t *testing.T) {
 			t.Fatalf("%s result = %#v, want empty table ordered [y x]", op, got.C)
 		}
 	}
+}
+
+func parseBehaviorExpr(t *testing.T, src string) ast.Expr {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	expr, ok := parser.ParseStandaloneExpr("expr.jbs", src, diag.NewPos(0, 1, 1), diags)
+	if !ok {
+		t.Fatalf("expected standalone expression for %q", src)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("parse failed for %q: %s", src, diags.String())
+	}
+	return expr
 }

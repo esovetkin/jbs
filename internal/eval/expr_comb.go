@@ -73,11 +73,11 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 }
 
 func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	left, okLeft := evalRelaxedCombOperandOrdered(expr.Left, env, diags, opts, ctx)
+	left, okLeft := evalTableAlgebraOperand(expr.Left, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return Null()
 	}
-	right, okRight := evalRelaxedCombOperandOrdered(expr.Right, env, diags, opts, ctx)
+	right, okRight := evalTableAlgebraOperand(expr.Right, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return Null()
 	}
@@ -91,30 +91,34 @@ func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *dia
 	return combValueFromOrderedRows(productOrderedRows(left, right, opNode, diags))
 }
 
-func evalRelaxedCombOperandOrdered(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (orderedRows, bool) {
+func evalTableAlgebraOperand(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (orderedRows, bool) {
 	if expr == nil {
 		return orderedRows{}, false
 	}
 	if alias, ok := expr.(ast.AliasExpr); ok {
-		if alias.Alias == "" {
-			diags.AddError(diag.CodeE106, "table operand alias cannot be empty", alias.Span, "use syntax: expression as name")
-			return orderedRows{}, false
-		}
-		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
-		if ctx.recursionLimitHit() {
-			return orderedRows{}, false
-		}
-		if IsComb(value) {
-			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", alias.Span, "apply alias only to non-table operands")
-			return orderedRows{}, false
-		}
-		return orderedRowsFromNamedValue(alias.Alias, value, alias.Span), true
+		return evalAliasedTableAlgebraOperand(alias, env, diags, opts, ctx)
 	}
 	value := evalExprWithCtx(expr, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return orderedRows{}, false
 	}
-	return orderedRowsFromBinaryOperand(expr, value, env, diags, opts, ctx), true
+	return tableAlgebraRowsFromUnaliasedValue(expr, value, diags)
+}
+
+func evalAliasedTableAlgebraOperand(alias ast.AliasExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (orderedRows, bool) {
+	if alias.Alias == "" {
+		diags.AddError(diag.CodeE106, "table operand alias cannot be empty", alias.Span, "use syntax: expression as name")
+		return orderedRows{}, false
+	}
+	value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
+		return orderedRows{}, false
+	}
+	if IsComb(value) {
+		diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", alias.Span, "apply alias only to non-table operands")
+		return orderedRows{}, false
+	}
+	return orderedRowsFromNamedValue(alias.Alias, value, alias.Span), true
 }
 
 func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
@@ -144,51 +148,51 @@ type orderedRows struct {
 func orderedRowsFromNamedValue(name string, value Value, span diag.Span) orderedRows {
 	rows := combRowsFromNamedValue(name, value, span)
 	if IsComb(value) {
-		return orderedRows{Order: CombNames(value), Rows: rows}
+		return orderedRowsFromTableValue(value)
 	}
 	return orderedRows{Order: []string{name}, Rows: rows}
 }
 
-func combRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) []Row {
-	rows := orderedRowsFromBinaryOperand(expr, value, env, diags, opts, ctx)
-	return rows.Rows
-}
-
-func orderedRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) orderedRows {
+func tableAlgebraRowsFromUnaliasedValue(expr ast.Expr, value Value, diags *diag.Diagnostics) (orderedRows, bool) {
 	if expr == nil {
-		return orderedRowsFromValue(value, diag.Span{})
+		if IsComb(value) {
+			return orderedRowsFromTableValue(value), true
+		}
+		addAnonymousTableAlgebraOperandDiag(diag.Span{}, diags)
+		return orderedRows{}, false
 	}
-	switch e := expr.(type) {
-	case ast.IdentExpr:
-		return orderedRowsFromNamedValue(e.Name, value, e.Span)
-	case ast.QualifiedIdentExpr:
-		return orderedRowsFromNamedValue(e.Namespace+"."+e.Name, value, e.Span)
-	case ast.AliasExpr:
-		rows, _ := evalRelaxedCombOperandOrdered(e, env, diags, opts, ctx)
-		return rows
-	default:
-		return orderedRowsFromValue(value, expr.GetSpan())
+	if IsComb(value) {
+		return orderedRowsFromTableValue(value), true
 	}
+	if ident, ok := expr.(ast.IdentExpr); ok {
+		return orderedRowsFromNamedValue(ident.Name, value, ident.Span), true
+	}
+	addAnonymousTableAlgebraOperandDiag(expr.GetSpan(), diags)
+	return orderedRows{}, false
 }
 
-func combRowsFromValue(value Value, _ diag.Span) []Row {
+func tableAlgebraRowsFromEvaluatedOperand(expr ast.Expr, value Value, diags *diag.Diagnostics) (orderedRows, bool) {
 	if IsComb(value) {
-		return cloneRows(value.C.Rows)
+		return orderedRowsFromTableValue(value), true
 	}
-	series := ToSeries(value)
-	rows := make([]Row, 0, len(series))
-	for range series {
-		rows = append(rows, Row{Values: map[string]Cell{}})
+	if ident, ok := expr.(ast.IdentExpr); ok {
+		return orderedRowsFromNamedValue(ident.Name, value, ident.Span), true
 	}
-	return rows
+	addAnonymousTableAlgebraOperandDiag(expr.GetSpan(), diags)
+	return orderedRows{}, false
 }
 
-func orderedRowsFromValue(value Value, span diag.Span) orderedRows {
-	rows := combRowsFromValue(value, span)
-	if IsComb(value) {
-		return orderedRows{Order: CombNames(value), Rows: rows}
-	}
-	return orderedRows{Rows: rows}
+func orderedRowsFromTableValue(value Value) orderedRows {
+	return orderedRows{Order: CombNames(value), Rows: cloneRows(value.C.Rows)}
+}
+
+func addAnonymousTableAlgebraOperandDiag(at diag.Span, diags *diag.Diagnostics) {
+	diags.AddError(
+		diag.CodeE106,
+		"anonymous non-table operand in table algebra requires an alias",
+		at,
+		"write `(<expr> as name)` or `table(name = <expr>)`",
+	)
 }
 
 func rowWiseMergeOrderedRows(left, right orderedRows, op ast.CombBinary, diags *diag.Diagnostics) orderedRows {

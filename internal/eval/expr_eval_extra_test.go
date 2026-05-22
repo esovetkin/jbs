@@ -647,30 +647,30 @@ func TestCombRowsHelpersPreserveRowValues(t *testing.T) {
 		"a": Int(1),
 	}
 
-	if rows := combRowsFromBinaryOperand(nil, List([]Value{Int(1), Int(2)}), env, diags, ExprOptions{}, ctx); len(rows) != 2 {
-		t.Fatalf("expected 2 rows for nil expr fallback, got %#v", rows)
+	if rows, ok := tableAlgebraRowsFromUnaliasedValue(nil, List([]Value{Int(1), Int(2)}), diags); ok || len(rows.Rows) != 0 {
+		t.Fatalf("expected nil expr fallback to be rejected, got ok=%v rows=%#v", ok, rows)
 	}
-	if rows := combRowsFromBinaryOperand(ast.IdentExpr{Name: "a", Span: spanAt(330, 1)}, Int(3), env, diags, ExprOptions{}, ctx); len(rows) != 1 {
+	if rows, ok := tableAlgebraRowsFromUnaliasedValue(ast.IdentExpr{Name: "a", Span: spanAt(330, 1)}, Int(3), diags); !ok || len(rows.Rows) != 1 {
 		t.Fatalf("expected one named row for ident, got %#v", rows)
 	}
-	if rows := combRowsFromBinaryOperand(ast.QualifiedIdentExpr{Namespace: "ns", Name: "x", Span: spanAt(331, 1)}, Int(4), env, diags, ExprOptions{}, ctx); len(rows) != 1 {
-		t.Fatalf("expected one named row for qualified ident, got %#v", rows)
+	if rows, ok := tableAlgebraRowsFromUnaliasedValue(ast.QualifiedIdentExpr{Namespace: "ns", Name: "x", Span: spanAt(331, 1)}, Int(4), diags); ok || len(rows.Rows) != 0 {
+		t.Fatalf("expected qualified non-table operand to require alias, got ok=%v rows=%#v", ok, rows)
 	}
-	if rows := combRowsFromBinaryOperand(ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 5}, Alias: "z", Span: spanAt(332, 1)}, Int(0), env, diags, ExprOptions{}, ctx); len(rows) != 1 {
+	if rows, ok := evalTableAlgebraOperand(ast.AliasExpr{Expr: ast.NumberExpr{Int: true, IntValue: 5}, Alias: "z", Span: spanAt(332, 1)}, env, diags, ExprOptions{}, ctx); !ok || len(rows.Rows) != 1 {
 		t.Fatalf("expected one named row for alias helper, got %#v", rows)
 	}
-	if rows := combRowsFromBinaryOperand(ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(333, 1)}, Int(7), env, diags, ExprOptions{}, ctx); len(rows) != 1 {
-		t.Fatalf("expected scalar fallback row, got %#v", rows)
+	if rows, ok := tableAlgebraRowsFromUnaliasedValue(ast.NumberExpr{Int: true, IntValue: 7, Span: spanAt(333, 1)}, Int(7), diags); ok || len(rows.Rows) != 0 {
+		t.Fatalf("expected anonymous scalar fallback to be rejected, got ok=%v rows=%#v", ok, rows)
 	}
 
 	base := []Row{{Values: map[string]Cell{"x": {Value: Int(1)}}}}
-	combRows := combRowsFromValue(CombValue(&Comb{Order: []string{"x"}, Rows: base}), diag.Span{})
+	combRows := orderedRowsFromTableValue(CombValue(&Comb{Order: []string{"x"}, Rows: base})).Rows
 	if len(combRows) != 1 {
 		t.Fatalf("expected cloned comb rows, got %#v", combRows)
 	}
 	combRows[0].Values["x"] = Cell{Value: Int(9)}
 	if base[0].Values["x"].Value.I != 1 {
-		t.Fatalf("expected combRowsFromValue to clone comb rows")
+		t.Fatalf("expected orderedRowsFromTableValue to clone comb rows")
 	}
 }
 

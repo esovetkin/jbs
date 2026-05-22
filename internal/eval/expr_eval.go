@@ -299,12 +299,9 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		if (e.Op == "+" || e.Op == "*") && (IsComb(l) || IsComb(r)) {
 			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
-			leftRows := orderedRowsFromBinaryOperand(e.Left, l, env, diags, opts, ctx)
-			if ctx.recursionLimitHit() {
-				return Null()
-			}
-			rightRows := orderedRowsFromBinaryOperand(e.Right, r, env, diags, opts, ctx)
-			if ctx.recursionLimitHit() {
+			leftRows, okLeft := tableAlgebraRowsFromEvaluatedOperand(e.Left, l, diags)
+			rightRows, okRight := tableAlgebraRowsFromEvaluatedOperand(e.Right, r, diags)
+			if !okLeft || !okRight {
 				return Null()
 			}
 			if e.Op == "+" {
