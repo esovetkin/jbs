@@ -13,6 +13,7 @@ func TestScanStructuralState(t *testing.T) {
 		wantSingle     bool
 		wantDouble     bool
 		wantLineCont   bool
+		wantHereDoc    bool
 	}{
 		{name: "simple_complete", src: `x = 1`, wantNeedsMore: false},
 		{name: "open_brace", src: "do run {", wantNeedsMore: true, wantBraceDepth: 1},
@@ -95,9 +96,41 @@ func TestScanStructuralState(t *testing.T) {
 		{
 			name: "comments_with_braces_do_not_confuse_tracking",
 			src: `function(x) {
-  # } ] )
-  x
+	  # } ] )
+	  x
 }`,
+			wantNeedsMore: false,
+		},
+		{
+			name: "do_block_heredoc_waits_past_brace",
+			src: `do run {
+cat <<EOF
+}`,
+			wantNeedsMore:  true,
+			wantBraceDepth: 1,
+			wantHereDoc:    true,
+		},
+		{
+			name: "do_block_heredoc_complete",
+			src: `do run {
+cat <<EOF
+}
+EOF
+}`,
+			wantNeedsMore: false,
+		},
+		{
+			name: "do_block_quoted_heredoc_complete",
+			src: `do run {
+cat <<'JSON'
+{"a": {"b": 1}}
+JSON
+}`,
+			wantNeedsMore: false,
+		},
+		{
+			name:          "do_block_strip_tabs_heredoc_complete",
+			src:           "do run {\ncat <<-EOF\n\t}\n\tEOF\n}",
 			wantNeedsMore: false,
 		},
 	}
@@ -126,6 +159,9 @@ func TestScanStructuralState(t *testing.T) {
 			}
 			if got.LineContinue != tc.wantLineCont {
 				t.Fatalf("LineContinue=%v want %v", got.LineContinue, tc.wantLineCont)
+			}
+			if got.HereDocPending != tc.wantHereDoc {
+				t.Fatalf("HereDocPending=%v want %v", got.HereDocPending, tc.wantHereDoc)
 			}
 		})
 	}

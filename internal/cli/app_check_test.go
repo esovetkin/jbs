@@ -76,6 +76,24 @@ func TestRunCheckReportsStrayClosingBrace(t *testing.T) {
 	}
 }
 
+func TestRunCheckAcceptsDoHereDocWithBrace(t *testing.T) {
+	dir := t.TempDir()
+	chdirCLITest(t, dir)
+	input := filepath.Join(dir, "heredoc.jbs")
+	src := "do run {\ncat > out <<EOF\n}\nEOF\necho after\n}\n"
+	if err := os.WriteFile(input, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-c", input}, &stdout, &stderr); code != 0 {
+		t.Fatalf("expected parser success, got code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	if stdout.String() != "" || stderr.String() != "" {
+		t.Fatalf("expected quiet parser success, stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestRunCheckReportsReadFailure(t *testing.T) {
 	dir := t.TempDir()
 	chdirCLITest(t, dir)

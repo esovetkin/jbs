@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +121,87 @@ func TestParseProgramHandlesNestedAndExtraClosingBraces(t *testing.T) {
 	if len(prog.Stmts) != 2 {
 		t.Fatalf("expected if statement plus recovery statement, got %#v", prog.Stmts)
 	}
+}
+
+func TestParseDoBlockKeepsBraceInsideHereDoc(t *testing.T) {
+	src := "do run {\ncat > out <<EOF\n}\nEOF\necho after\n}\n"
+	body, diags := parseSingleDoBody(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !strings.Contains(body, "echo after") {
+		t.Fatalf("do body closed before echo after: %q", body)
+	}
+	if strings.Count(body, "}") != 1 {
+		t.Fatalf("expected heredoc brace to remain in body, got %q", body)
+	}
+}
+
+func TestParseDoBlockHereDocQuotedDelimiter(t *testing.T) {
+	src := "do run {\ncat <<'JSON'\n{\"a\": {\"b\": 1}}\nJSON\necho done\n}\n"
+	body, diags := parseSingleDoBody(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !strings.Contains(body, "echo done") {
+		t.Fatalf("do body closed before echo done: %q", body)
+	}
+}
+
+func TestParseDoBlockHereDocStripTabs(t *testing.T) {
+	src := "do run {\ncat <<-EOF\n\t}\n\tEOF\necho done\n}\n"
+	body, diags := parseSingleDoBody(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !strings.Contains(body, "echo done") {
+		t.Fatalf("do body closed before echo done: %q", body)
+	}
+}
+
+func TestParseDoBlockMultipleHereDocs(t *testing.T) {
+	src := "do run {\ncat <<A <<B\n}\nA\n{\nB\necho done\n}\n"
+	body, diags := parseSingleDoBody(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !strings.Contains(body, "echo done") {
+		t.Fatalf("do body closed before echo done: %q", body)
+	}
+}
+
+func TestParseDoBlockMissingHereDocDelimiterIsUnterminated(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	_ = Parse("missing.jbs", "do run {\ncat <<EOF\n}\n", diags)
+	if !hasDiag(diags, "E025") {
+		t.Fatalf("expected unterminated block diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestExampleDoSbatchParses(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "examples", "do_sbatch.jbs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	diags := &diag.Diagnostics{}
+	_ = Parse("examples/do_sbatch.jbs", string(src), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func parseSingleDoBody(t *testing.T, src string) (string, *diag.Diagnostics) {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	prog := Parse("heredoc.jbs", src, diags)
+	if len(prog.Stmts) != 1 {
+		t.Fatalf("expected one statement, got %#v; diagnostics: %s", prog.Stmts, diags.String())
+	}
+	block, ok := prog.Stmts[0].(ast.DoBlock)
+	if !ok {
+		t.Fatalf("expected do block, got %#v", prog.Stmts[0])
+	}
+	return block.Body, diags
 }
 
 func TestParseProgramWithFunctionSyntax(t *testing.T) {

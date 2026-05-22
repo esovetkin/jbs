@@ -3,13 +3,14 @@ package parser
 import "strings"
 
 type StructuralScanState struct {
-	BraceDepth   int
-	ParenDepth   int
-	BracketDepth int
-	InSingle     bool
-	InDouble     bool
-	Escaped      bool
-	LineContinue bool
+	BraceDepth     int
+	ParenDepth     int
+	BracketDepth   int
+	InSingle       bool
+	InDouble       bool
+	Escaped        bool
+	LineContinue   bool
+	HereDocPending bool
 }
 
 func (s StructuralScanState) NeedsMoreInput() bool {
@@ -18,7 +19,8 @@ func (s StructuralScanState) NeedsMoreInput() bool {
 		s.BracketDepth > 0 ||
 		s.InSingle ||
 		s.InDouble ||
-		s.LineContinue
+		s.LineContinue ||
+		s.HereDocPending
 }
 
 func ScanStructuralState(src string) StructuralScanState {
@@ -27,43 +29,69 @@ func ScanStructuralState(src string) StructuralScanState {
 	mode := blockScanCode
 	escaped := false
 	lineStart := 0
+	pendingHereDocs := make([]hereDocSpec, 0)
+	var activeHereDoc *hereDocSpec
 
-	for i := 0; i < len(runes); i++ {
+	for i := 0; i < len(runes); {
+		if activeHereDoc != nil {
+			lineEnd := nextLineEnd(runes, i)
+			line := runes[i:lineEnd]
+			i = lineEnd
+			lineStart = i
+			if hereDocLineMatches(line, *activeHereDoc) {
+				activeHereDoc, pendingHereDocs = popHereDoc(pendingHereDocs)
+			}
+			continue
+		}
 		r := runes[i]
 		switch mode {
 		case blockScanLineComment:
 			if r == '\n' {
 				mode = blockScanCode
 				lineStart = i + 1
+				if activeHereDoc == nil {
+					activeHereDoc, pendingHereDocs = popHereDoc(pendingHereDocs)
+				}
 			}
+			i++
 		case blockScanSingleQuote:
 			if escaped {
 				escaped = false
+				i++
 				continue
 			}
 			if r == '\\' {
 				escaped = true
+				i++
 				continue
 			}
 			if r == '\'' {
 				mode = blockScanCode
 			}
+			i++
 		case blockScanDoubleQuote:
 			if escaped {
 				escaped = false
+				i++
 				continue
 			}
 			if r == '\\' {
 				escaped = true
+				i++
 				continue
 			}
 			if r == '"' {
 				mode = blockScanCode
 			}
+			i++
 		default:
 			switch r {
 			case '#':
 				mode = blockScanLineComment
+			case '<':
+				if spec, ok := parseHereDocRedirect(runes, i); ok {
+					pendingHereDocs = append(pendingHereDocs, spec)
+				}
 			case '\'':
 				mode = blockScanSingleQuote
 				escaped = false
@@ -90,13 +118,18 @@ func ScanStructuralState(src string) StructuralScanState {
 				}
 			case '\n':
 				lineStart = i + 1
+				if activeHereDoc == nil {
+					activeHereDoc, pendingHereDocs = popHereDoc(pendingHereDocs)
+				}
 			}
+			i++
 		}
 	}
 
 	state.InSingle = mode == blockScanSingleQuote
 	state.InDouble = mode == blockScanDoubleQuote
 	state.Escaped = escaped
+	state.HereDocPending = activeHereDoc != nil || len(pendingHereDocs) > 0
 	if mode == blockScanCode {
 		state.LineContinue = hasTrailingBackslashContinuationRunes(runes[lineStart:])
 	}
