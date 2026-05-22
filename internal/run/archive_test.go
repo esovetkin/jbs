@@ -7,13 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +55,31 @@ func TestArchiveUsesBenchmarkNameAndWritesSummary(t *testing.T) {
 	text := stdout.String()
 	if !strings.Contains(text, "archived bench to bench.tar.gz as ") || !strings.Contains(text, " and removed bench") {
 		t.Fatalf("summary = %q", text)
+	}
+}
+
+func TestArchiveBenchmarkDirReportsPreservedRoot(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join(dir, "bench")
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"run/000000/stdout": "out\n"})
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	err := ArchiveBenchmarkDir(context.Background(), BenchmarkDirOptions{
+		Root:   root,
+		Stdout: &stdout,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "archived bench to bench.tar.gz as ") || !strings.Contains(got, " and removed archived entries from bench") {
+		t.Fatalf("summary = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "keep.txt")); err != nil {
+		t.Fatalf("unarchived file should remain: %v", err)
 	}
 }
 
@@ -117,6 +140,9 @@ func TestArchiveRootCreatesTarGz(t *testing.T) {
 	}
 	if result.BenchmarkName != "bench" || result.ArchivePath != archive || result.Prefix != "20260508T143012.123456789Z/bench" || result.RunCount != 1 {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if !result.RemovedRoot {
+		t.Fatal("RemovedRoot = false, want true")
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("expected original root to be removed, stat error: %v", err)
@@ -238,12 +264,44 @@ func TestArchiveRootRejectsEmptyRoot(t *testing.T) {
 
 func TestArchiveableRunsRejectsMissingStatus(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "bench")
-	if err := os.MkdirAll(filepath.Join(root, "000000"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeArchiveManifest(t, filepath.Join(root, "000000", "manifest.json"), Manifest{Schema: 1})
 	_, err := archiveableRuns(root)
 	if err == nil || !strings.Contains(err.Error(), "cannot archive run 000000") {
 		t.Fatalf("expected missing status error, got %v", err)
+	}
+}
+
+func TestArchiveableRunsIgnoresNonRunNumericDirs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	if err := os.MkdirAll(filepath.Join(root, "000000"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "000000", "hello"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := archiveableRuns(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("runs = %v, want none", runs)
+	}
+}
+
+func TestArchiveableRunsIgnoresNonRunComponentNumericDirs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	if err := os.MkdirAll(filepath.Join(root, "small", "000000"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "small", "000000", "hello"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := archiveableRuns(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("runs = %v, want none", runs)
 	}
 }
 
@@ -300,6 +358,9 @@ func TestArchiveRootIncludesMixedDirectAndComponentRuns(t *testing.T) {
 	if result.RunCount != 3 {
 		t.Fatalf("RunCount = %d, want 3", result.RunCount)
 	}
+	if !result.RemovedRoot {
+		t.Fatal("RemovedRoot = false, want true")
+	}
 
 	entries := readTarGzEntries(t, archive)
 	for _, name := range []string{
@@ -313,6 +374,41 @@ func TestArchiveRootIncludesMixedDirectAndComponentRuns(t *testing.T) {
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("expected original root to be removed, stat error: %v", err)
+	}
+}
+
+func TestArchiveRootPreservesUnarchivedNumericDirectory(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	archive := filepath.Join(dir, "bench.tar.gz")
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"step/000000/stdout": "a\n"})
+	createArchiveRun(t, root, "000001", StatusFinished, map[string]string{"step/000000/stdout": "b\n"})
+	if err := os.MkdirAll(filepath.Join(root, "000002"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "000002", "hello"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemovedRoot {
+		t.Fatal("root should remain because it contains unarchived data")
+	}
+	if _, err := os.Stat(filepath.Join(root, "000002", "hello")); err != nil {
+		t.Fatalf("unarchived file was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "000000")); !os.IsNotExist(err) {
+		t.Fatalf("archived run 000000 should be removed, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "000001")); !os.IsNotExist(err) {
+		t.Fatalf("archived run 000001 should be removed, stat error: %v", err)
+	}
+	entries := readTarGzEntries(t, archive)
+	if _, ok := entries["20260508T140000.000000000Z/bench/000002/hello"]; ok {
+		t.Fatal("unarchived numeric directory was archived")
 	}
 }
 
@@ -354,6 +450,34 @@ func TestArchiveRootDoesNotArchiveComponentLockFiles(t *testing.T) {
 	}
 }
 
+func TestArchiveRootPrunesArchivedComponentRunsButKeepsUnarchivedComponentData(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	archive := filepath.Join(dir, "bench.tar.gz")
+	createArchiveRun(t, filepath.Join(root, "small"), "000000", StatusFinished, map[string]string{"run/000000/stdout": "small\n"})
+	if err := os.WriteFile(filepath.Join(root, "small", "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemovedRoot {
+		t.Fatal("root should remain")
+	}
+	if _, err := os.Stat(filepath.Join(root, "small", "keep.txt")); err != nil {
+		t.Fatalf("unarchived component file should remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "small", "000000")); !os.IsNotExist(err) {
+		t.Fatalf("archived component run should be removed, stat error: %v", err)
+	}
+	entries := readTarGzEntries(t, archive)
+	if _, ok := entries["20260508T140000.000000000Z/bench/small/keep.txt"]; ok {
+		t.Fatal("unarchived component file was archived")
+	}
+}
+
 func TestArchiveRootRejectsRunningComponentRun(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "bench")
@@ -387,6 +511,18 @@ func TestArchiveRootIgnoresTransientRootEntries(t *testing.T) {
 		if strings.Contains(name, ".jbs.lock") || strings.Contains(name, ".creating-") || strings.Contains(name, "notes.txt") {
 			t.Fatalf("transient root entry archived: %q", name)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(root, rootLockReclaimName)); err != nil {
+		t.Fatalf("unarchived reclaim file should remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".creating-000001-123")); err != nil {
+		t.Fatalf("unarchived transient dir should remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "notes.txt")); err != nil {
+		t.Fatalf("unarchived note should remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "000000")); !os.IsNotExist(err) {
+		t.Fatalf("archived run should be removed, stat error: %v", err)
 	}
 }
 
@@ -422,6 +558,47 @@ func TestArchiveRootIncludesManifestDatabaseInsideRoot(t *testing.T) {
 	}
 	if entry.Body != "sqlite-data" {
 		t.Fatalf("database body = %q", entry.Body)
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("archived root-local database should be removed, stat error: %v", err)
+	}
+}
+
+func TestArchiveRootRemovesArchivedDatabaseAndKeepsUnarchivedRootFile(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "bench")
+	archive := filepath.Join(dir, "bench.tar.gz")
+	dbPath := filepath.Join(root, "results.sqlite")
+	manifest := Manifest{
+		Schema:              1,
+		RunID:               "000000",
+		BenchmarkName:       "bench",
+		AnalyseDatabasePath: dbPath,
+	}
+	manifestData, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"manifest.json": string(manifestData)})
+	if err := os.WriteFile(dbPath, []byte("sqlite-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemovedRoot {
+		t.Fatal("root should remain")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("archived root-local database should be removed, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "keep.txt")); err != nil {
+		t.Fatalf("unarchived root file should remain: %v", err)
 	}
 }
 
@@ -512,33 +689,31 @@ func TestArchiveRootReportsCleanupFailure(t *testing.T) {
 	root := filepath.Join(dir, "bench")
 	archive := filepath.Join(dir, "bench.tar.gz")
 	createArchiveRun(t, root, "000000", StatusFinished, map[string]string{"run/000000/stdout": "out\n"})
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	oldRemoveAll := archiveRemoveAll
-	archiveRemoveAll = func(string) error { return errors.New("blocked") }
-	defer func() { archiveRemoveAll = oldRemoveAll }()
+	oldRemove := archiveRemove
+	archiveRemove = func(name string) error {
+		if filepath.Base(name) == "stdout" {
+			return errors.New("blocked")
+		}
+		return oldRemove(name)
+	}
+	defer func() { archiveRemove = oldRemove }()
 
 	_, err := ArchiveRoot(root, archive, time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC))
-	if err == nil || !strings.Contains(err.Error(), "failed to remove archived benchmark directory") || !strings.Contains(err.Error(), ".archived-bench-") {
-		t.Fatalf("expected cleanup error with leftover path, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "failed to remove archived file") || !strings.Contains(err.Error(), "stdout") {
+		t.Fatalf("expected cleanup error for archived file, got %v", err)
 	}
 	if _, statErr := os.Stat(archive); statErr != nil {
 		t.Fatalf("expected archive to exist: %v", statErr)
 	}
-	if _, statErr := os.Stat(root); !os.IsNotExist(statErr) {
-		t.Fatalf("expected original root to be moved, stat error: %v", statErr)
+	if _, statErr := os.Stat(root); statErr != nil {
+		t.Fatalf("expected root to remain after cleanup error: %v", statErr)
 	}
-	entries, readErr := os.ReadDir(dir)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	found := false
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".archived-bench-") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected leftover archived directory in %s", dir)
+	if _, statErr := os.Stat(filepath.Join(root, "keep.txt")); statErr != nil {
+		t.Fatalf("expected unarchived file to remain: %v", statErr)
 	}
 }
 
@@ -552,14 +727,14 @@ func TestRewriteArchiveWithSnapshotReportsExistingArchiveReadError(t *testing.T)
 	if err := os.WriteFile(archive, []byte("not gzip"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := rewriteArchiveWithSnapshot(root, archive, "stamp", nil)
+	_, err := rewriteArchiveWithSnapshot(root, archive, "stamp", nil)
 	if err == nil || !strings.Contains(err.Error(), "read existing archive") {
 		t.Fatalf("expected existing archive read error, got %v", err)
 	}
 }
 
 func TestRewriteArchiveWithSnapshotReportsCreateTempError(t *testing.T) {
-	err := rewriteArchiveWithSnapshot(t.TempDir(), filepath.Join(t.TempDir(), "missing", "bench.tar.gz"), "stamp", nil)
+	_, err := rewriteArchiveWithSnapshot(t.TempDir(), filepath.Join(t.TempDir(), "missing", "bench.tar.gz"), "stamp", nil)
 	if err == nil {
 		t.Fatal("expected create-temp error")
 	}
@@ -572,67 +747,12 @@ func TestRewriteArchiveWithSnapshotReportsAppendError(t *testing.T) {
 		t.Fatal(err)
 	}
 	archive := filepath.Join(dir, "bench.tar.gz")
-	err := rewriteArchiveWithSnapshot(root, archive, "stamp", []string{"000000"})
+	_, err := rewriteArchiveWithSnapshot(root, archive, "stamp", []string{"000000"})
 	if err == nil {
 		t.Fatal("expected append error for missing run")
 	}
 	if _, statErr := os.Stat(archive); !os.IsNotExist(statErr) {
 		t.Fatalf("expected archive not to be renamed into place, stat error: %v", statErr)
-	}
-}
-
-func TestRemoveArchivedRootReportsRenameError(t *testing.T) {
-	err := removeArchivedRoot(filepath.Join(t.TempDir(), "missing"), "stamp")
-	if err == nil || !strings.Contains(err.Error(), "failed to move benchmark directory") {
-		t.Fatalf("expected rename error, got %v", err)
-	}
-}
-
-func TestUniqueRemovalPathUsesFallbackStampAndAvoidsCollision(t *testing.T) {
-	parent := t.TempDir()
-	got, err := uniqueRemovalPath(parent, "bench", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(filepath.Base(got), "archive-") {
-		t.Fatalf("fallback path = %q", got)
-	}
-
-	first := filepath.Join(parent, ".archived-bench-stamp-"+fmtInt(os.Getpid()))
-	if err := os.Mkdir(first, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	got, err = uniqueRemovalPath(parent, "bench", "stamp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasSuffix(got, "-001") {
-		t.Fatalf("collision path = %q", got)
-	}
-}
-
-func TestUniqueRemovalPathReportsLstatErrorAndExhaustion(t *testing.T) {
-	fileParent := filepath.Join(t.TempDir(), "parent")
-	if err := os.WriteFile(fileParent, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := uniqueRemovalPath(fileParent, "bench", "stamp"); err == nil {
-		t.Fatal("expected lstat error below file parent")
-	}
-
-	parent := t.TempDir()
-	stamp := "full"
-	for i := 0; i < 1000; i++ {
-		suffix := stamp + "-" + fmtInt(os.Getpid())
-		if i > 0 {
-			suffix = stamp + "-" + fmtInt(os.Getpid()) + "-" + fmt.Sprintf("%03d", i)
-		}
-		if err := os.Mkdir(filepath.Join(parent, ".archived-bench-"+suffix), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := uniqueRemovalPath(parent, "bench", stamp); err == nil || !strings.Contains(err.Error(), "could not choose removal path") {
-		t.Fatalf("expected exhaustion error, got %v", err)
 	}
 }
 
@@ -721,7 +841,7 @@ func TestAppendBenchmarkSnapshotReportsClosedWriter(t *testing.T) {
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	err := appendBenchmarkSnapshot(tw, t.TempDir(), "stamp", nil, time.Now().UTC())
+	_, err := appendBenchmarkSnapshot(tw, t.TempDir(), "stamp", nil, time.Now().UTC())
 	if err == nil {
 		t.Fatal("expected closed writer error")
 	}
@@ -730,7 +850,7 @@ func TestAppendBenchmarkSnapshotReportsClosedWriter(t *testing.T) {
 func TestAppendTreeReportsMissingRootAndClosedWriter(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := appendTree(tw, filepath.Join(t.TempDir(), "missing"), "root"); err == nil {
+	if _, err := appendTree(tw, filepath.Join(t.TempDir(), "missing"), "root"); err == nil {
 		t.Fatal("expected missing root error")
 	}
 	if err := tw.Close(); err != nil {
@@ -740,7 +860,7 @@ func TestAppendTreeReportsMissingRootAndClosedWriter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := appendTree(tw, root, "root"); err == nil {
+	if _, err := appendTree(tw, root, "root"); err == nil {
 		t.Fatal("expected closed writer error")
 	}
 }
@@ -760,7 +880,7 @@ func TestAppendManifestDatabasesHandlesRelativeDuplicateMissingExternalAndRunLoc
 
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000", "000001", "000002", "000003", "000004", "000005", "000006"})
+	paths, err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000", "000001", "000002", "000003", "000004", "000005", "000006"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -770,6 +890,9 @@ func TestAppendManifestDatabasesHandlesRelativeDuplicateMissingExternalAndRunLoc
 	entries := readTarEntriesFromBytes(t, buf.Bytes())
 	if got := entries["stamp/bench/results.sqlite"].Body; got != "db" {
 		t.Fatalf("database body = %q entries=%v", got, archiveEntryNames(entries))
+	}
+	if len(paths) != 1 || filepath.Clean(paths[0].FSPath) != filepath.Join(root, "results.sqlite") || paths[0].Kind != archivedPathFile {
+		t.Fatalf("paths = %#v, want results.sqlite file", paths)
 	}
 	for name := range entries {
 		if strings.Contains(name, "inside.sqlite") || strings.Contains(name, "external.sqlite") || strings.Contains(name, "missing.sqlite") {
@@ -788,7 +911,7 @@ func TestAppendManifestDatabasesReportsManifestAndDirectoryErrors(t *testing.T) 
 			t.Fatal(err)
 		}
 		var buf bytes.Buffer
-		err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
+		_, err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
 		if err == nil || !strings.Contains(err.Error(), "inspect archive database") {
 			t.Fatalf("expected manifest read error, got %v", err)
 		}
@@ -802,7 +925,7 @@ func TestAppendManifestDatabasesReportsManifestAndDirectoryErrors(t *testing.T) 
 		}
 		writeArchiveManifest(t, filepath.Join(root, "000000", "manifest.json"), Manifest{AnalyseDatabasePath: dbDir})
 		var buf bytes.Buffer
-		err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
+		_, err := appendManifestDatabases(tar.NewWriter(&buf), root, "stamp/bench", []string{"000000"})
 		if err == nil || !strings.Contains(err.Error(), "is a directory") {
 			t.Fatalf("expected directory database error, got %v", err)
 		}
@@ -821,7 +944,7 @@ func TestAppendManifestDatabasesPropagatesAppendTreeError(t *testing.T) {
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000"})
+	_, err := appendManifestDatabases(tw, root, "stamp/bench", []string{"000000"})
 	if err == nil {
 		t.Fatal("expected append tree error")
 	}
@@ -996,8 +1119,4 @@ func archiveEntryNames(entries map[string]archiveTestEntry) []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-func fmtInt(v int) string {
-	return strconv.FormatInt(int64(v), 10)
 }

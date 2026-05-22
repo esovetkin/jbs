@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsutil"
@@ -23,9 +24,31 @@ type ArchiveResult struct {
 	ArchivePath   string
 	Prefix        string
 	RunCount      int
+	RemovedRoot   bool
 }
 
-var archiveRemoveAll = os.RemoveAll
+type archivedPathKind int
+
+const (
+	archivedPathFile archivedPathKind = iota
+	archivedPathDir
+)
+
+type archivedPath struct {
+	FSPath string
+	Kind   archivedPathKind
+}
+
+type archiveSnapshot struct {
+	Paths []archivedPath
+}
+
+type archiveCleanupResult struct {
+	RemovedRoot bool
+	Removed     int
+}
+
+var archiveRemove = os.Remove
 
 func Archive(ctx context.Context, opts Options) error {
 	_ = ctx
@@ -45,7 +68,7 @@ func Archive(ctx context.Context, opts Options) error {
 		return err
 	}
 	if opts.Stdout != nil {
-		fmt.Fprintf(opts.Stdout, "archived %s to %s as %s and removed %s\n", result.BenchmarkName, result.ArchivePath, result.Prefix, result.BenchmarkName)
+		writeArchiveSummary(opts.Stdout, result)
 	}
 	return nil
 }
@@ -62,21 +85,34 @@ func ArchiveBenchmarkDir(ctx context.Context, opts BenchmarkDirOptions) error {
 		return err
 	}
 	if opts.Stdout != nil {
-		fmt.Fprintf(opts.Stdout, "archived %s to %s as %s and removed %s\n", result.BenchmarkName, result.ArchivePath, result.Prefix, result.BenchmarkName)
+		writeArchiveSummary(opts.Stdout, result)
 	}
 	return nil
+}
+
+func writeArchiveSummary(out io.Writer, result ArchiveResult) {
+	if result.RemovedRoot {
+		fmt.Fprintf(out, "archived %s to %s as %s and removed %s\n", result.BenchmarkName, result.ArchivePath, result.Prefix, result.BenchmarkName)
+		return
+	}
+	fmt.Fprintf(out, "archived %s to %s as %s and removed archived entries from %s\n", result.BenchmarkName, result.ArchivePath, result.Prefix, result.BenchmarkName)
 }
 
 func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error) {
 	root = filepath.Clean(root)
 	archivePath = filepath.Clean(archivePath)
 	locks := &heldRootLocks{}
+	released := false
+	defer func() {
+		if !released {
+			locks.release()
+		}
+	}()
 	unlock, err := acquireExistingRootLock(root)
 	if err != nil {
 		return ArchiveResult{}, err
 	}
 	locks.unlocks = append(locks.unlocks, unlock)
-	defer locks.release()
 
 	inventory, err := discoverArchiveRuns(root)
 	if err != nil {
@@ -101,10 +137,18 @@ func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error)
 	if err != nil {
 		return ArchiveResult{}, err
 	}
-	if err := rewriteArchiveWithSnapshot(root, archivePath, prefix, inventory.Runs); err != nil {
+	snapshot, err := rewriteArchiveWithSnapshot(root, archivePath, prefix, inventory.Runs)
+	if err != nil {
 		return ArchiveResult{}, err
 	}
-	if err := removeArchivedRoot(root, prefix); err != nil {
+	cleanup, err := removeArchivedSnapshot(root, snapshot)
+	if err != nil {
+		return ArchiveResult{}, err
+	}
+	locks.release()
+	released = true
+	cleanup, err = pruneArchivedSnapshotDirs(root, snapshot, cleanup)
+	if err != nil {
 		return ArchiveResult{}, err
 	}
 
@@ -114,6 +158,7 @@ func ArchiveRoot(root, archivePath string, now time.Time) (ArchiveResult, error)
 		ArchivePath:   archivePath,
 		Prefix:        path.Join(prefix, filepath.ToSlash(benchmark)),
 		RunCount:      len(inventory.Runs),
+		RemovedRoot:   cleanup.RemovedRoot,
 	}, nil
 }
 
@@ -155,7 +200,13 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 		}
 		name := entry.Name()
 		if numericRunDir.MatchString(name) {
-			runs = append(runs, name)
+			ok, err := looksLikeArchiveRun(filepath.Join(root, name))
+			if err != nil {
+				return archiveRunInventory{}, err
+			}
+			if ok {
+				runs = append(runs, name)
+			}
 			continue
 		}
 		if strings.HasPrefix(name, ".") {
@@ -171,6 +222,13 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 			if !run.IsDir() || !numericRunDir.MatchString(run.Name()) {
 				continue
 			}
+			ok, err := looksLikeArchiveRun(filepath.Join(componentDir, run.Name()))
+			if err != nil {
+				return archiveRunInventory{}, err
+			}
+			if !ok {
+				continue
+			}
 			rel := filepath.Join(name, run.Name())
 			runs = append(runs, rel)
 			hadRuns = true
@@ -182,6 +240,17 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 	slices.Sort(runs)
 	slices.Sort(componentRoots)
 	return archiveRunInventory{Runs: runs, ComponentRoots: componentRoots}, nil
+}
+
+func looksLikeArchiveRun(dir string) (bool, error) {
+	for _, name := range []string{"status", "manifest.json"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			return true, nil
+		} else if !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func archiveableRuns(root string) ([]string, error) {
@@ -215,11 +284,11 @@ func validateArchiveRun(root, run string) error {
 	return nil
 }
 
-func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []string) error {
+func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []string) (archiveSnapshot, error) {
 	dir := archiveParentDir(archivePath)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(archivePath)+".tmp-*")
 	if err != nil {
-		return err
+		return archiveSnapshot{}, err
 	}
 	tmpPath := tmp.Name()
 	cleanup := true
@@ -230,7 +299,7 @@ func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []stri
 	}()
 	if err := tmp.Chmod(0o644); err != nil {
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
 
 	gz := gzip.NewWriter(tmp)
@@ -239,35 +308,39 @@ func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []stri
 		tw.Close()
 		gz.Close()
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
-	if err := appendBenchmarkSnapshot(tw, root, timestamp, runs, time.Now().UTC()); err != nil {
+	snapshot, err := appendBenchmarkSnapshot(tw, root, timestamp, runs, time.Now().UTC())
+	if err != nil {
 		tw.Close()
 		gz.Close()
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
 	if err := tw.Close(); err != nil {
 		gz.Close()
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
 	if err := gz.Close(); err != nil {
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return err
+		return archiveSnapshot{}, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return archiveSnapshot{}, err
 	}
 	if err := os.Rename(tmpPath, archivePath); err != nil {
-		return err
+		return archiveSnapshot{}, err
 	}
 	cleanup = false
-	return fsutil.SyncDir(dir)
+	if err := fsutil.SyncDir(dir); err != nil {
+		return archiveSnapshot{}, err
+	}
+	return snapshot, nil
 }
 
 func archiveParentDir(filePath string) string {
@@ -276,49 +349,6 @@ func archiveParentDir(filePath string) string {
 		return "."
 	}
 	return dir
-}
-
-func removeArchivedRoot(root, prefix string) error {
-	cleanRoot := filepath.Clean(root)
-	parent := filepath.Dir(cleanRoot)
-	base := filepath.Base(cleanRoot)
-	trash, err := uniqueRemovalPath(parent, base, prefix)
-	if err != nil {
-		return err
-	}
-	if err := os.Rename(cleanRoot, trash); err != nil {
-		return fmt.Errorf("archive written, but failed to move benchmark directory %s for removal: %w", cleanRoot, err)
-	}
-	if err := fsutil.SyncDir(parent); err != nil {
-		return fmt.Errorf("archive written, but failed to sync benchmark parent after moving %s to %s: %w", cleanRoot, trash, err)
-	}
-	if err := archiveRemoveAll(trash); err != nil {
-		return fmt.Errorf("archive written, but failed to remove archived benchmark directory %s: %w", trash, err)
-	}
-	if err := fsutil.SyncDir(parent); err != nil {
-		return fmt.Errorf("archive written, but failed to sync benchmark parent after removing %s: %w", trash, err)
-	}
-	return nil
-}
-
-func uniqueRemovalPath(parent, base, prefix string) (string, error) {
-	stamp := safePathComponent(prefix)
-	if stamp == "" {
-		stamp = fmt.Sprintf("archive-%d", os.Getpid())
-	}
-	for i := 0; i < 1000; i++ {
-		suffix := fmt.Sprintf("%s-%d", stamp, os.Getpid())
-		if i > 0 {
-			suffix = fmt.Sprintf("%s-%d-%03d", stamp, os.Getpid(), i)
-		}
-		candidate := filepath.Join(parent, ".archived-"+base+"-"+suffix)
-		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
-			return candidate, nil
-		} else if err != nil {
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("could not choose removal path for %s", filepath.Join(parent, base))
 }
 
 func copyExistingArchive(archivePath string, out *tar.Writer) error {
@@ -417,20 +447,59 @@ func validateArchiveName(name string) error {
 	return nil
 }
 
-func appendBenchmarkSnapshot(tw *tar.Writer, root, timestamp string, runs []string, now time.Time) error {
+func appendBenchmarkSnapshot(tw *tar.Writer, root, timestamp string, runs []string, now time.Time) (archiveSnapshot, error) {
+	snapshot := archiveSnapshot{}
 	rootBase := filepath.Base(filepath.Clean(root))
 	archiveRoot := path.Join(timestamp, rootBase)
-	if err := writeDirHeader(tw, archiveRoot, 0o755, now); err != nil {
-		return err
+	if err := appendSnapshotDir(tw, filepath.Clean(root), archiveRoot, 0o755, now, &snapshot); err != nil {
+		return archiveSnapshot{}, err
 	}
+	seenDirs := map[string]struct{}{archiveRoot: {}}
 	for _, run := range runs {
+		if err := appendRunParentDirs(tw, root, archiveRoot, run, now, &snapshot, seenDirs); err != nil {
+			return archiveSnapshot{}, err
+		}
 		runPath := filepath.Join(root, run)
 		prefix := path.Join(archiveRoot, filepath.ToSlash(run))
-		if err := appendTree(tw, runPath, prefix); err != nil {
+		paths, err := appendTree(tw, runPath, prefix)
+		if err != nil {
+			return archiveSnapshot{}, err
+		}
+		snapshot.Paths = append(snapshot.Paths, paths...)
+	}
+	paths, err := appendManifestDatabases(tw, root, archiveRoot, runs)
+	if err != nil {
+		return archiveSnapshot{}, err
+	}
+	snapshot.Paths = append(snapshot.Paths, paths...)
+	return snapshot, nil
+}
+
+func appendSnapshotDir(tw *tar.Writer, fsPath, archiveName string, mode int64, modTime time.Time, snapshot *archiveSnapshot) error {
+	if err := writeDirHeader(tw, archiveName, mode, modTime); err != nil {
+		return err
+	}
+	snapshot.Paths = append(snapshot.Paths, archivedPath{FSPath: filepath.Clean(fsPath), Kind: archivedPathDir})
+	return nil
+}
+
+func appendRunParentDirs(tw *tar.Writer, root, archiveRoot, run string, now time.Time, snapshot *archiveSnapshot, seen map[string]struct{}) error {
+	rel := filepath.ToSlash(run)
+	parts := strings.Split(rel, "/")
+	currentFS := filepath.Clean(root)
+	currentArchive := archiveRoot
+	for _, part := range parts[:len(parts)-1] {
+		currentFS = filepath.Join(currentFS, part)
+		currentArchive = path.Join(currentArchive, part)
+		if _, ok := seen[currentArchive]; ok {
+			continue
+		}
+		if err := appendSnapshotDir(tw, currentFS, currentArchive, 0o755, now, snapshot); err != nil {
 			return err
 		}
+		seen[currentArchive] = struct{}{}
 	}
-	return appendManifestDatabases(tw, root, archiveRoot, runs)
+	return nil
 }
 
 func writeDirHeader(tw *tar.Writer, name string, mode int64, modTime time.Time) error {
@@ -445,8 +514,9 @@ func writeDirHeader(tw *tar.Writer, name string, mode int64, modTime time.Time) 
 	})
 }
 
-func appendTree(tw *tar.Writer, fsRoot, archiveRoot string) error {
-	return filepath.WalkDir(fsRoot, func(filePath string, _ fs.DirEntry, walkErr error) error {
+func appendTree(tw *tar.Writer, fsRoot, archiveRoot string) ([]archivedPath, error) {
+	paths := make([]archivedPath, 0)
+	err := filepath.WalkDir(fsRoot, func(filePath string, _ fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -480,6 +550,7 @@ func appendTree(tw *tar.Writer, fsRoot, archiveRoot string) error {
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
+		paths = append(paths, archivedPath{FSPath: filepath.Clean(filePath), Kind: archivedKindFor(info)})
 		if !info.Mode().IsRegular() {
 			return nil
 		}
@@ -494,22 +565,34 @@ func appendTree(tw *tar.Writer, fsRoot, archiveRoot string) error {
 		}
 		return closeErr
 	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
-func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []string) error {
+func archivedKindFor(info os.FileInfo) archivedPathKind {
+	if info.IsDir() {
+		return archivedPathDir
+	}
+	return archivedPathFile
+}
+
+func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []string) ([]archivedPath, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rootAbs = filepath.Clean(rootAbs)
 	seen := make(map[string]struct{})
+	paths := make([]archivedPath, 0)
 	for _, run := range runs {
 		manifest, err := LoadManifest(filepath.Join(root, run, "manifest.json"))
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("inspect archive database for run %s: %w", run, err)
+			return nil, fmt.Errorf("inspect archive database for run %s: %w", run, err)
 		}
 		if manifest.AnalyseDatabasePath == "" {
 			continue
@@ -520,7 +603,7 @@ func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []st
 		}
 		dbAbs, err := filepath.Abs(dbPath)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		dbAbs = filepath.Clean(dbAbs)
 		rel, err := filepath.Rel(rootAbs, dbAbs)
@@ -539,15 +622,207 @@ func appendManifestDatabases(tw *tar.Writer, root, archiveRoot string, runs []st
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if info.IsDir() {
-			return fmt.Errorf("analyse database path %s is a directory", dbAbs)
+			return nil, fmt.Errorf("analyse database path %s is a directory", dbAbs)
 		}
-		if err := appendTree(tw, dbAbs, path.Join(archiveRoot, relSlash)); err != nil {
-			return err
+		written, err := appendTree(tw, dbAbs, path.Join(archiveRoot, relSlash))
+		if err != nil {
+			return nil, err
 		}
+		paths = append(paths, written...)
 		seen[relSlash] = struct{}{}
+	}
+	return paths, nil
+}
+
+func removeArchivedSnapshot(root string, snapshot archiveSnapshot) (archiveCleanupResult, error) {
+	paths, rootAbs, err := archivedCleanupPaths(root, snapshot.Paths)
+	if err != nil {
+		return archiveCleanupResult{}, err
+	}
+	files, dirs := splitArchivedPaths(paths)
+	result := archiveCleanupResult{}
+	for _, item := range files {
+		removed, err := removeArchivedFile(item.FSPath)
+		if err != nil {
+			return result, err
+		}
+		if removed {
+			result.Removed++
+		}
+	}
+	result, err = pruneArchivedDirs(dirs, rootAbs, result)
+	if err != nil {
+		return result, err
+	}
+	if err := syncArchiveCleanupDirs(paths); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func pruneArchivedSnapshotDirs(root string, snapshot archiveSnapshot, result archiveCleanupResult) (archiveCleanupResult, error) {
+	paths, rootAbs, err := archivedCleanupPaths(root, snapshot.Paths)
+	if err != nil {
+		return result, err
+	}
+	_, dirs := splitArchivedPaths(paths)
+	result, err = pruneArchivedDirs(dirs, rootAbs, result)
+	if err != nil {
+		return result, err
+	}
+	if err := syncArchiveCleanupDirs(paths); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func archivedCleanupPaths(root string, paths []archivedPath) ([]archivedPath, string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, "", fmt.Errorf("archive written, but failed to resolve benchmark root %s for cleanup: %w", root, err)
+	}
+	rootAbs = filepath.Clean(rootAbs)
+	seen := make(map[string]archivedPathKind)
+	for _, item := range paths {
+		pathAbs, err := filepath.Abs(item.FSPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("archive written, but failed to resolve archived path %s for cleanup: %w", item.FSPath, err)
+		}
+		pathAbs = filepath.Clean(pathAbs)
+		rel, err := filepath.Rel(rootAbs, pathAbs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return nil, "", fmt.Errorf("archive written, but refusing to remove archived path outside benchmark root: %s", pathAbs)
+		}
+		if existing, ok := seen[pathAbs]; !ok || existing != archivedPathDir {
+			seen[pathAbs] = item.Kind
+		}
+	}
+	deduped := make([]archivedPath, 0, len(seen))
+	for pathAbs, kind := range seen {
+		deduped = append(deduped, archivedPath{FSPath: pathAbs, Kind: kind})
+	}
+	slices.SortFunc(deduped, func(a, b archivedPath) int {
+		return strings.Compare(a.FSPath, b.FSPath)
+	})
+	return deduped, rootAbs, nil
+}
+
+func splitArchivedPaths(paths []archivedPath) ([]archivedPath, []archivedPath) {
+	files := make([]archivedPath, 0, len(paths))
+	dirs := make([]archivedPath, 0, len(paths))
+	for _, item := range paths {
+		if item.Kind == archivedPathDir {
+			dirs = append(dirs, item)
+			continue
+		}
+		files = append(files, item)
+	}
+	slices.SortFunc(files, compareArchivedPathDepthDesc)
+	slices.SortFunc(dirs, compareArchivedPathDepthDesc)
+	return files, dirs
+}
+
+func compareArchivedPathDepthDesc(a, b archivedPath) int {
+	aDepth := pathDepth(a.FSPath)
+	bDepth := pathDepth(b.FSPath)
+	if aDepth > bDepth {
+		return -1
+	}
+	if aDepth < bDepth {
+		return 1
+	}
+	return strings.Compare(a.FSPath, b.FSPath)
+}
+
+func pathDepth(filePath string) int {
+	clean := filepath.Clean(filePath)
+	if clean == string(filepath.Separator) {
+		return 0
+	}
+	return strings.Count(clean, string(filepath.Separator))
+}
+
+func pruneArchivedDirs(dirs []archivedPath, rootAbs string, result archiveCleanupResult) (archiveCleanupResult, error) {
+	for _, item := range dirs {
+		removed, err := removeArchivedDirIfEmpty(item.FSPath)
+		if err != nil {
+			return result, err
+		}
+		if removed {
+			result.Removed++
+			if filepath.Clean(item.FSPath) == rootAbs {
+				result.RemovedRoot = true
+			}
+		}
+	}
+	return result, nil
+}
+
+func removeArchivedFile(filePath string) (bool, error) {
+	info, err := os.Lstat(filePath)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("archive written, but failed to inspect archived file %s for removal: %w", filePath, err)
+	}
+	if info.IsDir() {
+		return false, nil
+	}
+	if err := archiveRemove(filePath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("archive written, but failed to remove archived file %s: %w", filePath, err)
+	}
+	return true, nil
+}
+
+func removeArchivedDirIfEmpty(dir string) (bool, error) {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("archive written, but failed to inspect archived directory %s for removal: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	if err := archiveRemove(dir); err != nil {
+		switch {
+		case os.IsNotExist(err):
+			return false, nil
+		case isDirectoryNotEmpty(err):
+			return false, nil
+		default:
+			return false, fmt.Errorf("archive written, but failed to remove archived directory %s: %w", dir, err)
+		}
+	}
+	return true, nil
+}
+
+func isDirectoryNotEmpty(err error) bool {
+	return errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST)
+}
+
+func syncArchiveCleanupDirs(paths []archivedPath) error {
+	dirs := make(map[string]struct{}, len(paths))
+	for _, item := range paths {
+		dirs[filepath.Dir(item.FSPath)] = struct{}{}
+	}
+	ordered := make([]string, 0, len(dirs))
+	for dir := range dirs {
+		ordered = append(ordered, dir)
+	}
+	slices.Sort(ordered)
+	for _, dir := range ordered {
+		if err := fsutil.SyncDir(dir); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("archive written, but failed to sync cleanup directory %s: %w", dir, err)
+		}
 	}
 	return nil
 }
