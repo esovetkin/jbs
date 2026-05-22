@@ -73,11 +73,11 @@ func binaryNeedsRelaxedCombEval(expr ast.Expr) bool {
 }
 
 func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value {
-	left, okLeft := evalRelaxedCombOperand(expr.Left, env, diags, opts, ctx)
+	left, okLeft := evalRelaxedCombOperandOrdered(expr.Left, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return Null()
 	}
-	right, okRight := evalRelaxedCombOperand(expr.Right, env, diags, opts, ctx)
+	right, okRight := evalRelaxedCombOperandOrdered(expr.Right, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
 		return Null()
 	}
@@ -86,35 +86,35 @@ func evalRelaxedCombBinary(expr ast.BinaryExpr, env map[string]Value, diags *dia
 	}
 	opNode := ast.CombBinary{Op: expr.Op, OpSpan: expr.Span, Span: expr.Span}
 	if expr.Op == "+" {
-		return combValueFromRows(rowWiseMergeRows(left, right, opNode, diags))
+		return combValueFromOrderedRows(rowWiseMergeOrderedRows(left, right, opNode, diags))
 	}
-	return combValueFromRows(productRows(left, right, opNode, diags))
+	return combValueFromOrderedRows(productOrderedRows(left, right, opNode, diags))
 }
 
-func evalRelaxedCombOperand(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) ([]Row, bool) {
+func evalRelaxedCombOperandOrdered(expr ast.Expr, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) (orderedRows, bool) {
 	if expr == nil {
-		return nil, false
+		return orderedRows{}, false
 	}
 	if alias, ok := expr.(ast.AliasExpr); ok {
 		if alias.Alias == "" {
 			diags.AddError(diag.CodeE106, "table operand alias cannot be empty", alias.Span, "use syntax: expression as name")
-			return nil, false
+			return orderedRows{}, false
 		}
 		value := evalExprWithCtx(alias.Expr, env, diags, opts, ctx)
 		if ctx.recursionLimitHit() {
-			return nil, false
+			return orderedRows{}, false
 		}
 		if IsComb(value) {
 			diags.AddError(diag.CodeE106, "alias cannot be applied to a table-valued expression", alias.Span, "apply alias only to non-table operands")
-			return nil, false
+			return orderedRows{}, false
 		}
-		return combRowsFromNamedValue(alias.Alias, value, alias.Span), true
+		return orderedRowsFromNamedValue(alias.Alias, value, alias.Span), true
 	}
 	value := evalExprWithCtx(expr, env, diags, opts, ctx)
 	if ctx.recursionLimitHit() {
-		return nil, false
+		return orderedRows{}, false
 	}
-	return combRowsFromBinaryOperand(expr, value, env, diags, opts, ctx), true
+	return orderedRowsFromBinaryOperand(expr, value, env, diags, opts, ctx), true
 }
 
 func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
@@ -136,20 +136,38 @@ func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
 	return rows
 }
 
+type orderedRows struct {
+	Order []string
+	Rows  []Row
+}
+
+func orderedRowsFromNamedValue(name string, value Value, span diag.Span) orderedRows {
+	rows := combRowsFromNamedValue(name, value, span)
+	if IsComb(value) {
+		return orderedRows{Order: CombNames(value), Rows: rows}
+	}
+	return orderedRows{Order: []string{name}, Rows: rows}
+}
+
 func combRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) []Row {
+	rows := orderedRowsFromBinaryOperand(expr, value, env, diags, opts, ctx)
+	return rows.Rows
+}
+
+func orderedRowsFromBinaryOperand(expr ast.Expr, value Value, env map[string]Value, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) orderedRows {
 	if expr == nil {
-		return combRowsFromValue(value, diag.Span{})
+		return orderedRowsFromValue(value, diag.Span{})
 	}
 	switch e := expr.(type) {
 	case ast.IdentExpr:
-		return combRowsFromNamedValue(e.Name, value, e.Span)
+		return orderedRowsFromNamedValue(e.Name, value, e.Span)
 	case ast.QualifiedIdentExpr:
-		return combRowsFromNamedValue(e.Namespace+"."+e.Name, value, e.Span)
+		return orderedRowsFromNamedValue(e.Namespace+"."+e.Name, value, e.Span)
 	case ast.AliasExpr:
-		rows, _ := evalRelaxedCombOperand(e, env, diags, opts, ctx)
+		rows, _ := evalRelaxedCombOperandOrdered(e, env, diags, opts, ctx)
 		return rows
 	default:
-		return combRowsFromValue(value, expr.GetSpan())
+		return orderedRowsFromValue(value, expr.GetSpan())
 	}
 }
 
@@ -165,12 +183,58 @@ func combRowsFromValue(value Value, _ diag.Span) []Row {
 	return rows
 }
 
-func combValueFromRows(rows []Row) Value {
-	if rows == nil {
-		rows = make([]Row, 0)
+func orderedRowsFromValue(value Value, span diag.Span) orderedRows {
+	rows := combRowsFromValue(value, span)
+	if IsComb(value) {
+		return orderedRows{Order: CombNames(value), Rows: rows}
 	}
-	return CombValue(&Comb{
-		Order: RowVariableNames(rows),
-		Rows:  cloneRows(rows),
-	})
+	return orderedRows{Rows: rows}
+}
+
+func rowWiseMergeOrderedRows(left, right orderedRows, op ast.CombBinary, diags *diag.Diagnostics) orderedRows {
+	return orderedRows{
+		Order: mergeRowOrders(left.Order, right.Order),
+		Rows:  rowWiseMergeRows(left.Rows, right.Rows, op, diags),
+	}
+}
+
+func productOrderedRows(left, right orderedRows, op ast.CombBinary, diags *diag.Diagnostics) orderedRows {
+	return orderedRows{
+		Order: mergeRowOrders(left.Order, right.Order),
+		Rows:  productRows(left.Rows, right.Rows, op, diags),
+	}
+}
+
+func mergeRowOrders(left, right []string) []string {
+	out := make([]string, 0, len(left)+len(right))
+	seen := make(map[string]struct{}, len(left)+len(right))
+	for _, name := range left {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	for _, name := range right {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
+func combValueFromOrderedRows(rows orderedRows) Value {
+	order := rows.Order
+	if len(order) == 0 {
+		order = RowVariableNames(rows.Rows)
+	}
+	return tableValueFromOrderedRows(order, rows.Rows)
 }

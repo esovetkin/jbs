@@ -125,13 +125,13 @@ func evalBinary(op string, l, r Value, at diag.Span, diags *diag.Diagnostics, op
 	if IsComb(l) || IsComb(r) {
 		switch op {
 		case "+", "*":
-			leftRows := combRowsFromValue(l, at)
-			rightRows := combRowsFromValue(r, at)
+			leftRows := orderedRowsFromValue(l, at)
+			rightRows := orderedRowsFromValue(r, at)
 			opNode := ast.CombBinary{Op: op, OpSpan: at, Span: at}
 			if op == "+" {
-				return combValueFromRows(rowWiseMergeRows(leftRows, rightRows, opNode, diags))
+				return combValueFromOrderedRows(rowWiseMergeOrderedRows(leftRows, rightRows, opNode, diags))
 			}
-			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
+			return combValueFromOrderedRows(productOrderedRows(leftRows, rightRows, opNode, diags))
 		default:
 			diags.AddError(diag.CodeE106, fmt.Sprintf("operator '%s' is not supported for table values", op), at, "use '+', '*', or filter() with table values")
 			return Null()

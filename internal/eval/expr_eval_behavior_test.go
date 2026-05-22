@@ -524,3 +524,63 @@ func TestEvalBinaryVectorAndCompareBehaviors(t *testing.T) {
 		}
 	})
 }
+
+func TestTableBinaryOperationsPreserveOperandColumnOrder(t *testing.T) {
+	span := spanAt(521, 1)
+	left := CombValue(&Comb{
+		Order: []string{"y"},
+		Rows:  []Row{{Values: map[string]Cell{"y": {Value: Int(1)}}}},
+	})
+	right := CombValue(&Comb{
+		Order: []string{"x"},
+		Rows:  []Row{{Values: map[string]Cell{"x": {Value: Int(2)}}}},
+	})
+
+	for _, op := range []string{"+", "*"} {
+		diags := &diag.Diagnostics{}
+		got := evalBinary(op, left, right, span, diags, ExprOptions{}, newEvalCtx(NewRootFrame(nil)))
+		if diags.HasErrors() {
+			t.Fatalf("%s diagnostics: %s", op, diags.String())
+		}
+		if !IsComb(got) || !slices.Equal(got.C.Order, []string{"y", "x"}) {
+			t.Fatalf("%s order = %#v, want [y x]", op, got.C.Order)
+		}
+	}
+}
+
+func TestTableConstructorBinaryOperationsPreserveOperandColumnOrder(t *testing.T) {
+	span := spanAt(522, 1)
+	for _, op := range []string{"+", "*"} {
+		expr := ast.BinaryExpr{
+			Left:  callExpr(ident("t"), namedArg("y", listExpr(intExpr(1)))),
+			Op:    op,
+			Right: callExpr(ident("t"), namedArg("x", listExpr(intExpr(2)))),
+			Span:  span,
+		}
+		diags := &diag.Diagnostics{}
+		got := EvalExprWithOptions(expr, nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
+		if diags.HasErrors() {
+			t.Fatalf("%s diagnostics: %s", op, diags.String())
+		}
+		if !IsComb(got) || !slices.Equal(got.C.Order, []string{"y", "x"}) {
+			t.Fatalf("%s order = %#v, want [y x]", op, got.C.Order)
+		}
+	}
+}
+
+func TestTableBinaryOperationsPreserveOrderForEmptyResults(t *testing.T) {
+	span := spanAt(523, 1)
+	left := CombValue(&Comb{Order: []string{"y"}})
+	right := CombValue(&Comb{Order: []string{"x"}})
+
+	for _, op := range []string{"+", "*"} {
+		diags := &diag.Diagnostics{}
+		got := evalBinary(op, left, right, span, diags, ExprOptions{}, newEvalCtx(NewRootFrame(nil)))
+		if diags.HasErrors() {
+			t.Fatalf("%s diagnostics: %s", op, diags.String())
+		}
+		if !IsComb(got) || len(got.C.Rows) != 0 || !slices.Equal(got.C.Order, []string{"y", "x"}) {
+			t.Fatalf("%s result = %#v, want empty table ordered [y x]", op, got.C)
+		}
+	}
+}

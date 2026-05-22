@@ -508,8 +508,8 @@ func TestRunParamDoesNotDuplicateHiddenDimensions(t *testing.T) {
 	if got := strings.Count(out, ",do: step1"); got != 12 {
 		t.Fatalf("expected 12 step1 rows, got %d\n%s", got, out)
 	}
-	if got := strings.Count(out, "0,a,x,do: step1"); got != 1 {
-		t.Fatalf("expected one visible tuple for step1 0,a,x, got %d\n%s", got, out)
+	if got := strings.Count(out, "x,0,a,do: step1"); got != 1 {
+		t.Fatalf("expected one visible tuple for step1 x,0,a, got %d\n%s", got, out)
 	}
 	if !strings.Contains(stderr.String(), "WARNING W310") {
 		t.Fatalf("expected warning diagnostics for unused d, got %q", stderr.String())

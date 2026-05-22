@@ -134,7 +134,7 @@ do s0 with x {
 
 func TestBuildSingleColumnTableImportKeepsQualifiedColumn(t *testing.T) {
 	src := `
-cases = t(x = range(5))
+	cases = t(x = range(5))
 
 do s0 with cases {
         echo $x
@@ -143,6 +143,26 @@ do s0 with cases {
 	table := buildPrintParamTableFromSource(t, src)
 	if !reflect.DeepEqual(table.Columns, []string{"cases.x"}) {
 		t.Fatalf("unexpected columns: %#v", table.Columns)
+	}
+}
+
+func TestBuildPreservesTableBinaryColumnOrder(t *testing.T) {
+	src := `
+cases = t(y=[1]) * t(x=[2])
+
+do s with cases {
+        echo "$y $x"
+}
+`
+	table := buildPrintParamTableFromSource(t, src)
+	if !reflect.DeepEqual(table.Columns, []string{"cases.y", "cases.x"}) {
+		t.Fatalf("unexpected columns: %#v", table.Columns)
+	}
+	if len(table.Rows) != 1 {
+		t.Fatalf("expected one row, got %#v", table.Rows)
+	}
+	if table.Rows[0].Values["cases.y"] != "1" || table.Rows[0].Values["cases.x"] != "2" {
+		t.Fatalf("unexpected row values: %#v", table.Rows[0].Values)
 	}
 }
 

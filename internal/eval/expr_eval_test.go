@@ -351,8 +351,8 @@ func TestCombBinarySupportsProjectedOperandsAndMemberAlias(t *testing.T) {
 		if !IsComb(got) || got.C == nil {
 			t.Fatalf("expected comb result, got %#v", got)
 		}
-		if !slices.Equal(got.C.Order, []string{"x", "y"}) {
-			t.Fatalf("expected columns [x y], got %#v", got.C.Order)
+		if !slices.Equal(got.C.Order, []string{"y", "x"}) {
+			t.Fatalf("expected columns [y x], got %#v", got.C.Order)
 		}
 		if len(got.C.Rows) != 2 {
 			t.Fatalf("expected 2 rows, got %#v", got.C.Rows)
@@ -1966,8 +1966,8 @@ func TestBindingAssignTableBinarySupportsAliasOperand(t *testing.T) {
 	if got.Kind != KindComb || got.C == nil {
 		t.Fatalf("expected comb result, got %#v", got)
 	}
-	if !slices.Equal(got.C.Order, []string{"y", "z"}) {
-		t.Fatalf("expected columns [y z], got %#v", got.C.Order)
+	if !slices.Equal(got.C.Order, []string{"z", "y"}) {
+		t.Fatalf("expected columns [z y], got %#v", got.C.Order)
 	}
 }
 

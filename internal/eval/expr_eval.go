@@ -299,18 +299,18 @@ func evalExprWithCtx(expr ast.Expr, env map[string]Value, diags *diag.Diagnostic
 		}
 		if (e.Op == "+" || e.Op == "*") && (IsComb(l) || IsComb(r)) {
 			opNode := ast.CombBinary{Op: e.Op, OpSpan: e.Span, Span: e.Span}
-			leftRows := combRowsFromBinaryOperand(e.Left, l, env, diags, opts, ctx)
+			leftRows := orderedRowsFromBinaryOperand(e.Left, l, env, diags, opts, ctx)
 			if ctx.recursionLimitHit() {
 				return Null()
 			}
-			rightRows := combRowsFromBinaryOperand(e.Right, r, env, diags, opts, ctx)
+			rightRows := orderedRowsFromBinaryOperand(e.Right, r, env, diags, opts, ctx)
 			if ctx.recursionLimitHit() {
 				return Null()
 			}
 			if e.Op == "+" {
-				return combValueFromRows(rowWiseMergeRows(leftRows, rightRows, opNode, diags))
+				return combValueFromOrderedRows(rowWiseMergeOrderedRows(leftRows, rightRows, opNode, diags))
 			}
-			return combValueFromRows(productRows(leftRows, rightRows, opNode, diags))
+			return combValueFromOrderedRows(productOrderedRows(leftRows, rightRows, opNode, diags))
 		}
 		return evalBinary(e.Op, l, r, e.Span, diags, opts, ctx)
 	case ast.CompareExpr:
