@@ -133,6 +133,22 @@ JSON
 			src:           "do run {\ncat <<-EOF\n\t}\n\tEOF\n}",
 			wantNeedsMore: false,
 		},
+		{
+			name:          "do_block_hash_parameter_expansion_complete",
+			src:           "do run {\necho ${file#*.}\n}",
+			wantNeedsMore: false,
+		},
+		{
+			name:           "do_block_hash_parameter_expansion_waits_for_block_close",
+			src:            "do run {\necho ${file#*.}",
+			wantNeedsMore:  true,
+			wantBraceDepth: 1,
+		},
+		{
+			name:          "do_block_nested_parameter_expansion_complete",
+			src:           "do run {\necho ${file:-${fallback#*.}}\n}",
+			wantNeedsMore: false,
+		},
 	}
 
 	for _, tc := range cases {

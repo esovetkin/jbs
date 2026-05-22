@@ -140,6 +140,75 @@ func popHereDoc(queue []hereDocSpec) (*hereDocSpec, []hereDocSpec) {
 	return &spec, queue[1:]
 }
 
+func scanShellParameterExpansion(src []rune, start int) (int, bool) {
+	if start+1 >= len(src) || src[start] != '$' || src[start+1] != '{' {
+		return start, false
+	}
+
+	depth := 1
+	mode := blockScanCode
+	escaped := false
+
+	for i := start + 2; i < len(src); i++ {
+		r := src[i]
+		switch mode {
+		case blockScanSingleQuote:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '\'' {
+				mode = blockScanCode
+			}
+		case blockScanDoubleQuote:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				mode = blockScanCode
+			}
+		default:
+			switch r {
+			case '\\':
+				i++
+			case '\'':
+				mode = blockScanSingleQuote
+				escaped = false
+			case '"':
+				mode = blockScanDoubleQuote
+				escaped = false
+			case '$':
+				if i+1 < len(src) && src[i+1] == '{' {
+					depth++
+					i++
+				}
+			case '}':
+				depth--
+				if depth == 0 {
+					return i + 1, true
+				}
+			}
+		}
+	}
+
+	return start, false
+}
+
+func advanceToOffset(advance func() rune, offset func() int, end int) {
+	for offset() < end {
+		advance()
+	}
+}
+
 func readBalancedBlockShared(
 	src []rune,
 	peek func() rune,
@@ -197,6 +266,12 @@ func readBalancedBlockShared(
 				mode = blockScanCode
 			}
 		case blockScanDoubleQuote:
+			if r == '$' {
+				if end, ok := scanShellParameterExpansion(src, offset()); ok {
+					advanceToOffset(advance, offset, end)
+					continue
+				}
+			}
 			advance()
 			if escaped {
 				escaped = false
@@ -213,6 +288,12 @@ func readBalancedBlockShared(
 			switch r {
 			case '#':
 				mode = blockScanLineComment
+				advance()
+			case '$':
+				if end, ok := scanShellParameterExpansion(src, offset()); ok {
+					advanceToOffset(advance, offset, end)
+					continue
+				}
 				advance()
 			case '<':
 				if spec, ok := parseHereDocRedirect(src, offset()); ok {

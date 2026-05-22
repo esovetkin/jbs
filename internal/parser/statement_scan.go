@@ -70,6 +70,12 @@ func ScanStructuralState(src string) StructuralScanState {
 			}
 			i++
 		case blockScanDoubleQuote:
+			if r == '$' {
+				if end, ok := scanShellParameterExpansion(runes, i); ok {
+					i = end
+					continue
+				}
+			}
 			if escaped {
 				escaped = false
 				i++
@@ -88,6 +94,11 @@ func ScanStructuralState(src string) StructuralScanState {
 			switch r {
 			case '#':
 				mode = blockScanLineComment
+			case '$':
+				if end, ok := scanShellParameterExpansion(runes, i); ok {
+					i = end
+					continue
+				}
 			case '<':
 				if spec, ok := parseHereDocRedirect(runes, i); ok {
 					pendingHereDocs = append(pendingHereDocs, spec)

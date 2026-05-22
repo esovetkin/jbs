@@ -170,6 +170,44 @@ func TestParseDoBlockMultipleHereDocs(t *testing.T) {
 	}
 }
 
+func TestParseDoBlockKeepsShellParameterExpansion(t *testing.T) {
+	cases := []string{
+		"echo ${file#*.}",
+		"echo ${file##*/}",
+		"echo ${file%.*}",
+		"echo ${file%%.*}",
+		"echo \"${file#*.}\"",
+		"echo ${file:-${fallback#*.}}",
+	}
+
+	for _, line := range cases {
+		t.Run(line, func(t *testing.T) {
+			src := "do run {\nfile=name.txt\nfallback=archive.tar.gz\n" + line + "\necho after\n}\n"
+			body, diags := parseSingleDoBody(t, src)
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			if !strings.Contains(body, line) {
+				t.Fatalf("do body lost parameter expansion %q: %q", line, body)
+			}
+			if !strings.Contains(body, "echo after") {
+				t.Fatalf("do body closed before echo after: %q", body)
+			}
+		})
+	}
+}
+
+func TestParseDoBlockKeepsShellCommentBehavior(t *testing.T) {
+	src := "do run {\necho before # } ignored by shell comment\necho after\n}\n"
+	body, diags := parseSingleDoBody(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if !strings.Contains(body, "echo after") {
+		t.Fatalf("do body closed before echo after: %q", body)
+	}
+}
+
 func TestParseDoBlockMissingHereDocDelimiterIsUnterminated(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	_ = Parse("missing.jbs", "do run {\ncat <<EOF\n}\n", diags)
