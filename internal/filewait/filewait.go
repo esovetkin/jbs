@@ -25,6 +25,7 @@ type Result struct {
 }
 
 var afterPrepareTargetsForTest func()
+var statPath = os.Stat
 
 const defaultPollInterval = time.Second
 
@@ -87,7 +88,26 @@ func pollInterval(opts Options) time.Duration {
 	return defaultPollInterval
 }
 
-func startWatcher(states []targetState, opts Options) (*fsnotify.Watcher, *waitState, error) {
+type fileWatcher interface {
+	Add(string) error
+	Close() error
+	EventChan() <-chan fsnotify.Event
+	ErrorChan() <-chan error
+}
+
+type fsnotifyWatcher struct {
+	*fsnotify.Watcher
+}
+
+func (w fsnotifyWatcher) EventChan() <-chan fsnotify.Event {
+	return w.Events
+}
+
+func (w fsnotifyWatcher) ErrorChan() <-chan error {
+	return w.Errors
+}
+
+func startWatcher(states []targetState, opts Options) (fileWatcher, *waitState, error) {
 	if opts.DisableFSNotify {
 		return nil, nil, nil
 	}
@@ -95,20 +115,21 @@ func startWatcher(states []targetState, opts Options) (*fsnotify.Watcher, *waitS
 	if err != nil {
 		return nil, nil, nil
 	}
-	state := &waitState{watcher: watcher, watched: map[string]struct{}{}}
+	wrapped := fsnotifyWatcher{Watcher: watcher}
+	state := &waitState{watcher: wrapped, watched: map[string]struct{}{}}
 	if err := state.refreshAllWatches(states); err != nil {
 		watcher.Close()
 		return nil, nil, nil
 	}
-	return watcher, state, nil
+	return wrapped, state, nil
 }
 
 func waitLoop(ctx context.Context, states []targetState, state *waitState, ticker *time.Ticker) (Result, error) {
 	var events <-chan fsnotify.Event
 	var watcherErrors <-chan error
 	if state != nil && state.watcher != nil {
-		events = state.watcher.Events
-		watcherErrors = state.watcher.Errors
+		events = state.watcher.EventChan()
+		watcherErrors = state.watcher.ErrorChan()
 	}
 
 	for {
@@ -243,7 +264,7 @@ type snapshot struct {
 }
 
 func statSnapshot(path string) (snapshot, error) {
-	info, err := os.Stat(path)
+	info, err := statPath(path)
 	if err == nil {
 		return snapshot{
 			exists:  true,
@@ -287,7 +308,7 @@ func sameFile(a, b snapshot) bool {
 }
 
 type waitState struct {
-	watcher *fsnotify.Watcher
+	watcher fileWatcher
 	watched map[string]struct{}
 }
 
@@ -315,7 +336,7 @@ func (s *waitState) refreshWatches(target string) error {
 		if err != nil {
 			return err
 		}
-		info, err := os.Stat(next)
+		info, err := statPath(next)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
@@ -348,7 +369,7 @@ func (s *waitState) addWatch(dir string) error {
 func nearestExistingDir(path string) (string, error) {
 	dir := filepath.Dir(path)
 	for {
-		info, err := os.Stat(dir)
+		info, err := statPath(dir)
 		if err == nil {
 			if !info.IsDir() {
 				return "", fmt.Errorf("fwait parent is not a directory: %s", dir)
