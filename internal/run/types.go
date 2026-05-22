@@ -56,6 +56,7 @@ type WorkStatus struct {
 	Row        int        `json:"row"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Duration   *float64   `json:"duration,omitempty"`
 	ExitCode   *int       `json:"exit_code,omitempty"`
 	Error      string     `json:"error,omitempty"`
 }

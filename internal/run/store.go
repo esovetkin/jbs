@@ -281,6 +281,11 @@ func (s *Store) NormalizeStaleRunning() error {
 		now := time.Now().UTC()
 		status.Status = StatusInterrupted
 		status.FinishedAt = &now
+		if status.StartedAt != nil {
+			status.Duration = durationPtr(durationSeconds(*status.StartedAt, now))
+		} else {
+			status.Duration = durationPtr(0)
+		}
 		status.Error = "stale RUNNING status from interrupted run"
 		if err := s.WriteWorkStatus(work, status); err != nil {
 			return err

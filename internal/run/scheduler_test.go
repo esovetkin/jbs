@@ -119,6 +119,33 @@ func TestSchedulerFinishStatusWriteFailureStopsDependents(t *testing.T) {
 	}
 }
 
+func TestSchedulerWritesFinishedDuration(t *testing.T) {
+	work := ManifestWork{Step: "s", Row: 0, Dir: "000000"}
+	store := newFakeSchedulerStore(schedulerTestManifest(work))
+	withRunWorkProcess(t, func(context.Context, string) processResult {
+		code := 0
+		return processResult{Status: StatusFinished, ExitCode: &code}
+	})
+
+	result := NewScheduler(store, nil).Run(context.Background())
+	if result.Status != StatusFinished {
+		t.Fatalf("status = %s, want %s: %v", result.Status, StatusFinished, result.Err)
+	}
+	status := store.statuses[workKey(work.Step, work.Row)]
+	if status.StartedAt == nil {
+		t.Fatalf("started_at = nil in %#v", status)
+	}
+	if status.FinishedAt == nil {
+		t.Fatalf("finished_at = nil in %#v", status)
+	}
+	if status.Duration == nil {
+		t.Fatalf("duration = nil in %#v", status)
+	}
+	if *status.Duration < 0 {
+		t.Fatalf("duration = %v, want non-negative", *status.Duration)
+	}
+}
+
 func TestSchedulerBlockedStatusWriteFailureIsReturned(t *testing.T) {
 	parent := ManifestWork{Step: "s", Row: 0, Dir: "000000"}
 	child := ManifestWork{Step: "s", Row: 1, Dir: "000001", Deps: []ManifestWorkRef{{Step: "s", Row: 0}}}
@@ -281,8 +308,12 @@ func TestSchedulerMarksDependentTreeBlockedOnProcessError(t *testing.T) {
 	}
 	for _, work := range []ManifestWork{child, grandchild} {
 		key := workKey(work.Step, work.Row)
-		if got := store.statuses[key].Status; got != StatusBlocked {
+		status := store.statuses[key]
+		if got := status.Status; got != StatusBlocked {
 			t.Fatalf("%s status = %s, want %s", key, got, StatusBlocked)
+		}
+		if status.Duration == nil || *status.Duration != 0 {
+			t.Fatalf("%s duration = %v, want 0", key, status.Duration)
 		}
 	}
 	wantMessage := "dependency s/000000 failed"
@@ -479,6 +510,13 @@ func TestSchedulerCancellationInterruptsRunningWork(t *testing.T) {
 	}
 	if got := store.statuses[workKey("s", 0)].Status; got != StatusInterrupted {
 		t.Fatalf("work status = %s, want %s", got, StatusInterrupted)
+	}
+	status := store.statuses[workKey("s", 0)]
+	if status.Duration == nil {
+		t.Fatalf("interrupted duration = nil in %#v", status)
+	}
+	if *status.Duration < 0 {
+		t.Fatalf("interrupted duration = %v, want non-negative", *status.Duration)
 	}
 }
 

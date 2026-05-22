@@ -45,18 +45,78 @@ func TestBuildStatusSummaryCountsAndTree(t *testing.T) {
 func TestPrintStatusSummaryRendersTable(t *testing.T) {
 	summary := RunStatusSummary{
 		Rows: []StatusSummaryRow{
-			{Label: "└── step1", Counts: StatusCounts{Finished: 2, Error: 1}},
-			{Label: "    └── step2", Counts: StatusCounts{Blocked: 3}},
+			{Label: "└── step1", Counts: StatusCounts{Finished: 2, Error: 1}, DurationSeconds: 1.25},
+			{Label: "    └── step2", Counts: StatusCounts{Blocked: 3}, DurationSeconds: 3},
 		},
-		Total: StatusCounts{Finished: 2, Error: 1, Blocked: 3},
+		Total:                StatusCounts{Finished: 2, Error: 1, Blocked: 3},
+		TotalDurationSeconds: 4.25,
 	}
 
 	var buf bytes.Buffer
 	PrintStatusSummary(&buf, summary)
 	out := buf.String()
-	for _, want := range []string{"| step", "BLOCKED", "└── step1", "total:", "|       3 |"} {
+	for _, want := range []string{"| step", "BLOCKED", "duration_s", "└── step1", "total:", "|       3 |", "1.25", "4.25"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("summary output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestBuildStatusSummarySumsDurations(t *testing.T) {
+	runDir := t.TempDir()
+	manifest := statusSummaryManifest()
+	store := NewStore(runDir, manifest, nil)
+	writeStatusSummaryWorkStatuses(t, store, map[string]WorkStatus{
+		"step1/000000": {Schema: 1, Status: StatusFinished, Step: "step1", Row: 0, Duration: durationPtr(1.25)},
+		"step1/000001": {Schema: 1, Status: StatusError, Step: "step1", Row: 1, Duration: durationPtr(2)},
+		"step2/000000": {Schema: 1, Status: StatusBlocked, Step: "step2", Row: 0, Duration: durationPtr(0.5)},
+		"step2/000001": {Schema: 1, Status: StatusNotStarted, Step: "step2", Row: 1},
+		"step3/000000": {Schema: 1, Status: StatusInterrupted, Step: "step3", Row: 0, Duration: durationPtr(0.25)},
+		"step4/000000": {Schema: 1, Status: StatusRunning, Step: "step4", Row: 0},
+	})
+
+	summary, err := BuildStatusSummary(store)
+	if err != nil {
+		t.Fatalf("BuildStatusSummary: %v", err)
+	}
+	if summary.TotalDurationSeconds != 4 {
+		t.Fatalf("total duration = %v, want 4", summary.TotalDurationSeconds)
+	}
+	got := make(map[string]float64, len(summary.Rows))
+	for _, row := range summary.Rows {
+		got[treeLabelName(row.Label)] = row.DurationSeconds
+	}
+	want := map[string]float64{"step1": 3.25, "step2": 0.5, "step3": 0.25, "step4": 0}
+	for step, wantDuration := range want {
+		if got[step] != wantDuration {
+			t.Fatalf("%s duration = %v, want %v; all durations=%#v", step, got[step], wantDuration, got)
+		}
+	}
+}
+
+func TestBuildStatusSummaryTreatsMissingDurationAsZero(t *testing.T) {
+	runDir := t.TempDir()
+	manifest := statusSummaryManifest()
+	store := NewStore(runDir, manifest, nil)
+	writeStatusSummaryStatuses(t, store, map[string]Status{
+		"step1/000000": StatusNotStarted,
+		"step1/000001": StatusRunning,
+		"step2/000000": StatusFinished,
+		"step2/000001": StatusError,
+		"step3/000000": StatusInterrupted,
+		"step4/000000": StatusBlocked,
+	})
+
+	summary, err := BuildStatusSummary(store)
+	if err != nil {
+		t.Fatalf("BuildStatusSummary: %v", err)
+	}
+	if summary.TotalDurationSeconds != 0 {
+		t.Fatalf("total duration = %v, want 0", summary.TotalDurationSeconds)
+	}
+	for _, row := range summary.Rows {
+		if row.DurationSeconds != 0 {
+			t.Fatalf("%s duration = %v, want 0", row.Label, row.DurationSeconds)
 		}
 	}
 }
@@ -333,6 +393,23 @@ func writeStatusSummaryStatuses(t *testing.T, store *Store, statuses map[string]
 			t.Fatal(err)
 		}
 		if err := store.WriteWorkStatus(work, WorkStatus{Schema: 1, Status: status, Step: work.Step, Row: work.Row}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func writeStatusSummaryWorkStatuses(t *testing.T, store *Store, statuses map[string]WorkStatus) {
+	t.Helper()
+	for _, work := range store.Manifest.Work {
+		status, ok := statuses[workKey(work.Step, work.Row)]
+		if !ok {
+			continue
+		}
+		workDir := store.WorkDir(work)
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.WriteWorkStatus(work, status); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -58,6 +58,7 @@ type Scheduler struct {
 	manifest  Manifest
 	progress  *Progress
 	statuses  map[string]Status
+	startedAt map[string]time.Time
 	children  map[string][]string
 	depsLeft  map[string]int
 	workByKey map[string]ManifestWork
@@ -73,6 +74,7 @@ func NewScheduler(store schedulerStore, progress *Progress) *Scheduler {
 		manifest:  manifest,
 		progress:  progress,
 		statuses:  make(map[string]Status),
+		startedAt: make(map[string]time.Time),
 		children:  make(map[string][]string),
 		depsLeft:  make(map[string]int),
 		workByKey: make(map[string]ManifestWork),
@@ -229,6 +231,7 @@ func (s *Scheduler) start(ctx context.Context, work ManifestWork, done chan<- wo
 		s.progress.Update(s.snapshot())
 		return fmt.Errorf("persist RUNNING status for %s: %w", key, err)
 	}
+	s.startedAt[key] = now
 	s.running[key] = work
 	s.statuses[key] = StatusRunning
 	s.progress.Update(s.snapshot())
@@ -244,6 +247,15 @@ func (s *Scheduler) finish(done workDone) ([]ManifestWork, error) {
 	s.steps[done.work.Step].release()
 	status := done.result.Status
 	now := time.Now().UTC()
+	startedAt, ok := s.startedAt[done.key]
+	var startedPtr *time.Time
+	duration := durationPtr(0)
+	if ok {
+		started := startedAt
+		startedPtr = &started
+		duration = durationPtr(durationSeconds(startedAt, now))
+	}
+	delete(s.startedAt, done.key)
 	msg := ""
 	if done.result.Err != nil {
 		msg = done.result.Err.Error()
@@ -253,7 +265,9 @@ func (s *Scheduler) finish(done workDone) ([]ManifestWork, error) {
 		Status:     status,
 		Step:       done.work.Step,
 		Row:        done.work.Row,
+		StartedAt:  startedPtr,
 		FinishedAt: &now,
+		Duration:   duration,
 		ExitCode:   done.result.ExitCode,
 		Error:      msg,
 	}
@@ -308,7 +322,7 @@ func (s *Scheduler) markBlocked(parentKey string, message string) error {
 		work := s.workByKey[childKey]
 		s.statuses[childKey] = StatusBlocked
 		now := time.Now().UTC()
-		status := WorkStatus{Schema: 1, Status: StatusBlocked, Step: work.Step, Row: work.Row, FinishedAt: &now, Error: message}
+		status := WorkStatus{Schema: 1, Status: StatusBlocked, Step: work.Step, Row: work.Row, FinishedAt: &now, Duration: durationPtr(0), Error: message}
 		if err := s.store.WriteWorkStatus(work, status); err != nil {
 			out = errors.Join(out, fmt.Errorf("persist blocked status for %s: %w", childKey, err))
 			continue

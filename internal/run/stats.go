@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"io"
+	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,8 +21,9 @@ type StatusCounts struct {
 }
 
 type StatusSummaryRow struct {
-	Label  string
-	Counts StatusCounts
+	Label           string
+	Counts          StatusCounts
+	DurationSeconds float64
 }
 
 type StepTreeRow struct {
@@ -46,18 +48,22 @@ type FailedWorkDirectory struct {
 }
 
 type RunStatusSummary struct {
-	RunDir     string
-	Rows       []StatusSummaryRow
-	Total      StatusCounts
-	FailedWork []FailedWorkDirectory
+	RunDir               string
+	Rows                 []StatusSummaryRow
+	Total                StatusCounts
+	TotalDurationSeconds float64
+	FailedWork           []FailedWorkDirectory
 }
 
 func BuildStatusSummary(store *Store) (RunStatusSummary, error) {
 	byStep := make(map[string]StatusCounts, len(store.Manifest.Steps))
+	byStepDuration := make(map[string]float64, len(store.Manifest.Steps))
 	for _, step := range store.Manifest.Steps {
 		byStep[step.Name] = StatusCounts{}
+		byStepDuration[step.Name] = 0
 	}
 	var total StatusCounts
+	var totalDuration float64
 	failed := make([]FailedWorkDirectory, 0)
 	for _, work := range store.Manifest.Work {
 		status, err := store.LoadWorkStatus(work)
@@ -68,6 +74,9 @@ func BuildStatusSummary(store *Store) (RunStatusSummary, error) {
 		addStatusCount(&counts, status.Status)
 		byStep[work.Step] = counts
 		addStatusCount(&total, status.Status)
+		duration := statusDurationSeconds(status)
+		byStepDuration[work.Step] += duration
+		totalDuration += duration
 		if status.Status == StatusError {
 			path, err := failedWorkDisplayPath(store, work)
 			if err != nil {
@@ -81,10 +90,11 @@ func BuildStatusSummary(store *Store) (RunStatusSummary, error) {
 		}
 	}
 	return RunStatusSummary{
-		RunDir:     store.RunDir,
-		Rows:       buildStatusSummaryRows(store.Manifest, byStep),
-		Total:      total,
-		FailedWork: failed,
+		RunDir:               store.RunDir,
+		Rows:                 buildStatusSummaryRows(store.Manifest, byStep, byStepDuration),
+		Total:                total,
+		TotalDurationSeconds: totalDuration,
+		FailedWork:           failed,
 	}, nil
 }
 
@@ -118,17 +128,17 @@ func PrintStatusSummary(w io.Writer, summary RunStatusSummary) {
 		return
 	}
 	rows := []alignedTableRow{
-		alignedData("step", "FINISHED", "ERROR", "BLOCKED", "NOTSTARTED", "RUNNING", "INTERRUPTED"),
+		alignedData("step", "FINISHED", "ERROR", "BLOCKED", "NOTSTARTED", "RUNNING", "INTERRUPTED", "duration_s"),
 		alignedSeparator(),
 	}
 	for _, row := range summary.Rows {
-		rows = append(rows, alignedData(statusSummaryCells(row.Label, row.Counts)...))
+		rows = append(rows, alignedData(statusSummaryCells(row.Label, row.Counts, row.DurationSeconds)...))
 	}
 	rows = append(rows,
 		alignedSeparator(),
-		alignedData(statusSummaryCells("total:", summary.Total)...),
+		alignedData(statusSummaryCells("total:", summary.Total, summary.TotalDurationSeconds)...),
 	)
-	writeAlignedTable(w, rows, numericColumns(1, 6))
+	writeAlignedTable(w, rows, numericColumns(1, 7))
 }
 
 func BuildJobTreeSummary(manifest Manifest) JobTreeSummary {
@@ -175,7 +185,7 @@ func PrintFailedWorkDirectories(w io.Writer, failed []FailedWorkDirectory) {
 	}
 }
 
-func statusSummaryCells(label string, counts StatusCounts) []string {
+func statusSummaryCells(label string, counts StatusCounts, duration float64) []string {
 	return []string{
 		label,
 		strconv.Itoa(counts.Finished),
@@ -184,14 +194,31 @@ func statusSummaryCells(label string, counts StatusCounts) []string {
 		strconv.Itoa(counts.NotStarted),
 		strconv.Itoa(counts.Running),
 		strconv.Itoa(counts.Interrupted),
+		formatDurationSeconds(duration),
 	}
 }
 
-func buildStatusSummaryRows(manifest Manifest, counts map[string]StatusCounts) []StatusSummaryRow {
+func formatDurationSeconds(seconds float64) string {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	out := strconv.FormatFloat(seconds, 'f', 3, 64)
+	out = strings.TrimRight(strings.TrimRight(out, "0"), ".")
+	if out == "" || out == "-0" {
+		return "0"
+	}
+	return out
+}
+
+func buildStatusSummaryRows(manifest Manifest, counts map[string]StatusCounts, durations map[string]float64) []StatusSummaryRow {
 	treeRows := buildStepTreeRows(manifest)
 	rows := make([]StatusSummaryRow, 0, len(treeRows))
 	for _, row := range treeRows {
-		rows = append(rows, StatusSummaryRow{Label: row.Label, Counts: counts[row.Name]})
+		rows = append(rows, StatusSummaryRow{
+			Label:           row.Label,
+			Counts:          counts[row.Name],
+			DurationSeconds: durations[row.Name],
+		})
 	}
 	return rows
 }

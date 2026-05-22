@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
 )
@@ -548,17 +549,31 @@ func TestStoreRootStatusTransitionsAndStaleNormalization(t *testing.T) {
 		t.Fatalf("final root status = %#v, want ERROR with message", status)
 	}
 
+	started := time.Now().UTC().Add(-2 * time.Second)
+	runningStatus, err := store.LoadWorkStatus(running)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runningStatus.StartedAt = &started
+	if err := store.WriteWorkStatus(running, runningStatus); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := store.NormalizeStaleRunning(); err != nil {
 		t.Fatal(err)
 	}
-	runningStatus, err := store.LoadWorkStatus(running)
+	runningStatus, err = store.LoadWorkStatus(running)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runningStatus.Status != StatusInterrupted ||
 		runningStatus.FinishedAt == nil ||
+		runningStatus.Duration == nil ||
 		runningStatus.Error != "stale RUNNING status from interrupted run" {
 		t.Fatalf("normalized status = %#v, want interrupted stale status", runningStatus)
+	}
+	if *runningStatus.Duration < 0 {
+		t.Fatalf("normalized duration = %v, want non-negative", *runningStatus.Duration)
 	}
 	finishedStatus, err := store.LoadWorkStatus(finished)
 	if err != nil {

@@ -53,10 +53,20 @@ func TestRunCommandCreatesAndExecutesBenchmark(t *testing.T) {
 	if !strings.Contains(progressOut, "100% (2/2)") {
 		t.Fatalf("expected final progress output, got %q", progressOut)
 	}
+	if !strings.Contains(progressOut, "duration_s") {
+		t.Fatalf("expected post-run status duration column, got %q", progressOut)
+	}
 
 	status := readRootStatus(t, filepath.Join(cwd, "bench", "000000", "status"))
 	if status.Status != jbsrun.StatusFinished {
 		t.Fatalf("unexpected root status: %#v", status)
+	}
+	workStatus := readWorkStatus(t, filepath.Join(cwd, "bench", "000000", "run", "000000", "status"))
+	if workStatus.Duration == nil {
+		t.Fatalf("work status duration = nil in %#v", workStatus)
+	}
+	if *workStatus.Duration < 0 {
+		t.Fatalf("work status duration = %v, want non-negative", *workStatus.Duration)
 	}
 	out0, err := os.ReadFile(filepath.Join(cwd, "bench", "000000", "run", "000000", "stdout"))
 	if err != nil {
@@ -1144,6 +1154,14 @@ func TestStatusCommandPrintsLatestRunStatus(t *testing.T) {
 	if code := Run([]string{"run", "--dry-run", input}, &stdout, &stderr); code != 0 {
 		t.Fatalf("dry-run failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
+	duration := 1.25
+	writeWorkStatus(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "status"), jbsrun.WorkStatus{
+		Schema:   1,
+		Status:   jbsrun.StatusFinished,
+		Step:     "s",
+		Row:      0,
+		Duration: &duration,
+	})
 
 	stdout.Reset()
 	stderr.Reset()
@@ -1151,8 +1169,10 @@ func TestStatusCommandPrintsLatestRunStatus(t *testing.T) {
 		t.Fatalf("status failed with code %d\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "NOTSTARTED") || !strings.Contains(out, "└── s") || !strings.Contains(out, "|          1 |") {
-		t.Fatalf("status output missing not-started summary:\n%s", out)
+	for _, want := range []string{"FINISHED", "duration_s", "1.25", "└── s", "|        1 |"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status output missing %q:\n%s", want, out)
+		}
 	}
 	if got := readFileString(t, filepath.Join(cwd, "bench", "000000", "s", "000000", "stdout")); got != "" {
 		t.Fatalf("status should not run workpackage, stdout=%q", got)

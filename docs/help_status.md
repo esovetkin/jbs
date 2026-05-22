@@ -12,6 +12,8 @@ jbs status -b small bench
 
 The table groups workpackage counts by the `do` step dependency tree and includes
 `FINISHED`, `ERROR`, `BLOCKED`, `NOTSTARTED`, `RUNNING`, and `INTERRUPTED`.
+The `duration_s` column is the sum of persisted workpackage durations for each
+step, measured in seconds. The `total:` row sums all listed step durations.
 If any workpackage has status `ERROR`, `jbs status` also prints the corresponding
 absolute workpackage directory paths after the overview table.
 
