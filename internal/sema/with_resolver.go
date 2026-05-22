@@ -8,6 +8,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/planutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 )
 
 type ExpandedWithVar struct {
@@ -54,10 +55,12 @@ type BindingResolver struct {
 }
 
 type withRef struct {
-	Source  string
-	Columns []string
-	Bare    bool
-	Span    diag.Span
+	Source    string
+	Columns   []string
+	Bare      bool
+	Alias     string
+	AliasSpan diag.Span
+	Span      diag.Span
 }
 
 func (r BindingResolver) ResolveDoWithItems(items []ast.WithItem, diags *diag.Diagnostics) []WithExpansion {
@@ -88,6 +91,9 @@ func (r BindingResolver) ResolveAnalyseWithItems(items []ast.WithItem, diags *di
 	issues := make([]ResolveIssue, 0)
 	tracker := newImportConflictTracker()
 	for _, item := range items {
+		if !validateWithAlias(item.Alias, item.AliasSpan, item.Span, diags) {
+			continue
+		}
 		ref, ok := analyseBareRef(item)
 		if !ok {
 			issues = append(issues, ResolveIssue{
@@ -117,12 +123,16 @@ func (r BindingResolver) ResolveAnalyseWithItems(items []ast.WithItem, diags *di
 			continue
 		}
 		sourceVar := analyseSourceVar(ref.Source, binding)
-		prev, conflict, first := tracker.Add(ref.Source, binding.Name, item.Span)
+		visible := ref.Source
+		if ref.Alias != "" {
+			visible = ref.Alias
+		}
+		prev, conflict, first := tracker.Add(visible, binding.Name+"\x00"+sourceVar, item.Span)
 		if conflict {
 			if first {
 				diags.AddError(
 					diag.CodeE214,
-					fmt.Sprintf("conflicting analyse import '%s' from globals '%s' and '%s'", ref.Source, prev.Source, binding.Name),
+					fmt.Sprintf("conflicting analyse import '%s'", visible),
 					item.Span,
 					"import each analyse variable from only one global binding",
 					diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
@@ -130,7 +140,7 @@ func (r BindingResolver) ResolveAnalyseWithItems(items []ast.WithItem, diags *di
 			}
 			continue
 		}
-		out[ref.Source] = analyseBindingImport{
+		out[visible] = analyseBindingImport{
 			Source:    binding.Name,
 			SourceVar: sourceVar,
 			Span:      item.Span,
@@ -167,9 +177,12 @@ func (r BindingResolver) resolveDoWithRef(item ast.WithItem, diags *diag.Diagnos
 	if item.Expr == nil {
 		return withRef{}, false
 	}
+	if !validateWithAlias(item.Alias, item.AliasSpan, item.Span, diags) {
+		return withRef{}, false
+	}
 	source, ok := withBareName(item.Expr)
 	if ok {
-		return withRef{Source: source, Bare: true, Span: item.Span}, true
+		return withRef{Source: source, Bare: true, Alias: item.Alias, AliasSpan: item.AliasSpan, Span: item.Span}, true
 	}
 	idx, ok := item.Expr.(ast.IndexExpr)
 	if !ok {
@@ -185,7 +198,7 @@ func (r BindingResolver) resolveDoWithRef(item ast.WithItem, diags *diag.Diagnos
 	if !ok {
 		return withRef{}, false
 	}
-	return withRef{Source: source, Columns: columns, Span: item.Span}, true
+	return withRef{Source: source, Columns: columns, Alias: item.Alias, AliasSpan: item.AliasSpan, Span: item.Span}, true
 }
 
 func analyseBareRef(item ast.WithItem) (withRef, bool) {
@@ -193,7 +206,28 @@ func analyseBareRef(item ast.WithItem) (withRef, bool) {
 	if !ok {
 		return withRef{}, false
 	}
-	return withRef{Source: source, Bare: true, Span: item.Span}, true
+	return withRef{Source: source, Bare: true, Alias: item.Alias, AliasSpan: item.AliasSpan, Span: item.Span}, true
+}
+
+func validateWithAlias(alias string, aliasSpan, itemSpan diag.Span, diags *diag.Diagnostics) bool {
+	if alias == "" {
+		return true
+	}
+	if shellvar.ValidName(alias) {
+		return true
+	}
+	if aliasSpan.IsZero() {
+		aliasSpan = itemSpan
+	}
+	if diags != nil {
+		diags.AddError(
+			diag.CodeE023,
+			fmt.Sprintf("invalid with-clause alias %q", alias),
+			aliasSpan,
+			"use a shell variable name such as x, system_name, or _tmp",
+		)
+	}
+	return false
 }
 
 func withBareName(expr ast.Expr) (string, bool) {
@@ -274,9 +308,22 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 		norm.Full = false
 	}
 
-	vars := make([]ExpandedWithVar, 0, len(norm.Order))
-	for _, name := range planutil.SourceVarNames(norm.Order, norm.Vars) {
-		vars = append(vars, ExpandedWithVar{Visible: name, SourceVar: name})
+	sourceVars := planutil.SourceVarNames(norm.Order, norm.Vars)
+	vars := make([]ExpandedWithVar, 0, len(sourceVars))
+	if ref.Alias != "" {
+		if len(sourceVars) != 1 {
+			aliasSpan := ref.AliasSpan
+			if aliasSpan.IsZero() {
+				aliasSpan = item.Span
+			}
+			diags.AddError(diag.CodeE023, fmt.Sprintf("with-clause alias %q can rename only one imported variable", ref.Alias), aliasSpan, "select one column or remove the alias")
+			return WithExpansion{}, false
+		}
+		vars = append(vars, ExpandedWithVar{Visible: ref.Alias, SourceVar: sourceVars[0]})
+	} else {
+		for _, name := range sourceVars {
+			vars = append(vars, ExpandedWithVar{Visible: name, SourceVar: name})
+		}
 	}
 	sourceKey := BindingVersionKeyForBinding(binding, ref.Source)
 	displaySource := sourceKey.Display()

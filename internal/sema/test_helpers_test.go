@@ -23,6 +23,10 @@ func withIdentItem(name string, span diag.Span) ast.WithItem {
 	return ast.WithItem{Expr: ast.IdentExpr{Name: name, Span: span}, Span: span}
 }
 
+func withIdentAliasItem(name, alias string, span diag.Span) ast.WithItem {
+	return ast.WithItem{Expr: ast.IdentExpr{Name: name, Span: span}, Alias: alias, AliasSpan: span, Span: span}
+}
+
 func withIndexStringItem(source string, selectors []string, span diag.Span) ast.WithItem {
 	items := make([]ast.Expr, 0, len(selectors))
 	for _, selector := range selectors {
@@ -36,6 +40,13 @@ func withIndexStringItem(source string, selectors []string, span diag.Span) ast.
 		},
 		Span: span,
 	}
+}
+
+func withIndexStringAliasItem(source string, selectors []string, alias string, span diag.Span) ast.WithItem {
+	item := withIndexStringItem(source, selectors, span)
+	item.Alias = alias
+	item.AliasSpan = span
+	return item
 }
 
 func tableValueFromVars(order []string, vars map[string][]eval.Value) eval.Value {

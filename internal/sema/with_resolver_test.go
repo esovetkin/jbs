@@ -75,6 +75,49 @@ func TestBindingResolverResolveDoWithItems(t *testing.T) {
 	}
 }
 
+func TestBindingResolverResolveDoWithAliases(t *testing.T) {
+	span := diag.NewSpan("with.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	resolver := BindingResolver{
+		Bindings: map[string]*GlobalBinding{
+			"x": {
+				Name:  "x",
+				Value: eval.List([]eval.Value{eval.Int(1), eval.Int(2)}),
+				Shape: BindingScalar,
+				Order: []string{"x"},
+				Vars:  map[string][]eval.Value{"x": {eval.Int(1), eval.Int(2)}},
+			},
+			"cases": {
+				Name:  "cases",
+				Value: tableValueFromVars([]string{"long", "other"}, map[string][]eval.Value{"long": {eval.String("a")}, "other": {eval.String("b")}}),
+				Shape: BindingTable,
+				Order: []string{"long", "other"},
+				Vars:  map[string][]eval.Value{"long": {eval.String("a")}, "other": {eval.String("b")}},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	expanded := resolver.ResolveDoWithItems([]ast.WithItem{
+		withIdentAliasItem("x", "y", span),
+		withIndexStringAliasItem("cases", []string{"long"}, "short", span),
+		withIndexStringAliasItem("cases", []string{"long", "other"}, "bad", span),
+		withIdentAliasItem("x", "lib.x", span),
+	}, diags)
+
+	if len(expanded) != 2 {
+		t.Fatalf("expected two valid aliased expansions, got %#v", expanded)
+	}
+	if got := expanded[0].Vars; len(got) != 1 || got[0] != (ExpandedWithVar{Visible: "y", SourceVar: "x"}) {
+		t.Fatalf("unexpected scalar alias expansion: %#v", expanded[0])
+	}
+	if got := expanded[1].Vars; len(got) != 1 || got[0] != (ExpandedWithVar{Visible: "short", SourceVar: "long"}) {
+		t.Fatalf("unexpected projection alias expansion: %#v", expanded[1])
+	}
+	if countDiagCode(diags, string(diag.CodeE023)) != 2 {
+		t.Fatalf("expected invalid alias diagnostics, got: %s", diags.String())
+	}
+}
+
 func TestBindingResolverResolveAnalyseWithItems(t *testing.T) {
 	span := diag.NewSpan("in.jbs", diag.NewPos(0, 10, 1), diag.NewPos(1, 10, 2))
 	resolver := BindingResolver{
@@ -133,6 +176,35 @@ func TestBindingResolverResolveAnalyseWithItems(t *testing.T) {
 	}
 	if countDiagCode(diags, "E420") != 2 || countDiagCode(diags, "E020") != 1 {
 		t.Fatalf("unexpected analyse diagnostics: %s", diags.String())
+	}
+}
+
+func TestBindingResolverResolveAnalyseWithAlias(t *testing.T) {
+	span := diag.NewSpan("with.jbs", diag.NewPos(0, 10, 1), diag.NewPos(1, 10, 2))
+	resolver := BindingResolver{
+		Bindings: map[string]*GlobalBinding{
+			"pattern": {
+				Name:  "pattern",
+				Value: eval.String("%d"),
+				Shape: BindingScalar,
+				Order: []string{"pattern"},
+				Vars:  map[string][]eval.Value{"pattern": {eval.String("%d")}},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	imports, issues := resolver.ResolveAnalyseWithItems([]ast.WithItem{
+		withIdentAliasItem("pattern", "pat", span),
+	}, diags)
+	if len(issues) != 0 || diags.HasErrors() {
+		t.Fatalf("unexpected analyse alias diagnostics: issues=%#v diags=%s", issues, diags.String())
+	}
+	if _, ok := imports["pattern"]; ok {
+		t.Fatalf("original name should not be visible when aliased: %#v", imports)
+	}
+	if got := imports["pat"]; got.Source != "pattern" || got.SourceVar != "pattern" {
+		t.Fatalf("unexpected analyse alias import: %#v", imports)
 	}
 }
 

@@ -56,6 +56,68 @@ echo step3
 	}
 }
 
+func TestBuildWithAliasesUsesVisibleNamesOnly(t *testing.T) {
+	src := `
+x = [1, 2]
+cases = table(long = ["a", "b"])
+
+do first with x as y {
+echo "$y"
+}
+
+do second after first with cases["long"] as short {
+echo "$y $short"
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("alias.jbs", src, diags)
+	res := sema.Analyze(prog, sema.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	plan := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected workplan diagnostics: %s", diags.String())
+	}
+	first := workByStep(plan.Work, "first")
+	if len(first) != 2 {
+		t.Fatalf("expected two first workpackages, got %#v", first)
+	}
+	for _, work := range first {
+		if _, ok := work.Values["y"]; !ok {
+			t.Fatalf("expected alias y in work values, got %#v", work.Values)
+		}
+		if _, ok := work.Values["x"]; ok {
+			t.Fatalf("did not expect original x in work values, got %#v", work.Values)
+		}
+	}
+	second := workByStep(plan.Work, "second")
+	if len(second) != 4 {
+		t.Fatalf("expected cartesian expansion for inherited y and short, got %#v", second)
+	}
+	for _, work := range second {
+		if _, ok := work.Values["short"]; !ok {
+			t.Fatalf("expected alias short in work values, got %#v", work.Values)
+		}
+		if _, ok := work.Values["long"]; ok {
+			t.Fatalf("did not expect original long in work values, got %#v", work.Values)
+		}
+		if _, ok := work.Values["y"]; !ok {
+			t.Fatalf("expected inherited alias y in work values, got %#v", work.Values)
+		}
+	}
+}
+
+func workByStep(work []WorkPackage, step string) []WorkPackage {
+	out := make([]WorkPackage, 0)
+	for _, item := range work {
+		if item.StepName == step {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 func TestCollectStepsInResultOrderAndDeps(t *testing.T) {
 	s0 := diag.NewSpan("in.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
 	s1 := diag.NewSpan("in.jbs", diag.NewPos(1, 2, 1), diag.NewPos(2, 2, 2))

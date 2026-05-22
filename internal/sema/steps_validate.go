@@ -113,20 +113,67 @@ func validateWithItems(
 	}
 	expanded := resolver.ResolveDoWithItems(items, diags)
 
-	tracker := newImportConflictTracker()
+	seen := make(map[string]struct {
+		Identity withImportIdentity
+		Span     diag.Span
+	})
+	reported := make(map[string]struct{})
 	for _, item := range expanded {
 		for _, v := range item.Vars {
-			prev, conflict, first := tracker.Add(v.Visible, item.Source, item.Span)
-			if !conflict || !first {
+			sourceVar := v.SourceVar
+			if sourceVar == "" {
+				sourceVar = v.Visible
+			}
+			current := withImportIdentity{Source: item.Source, SourceKey: item.SourceKey, SourceVar: sourceVar}
+			prev, exists := seen[v.Visible]
+			if !exists {
+				seen[v.Visible] = struct {
+					Identity withImportIdentity
+					Span     diag.Span
+				}{Identity: current, Span: item.Span}
 				continue
 			}
+			if sameImportIdentity(prev.Identity, current) {
+				continue
+			}
+			key := conflictingImportKey(v.Visible, prev.Identity, current)
+			if _, ok := reported[key]; ok {
+				continue
+			}
+			reported[key] = struct{}{}
 			diags.AddError(
 				diag.CodeE214,
-				fmt.Sprintf("conflicting variable '%s' imported via `with` from sources '%s' and '%s'", v.Visible, prev.Source, item.Source),
+				fmt.Sprintf("conflicting variable '%s' imported via `with` from sources '%s' and '%s'", v.Visible, prev.Identity.Source, item.Source),
 				item.Span,
 				"import each visible name from only one source",
 				diag.RelatedSpan{Message: "first conflicting import", Span: prev.Span},
 			)
 		}
 	}
+}
+
+type withImportIdentity struct {
+	Source    string
+	SourceKey BindingVersionKey
+	SourceVar string
+}
+
+func sameImportIdentity(a, b withImportIdentity) bool {
+	if a.SourceKey != (BindingVersionKey{}) || b.SourceKey != (BindingVersionKey{}) {
+		if a.SourceKey != b.SourceKey {
+			return false
+		}
+	} else if a.Source != b.Source {
+		return false
+	}
+	return a.SourceVar == b.SourceVar
+}
+
+func conflictingImportKey(name string, a, b withImportIdentity) string {
+	left := a.Source + "\x00" + a.SourceKey.Public + "\x00" + a.SourceKey.Version + "\x00" + a.SourceVar
+	right := b.Source + "\x00" + b.SourceKey.Public + "\x00" + b.SourceKey.Version + "\x00" + b.SourceVar
+	if left > right {
+		left, right = right, left
+	}
+	return name + "\x00" + left + "\x00" + right
 }

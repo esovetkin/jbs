@@ -178,6 +178,44 @@ func TestValidateStepVarReferencesWarnsMissingImportAndFallsBackToSourceSpan(t *
 	}
 }
 
+func TestValidateStepVarReferencesWarnsForOriginalNameAfterAlias(t *testing.T) {
+	src := `
+x = sample(range(10))
+
+do run
+        with x as y
+        fsub "test0.input" {"x=(x)": y}
+{
+        echo $y
+        echo $x
+}
+`
+	_, diags := analyzeRefValidationSource(t, "alias_refs.jbs", src)
+	if countDiagCode(diags, string(diag.CodeW311)) != 1 {
+		t.Fatalf("expected one missing-import warning for original x, got: %s", diags.String())
+	}
+	if !hasWarningWithParts(diags, diag.CodeW311, "variable 'x'", "not visible") {
+		t.Fatalf("missing original-name warning: %s", diags.String())
+	}
+	if countDiagCode(diags, string(diag.CodeE220)) != 0 {
+		t.Fatalf("did not expect fsub error for alias y, got: %s", diags.String())
+	}
+}
+
+func TestValidateStepVarReferencesDoesNotWarnForAliasUse(t *testing.T) {
+	src := `
+x = [1]
+
+do run with x as y {
+        echo $y
+}
+`
+	_, diags := analyzeRefValidationSource(t, "alias_used.jbs", src)
+	if countDiagCode(diags, string(diag.CodeW311)) != 0 || countDiagCode(diags, string(diag.CodeW313)) != 0 {
+		t.Fatalf("did not expect warnings for alias use, got: %s", diags.String())
+	}
+}
+
 func TestValidateStepVarReferencesWarnsForMissingInheritedSourceVarAfterRebind(t *testing.T) {
 	src := `
 cases = table(x = range(5)) + table(y = ("a","b","c"))

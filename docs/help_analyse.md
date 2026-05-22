@@ -6,7 +6,7 @@ An `analyse` block targets an existing `do` step and maps matched patterns plus 
 
 ```jbs
 analyse <step_name>
-        [with <string_scalar0>, <string_scalar1>, ...]
+        [with <string_scalar0> [as <name>], <string_scalar1> [as <name>], ...]
 {
         helper = <expr>
 
@@ -37,6 +37,7 @@ Rules:
 - Analysis files are resolved relative to each workpackage directory.
 - Missing analysis files make the benchmark status `ERROR`.
 - `with` in `analyse` accepts only bare string-scalar data bindings, such as `with pat_number`.
+- `with` imports can be aliased with `as`, such as `with pat_number as pat`; only the alias is visible in analyse expressions.
 - Pattern shortcuts:
   - `%d` captures an integer and produces an integer result column.
   - `%f` captures a floating-point value and produces a float result column.
@@ -67,9 +68,9 @@ do s
 }
 
 analyse s
-        with pat_number
+        with pat_number as pat
 {
-    n = pat_number in "en"
+    n = pat in "en"
     (a, x, i, n as "parsed_number",
      "Zahl: %f" in "de" as "zahl",
      "Number: %d" in re"^en$" as "n_from_regex")

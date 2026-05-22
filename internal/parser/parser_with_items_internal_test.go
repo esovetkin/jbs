@@ -79,6 +79,67 @@ func TestParseWithItemsExpressionSyntax(t *testing.T) {
 	}
 }
 
+func TestParseWithItemsAliases(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`x as y, cases["very_long_column"] as short with z as q`, diags)
+	items := p.parseWithItems()
+	if len(items) != 2 {
+		t.Fatalf("expected two comma-separated with items, got %#v", items)
+	}
+	assertWithIdent(t, items[0], "x")
+	if items[0].Alias != "y" {
+		t.Fatalf("expected alias y, got %#v", items[0])
+	}
+	assertWithIndexStringColumns(t, items[1], "cases", []string{"very_long_column"})
+	if items[1].Alias != "short" {
+		t.Fatalf("expected alias short, got %#v", items[1])
+	}
+	word, ok := p.peekWord()
+	if !ok || word != "with" {
+		t.Fatalf("expected parser to stop before next with clause, got word=%q ok=%v", word, ok)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestParseWithItemsAliasIgnoresAsInsideSelector(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`cases["as"] as alias`, diags)
+	items := p.parseWithItems()
+	if len(items) != 1 {
+		t.Fatalf("expected one with item, got %#v", items)
+	}
+	assertWithIndexStringColumns(t, items[0], "cases", []string{"as"})
+	if items[0].Alias != "alias" {
+		t.Fatalf("expected alias, got %#v", items[0])
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestParseWithItemsRejectsMalformedAliases(t *testing.T) {
+	tests := []string{
+		"x as y z",
+		`x as "y"`,
+		"x as 1x",
+	}
+	for _, src := range tests {
+		t.Run(src, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			p := newTopLevelParser(src, diags)
+			items := p.parseWithItems()
+			if len(items) != 0 {
+				t.Fatalf("expected malformed alias to produce no items, got %#v", items)
+			}
+			if !hasDiag(diags, "E023") {
+				t.Fatalf("expected E023 for malformed alias, got: %s", diags.String())
+			}
+		})
+	}
+}
+
 func assertWithIdent(t *testing.T, item ast.WithItem, name string) {
 	t.Helper()
 	ident, ok := item.Expr.(ast.IdentExpr)

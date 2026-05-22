@@ -110,3 +110,36 @@ func TestValidateUseClausesAndWithItemsConflicts(t *testing.T) {
 		t.Fatalf("expected one disallowed-binding diagnostic, got %d: %s", countDiagCode(diags, "E420"), diags.String())
 	}
 }
+
+func TestValidateWithAliasesConflictByVisibleNameAndSourceVar(t *testing.T) {
+	span := diag.NewSpan("steps.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	bindings := map[string]*GlobalBinding{
+		"cases": {
+			Name:  "cases",
+			Value: tableValueFromVars([]string{"x", "y"}, map[string][]eval.Value{"x": {eval.Int(1)}, "y": {eval.Int(2)}}),
+			Shape: BindingTable,
+			Order: []string{"x", "y"},
+			Vars:  map[string][]eval.Value{"x": {eval.Int(1)}, "y": {eval.Int(2)}},
+		},
+	}
+	res := &Result{
+		BindingsByName: bindings,
+		DoBlocks: []ast.DoBlock{
+			{
+				Name: "run",
+				WithItems: []ast.WithItem{
+					withIndexStringAliasItem("cases", []string{"x"}, "value", span),
+					withIndexStringAliasItem("cases", []string{"x"}, "value", span),
+					withIndexStringAliasItem("cases", []string{"y"}, "value", span),
+				},
+				Span: span,
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	validateUseClauses(res, diags)
+	if countDiagCode(diags, "E214") != 1 {
+		t.Fatalf("expected one alias conflict, got %d: %s", countDiagCode(diags, "E214"), diags.String())
+	}
+}

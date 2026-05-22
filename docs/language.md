@@ -14,7 +14,7 @@ use ...
 
 # define one or more execution steps
 do <step_name>
-    with <variable>, ...
+    with <variable> [as <name>], ...
     after <other_step_name> ...
     fsub ...
 {
@@ -568,6 +568,8 @@ Selective imports import globals only: scalars, lists, tuples, dictionaries, tab
 
 Namespace imports bring the module's visible globals and step declarations under the alias. Imported `do` steps are prefixed with the alias, and their internal `after` and `with` references are prefixed consistently.
 
+`with` imports can rename a single visible variable with `as`. For example, `with p.cases["very_long_column"] as short` expands rows from `p.cases["very_long_column"]`, but the generated workpackage exports only `short`. The alias is also the name visible to `fsub`, `analyse`, and dependent steps that inherit the variable through `after`.
+
 ## JBS's EBNF
 
 ```ebnf
@@ -618,7 +620,8 @@ do_block        = "do" IDENT { do_header_clause } "{" raw_shell_body "}" ;
 do_header_clause = after_clause | with_clause | nproc_clause | fsub_clause ;
 after_clause    = "after" ident_list ;
 with_clause     = "with" with_item { "," with_item } ;
-with_item       = qualified_name [ "[" qualified_name { "," qualified_name } [ "," ] "]" ] ;
+with_item       = with_source [ "as" IDENT ] ;
+with_source     = qualified_name [ "[" expr { "," expr } [ "," ] "]" ] ;
 nproc_clause    = "nproc" signed_integer ;
 fsub_clause     = "fsub" STRING "{" [ fsub_rule { "," fsub_rule } [ "," ] ] "}" ;
 fsub_rule       = STRING ":" expr ;

@@ -70,6 +70,30 @@ func TestRenderRunScriptExportsQuotedWorkValues(t *testing.T) {
 	}
 }
 
+func TestRenderRunScriptExportsAliasedWorkValuesOnly(t *testing.T) {
+	script, err := renderRunScript(runScriptSpec{
+		RunDir:    "/tmp/project/bench/000000",
+		WorkDir:   "/tmp/project/bench/000000/s/000000",
+		SourceDir: "/tmp/project",
+		StepName:  "s",
+		Work: ManifestWork{
+			Step:   "s",
+			Row:    0,
+			Values: map[string]string{"y": "7"},
+		},
+		Body: "echo \"$y\"\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "export y='7'") {
+		t.Fatalf("script missing alias export:\n%s", script)
+	}
+	if strings.Contains(script, "export x=") {
+		t.Fatalf("script exported original source name:\n%s", script)
+	}
+}
+
 func TestRenderRunScriptRejectsRelativePathVariables(t *testing.T) {
 	_, err := renderRunScript(runScriptSpec{
 		RunDir:    "bench/000000",

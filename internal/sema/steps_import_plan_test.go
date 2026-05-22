@@ -169,6 +169,42 @@ func TestBuildStepScopePlansHandlesInheritanceAndConflicts(t *testing.T) {
 	}
 }
 
+func TestBuildStepScopePlansWithAliases(t *testing.T) {
+	span := diag.NewSpan("with_aliases.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	res := &Result{
+		BindingsByName: map[string]*GlobalBinding{
+			"cases": bindingWithOrigins("cases", []string{"x", "y"}, map[string][]eval.Value{
+				"x": {eval.Int(1)},
+				"y": {eval.Int(2)},
+			}, map[string]diag.Span{"x": span, "y": span}),
+		},
+		DoBlocks: []ast.DoBlock{
+			{Name: "first", WithItems: []ast.WithItem{withIndexStringAliasItem("cases", []string{"x"}, "old_x", span)}, Span: span},
+			{Name: "second", After: []string{"first"}, WithItems: []ast.WithItem{withIndexStringAliasItem("cases", []string{"y"}, "x", span)}, Span: span},
+			{Name: "conflict", WithItems: []ast.WithItem{
+				withIndexStringAliasItem("cases", []string{"x"}, "value", span),
+				withIndexStringAliasItem("cases", []string{"y"}, "value", span),
+			}, Span: span},
+		},
+		StepOrder: []string{"first", "second", "conflict"},
+	}
+
+	diags := &diag.Diagnostics{}
+	buildStepScopePlans(res, diags)
+	if countDiagCode(diags, "E214") != 1 {
+		t.Fatalf("expected one alias conflict, got %d: %s", countDiagCode(diags, "E214"), diags.String())
+	}
+	if got := res.StepScopeByName["second"].Effective["old_x"]; got.SourceVar != "x" || got.ViaStep != "first" {
+		t.Fatalf("expected second step to inherit old_x alias, got %#v", got)
+	}
+	if got := res.StepScopeByName["second"].Effective["x"]; got.SourceVar != "y" || got.ViaStep != "" {
+		t.Fatalf("expected explicit alias x to source y, got %#v", got)
+	}
+	if !strings.Contains(diags.String(), "conflicting variable 'value'") {
+		t.Fatalf("expected visible alias conflict, got: %s", diags.String())
+	}
+}
+
 func TestAnalyzeAllowsDuplicateInheritedVisibleNameForSameSourceVersion(t *testing.T) {
 	src := `
 cases = table(x = (1,2))

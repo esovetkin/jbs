@@ -64,7 +64,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			for name, origin := range depPlan.Effective {
 				origin.ViaStep = dep
 				if prev, exists := inherited[name]; exists {
-					if !sameVisibleSource(prev, origin) {
+					if !sameVisibleBinding(prev, origin) {
 						reportConflict(name, prev, origin, def.Span, "inherited")
 					}
 					continue
@@ -123,7 +123,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 					Span:      originSpan,
 				}
 				if prev, exists := inherited[name]; exists {
-					if !sameVisibleSource(prev, current) {
+					if !sameVisibleBinding(prev, current) {
 						reportConflict(name, prev, current, expanded.Span, "explicit_vs_inherited")
 					} else {
 						full = false
@@ -131,7 +131,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 					continue
 				}
 				if prev, exists := selected[name]; exists {
-					if !sameVisibleSource(prev, current) {
+					if !sameVisibleBinding(prev, current) {
 						reportConflict(name, prev, current, expanded.Span, "explicit")
 						continue
 					}
@@ -190,7 +190,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			}
 		}
 		for name, origin := range selected {
-			if prev, exists := effective[name]; exists && !sameVisibleSource(prev, origin) {
+			if prev, exists := effective[name]; exists && !sameVisibleBinding(prev, origin) {
 				reportConflict(name, prev, origin, def.Span, "effective")
 				continue
 			}
@@ -212,11 +212,25 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 	res.StepScopeByName = plans
 }
 
-func sameVisibleSource(a, b VisibleBinding) bool {
+func sameSourceVersion(a, b VisibleBinding) bool {
 	if a.SourceKey != (BindingVersionKey{}) || b.SourceKey != (BindingVersionKey{}) {
 		return a.SourceKey == b.SourceKey
 	}
 	return a.Source == b.Source
+}
+
+func sameVisibleBinding(a, b VisibleBinding) bool {
+	if !sameSourceVersion(a, b) {
+		return false
+	}
+	return visibleBindingSourceVar(a) == visibleBindingSourceVar(b)
+}
+
+func visibleBindingSourceVar(binding VisibleBinding) string {
+	if binding.SourceVar != "" {
+		return binding.SourceVar
+	}
+	return binding.Name
 }
 
 func filterExpansionVars(vars map[string][]eval.Value, kept []ExpandedWithVar) map[string][]eval.Value {
@@ -245,9 +259,9 @@ func stepScopeConflictKey(binding VisibleBinding) string {
 		source = binding.Source
 	}
 	if binding.ViaStep != "" {
-		return "after:" + binding.ViaStep + ":" + source
+		return "after:" + binding.ViaStep + ":" + source + ":" + visibleBindingSourceVar(binding)
 	}
-	return "with:" + source
+	return "with:" + source + ":" + visibleBindingSourceVar(binding)
 }
 
 func stepScopeConflictRelated(binding VisibleBinding) string {

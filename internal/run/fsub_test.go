@@ -500,6 +500,31 @@ func TestMaterializeFileSubstitutionsWritesOutputAndWarnings(t *testing.T) {
 	}
 }
 
+func TestMaterializeFileSubstitutionsUsesAliasedEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	template := filepath.Join(dir, "input.tpl")
+	if err := os.WriteFile(template, []byte("X\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workDir := filepath.Join(dir, "work")
+	if err := os.Mkdir(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	specs := []FileSubstitutionPlan{
+		testFileSubPlan(t, template, "input.tpl", FileSubstitutionRulePlan{
+			Pattern: "X",
+			Regex:   regexp.MustCompile("X"),
+			Expr:    ast.IdentExpr{Name: "y"},
+		}),
+	}
+	if _, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, specs, map[string]eval.Value{"y": eval.Int(7)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRunTestFile(t, filepath.Join(workDir, "input.tpl")); got != "7\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestMaterializeFileSubstitutionsPreservesTemplatePermissions(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "tool.sh")

@@ -34,6 +34,61 @@ do run
 	}
 }
 
+func TestValidateFileSubstitutionsUseWithAliasVisibility(t *testing.T) {
+	valid := `
+x = sample(range(10))
+
+do run
+        with x as y
+        fsub "test0.input" {"x=(x)": y}
+{
+        echo $y
+}
+`
+	diags := analyzeFSubValidationSource(t, valid)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics for alias fsub: %s", diags.String())
+	}
+
+	invalid := `
+x = sample(range(10))
+
+do run
+        with x as y
+        fsub "test0.input" {"x=(x)": x}
+{
+        :
+}
+`
+	diags = analyzeFSubValidationSource(t, invalid)
+	if countDiagCode(diags, string(diag.CodeE220)) != 1 {
+		t.Fatalf("expected fsub invisible-original diagnostic, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), `references variable "x" that is not visible`) {
+		t.Fatalf("missing invisible original-name diagnostic: %s", diags.String())
+	}
+}
+
+func TestValidateFileSubstitutionsAliasedUsageSuppressesUnusedImportWarning(t *testing.T) {
+	src := `
+x = [1]
+
+do run
+        with x as y
+        fsub "input.tpl" { "X": y }
+{
+        :
+}
+`
+	diags := analyzeFSubValidationSource(t, src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if countDiagCode(diags, string(diag.CodeW313)) != 0 {
+		t.Fatalf("did not expect unused-import warning for fsub alias ref: %s", diags.String())
+	}
+}
+
 func TestValidateFileSubstitutionsRejectsInvisibleRefsInvalidRegexAndDuplicateDest(t *testing.T) {
 	src := `
 cases = table(x = [1])

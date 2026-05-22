@@ -154,7 +154,7 @@ Defined variables can be imported into `do` sections. Their corresponding scalar
 
 ```jbs
 do <step_name>
-        [with <scalar/list/table/dict>, ... ]
+        [with <scalar/list/table/dict> [as <name>], ... ]
         [after <dependency_step>]
         [nproc <max_parallel_workpackages>]
         [fsub "<template_file>" {
@@ -166,7 +166,7 @@ do <step_name>
 }
 ```
 
-`with` imports values used in the execution block. Scalars run once, lists and tuples run once per element, tables and dictionaries expose columns, and table projections use quoted column names, such as `with cases["x"]`.
+`with` imports values used in the execution block. Scalars run once, lists and tuples run once per element, tables and dictionaries expose columns, and table projections use quoted column names, such as `with cases["x"]`. Add `as <name>` to rename a single imported variable at the step boundary, for example `with cases["very_long_column"] as short`; only the alias is visible to `fsub` and the shell block.
 
 The `after` keyword declares step dependencies. A dependent step can inherit visible variables from predecessor steps. The runner respects the dependency tree and concurrency limits.
 
@@ -203,7 +203,7 @@ See more in [docs/help_do.md](docs/help_do.md) or `jbs help do`.
 
 ```jbs
 analyse <step_name>
-        [with <scalar_value>, ...]
+        [with <scalar_value> [as <name>], ...]
 {
         # Match a pattern inside a workpackage output file.
         <pattern_name> = "<pattern>" in "<file>"

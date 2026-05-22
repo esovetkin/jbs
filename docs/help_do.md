@@ -7,7 +7,7 @@ A `do` block defines shell commands and workpackages that are executed by `jbs r
 ```jbs
 do <name>
         [after <step0>, <step1>, ...]
-        [with <source>, <source2>["<col0>", "<col1>", ...], ...]
+        [with <source> [as <name>], <source2>["<col0>", "<col1>", ...] [as <name>], ...]
         [fsub "<template>" { "<regex>": <expr>, ... }]
         [nproc <int>]
 {
@@ -31,6 +31,8 @@ Examples:
 - `with cases["x", "y"]`
 - `with defaults.rows["x", "y"]`
 - `with case_id, cases["x"]`
+- `with cases["very_long_column"] as short`
+- `with defaults.host as default_host`
 
 Rules:
 
@@ -41,6 +43,8 @@ Rules:
 - importing a table source such as `with cases` exposes all of its columns
 - importing a dictionary acts like `with table(dict_value)` and exposes dictionary keys as table columns
 - importing selected columns such as `with cases["x", "y"]` exposes only those names
+- adding `as <name>` renames a single imported variable; the alias must be a valid shell variable name
+- an aliased import exposes only the alias, so `with x as y` makes `y` visible and does not make `x` visible
 - importing multiple sources such as `with cases["x"], env["host"]` creates a Cartesian product across those sources
 - name collisions across different imported or inherited sources are errors
 - overlapping imports from the same source are tolerated; a dependent full-source import keeps only columns not already inherited
@@ -85,7 +89,7 @@ Rules:
 - multiple matches are all replaced, and JBS reports a warning
 - without capture groups, the whole match is replaced by one scalar value
 - with capture groups, including `%d`, `%f`, and `%w` placeholders, provide a tuple or list with one scalar value per group
-- replacement expressions can use variables visible in the step through `with` or `after`
+- replacement expressions can use variables visible in the step through `with` or `after`; for aliased imports, use the alias
 - using `fsub "<filepath>" {}` simply copies the file without any replacements
 
 A dry run creates substituted files without executing work. `jbs continue` resumes the already prepared files and rejects the run if configured template hashes no longer match.
