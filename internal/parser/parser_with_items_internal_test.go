@@ -21,6 +21,22 @@ func TestParseWithItemsEarlyBreakOnInvalidStart(t *testing.T) {
 	}
 }
 
+func TestParseWithItemsMissingExpressionBoundaries(t *testing.T) {
+	for _, src := range []string{"", ", x", "{ echo hi }"} {
+		t.Run(src, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			p := newTopLevelParser(src, diags)
+			items := p.parseWithItems()
+			if len(items) != 0 {
+				t.Fatalf("expected no with items, got %#v", items)
+			}
+			if !hasDiag(diags, "E023") {
+				t.Fatalf("expected E023, got: %s", diags.String())
+			}
+		})
+	}
+}
+
 func TestParseWithItemsCanonicalSyntax(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	p := newTopLevelParser(`cases["id","label"], env`, diags)
@@ -119,8 +135,56 @@ func TestParseWithItemsAliasIgnoresAsInsideSelector(t *testing.T) {
 	}
 }
 
+func TestParseWithItemsAliasIgnoresNestedAsWords(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`f({"as": "x"}, "as") as alias`, diags)
+	items := p.parseWithItems()
+	if len(items) != 1 {
+		t.Fatalf("expected one with item, got %#v", items)
+	}
+	call, ok := items[0].Expr.(ast.CallExpr)
+	if !ok {
+		t.Fatalf("expected call expression, got %#v", items[0].Expr)
+	}
+	if len(call.Args) != 2 {
+		t.Fatalf("expected two call args, got %#v", call.Args)
+	}
+	if items[0].Alias != "alias" {
+		t.Fatalf("expected alias, got %#v", items[0])
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestParseWithItemsEscapedQuoteInSelector(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	p := newTopLevelParser(`cases["a\"b"] as col`, diags)
+	items := p.parseWithItems()
+	if len(items) != 1 {
+		t.Fatalf("expected one with item, got %#v", items)
+	}
+	idx, ok := items[0].Expr.(ast.IndexExpr)
+	if !ok || len(idx.Items) != 1 {
+		t.Fatalf("expected one-selector index expression, got %#v", items[0].Expr)
+	}
+	sel, ok := idx.Items[0].(ast.StringExpr)
+	if !ok || sel.Value != `a"b` {
+		t.Fatalf("expected escaped selector value, got %#v", idx.Items[0])
+	}
+	if items[0].Alias != "col" {
+		t.Fatalf("expected alias col, got %#v", items[0])
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
 func TestParseWithItemsRejectsMalformedAliases(t *testing.T) {
 	tests := []string{
+		"as y",
+		"x as",
+		"x as   ",
 		"x as y z",
 		`x as "y"`,
 		"x as 1x",
@@ -137,6 +201,56 @@ func TestParseWithItemsRejectsMalformedAliases(t *testing.T) {
 				t.Fatalf("expected E023 for malformed alias, got: %s", diags.String())
 			}
 		})
+	}
+}
+
+func TestWithItemInternalHelpers(t *testing.T) {
+	if parserAddedErrorSince(nil, 0) {
+		t.Fatalf("nil diagnostics should not report parser error")
+	}
+	diags := &diag.Diagnostics{}
+	if parserAddedErrorSince(diags, 0) {
+		t.Fatalf("empty diagnostics should not report parser error")
+	}
+	diags.AddWarning(diag.CodeW320, "warn", diag.Span{}, "")
+	if parserAddedErrorSince(diags, 0) {
+		t.Fatalf("warnings should not count as parser errors")
+	}
+	if parserAddedErrorSince(diags, len(diags.Items)) {
+		t.Fatalf("start at diagnostic length should not report parser error")
+	}
+	diags.AddError(diag.CodeE023, "error", diag.Span{}, "")
+	if !parserAddedErrorSince(diags, 1) {
+		t.Fatalf("expected parserAddedErrorSince to notice later errors")
+	}
+
+	if got := findTopLevelWithAlias("as x"); got != -1 {
+		t.Fatalf("alias at start should not be accepted, got %d", got)
+	}
+	if got := findTopLevelWithAlias("x as"); got != -1 {
+		t.Fatalf("alias without trailing boundary should not be accepted, got %d", got)
+	}
+	if got := findTopLevelWithAlias("x basic"); got != -1 {
+		t.Fatalf("embedded as should not be accepted, got %d", got)
+	}
+
+	base := diag.NewSpan("in.jbs", diag.NewPos(10, 3, 5), diag.NewPos(20, 3, 15))
+	span := spanForRawRange(base, "abcdef", -2, 99)
+	if span.Start != base.Start || span.End.Column != base.Start.Column+6 {
+		t.Fatalf("spanForRawRange did not clamp full raw range: %+v", span)
+	}
+	span = spanForRawRange(base, "abcdef", 4, 2)
+	if span.Start.Column != base.Start.Column+4 || span.End != span.Start {
+		t.Fatalf("spanForRawRange did not clamp reversed range: %+v", span)
+	}
+
+	p := newTopLevelParser("1abc", &diag.Diagnostics{})
+	name, span := p.parseRequiredIdent(diag.CodeE028, "expected identifier")
+	if name != "" || span.Start != span.End {
+		t.Fatalf("expected missing identifier zero-width span, got name=%q span=%+v", name, span)
+	}
+	if !hasDiag(p.diags, "E028") {
+		t.Fatalf("expected E028, got: %s", p.diags.String())
 	}
 }
 

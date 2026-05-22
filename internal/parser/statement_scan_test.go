@@ -149,6 +149,26 @@ JSON
 			src:           "do run {\necho ${file:-${fallback#*.}}\n}",
 			wantNeedsMore: false,
 		},
+		{
+			name:          "single_quote_escaped_quote_complete",
+			src:           `x = '\''`,
+			wantNeedsMore: false,
+		},
+		{
+			name:          "double_quote_escaped_quote_complete",
+			src:           `x = "\""`,
+			wantNeedsMore: false,
+		},
+		{
+			name:          "double_quote_parameter_expansion_brace_is_not_block_close",
+			src:           `do run {` + "\n" + `echo "${name:-}}"` + "\n}",
+			wantNeedsMore: false,
+		},
+		{
+			name:          "balanced_parens_and_brackets_close",
+			src:           `x = ([1])`,
+			wantNeedsMore: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -181,4 +201,53 @@ JSON
 			}
 		})
 	}
+}
+
+func TestScanTopLevelStatementOffsets(t *testing.T) {
+	t.Run("start at eof", func(t *testing.T) {
+		src := []rune("x = 1")
+		stmtEnd, nextOff := scanTopLevelStatementOffsets(src, len(src))
+		if stmtEnd != len(src) || nextOff != len(src) {
+			t.Fatalf("expected EOF offsets, got stmtEnd=%d nextOff=%d", stmtEnd, nextOff)
+		}
+	})
+
+	t.Run("line comment inside grouping does not terminate statement", func(t *testing.T) {
+		src := []rune("x = (1 # inner\n + 2)\ny = 3\n")
+		stmtEnd, nextOff := scanTopLevelStatementOffsets(src, 0)
+		wantStmt := len("x = (1 # inner\n + 2)")
+		wantNext := wantStmt + 1
+		if stmtEnd != wantStmt || nextOff != wantNext {
+			t.Fatalf("unexpected offsets: stmtEnd=%d nextOff=%d want %d/%d", stmtEnd, nextOff, wantStmt, wantNext)
+		}
+	})
+
+	t.Run("escaped quotes inside strings stay in statement", func(t *testing.T) {
+		src := []rune(`x = "\"" + '\''` + "\ny = 1\n")
+		stmtEnd, nextOff := scanTopLevelStatementOffsets(src, 0)
+		wantStmt := len(`x = "\"" + '\''`)
+		wantNext := wantStmt + 1
+		if stmtEnd != wantStmt || nextOff != wantNext {
+			t.Fatalf("unexpected offsets: stmtEnd=%d nextOff=%d want %d/%d", stmtEnd, nextOff, wantStmt, wantNext)
+		}
+	})
+
+	t.Run("semicolon inside brackets is ignored", func(t *testing.T) {
+		src := []rune("x = [1; 2]; y = 3\n")
+		stmtEnd, nextOff := scanTopLevelStatementOffsets(src, 0)
+		wantStmt := len("x = [1; 2]")
+		wantNext := wantStmt + 1
+		if stmtEnd != wantStmt || nextOff != wantNext {
+			t.Fatalf("unexpected offsets: stmtEnd=%d nextOff=%d want %d/%d", stmtEnd, nextOff, wantStmt, wantNext)
+		}
+	})
+
+	t.Run("top level comment at eof", func(t *testing.T) {
+		src := []rune("x = 1 # trailing")
+		stmtEnd, nextOff := scanTopLevelStatementOffsets(src, 0)
+		want := len("x = 1 ")
+		if stmtEnd != want || nextOff != len(src) {
+			t.Fatalf("unexpected offsets: stmtEnd=%d nextOff=%d want stmtEnd=%d nextOff=%d", stmtEnd, nextOff, want, len(src))
+		}
+	})
 }

@@ -537,6 +537,40 @@ func TestParseRangeExprReportsTrailingColonTokens(t *testing.T) {
 	}
 }
 
+func TestParseRangeExprReportsMissingBounds(t *testing.T) {
+	t.Run("missing stop", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("1:", diags)
+		expr := tp.parseExpr()
+		r, ok := expr.(ast.RangeExpr)
+		if !ok {
+			t.Fatalf("expected range expression fallback, got %#v", expr)
+		}
+		if _, ok := r.Stop.(ast.StringExpr); !ok {
+			t.Fatalf("expected empty string fallback range stop, got %#v", r.Stop)
+		}
+		if !hasCode(diags, "E058") {
+			t.Fatalf("expected E058 for missing range stop, got: %s", diags.String())
+		}
+	})
+
+	t.Run("missing step", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("1:2:", diags)
+		expr := tp.parseExpr()
+		r, ok := expr.(ast.RangeExpr)
+		if !ok {
+			t.Fatalf("expected partial range fallback, got %#v", expr)
+		}
+		if _, ok := r.Step.(ast.StringExpr); !ok {
+			t.Fatalf("expected empty string fallback range step, got %#v", r.Step)
+		}
+		if !hasCode(diags, "E058") {
+			t.Fatalf("expected E058 for missing range step, got: %s", diags.String())
+		}
+	})
+}
+
 func TestParseLogicalAliasPrecedence(t *testing.T) {
 	tests := []string{
 		"a || b && c",
@@ -1011,6 +1045,40 @@ func TestParseDictionaryMissingColonReportsE058(t *testing.T) {
 	}
 }
 
+func TestParseDictionaryMissingCloseReportsE055(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP(`{"a": 1`, diags)
+	expr := tp.parseExpr()
+	if _, ok := expr.(ast.DictExpr); !ok {
+		t.Fatalf("expected dictionary expression fallback, got %#v", expr)
+	}
+	if !hasCode(diags, "E055") {
+		t.Fatalf("expected E055 for missing dictionary close, got: %s", diags.String())
+	}
+}
+
+func TestParseDictionaryZeroSpanRecovery(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := &tokenParser{
+		tokens: []lexer.Token{
+			{Type: lexer.TokenLBrace, Text: "{"},
+			{Type: lexer.TokenColon, Text: ":"},
+			{Type: lexer.TokenNumber, Text: "1", Value: "1"},
+			{Type: lexer.TokenRBrace, Text: "}"},
+			{Type: lexer.TokenEOF},
+		},
+		diags: diags,
+	}
+	expr := tp.parseExpr()
+	dict, ok := expr.(ast.DictExpr)
+	if !ok || len(dict.Entries) != 1 {
+		t.Fatalf("expected one-entry dictionary fallback, got %#v", expr)
+	}
+	if !hasCode(diags, "E058") {
+		t.Fatalf("expected E058 from malformed dictionary, got: %s", diags.String())
+	}
+}
+
 func TestParseDictionaryConditionalKeyUsesNoRangeParser(t *testing.T) {
 	diags := &diag.Diagnostics{}
 	tp := parseExprTP(`{a if ok else b: 1}`, diags)
@@ -1399,6 +1467,46 @@ func TestParseFunctionParameterTrailingComma(t *testing.T) {
 	}
 	if len(fn.Params) != 1 || fn.Params[0].Name != "a" {
 		t.Fatalf("expected one parameter a, got %#v", fn.Params)
+	}
+}
+
+func TestParseFunctionLiteralMissingBodyBraceReportsE025(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := parseExprTP("function(x) x", diags)
+	expr := tp.parseExpr()
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression fallback, got %#v", expr)
+	}
+	if len(fn.Body) != 0 {
+		t.Fatalf("expected empty body when opening brace is missing, got %#v", fn.Body)
+	}
+	if !hasCode(diags, "E025") {
+		t.Fatalf("expected E025 for missing function body brace, got: %s", diags.String())
+	}
+}
+
+func TestParseFunctionLiteralZeroSpanRecovery(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	tp := &tokenParser{
+		tokens: []lexer.Token{
+			{Type: lexer.TokenFunction, Text: "function"},
+			{Type: lexer.TokenLParen, Text: "("},
+			{Type: lexer.TokenRParen, Text: ")"},
+			{Type: lexer.TokenEOF},
+		},
+		diags: diags,
+	}
+	expr := tp.parseExpr()
+	fn, ok := expr.(ast.FunctionExpr)
+	if !ok {
+		t.Fatalf("expected function expression fallback, got %#v", expr)
+	}
+	if !fn.Span.IsZero() {
+		t.Fatalf("expected zero span fallback with zero-span tokens, got %+v", fn.Span)
+	}
+	if !hasCode(diags, "E025") {
+		t.Fatalf("expected E025 for missing function body brace, got: %s", diags.String())
 	}
 }
 
