@@ -68,7 +68,7 @@ func TestNormalizePatternRegexAndHasErrorCodeSince(t *testing.T) {
 	}
 
 	diags := &diag.Diagnostics{}
-	diags.AddWarning(diag.CodeW071, "warn", diag.Span{}, "")
+	diags.AddWarning(diag.CodeW320, "warn", diag.Span{}, "")
 	diags.AddError(diag.CodeE402, "bad", diag.Span{}, "")
 	diags.AddError(diag.CodeE410, "worse", diag.Span{}, "")
 	if hasErrorCodeSince(nil, 0, diag.CodeE402) {

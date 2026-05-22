@@ -117,12 +117,6 @@ const (
 	CodeE535 Code = "E535"
 	CodeE536 Code = "E536"
 	CodeE537 Code = "E537"
-	CodeW070 Code = "W070"
-	CodeW071 Code = "W071"
-	CodeW072 Code = "W072"
-	CodeW073 Code = "W073"
-	CodeW074 Code = "W074"
-	CodeW075 Code = "W075"
 	CodeW101 Code = "W101"
 	CodeW102 Code = "W102"
 	CodeW103 Code = "W103"
@@ -187,7 +181,6 @@ func initCatalog() map[Code]CodeMeta {
 	)
 
 	add("sema", SeverityWarning, "semantic analysis warning",
-		CodeW070, CodeW071, CodeW072, CodeW073, CodeW074, CodeW075,
 		CodeW310, CodeW311, CodeW312, CodeW313, CodeW314,
 		CodeW320,
 	)

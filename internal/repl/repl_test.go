@@ -151,6 +151,32 @@ func TestRunErrorsRollbackAcceptedSource(t *testing.T) {
 	}
 }
 
+func TestRunPrintsSuccessfulCommitDiagnostics(t *testing.T) {
+	reader := &fakeReader{events: []fakeEvent{{line: "warn()"}, {line: ":show"}, {err: io.EOF}}}
+	var out, err strings.Builder
+	opts := baseOptions(t, reader)
+	opts.Stdout = &out
+	opts.Stderr = &err
+	opts.Commit = func(source string, chunk string) (CommitResult, error) {
+		return CommitResult{
+			Source:     appendAcceptedForTest(source, chunk),
+			DiagText:   "WARNING W101 <repl>:1:1\nwarned",
+			ExprOutput: []string{"value"},
+		}, nil
+	}
+
+	code := Run(opts)
+	if code != 0 {
+		t.Fatalf("Run returned %d, want 0", code)
+	}
+	if !strings.Contains(err.String(), "WARNING W101") {
+		t.Fatalf("expected warning on stderr, got %q", err.String())
+	}
+	if !strings.Contains(out.String(), "\nvalue\n") || !strings.Contains(out.String(), "warn()") {
+		t.Fatalf("expected value output and accepted source, got %q", out.String())
+	}
+}
+
 func TestRunInterruptClearsPendingInput(t *testing.T) {
 	reader := &fakeReader{events: []fakeEvent{{line: "do run {"}, {err: readline.ErrInterrupt}, {line: ":show"}, {err: io.EOF}}}
 	var out, err strings.Builder

@@ -26,6 +26,23 @@ func TestFilterDiagnosticsBySeverity(t *testing.T) {
 	}
 }
 
+func TestFilterReplDisplayDiagnosticsSuppressesOnlyW310(t *testing.T) {
+	diags := diag.Diagnostics{Items: []diag.Diagnostic{
+		{Severity: diag.SeverityWarning, Code: string(diag.CodeW310)},
+		{Severity: diag.SeverityWarning, Code: string(diag.CodeW101)},
+		{Severity: diag.SeverityError, Code: string(diag.CodeE100)},
+	}}
+
+	got := filterReplDisplayDiagnostics(diags)
+	codes := make([]string, 0, len(got.Items))
+	for _, item := range got.Items {
+		codes = append(codes, item.Code)
+	}
+	if !slices.Equal(codes, []string{string(diag.CodeW101), string(diag.CodeE100)}) {
+		t.Fatalf("expected only W310 suppressed, got codes %#v", codes)
+	}
+}
+
 func TestFormatReplValueListTupleTruncation(t *testing.T) {
 	list := eval.List([]eval.Value{eval.Int(0), eval.Int(1), eval.Int(2), eval.Int(3)})
 	if got := valuefmt.ReplValue(list); got != "[0, 1, 2, 3]" {
@@ -103,6 +120,41 @@ func TestCommitReplChunkAssignmentProducesNoOutput(t *testing.T) {
 	}
 	if commit.Source != "a = range(5)" {
 		t.Fatalf("unexpected committed source: %q", commit.Source)
+	}
+}
+
+func TestCommitReplChunkSuppressesUnusedGlobalWarning(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "x=[10,20]")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected commit to succeed: %s", commit.DiagText)
+	}
+	if strings.Contains(commit.DiagText, "W310") {
+		t.Fatalf("W310 should be hidden in REPL, got %q", commit.DiagText)
+	}
+}
+
+func TestCommitReplChunkSuppressesUnusedGlobalWarningAcrossChunks(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", "x=[10,20]")
+	if err != nil {
+		t.Fatalf("unexpected first commit error: %v", err)
+	}
+	if first.HasErrors {
+		t.Fatalf("expected first commit to succeed: %s", first.DiagText)
+	}
+	second, err := commitReplChunk(cwd, first.Source, "y=[30,40]")
+	if err != nil {
+		t.Fatalf("unexpected second commit error: %v", err)
+	}
+	if second.HasErrors {
+		t.Fatalf("expected second commit to succeed: %s", second.DiagText)
+	}
+	if strings.Contains(first.DiagText+second.DiagText, "W310") {
+		t.Fatalf("W310 should remain hidden across REPL chunks, got first=%q second=%q", first.DiagText, second.DiagText)
 	}
 }
 
@@ -256,6 +308,58 @@ func TestCommitReplChunkEmitsPrettyTableOutput(t *testing.T) {
 	want := "| id | label |\n|----|-------|\n| 1  | \"a\"   |\n| 2  | \"bbb\" |"
 	if len(commit.ExprOutput) != 1 || commit.ExprOutput[0] != want {
 		t.Fatalf("unexpected table output:\n%#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkEmitsSuccessfulWarnings(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", `table(x=[1,2,3], y=range(10))`)
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if commit.HasErrors {
+		t.Fatalf("expected warning-only chunk to succeed: %s", commit.DiagText)
+	}
+	if !strings.Contains(commit.DiagText, "WARNING W101") {
+		t.Fatalf("expected W101 warning, got %q", commit.DiagText)
+	}
+	if len(commit.ExprOutput) != 1 || !strings.Contains(commit.ExprOutput[0], "| x | y |") {
+		t.Fatalf("expected table output, got %#v", commit.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkDoesNotReplayPreviousWarnings(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := commitReplChunk(cwd, "", `table(x=[1,2,3], y=range(10))`)
+	if err != nil || first.HasErrors {
+		t.Fatalf("first commit failed: err=%v diag=%q", err, first.DiagText)
+	}
+	second, err := commitReplChunk(cwd, first.Source, `1`)
+	if err != nil {
+		t.Fatalf("second commit failed: %v", err)
+	}
+	if second.DiagText != "" {
+		t.Fatalf("unexpected replayed diagnostics: %q", second.DiagText)
+	}
+	if len(second.ExprOutput) != 1 || second.ExprOutput[0] != "1" {
+		t.Fatalf("unexpected second output: %#v", second.ExprOutput)
+	}
+}
+
+func TestCommitReplChunkWarningAndErrorDoesNotCommit(t *testing.T) {
+	cwd := t.TempDir()
+	commit, err := commitReplChunk(cwd, "", "table(x=[1,2,3], y=range(10))\nmissing_name")
+	if err != nil {
+		t.Fatalf("unexpected commit error: %v", err)
+	}
+	if !commit.HasErrors {
+		t.Fatalf("expected errors")
+	}
+	if !strings.Contains(commit.DiagText, "WARNING W101") || !strings.Contains(commit.DiagText, "ERROR") {
+		t.Fatalf("expected warning and error diagnostics, got %q", commit.DiagText)
+	}
+	if commit.Source != "" || len(commit.ExprOutput) != 0 {
+		t.Fatalf("failed chunk should not commit or emit output")
 	}
 }
 

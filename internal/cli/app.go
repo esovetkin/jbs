@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	helpdocs "gitlab.jsc.fz-juelich.de/sdlaml/jbs/docs"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
@@ -487,21 +488,16 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 		ExprOutput: []string{},
 	}
 	candidate := appendReplChunk(source, chunk)
+	chunkStart := replChunkStartOffset(source)
 	diags := &diag.Diagnostics{}
 	bundle, err := analyzeSourceWithOptions("<repl>", candidate, cwd, sema.AnalyzeOptions{CollectPrints: true}, diags)
 	if err != nil {
 		return result, err
 	}
-	errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
-	if len(errorDiags.Items) > 0 {
-		result.DiagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
-		result.HasErrors = true
-		return result, nil
-	}
 	prevStmtCount := 0
+	prevDiags := &diag.Diagnostics{}
 	if strings.TrimSpace(source) != "" {
-		prevDiags := &diag.Diagnostics{}
-		prevBundle, err := analyzeSource("<repl>", source, cwd, prevDiags)
+		prevBundle, err := analyzeSourceWithOptions("<repl>", source, cwd, sema.AnalyzeOptions{CollectPrints: true}, prevDiags)
 		if err != nil {
 			return result, err
 		}
@@ -512,6 +508,20 @@ func commitReplChunk(cwd, source, chunk string) (jbsrepl.CommitResult, error) {
 			return result, nil
 		}
 		prevStmtCount = len(prevBundle.Program.Stmts)
+	}
+	chunkDiags := filterReplChunkDiagnostics(*diags, *prevDiags, "<repl>", chunkStart)
+	chunkDiags = filterReplDisplayDiagnostics(chunkDiags)
+	if len(chunkDiags.Items) > 0 {
+		result.DiagText = formatDiagnosticsWithSources(chunkDiags, bundle.Sources, bundle.Program.File)
+	}
+	if diags.HasErrors() {
+		chunkErrors := filterDiagnosticsBySeverity(&chunkDiags, diag.SeverityError)
+		if len(chunkErrors.Items) == 0 {
+			errorDiags := filterDiagnosticsBySeverity(diags, diag.SeverityError)
+			result.DiagText = formatDiagnosticsWithSources(errorDiags, bundle.Sources, bundle.Program.File)
+		}
+		result.HasErrors = true
+		return result, nil
 	}
 	events := make([]replOutputEvent, 0, len(bundle.Result.PrintEvents)+len(bundle.Result.TopLevelExprs))
 	for _, event := range bundle.Result.PrintEvents {
@@ -580,6 +590,110 @@ func appendReplChunk(accepted string, chunk string) string {
 		return accepted + chunk
 	}
 	return accepted + "\n" + chunk
+}
+
+func replChunkStartOffset(accepted string) int {
+	if accepted == "" {
+		return 0
+	}
+	if strings.HasSuffix(accepted, "\n") {
+		return utf8.RuneCountInString(accepted)
+	}
+	return utf8.RuneCountInString(accepted) + 1
+}
+
+func filterReplChunkDiagnostics(candidate diag.Diagnostics, previous diag.Diagnostics, replFile string, chunkStart int) diag.Diagnostics {
+	prevSeen := diagnosticMultiset(previous.Items)
+	out := diag.Diagnostics{Items: make([]diag.Diagnostic, 0, len(candidate.Items))}
+	for _, item := range candidate.Items {
+		if diagnosticStartsInReplChunk(item, replFile, chunkStart) {
+			out.Items = append(out.Items, item)
+			continue
+		}
+		key := makeDiagnosticKey(item)
+		if prevSeen[key] > 0 {
+			prevSeen[key]--
+			continue
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out
+}
+
+func filterReplDisplayDiagnostics(diags diag.Diagnostics) diag.Diagnostics {
+	out := diag.Diagnostics{Items: make([]diag.Diagnostic, 0, len(diags.Items))}
+	for _, item := range diags.Items {
+		if suppressReplDiagnostic(item) {
+			continue
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out
+}
+
+func suppressReplDiagnostic(item diag.Diagnostic) bool {
+	return item.Severity == diag.SeverityWarning && item.Code == string(diag.CodeW310)
+}
+
+func diagnosticStartsInReplChunk(item diag.Diagnostic, replFile string, chunkStart int) bool {
+	if item.Span.IsZero() {
+		return false
+	}
+	file := item.Span.File
+	if file == "" {
+		file = replFile
+	}
+	return file == replFile && item.Span.Start.Offset >= chunkStart
+}
+
+type diagnosticKey struct {
+	Severity string
+	Code     string
+	Message  string
+	Span     diag.Span
+	Hint     string
+	Related  string
+}
+
+func diagnosticMultiset(items []diag.Diagnostic) map[diagnosticKey]int {
+	out := make(map[diagnosticKey]int, len(items))
+	for _, item := range items {
+		out[makeDiagnosticKey(item)]++
+	}
+	return out
+}
+
+func makeDiagnosticKey(item diag.Diagnostic) diagnosticKey {
+	return diagnosticKey{
+		Severity: string(item.Severity),
+		Code:     item.Code,
+		Message:  item.Message,
+		Span:     item.Span,
+		Hint:     item.Hint,
+		Related:  formatRelatedDiagnosticKey(item.Related),
+	}
+}
+
+func formatRelatedDiagnosticKey(related []diag.RelatedSpan) string {
+	if len(related) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, rel := range related {
+		fmt.Fprintf(
+			&b,
+			"%s\x00%s\x00%d\x00%d\x00%d\x00%d\x00%d\x00%d\x00",
+			rel.Message,
+			rel.Span.File,
+			rel.Span.Start.Offset,
+			rel.Span.Start.Line,
+			rel.Span.Start.Column,
+			rel.Span.End.Offset,
+			rel.Span.End.Line,
+			rel.Span.End.Column,
+		)
+	}
+	return b.String()
 }
 
 func filterDiagnosticsBySeverity(diags *diag.Diagnostics, severity diag.Severity) diag.Diagnostics {
