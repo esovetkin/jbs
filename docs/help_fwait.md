@@ -10,7 +10,7 @@ The command prints the path that caused it to exit.
 
 If a file already exists, the command exits after the next observed change to that path. If it does not exist, the command exits once the file appears.
 
-`jbs fwait` uses filesystem notifications when available and also polls target metadata periodically. The polling path is required on network filesystems such as GPFS, where notifications from writes on other nodes may not be delivered to the waiting process.
+`jbs fwait` uses filesystem notifications when available and also polls target metadata periodically. The polling path is required on network filesystems such as GPFS, where notifications from writes on other nodes may not be delivered to the waiting process. The polling path treats a file as unchanged when existence, type, identity, size, mode, and modification time are all unchanged.
 
 Use `-e` to exit immediately if any watched file already exists:
 

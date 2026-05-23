@@ -13,7 +13,7 @@ Prints its arguments to command stdout using print value rendering:
 
 ## Returns
 
-`null`.
+`None`.
 
 ## Example
 

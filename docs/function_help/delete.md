@@ -11,7 +11,7 @@ Direct string arguments, qualified names, and other expressions are not accepted
 
 ## Returns
 
-`null`.
+`None`.
 
 ## Example
 

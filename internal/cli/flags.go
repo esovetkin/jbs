@@ -232,19 +232,11 @@ func UsageText() string {
 Read examples/help:
   jbs help [%s]
 
-Run:
-  jbs <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
-  jbs run <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [--no-strict] [-b|--benchmark <name>]
-  jbs continue <file.jbs> [-w|--weak] [-b|--benchmark <name>]
-
 Check syntax:
   jbs -c|--check <file.jbs>
 
-Print status of the latest run:
-  jbs status <file.jbs|benchmark-dir> [-b|--benchmark <name>]
-
-List generated analyse tables:
-  jbs ls-analyse <file.jbs|benchmark-dir> [-b|--benchmark <name>]
+Run:
+  jbs [run] <file.jbs> [-n|--dry-run] [-w|--weak] [-l|--limit <n>] [-b|--benchmark <name>] [--no-strict]
 
 Options:
   -n, --dry-run  Create the run directory without starting workpackages
@@ -254,19 +246,12 @@ Options:
   -b, --benchmark <name>
                  Run, continue, or inspect one configured benchmark component
   --no-strict   Do not add set -euo pipefail to generated run.sh
-  -c, --check   Parse syntax only; do not evaluate expressions or imports
 
-Profiling of jbs:
-  --cpuprof[=<file>]
-                 Write a CPU pprof profile; default: cpu.pprof
-  --memprof[=<file>]
-                 Write a heap pprof profile at command exit; default: mem.pprof
+Continue an interrupted run:
+  jbs continue <file.jbs> [-w|--weak] [-b|--benchmark <name>]
 
-Archive benchmark directory:
-  jbs archive <file.jbs|benchmark-dir>
-
-Wait for files:
-  jbs fwait [-e] <path> [path...]
+Print status of the latest run:
+  jbs status <file.jbs|benchmark-dir> [-b|--benchmark <name>]
 
 Inspect job dependencies:
   jbs tree <file.jbs> [-l|--limit <n>] [-b|--benchmark <name>]
@@ -274,6 +259,21 @@ Inspect job dependencies:
 Inspect step parameter expansion:
   jbs param [-t pretty|csv] [-o <outputfile>] [-l|--limit <n>] [-b|--benchmark <name>] <file.jbs>
   defaults: -t pretty, -o - (stdout)
+
+List generated analyse tables:
+  jbs ls-analyse <file.jbs|benchmark-dir> [-b|--benchmark <name>]
+
+Archive benchmark directory:
+  jbs archive <file.jbs|benchmark-dir>
+
+Wait for files:
+  jbs fwait [-e] <path> [path...]
+
+Profiling of jbs itself:
+  --cpuprof[=<file>]
+                 Write a CPU pprof profile; default: cpu.pprof
+  --memprof[=<file>]
+                 Write a heap pprof profile at command exit; default: mem.pprof
 
 Interactive mode:
   jbs

@@ -25,6 +25,7 @@ var topicToFile = map[string]string{
 	"ls-analyse": "help_ls_analyse.md",
 	"param":      "help_param.md",
 	"repl":       "help_repl.md",
+	"run":        "help_run.md",
 	"status":     "help_status.md",
 	"tree":       "help_tree.md",
 	"use":        "help_use.md",

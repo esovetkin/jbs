@@ -1,6 +1,19 @@
 p0 = t(d = (true, false)) * (t(a = range(6)) + t(b = ("a", "b", "c"))) * t(c=("x","z"))
 p1 = t(a = ("a", "b")) + t(b = range(4))
 
+print("p0:")
+print(p0)
+print("p1:")
+print(p1["a"])
+
+jbs_benchmarks = {
+               "dependencies": ["step5", "step4"],
+               "fsub_example": "fsub_example",
+               "alias_example": "alias_example",
+               "non_table_with": ["cartesian_25", "dict_9"],
+               "all": "*"
+}
+
 do step0
         with p0["a"]
 {
@@ -53,19 +66,31 @@ do step5
         echo "d=${d}" >> step5.out
 }
 
-do step_p1
-        with p1
-{
-        echo "a=${a}" > step_p1.out
-        echo "b=${b}" >> step_p1.out
-}
-
 analyse step5
 {
         a_parsed = "a=%d" in "step5.out"
         b_parsed = "b=%d" in "step5.out"
 
         (a, b, c, d, a_parsed as "parsed_a", b_parsed as "parsed_b")
+}
+
+do fsub_example
+        with p0, p1["a"] as label
+        fsub "template_example.txt" {
+             "###X###": a,
+             "###LABEL###": label,
+             "tuple: \((\S+), (\S+)\)": (a, b),
+             "id=%d": c,
+             "x=%f label=%w": (d, label),
+             "literal=%%": "literal=%"}
+{
+        cat template_example.txt
+}
+
+do alias_example
+        with p0["a"] as x, p1["a"] as y
+{
+        echo $x $y
 }
 
 x = range(5)

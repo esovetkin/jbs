@@ -1,0 +1,6 @@
+###X###
+###LABEL###
+tuple: (one, two)
+id=0
+x=0.0 label=old
+literal=%

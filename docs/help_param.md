@@ -26,3 +26,53 @@ When `jbs_benchmarks` is configured and no benchmark is selected, `jbs param`
 prints rows for all configured components and includes a `benchmark` column.
 Selection with `-b` uses the same target and dependency filtering as `jbs run`
 and `jbs tree`.
+
+## Example
+
+```bash
+% cat example.jbs
+p0 = t(a = range(6), b = ("a", "b", "c")) * t(c=("x","y"))
+
+do step0
+        with p0["a"]
+{
+        echo "a=${a}"
+}
+
+do step1
+        after step0
+        with p0["b","c"]
+{
+        echo "a=${a}"
+        echo "b=${b}"
+        echo "c=${c}"
+}
+% jbs param example.jbs
+| p0.a | p0.b | p0.c | step      |
+|------|------|------|-----------|
+| 0    |      |      | do: step0 |
+| 1    |      |      | do: step0 |
+| 2    |      |      | do: step0 |
+| 3    |      |      | do: step0 |
+| 4    |      |      | do: step0 |
+| 5    |      |      | do: step0 |
+| 0    | a    | x    | do: step1 |
+| 0    | a    | y    | do: step1 |
+| 1    | b    | x    | do: step1 |
+| 1    | b    | y    | do: step1 |
+| 2    | c    | x    | do: step1 |
+| 2    | c    | y    | do: step1 |
+| 3    | a    | x    | do: step1 |
+| 3    | a    | y    | do: step1 |
+| 4    | b    | x    | do: step1 |
+| 4    | b    | y    | do: step1 |
+| 5    | c    | x    | do: step1 |
+| 5    | c    | y    | do: step1 |
+% jbs tree example.jbs
+| step          |  # |
+|---------------|----|
+| └── step0     |  6 |
+|     └── step1 | 12 |
+|---------------|----|
+| total:        | 18 |
+```

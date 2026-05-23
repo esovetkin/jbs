@@ -26,10 +26,10 @@ do <name>
 
 Examples:
 
-- `with cases`
-- `with cases["x"]`
-- `with cases["x", "y"]`
-- `with defaults.rows["x", "y"]`
+- `with cases` use all columns in table `cases`
+- `with cases["x"]` do projections for the column `x`
+- `with cases["x", "y"]` does projection for `x` and `y` variables in the `cases` table
+- `with cases["x"], cases["y"]` does projection on `x` and `y` and then takes a Cartesian product of both. Generally, the result is not the same as `cases["x","y"]`
 - `with case_id, cases["x"]`
 - `with cases["very_long_column"] as short`
 - `with defaults.host as default_host`
