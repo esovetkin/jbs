@@ -113,6 +113,8 @@ func normalizeLockRuntime(rt lockRuntime) lockRuntime {
 	return rt
 }
 
+var lockRemove = os.Remove
+
 func localProcessAlive(pid int) (bool, error) {
 	if pid <= 0 {
 		return false, nil
@@ -264,7 +266,7 @@ func maybeReclaimStaleLock(lockPath string, rt lockRuntime) error {
 	if latest.Class != lockStaleLocal {
 		return lockHeldError(lockPath, latest)
 	}
-	if err := os.Remove(lockPath); err != nil {
+	if err := lockRemove(lockPath); err != nil {
 		return fmt.Errorf(
 			"benchmark root lock is stale but could not be reclaimed: %s owned by pid %d on host %q since %s: %w",
 			lockPath,

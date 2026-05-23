@@ -7,6 +7,8 @@ import (
 	"syscall"
 )
 
+var signalExit = os.Exit
+
 func withSignals(parent context.Context, beforeHardExit func()) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
 	sigs := make(chan os.Signal, 2)
@@ -22,7 +24,7 @@ func withSignals(parent context.Context, beforeHardExit func()) (context.Context
 			if beforeHardExit != nil {
 				beforeHardExit()
 			}
-			os.Exit(130)
+			signalExit(130)
 		}
 	}()
 	return ctx, func() {

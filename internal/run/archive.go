@@ -48,7 +48,20 @@ type archiveCleanupResult struct {
 	Removed     int
 }
 
+type archiveTempFile interface {
+	io.Writer
+	Chmod(fs.FileMode) error
+	Sync() error
+	Close() error
+	Name() string
+}
+
 var archiveRemove = os.Remove
+var archiveCreateTemp = func(dir, pattern string) (archiveTempFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+var archiveRename = os.Rename
+var archiveSyncDir = fsutil.SyncDir
 
 func Archive(ctx context.Context, opts Options) error {
 	_ = ctx
@@ -286,7 +299,7 @@ func validateArchiveRun(root, run string) error {
 
 func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []string) (archiveSnapshot, error) {
 	dir := archiveParentDir(archivePath)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(archivePath)+".tmp-*")
+	tmp, err := archiveCreateTemp(dir, "."+filepath.Base(archivePath)+".tmp-*")
 	if err != nil {
 		return archiveSnapshot{}, err
 	}
@@ -333,11 +346,11 @@ func rewriteArchiveWithSnapshot(root, archivePath, timestamp string, runs []stri
 	if err := tmp.Close(); err != nil {
 		return archiveSnapshot{}, err
 	}
-	if err := os.Rename(tmpPath, archivePath); err != nil {
+	if err := archiveRename(tmpPath, archivePath); err != nil {
 		return archiveSnapshot{}, err
 	}
 	cleanup = false
-	if err := fsutil.SyncDir(dir); err != nil {
+	if err := archiveSyncDir(dir); err != nil {
 		return archiveSnapshot{}, err
 	}
 	return snapshot, nil

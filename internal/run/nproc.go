@@ -7,11 +7,14 @@ import (
 
 var availableNProcForRun = availableNProc
 
+var runtimeGOMAXPROCS = runtime.GOMAXPROCS
+var runtimeNumCPU = runtime.NumCPU
+
 func availableNProc() int {
-	if n := runtime.GOMAXPROCS(0); n > 0 {
+	if n := runtimeGOMAXPROCS(0); n > 0 {
 		return n
 	}
-	if n := runtime.NumCPU(); n > 0 {
+	if n := runtimeNumCPU(); n > 0 {
 		return n
 	}
 	return 1
