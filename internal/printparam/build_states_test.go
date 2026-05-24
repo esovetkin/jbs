@@ -87,8 +87,8 @@ func TestBuildEndToEnd(t *testing.T) {
 			t.Fatalf("did not expect function-valued globals to appear in printparam columns: %#v", table.Columns)
 		}
 	}
-	if len(table.Rows) != 6 {
-		t.Fatalf("expected six rows, got %d: %#v", len(table.Rows), table.Rows)
+	if len(table.Rows) != 10 {
+		t.Fatalf("expected ten rows, got %d: %#v", len(table.Rows), table.Rows)
 	}
 	if table.Rows[0].StepKind != "do" || table.Rows[0].StepName != "s0" {
 		t.Fatalf("unexpected first row step label: %#v", table.Rows[0])
@@ -102,11 +102,13 @@ func TestBuildEndToEnd(t *testing.T) {
 	if table.Rows[2].StepName != "s1" || table.Rows[2].Values["q.z"] != "9" {
 		t.Fatalf("unexpected third row values: %#v", table.Rows[2])
 	}
-	if table.Rows[4].StepKind != "do" || table.Rows[4].StepName != "s2" {
-		t.Fatalf("unexpected nil-plan row: %#v", table.Rows[4])
+	if table.Rows[6].StepKind != "do" || table.Rows[6].StepName != "s2" {
+		t.Fatalf("unexpected nil-plan row: %#v", table.Rows[6])
 	}
-	if len(table.Rows[4].Values) != 0 || len(table.Rows[5].Values) != 0 {
-		t.Fatalf("expected empty values for nil-plan rows, got %#v %#v", table.Rows[4].Values, table.Rows[5].Values)
+	for i := 6; i < len(table.Rows); i++ {
+		if len(table.Rows[i].Values) != 0 {
+			t.Fatalf("expected empty values for nil-plan row %d, got %#v", i, table.Rows[i].Values)
+		}
 	}
 }
 
@@ -322,8 +324,8 @@ do step1
 }
 `
 	table := buildPrintParamTableFromSource(t, src)
-	if got := countRowsForStep(table.Rows, "step0"); got != 2 {
-		t.Fatalf("expected grouped step0 rows, got %d", got)
+	if got := countRowsForStep(table.Rows, "step0"); got != 3 {
+		t.Fatalf("expected index-preserving step0 rows, got %d", got)
 	}
 	if got := countRowsForStep(table.Rows, "step1"); got != 3 {
 		t.Fatalf("expected narrowed step1 rows, got %d", got)
@@ -369,10 +371,15 @@ func buildPrintParamTableFromResult(t *testing.T, res *sema.Result) Table {
 }
 
 func hiddenProjectionBinding() *sema.GlobalBinding {
+	order := []string{"a", "b", "c", "d"}
 	aVals := make([]eval.Value, 0, 24)
 	bVals := make([]eval.Value, 0, 24)
 	cVals := make([]eval.Value, 0, 24)
 	dVals := make([]eval.Value, 0, 24)
+	rows := make([]eval.Row, 0, 24)
+	pairSource := eval.NewProjectionSource()
+	cSource := eval.NewProjectionSource()
+	dSource := eval.NewProjectionSource()
 	pairs := []struct {
 		a int64
 		b string
@@ -384,20 +391,32 @@ func hiddenProjectionBinding() *sema.GlobalBinding {
 		{a: 4, b: "b"},
 		{a: 5, b: "c"},
 	}
-	for _, c := range []string{"x", "z"} {
-		for _, pair := range pairs {
-			for _, d := range []bool{true, false} {
-				aVals = append(aVals, eval.Int(pair.a))
-				bVals = append(bVals, eval.String(pair.b))
-				cVals = append(cVals, eval.String(c))
-				dVals = append(dVals, eval.Bool(d))
+	for cIndex, c := range []string{"x", "z"} {
+		for pairIndex, pair := range pairs {
+			for dIndex, d := range []bool{true, false} {
+				aValue := eval.Int(pair.a)
+				bValue := eval.String(pair.b)
+				cValue := eval.String(c)
+				dValue := eval.Bool(d)
+				aVals = append(aVals, aValue)
+				bVals = append(bVals, bValue)
+				cVals = append(cVals, cValue)
+				dVals = append(dVals, dValue)
+				rows = append(rows, eval.Row{Values: map[string]eval.Cell{
+					"a": {Value: aValue, Projection: eval.ProjectionKey{Source: pairSource, Index: pairIndex}},
+					"b": {Value: bValue, Projection: eval.ProjectionKey{Source: pairSource, Index: pairIndex}},
+					"c": {Value: cValue, Projection: eval.ProjectionKey{Source: cSource, Index: cIndex}},
+					"d": {Value: dValue, Projection: eval.ProjectionKey{Source: dSource, Index: dIndex}},
+				}})
 			}
 		}
 	}
 	return &sema.GlobalBinding{
 		Name:  "p0",
 		Shape: sema.BindingTable,
-		Order: []string{"a", "b", "c", "d"},
+		Order: order,
+		Value: eval.CombValue(&eval.Comb{Order: order, Rows: rows}),
+		Rows:  rows,
 		Vars: map[string][]eval.Value{
 			"a": aVals,
 			"b": bVals,

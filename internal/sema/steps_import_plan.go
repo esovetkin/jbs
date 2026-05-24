@@ -157,6 +157,7 @@ func buildStepScopePlans(res *Result, diags *diag.Diagnostics) {
 			if len(kept) != len(expanded.Vars) {
 				full = false
 				nextExpansion.VarsByName = filterExpansionVars(nextExpansion.VarsByName, kept)
+				nextExpansion.ProjectionByName = filterExpansionProjections(nextExpansion.ProjectionByName, kept)
 			}
 			nextExpansion.Full = full
 			keptExpansions = append(keptExpansions, nextExpansion)
@@ -245,6 +246,23 @@ func filterExpansionVars(vars map[string][]eval.Value, kept []ExpandedWithVar) m
 		}
 		if values, ok := vars[sourceVar]; ok {
 			out[sourceVar] = eval.CloneValues(values)
+		}
+	}
+	return out
+}
+
+func filterExpansionProjections(vars map[string][]eval.ProjectionKey, kept []ExpandedWithVar) map[string][]eval.ProjectionKey {
+	if len(vars) == 0 {
+		return nil
+	}
+	out := make(map[string][]eval.ProjectionKey, len(kept))
+	for _, v := range kept {
+		sourceVar := v.SourceVar
+		if sourceVar == "" {
+			sourceVar = v.Visible
+		}
+		if values, ok := vars[sourceVar]; ok {
+			out[sourceVar] = append([]eval.ProjectionKey(nil), values...)
 		}
 	}
 	return out

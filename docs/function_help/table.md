@@ -15,7 +15,7 @@
 - Row dictionaries must all have the same key set.
 - Row dictionary values must be scalar: int, float, string, or bool.
 - `table([])` creates an empty table with no columns.
-- `table(rows(table_value))` recreates scalar-cell tables, including zero-row tables.
+- `table(rows(table_value))` rebuilds a new row-oriented table from plain row dictionaries. It preserves visible non-empty rows, but it does not preserve hidden projection identity or zero-row column schema.
 - Duplicate column names and mixed positional/named arguments are rejected.
 - `t(...)` is an alias of `table(...)`.
 

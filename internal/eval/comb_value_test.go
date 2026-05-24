@@ -126,8 +126,8 @@ func TestCombProject(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected dedup projection to succeed")
 	}
-	if len(dedup.C.Rows) != 2 {
-		t.Fatalf("expected duplicate projected rows to be removed, got %d rows", len(dedup.C.Rows))
+	if len(dedup.C.Rows) != 3 {
+		t.Fatalf("expected fallback row identity to preserve duplicate rows, got %d rows", len(dedup.C.Rows))
 	}
 }
 

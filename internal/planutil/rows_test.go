@@ -7,29 +7,31 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 )
 
-func TestBuildProjectedRowGroupsRestrictsAndRegroups(t *testing.T) {
-	values := map[string][]eval.Value{
+func TestBuildProjectedRowGroupsRestrictsAndRegroupsByProjection(t *testing.T) {
+	bSource := eval.NewProjectionSource()
+	cSource := eval.NewProjectionSource()
+	projections := map[string][]eval.ProjectionKey{
 		"b": {
-			eval.String("a"), eval.String("a"),
-			eval.String("b"), eval.String("b"),
-			eval.String("c"), eval.String("c"),
-			eval.String("a"), eval.String("a"),
-			eval.String("b"), eval.String("b"),
-			eval.String("c"), eval.String("c"),
-			eval.String("a"), eval.String("a"),
+			{Source: bSource, Index: 0}, {Source: bSource, Index: 0},
+			{Source: bSource, Index: 1}, {Source: bSource, Index: 1},
+			{Source: bSource, Index: 2}, {Source: bSource, Index: 2},
+			{Source: bSource, Index: 3}, {Source: bSource, Index: 3},
+			{Source: bSource, Index: 4}, {Source: bSource, Index: 4},
+			{Source: bSource, Index: 5}, {Source: bSource, Index: 5},
+			{Source: bSource, Index: 0}, {Source: bSource, Index: 0},
 		},
 		"c": {
-			eval.String("x"), eval.String("x"),
-			eval.String("x"), eval.String("x"),
-			eval.String("x"), eval.String("x"),
-			eval.String("x"), eval.String("x"),
-			eval.String("x"), eval.String("x"),
-			eval.String("x"), eval.String("x"),
-			eval.String("z"), eval.String("z"),
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 0}, {Source: cSource, Index: 0},
+			{Source: cSource, Index: 1}, {Source: cSource, Index: 1},
 		},
 	}
 
-	got := BuildProjectedRowGroups([]int{0, 1, 12, 13}, []string{"b", "c"}, values, false)
+	got := BuildProjectedRowGroups([]int{0, 1, 12, 13}, []string{"b", "c"}, projections, false)
 	want := []RowGroup{
 		{Rep: 0, Rows: []int{0, 1}},
 		{Rep: 12, Rows: []int{12, 13}},
@@ -96,13 +98,15 @@ func TestBuildProjectedRowGroupsPreservesRowsForFullImports(t *testing.T) {
 	}
 }
 
-func TestBuildProjectedRowGroupsUsesStableValueKeys(t *testing.T) {
-	values := map[string][]eval.Value{
-		"a": {eval.String("x|1:y"), eval.String("x"), eval.String("x|1:y")},
-		"b": {eval.String("z"), eval.String("1:y|z"), eval.String("z")},
+func TestBuildProjectedRowGroupsUsesProjectionKeys(t *testing.T) {
+	aSource := eval.NewProjectionSource()
+	bSource := eval.NewProjectionSource()
+	projections := map[string][]eval.ProjectionKey{
+		"a": {{Source: aSource, Index: 0}, {Source: aSource, Index: 1}, {Source: aSource, Index: 0}},
+		"b": {{Source: bSource, Index: 0}, {Source: bSource, Index: 1}, {Source: bSource, Index: 0}},
 	}
 
-	got := BuildProjectedRowGroups([]int{0, 1, 2}, []string{"a", "b"}, values, false)
+	got := BuildProjectedRowGroups([]int{0, 1, 2}, []string{"a", "b"}, projections, false)
 	want := []RowGroup{
 		{Rep: 0, Rows: []int{0, 2}},
 		{Rep: 1, Rows: []int{1}},

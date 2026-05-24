@@ -9,9 +9,10 @@ import (
 )
 
 type tableColumnInput struct {
-	Name   string
-	Values []Value
-	Span   diag.Span
+	Name       string
+	Values     []Value
+	Span       diag.Span
+	Projection uint64
 }
 
 func evalTableValueCall(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Value {
@@ -47,9 +48,10 @@ func evalNamedTableValueColumns(args []CallValueArg, at diag.Span, diags *diag.D
 			return Null()
 		}
 		columns = append(columns, tableColumnInput{
-			Name:   arg.Name,
-			Values: ToSeries(arg.Value),
-			Span:   arg.Span,
+			Name:       arg.Name,
+			Values:     ToSeries(arg.Value),
+			Span:       arg.Span,
+			Projection: NewProjectionSource(),
 		})
 	}
 	return buildTableFromColumns(columns, at, diags)
@@ -111,9 +113,10 @@ func tableFromDict(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 		}
 		seen[name] = struct{}{}
 		columns = append(columns, tableColumnInput{
-			Name:   name,
-			Values: ToSeries(colValue),
-			Span:   at,
+			Name:       name,
+			Values:     ToSeries(colValue),
+			Span:       at,
+			Projection: NewProjectionSource(),
 		})
 	}
 	return buildTableFromColumns(columns, at, diags)
@@ -133,10 +136,7 @@ func tableColumnNameFromDictKey(key DictKey, at diag.Span, diags *diag.Diagnosti
 
 func tableFromRowDictList(value Value, at diag.Span, diags *diag.Diagnostics) Value {
 	if len(value.L) == 0 {
-		return CombValue(&Comb{
-			Order: append([]string(nil), value.RowSchema...),
-			Rows:  nil,
-		})
+		return CombValue(&Comb{Order: nil, Rows: nil})
 	}
 
 	order, expected, ok := rowDictSchema(value.L[0], 0, at, diags)
@@ -145,8 +145,9 @@ func tableFromRowDictList(value Value, at diag.Span, diags *diag.Diagnostics) Va
 	}
 
 	rows := make([]Row, 0, len(value.L))
+	rowSource := NewProjectionSource()
 	for rowIndex, rowValue := range value.L {
-		row, ok := tableRowFromDictValue(rowValue, rowIndex, order, expected, at, diags)
+		row, ok := tableRowFromDictValue(rowValue, rowIndex, order, expected, ProjectionKey{Source: rowSource, Index: rowIndex}, at, diags)
 		if !ok {
 			return Null()
 		}
@@ -180,7 +181,7 @@ func rowDictSchema(value Value, rowIndex int, at diag.Span, diags *diag.Diagnost
 	return order, seen, true
 }
 
-func tableRowFromDictValue(value Value, rowIndex int, order []string, expected map[string]struct{}, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
+func tableRowFromDictValue(value Value, rowIndex int, order []string, expected map[string]struct{}, projection ProjectionKey, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
 	if value.Kind != KindDict || value.D == nil {
 		diags.AddError(diag.CodeE106, fmt.Sprintf("table() row %d must be a dictionary", rowIndex+1), at, "use a list whose elements are dictionaries")
 		return Row{}, false
@@ -211,7 +212,7 @@ func tableRowFromDictValue(value Value, rowIndex int, order []string, expected m
 			return Row{}, false
 		}
 		seen[name] = struct{}{}
-		values[name] = Cell{Value: CloneValue(cellValue), Origin: at}
+		values[name] = Cell{Value: CloneValue(cellValue), Origin: at, Projection: projection}
 	}
 
 	if len(seen) != len(expected) {
@@ -282,9 +283,11 @@ func buildTableFromColumns(columns []tableColumnInput, at diag.Span, diags *diag
 	for i := 0; i < maxLen; i++ {
 		values := make(map[string]Cell, len(columns))
 		for _, col := range columns {
+			sourceIndex := i % len(col.Values)
 			values[col.Name] = Cell{
-				Value:  CloneValue(col.Values[i%len(col.Values)]),
-				Origin: nonZeroSpan(col.Span, at),
+				Value:      CloneValue(col.Values[sourceIndex]),
+				Origin:     nonZeroSpan(col.Span, at),
+				Projection: ProjectionKey{Source: col.Projection, Index: sourceIndex},
 			}
 		}
 		rows = append(rows, Row{Values: values})
@@ -406,7 +409,7 @@ func rowsFromTable(tableValue Value, at diag.Span, diags *diag.Diagnostics) Valu
 		out = append(out, rowDict)
 	}
 
-	return RowList(out, names)
+	return List(out)
 }
 
 func dictFromTableRow(caller string, names []string, row Row, at diag.Span, diags *diag.Diagnostics) (Value, bool) {

@@ -49,8 +49,9 @@ func rbindTables(args []CallValueArg, at diag.Span, diags *diag.Diagnostics) Val
 			)
 			return Null()
 		}
+		sourceMap := map[uint64]uint64{}
 		for _, row := range table.C.Rows {
-			out, ok := cloneRowForOrder("rbind", row, baseOrder, spans[i], diags)
+			out, ok := cloneRowForOrderWithProjectionNamespace("rbind", row, baseOrder, sourceMap, spans[i], diags)
 			if !ok {
 				return Null()
 			}
@@ -101,7 +102,7 @@ func stringSet(names []string) map[string]struct{} {
 	return out
 }
 
-func cloneRowForOrder(caller string, row Row, order []string, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
+func cloneRowForOrderWithProjectionNamespace(caller string, row Row, order []string, sourceMap map[uint64]uint64, at diag.Span, diags *diag.Diagnostics) (Row, bool) {
 	out := Row{Values: make(map[string]Cell, len(order))}
 	for _, name := range order {
 		cell, ok := row.Values[name]
@@ -110,6 +111,14 @@ func cloneRowForOrder(caller string, row Row, order []string, at diag.Span, diag
 			return Row{}, false
 		}
 		cell.Value = CloneValue(cell.Value)
+		if cell.Projection.Valid() {
+			nextSource, ok := sourceMap[cell.Projection.Source]
+			if !ok {
+				nextSource = NewProjectionSource()
+				sourceMap[cell.Projection.Source] = nextSource
+			}
+			cell.Projection.Source = nextSource
+		}
 		out.Values[name] = cell
 	}
 	return out, true

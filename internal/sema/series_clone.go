@@ -16,3 +16,14 @@ func cloneSeriesMap(src map[string][]eval.Value) map[string][]eval.Value {
 	}
 	return out
 }
+
+func cloneProjectionMap(src map[string][]eval.ProjectionKey) map[string][]eval.ProjectionKey {
+	if len(src) == 0 {
+		return map[string][]eval.ProjectionKey{}
+	}
+	out := make(map[string][]eval.ProjectionKey, len(src))
+	for name, values := range src {
+		out[name] = append([]eval.ProjectionKey(nil), values...)
+	}
+	return out
+}

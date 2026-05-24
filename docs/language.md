@@ -266,7 +266,7 @@ jbs> cases
 |---|-----|
 | 1 | "a" |
 | 2 | "b" |
-jbs> # `rows` converts a table to row dictionaries, and table(rows(...)) converts it back
+jbs> # `rows` converts a table to plain row dictionaries; table(rows(...)) rebuilds visible rows as a new row-oriented table
 jbs> rows(cases)
 [{"x": 1, "y": "a"}, {"x": 2, "y": "b"}]
 jbs> table(rows(cases))
@@ -337,6 +337,16 @@ jbs> cases["x"] # projection
 | 2 |
 jbs> cases.x
 [1,1,2,2]
+```
+
+Projection keeps the selected variables' original index space. It removes dimensions not named in the projection, but it does not remove duplicated values that came from distinct input positions.
+
+```jbs
+jbs> z = t(x=(1,2,3)*2) * t(y=sort(("a","b")*2)) * t(z=("x","y"))
+jbs> z["x"]       # 1, 2, 3, 1, 2, 3
+jbs> z["y"]       # "a", "a", "b", "b"
+jbs> z["z"]       # "x", "y"
+jbs> z["y","z"]   # 8 rows
 ```
 
 `filter(table_value, function)` keeps rows where the predicate function returns true.

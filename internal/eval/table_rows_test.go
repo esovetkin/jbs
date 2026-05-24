@@ -55,7 +55,7 @@ func TestRowsFromZeroRowTable(t *testing.T) {
 	}
 }
 
-func TestRowsFromZeroRowTableCanRoundTripThroughTable(t *testing.T) {
+func TestRowsFromZeroRowTableRoundTripDropsSchema(t *testing.T) {
 	cases := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
 	diags := &diag.Diagnostics{}
 
@@ -69,12 +69,13 @@ func TestRowsFromZeroRowTableCanRoundTripThroughTable(t *testing.T) {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected table diagnostics: %s", diags.String())
 	}
-	if !Equal(got, cases) {
-		t.Fatalf("unexpected zero-row table round-trip: got=%#v want=%#v", got, cases)
+	want := CombValue(&Comb{Order: nil, Rows: nil})
+	if !Equal(got, want) {
+		t.Fatalf("unexpected zero-row table round-trip: got=%#v want=%#v", got, want)
 	}
 }
 
-func TestRowsSchemaIsHiddenFromVisibleListBehavior(t *testing.T) {
+func TestRowsFromZeroRowTableIsPlainEmptyList(t *testing.T) {
 	cases := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
 	diags := &diag.Diagnostics{}
 

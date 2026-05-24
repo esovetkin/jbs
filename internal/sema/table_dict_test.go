@@ -181,7 +181,7 @@ names(roundtrip)
 	}
 }
 
-func TestAnalyzeSupportsZeroRowTableRowsRoundTrip(t *testing.T) {
+func TestAnalyzeZeroRowTableRowsRoundTripDropsSchema(t *testing.T) {
 	src := `
 cases = table(x = [], y = [])
 roundtrip = table(rows(cases))
@@ -197,10 +197,10 @@ names(roundtrip)
 	if binding == nil || binding.Shape != BindingTable {
 		t.Fatalf("expected table binding, got %#v", binding)
 	}
-	if len(binding.Rows) != 0 || !reflect.DeepEqual(binding.Order, []string{"x", "y"}) {
+	if len(binding.Rows) != 0 || len(binding.Order) != 0 {
 		t.Fatalf("unexpected zero-row roundtrip binding: %#v", binding)
 	}
-	wantNames := eval.List([]eval.Value{eval.String("x"), eval.String("y")})
+	wantNames := eval.List(nil)
 	if len(res.TopLevelExprs) != 1 || !eval.Equal(res.TopLevelExprs[0].Value, wantNames) {
 		t.Fatalf("unexpected names(roundtrip) result: %#v", res.TopLevelExprs)
 	}

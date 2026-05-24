@@ -24,9 +24,10 @@ import (
 )
 
 type Cell struct {
-	Value    Value
-	Origin   diag.Span
-	Assigned bool
+	Value      Value
+	Origin     diag.Span
+	Assigned   bool
+	Projection ProjectionKey
 }
 
 type Row struct {
@@ -103,8 +104,13 @@ func evalComb(expr ast.CombExpr, series map[string][]Value, origins map[string]d
 			if o, exists := origins[e.Name]; exists && !o.IsZero() {
 				origin = o
 			}
-			for _, v := range vals {
-				rows = append(rows, Row{Values: map[string]Cell{e.Name: {Value: v, Origin: origin}}})
+			source := NewProjectionSource()
+			for i, v := range vals {
+				rows = append(rows, Row{Values: map[string]Cell{e.Name: {
+					Value:      v,
+					Origin:     origin,
+					Projection: ProjectionKey{Source: source, Index: i},
+				}}})
 			}
 			return rows
 		}

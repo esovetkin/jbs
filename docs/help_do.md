@@ -27,8 +27,8 @@ do <name>
 Examples:
 
 - `with cases` use all columns in table `cases`
-- `with cases["x"]` do projections for the column `x`
-- `with cases["x", "y"]` does projection for `x` and `y` variables in the `cases` table
+- `with cases["x"]` projects the original index space for column `x`
+- `with cases["x", "y"]` projects the combined original index space for `x` and `y` variables in the `cases` table
 - `with cases["x"], cases["y"]` does projection on `x` and `y` and then takes a Cartesian product of both. Generally, the result is not the same as `cases["x","y"]`
 - `with case_id, cases["x"]`
 - `with cases["very_long_column"] as short`
@@ -43,6 +43,7 @@ Rules:
 - importing a table source such as `with cases` exposes all of its columns
 - importing a dictionary acts like `with table(dict_value)` and exposes dictionary keys as table columns
 - importing selected columns such as `with cases["x", "y"]` exposes only those names
+- table projection is not SQL-style `DISTINCT`; duplicated values remain when they come from distinct input positions
 - adding `as <name>` renames a single imported variable; the alias must be a valid shell variable name
 - an aliased import exposes only the alias, so `with x as y` makes `y` visible and does not make `x` visible
 - importing multiple sources such as `with cases["x"], env["host"]` creates a Cartesian product across those sources

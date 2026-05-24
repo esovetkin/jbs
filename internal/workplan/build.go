@@ -18,15 +18,16 @@ type state struct {
 }
 
 type sourceGroup struct {
-	ItemID        int
-	Source        string
-	SourceKey     sema.BindingVersionKey
-	DisplaySource string
-	Vars          []sourceVar
-	ValuesByName  map[string][]eval.Value
-	RowCount      int
-	Full          bool
-	Span          diag.Span
+	ItemID           int
+	Source           string
+	SourceKey        sema.BindingVersionKey
+	DisplaySource    string
+	Vars             []sourceVar
+	ValuesByName     map[string][]eval.Value
+	ProjectionByName map[string][]eval.ProjectionKey
+	RowCount         int
+	Full             bool
+	Span             diag.Span
 }
 
 type sourceVar struct {
@@ -172,15 +173,16 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 				rowCount = sourceRowCountFromVars(expansion.VarsByName)
 			}
 			out = append(out, sourceGroup{
-				ItemID:        expansion.ItemID,
-				Source:        expansion.Source,
-				SourceKey:     expansion.SourceKey,
-				DisplaySource: expansion.DisplaySource,
-				Vars:          vars,
-				ValuesByName:  cloneSeriesMap(expansion.VarsByName),
-				RowCount:      rowCount,
-				Full:          expansion.Full,
-				Span:          expansion.Span,
+				ItemID:           expansion.ItemID,
+				Source:           expansion.Source,
+				SourceKey:        expansion.SourceKey,
+				DisplaySource:    expansion.DisplaySource,
+				Vars:             vars,
+				ValuesByName:     cloneSeriesMap(expansion.VarsByName),
+				ProjectionByName: cloneProjectionMap(expansion.ProjectionByName),
+				RowCount:         rowCount,
+				Full:             expansion.Full,
+				Span:             expansion.Span,
 			})
 		}
 		return out
@@ -222,6 +224,7 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 					g.Vars = append(g.Vars, sourceVar{Visible: name, SourceVar: name})
 				}
 				g.ValuesByName = cloneSeriesMap(src.Vars)
+				g.ProjectionByName = projectionByNameForBinding(src)
 				g.RowCount = planutil.SourceRowCount(src.Order, src.Vars)
 			}
 			continue
@@ -245,6 +248,9 @@ func groupExplicitDeltaByItem(plan *sema.StepScopePlan, sources map[string]*sema
 			if g.ValuesByName == nil {
 				g.ValuesByName = valuesByNameForGroup(*g, sources, sourcesByKey)
 				g.RowCount = sourceRowCountFromVars(g.ValuesByName)
+			}
+			if g.ProjectionByName == nil {
+				g.ProjectionByName = projectionByNameForGroup(*g, sources, sourcesByKey)
 			}
 			out = append(out, *g)
 		}
@@ -294,6 +300,9 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 	if group.ValuesByName == nil {
 		group.ValuesByName = valuesByNameForGroup(group, sources, sourcesByKey)
 	}
+	if group.ProjectionByName == nil {
+		group.ProjectionByName = projectionByNameForGroup(group, sources, sourcesByKey)
+	}
 	rowCount := group.RowCount
 	if rowCount == 0 {
 		rowCount = sourceRowCountFromVars(group.ValuesByName)
@@ -306,6 +315,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 	}
 
 	valuesByName := make(map[string][]eval.Value, len(vars))
+	projectionByName := make(map[string][]eval.ProjectionKey, len(vars))
 	visibleNames := make([]string, 0, len(vars))
 	for _, v := range vars {
 		sourceVarName := v.SourceVar
@@ -313,6 +323,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 			sourceVarName = v.Visible
 		}
 		valuesByName[v.Visible] = planutil.ExpandValues(group.ValuesByName[sourceVarName], rowCount)
+		projectionByName[v.Visible] = planutil.ExpandProjectionKeys(group.ProjectionByName[sourceVarName], rowCount)
 		visibleNames = append(visibleNames, v.Visible)
 	}
 
@@ -322,7 +333,7 @@ func buildChoices(st state, group sourceGroup, sources map[string]*sema.GlobalBi
 		return nil
 	}
 
-	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, valuesByName, group.Full)
+	projected := planutil.BuildProjectedRowGroups(allowedRows, visibleNames, projectionByName, group.Full)
 	choices := make([]sourceChoice, 0, len(projected))
 	for _, grp := range projected {
 		vals := make(map[string]eval.Value, len(visibleNames))
@@ -511,6 +522,17 @@ func cloneSeriesMap(in map[string][]eval.Value) map[string][]eval.Value {
 	return out
 }
 
+func cloneProjectionMap(in map[string][]eval.ProjectionKey) map[string][]eval.ProjectionKey {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]eval.ProjectionKey, len(in))
+	for k, v := range in {
+		out[k] = append([]eval.ProjectionKey(nil), v...)
+	}
+	return out
+}
+
 func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) map[string][]eval.Value {
 	src := bindingForGroup(group, sources, sourcesByKey)
 	if src == nil {
@@ -524,6 +546,58 @@ func valuesByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBind
 		}
 		if values, ok := src.Vars[sourceVar]; ok {
 			out[sourceVar] = eval.CloneValues(values)
+		}
+	}
+	return out
+}
+
+func projectionByNameForGroup(group sourceGroup, sources map[string]*sema.GlobalBinding, sourcesByKey map[sema.BindingVersionKey]*sema.GlobalBinding) map[string][]eval.ProjectionKey {
+	src := bindingForGroup(group, sources, sourcesByKey)
+	if src == nil {
+		return nil
+	}
+	all := projectionByNameForBinding(src)
+	out := make(map[string][]eval.ProjectionKey, len(group.Vars))
+	for _, v := range group.Vars {
+		sourceVar := v.SourceVar
+		if sourceVar == "" {
+			sourceVar = v.Visible
+		}
+		if values, ok := all[sourceVar]; ok {
+			out[sourceVar] = append([]eval.ProjectionKey(nil), values...)
+		}
+	}
+	return out
+}
+
+func projectionByNameForBinding(src *sema.GlobalBinding) map[string][]eval.ProjectionKey {
+	if src == nil {
+		return nil
+	}
+	order := src.Order
+	if len(order) == 0 && eval.IsComb(src.Value) {
+		order = eval.CombNames(src.Value)
+	}
+	out := make(map[string][]eval.ProjectionKey, len(order))
+	if eval.IsComb(src.Value) {
+		for _, name := range order {
+			if keys, ok := eval.CombColumnProjections(src.Value, name); ok {
+				out[name] = keys
+			}
+		}
+		return out
+	}
+	for rowIndex, row := range src.Rows {
+		for _, name := range order {
+			cell, ok := row.Values[name]
+			if !ok {
+				continue
+			}
+			key := cell.Projection
+			if !key.Valid() {
+				key = eval.ProjectionFallbackKey(rowIndex)
+			}
+			out[name] = append(out[name], key)
 		}
 	}
 	return out

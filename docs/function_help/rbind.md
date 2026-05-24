@@ -11,6 +11,10 @@
 
 A new table containing all rows from the inputs, in argument order.
 
+`rbind` preserves table projection identity within each input table, but treats
+each input argument as an independent source. Projecting columns from the output
+therefore returns the appended projection rows from every input.
+
 ## Example
 
 ```jbs

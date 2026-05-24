@@ -1,10 +1,4 @@
 // row-grouping utilities for import and runtime planning
-//
-// group row indices by identical tuples of variable values
-// (`BuildRowGroups`), using a stable tuple-key encoding
-// (`tupleKeyAt`), provide sequential index generation
-// (`SequentialIndices`) used for row-representative/index helper
-// logic.
 package planutil
 
 import "gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
@@ -35,17 +29,12 @@ func BuildRowGroups(vars []string, valuesByName map[string][]eval.Value, rowCoun
 	return groups
 }
 
-// BuildProjectedRowGroups regroups only the allowed rows; full imports keep one group per raw row.
-func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[string][]eval.Value, full bool) []RowGroup {
+func BuildProjectedRowGroups(allowedRows []int, vars []string, projectionsByName map[string][]eval.ProjectionKey, full bool) []RowGroup {
 	if len(allowedRows) == 0 {
 		return nil
 	}
 	if full {
-		groups := make([]RowGroup, 0, len(allowedRows))
-		for _, row := range allowedRows {
-			groups = append(groups, RowGroup{Rep: row, Rows: []int{row}})
-		}
-		return groups
+		return oneGroupPerAllowedRow(allowedRows)
 	}
 	if len(vars) == 0 {
 		rows := append([]int(nil), allowedRows...)
@@ -54,7 +43,7 @@ func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[
 	indexByKey := make(map[string]int)
 	groups := make([]RowGroup, 0, len(allowedRows))
 	for _, row := range allowedRows {
-		key := tupleKeyAt(vars, valuesByName, row)
+		key := projectionTupleKeyAt(vars, projectionsByName, row)
 		if idx, exists := indexByKey[key]; exists {
 			groups[idx].Rows = append(groups[idx].Rows, row)
 			continue
@@ -63,6 +52,29 @@ func BuildProjectedRowGroups(allowedRows []int, vars []string, valuesByName map[
 		groups = append(groups, RowGroup{Rep: row, Rows: []int{row}})
 	}
 	return groups
+}
+
+func oneGroupPerAllowedRow(allowedRows []int) []RowGroup {
+	groups := make([]RowGroup, 0, len(allowedRows))
+	for _, row := range allowedRows {
+		groups = append(groups, RowGroup{Rep: row, Rows: []int{row}})
+	}
+	return groups
+}
+
+func projectionTupleKeyAt(vars []string, projectionsByName map[string][]eval.ProjectionKey, row int) string {
+	keys := make([]eval.ProjectionKey, 0, len(vars))
+	for _, name := range vars {
+		keys = append(keys, projectionKeyAt(projectionsByName[name], row))
+	}
+	return eval.ProjectionTupleKey(keys)
+}
+
+func projectionKeyAt(keys []eval.ProjectionKey, row int) eval.ProjectionKey {
+	if row >= 0 && row < len(keys) && keys[row].Valid() {
+		return keys[row]
+	}
+	return eval.ProjectionFallbackKey(row)
 }
 
 func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) string {
@@ -74,6 +86,17 @@ func tupleKeyAt(vars []string, valuesByName map[string][]eval.Value, row int) st
 		})
 	}
 	return eval.StableNamedValueTupleKey(parts)
+}
+
+func ExpandProjectionKeys(values []eval.ProjectionKey, rowCount int) []eval.ProjectionKey {
+	if rowCount <= 0 || len(values) == 0 {
+		return nil
+	}
+	out := make([]eval.ProjectionKey, rowCount)
+	for i := 0; i < rowCount; i++ {
+		out[i] = values[i%len(values)]
+	}
+	return out
 }
 
 func rowValue(values []eval.Value, row int) eval.Value {

@@ -152,15 +152,16 @@ type ScopeImport struct {
 }
 
 type WithExpansion struct {
-	ItemID        int
-	Source        string
-	SourceKey     BindingVersionKey
-	DisplaySource string
-	Vars          []ExpandedWithVar
-	VarsByName    map[string][]eval.Value
-	RowCount      int
-	Full          bool
-	Span          diag.Span
+	ItemID           int
+	Source           string
+	SourceKey        BindingVersionKey
+	DisplaySource    string
+	Vars             []ExpandedWithVar
+	VarsByName       map[string][]eval.Value
+	ProjectionByName map[string][]eval.ProjectionKey
+	RowCount         int
+	Full             bool
+	Span             diag.Span
 }
 
 type StepScopePlan struct {

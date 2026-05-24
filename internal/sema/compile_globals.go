@@ -125,7 +125,7 @@ func cloneNameSet(names map[string]struct{}) map[string]struct{} {
 
 func globalVarSeries(name string, value eval.Value) ([]string, map[string][]eval.Value) {
 	if eval.IsComb(value) {
-		order := append([]string(nil), value.C.Order...)
+		order := eval.CombNames(value)
 		vars := make(map[string][]eval.Value, len(order))
 		for _, col := range order {
 			colVals, ok := eval.CombColumn(value, col)
@@ -179,8 +179,9 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 	if gv == nil || gv.Value.Kind == eval.KindFunction {
 		return nil
 	}
+	isTable := eval.IsComb(gv.Value)
 	order := append([]string(nil), gv.Order...)
-	if len(order) == 0 {
+	if len(order) == 0 && !isTable {
 		order = []string{name}
 	}
 
@@ -193,7 +194,7 @@ func bindingFromGlobalVar(name string, gv *GlobalVar) *GlobalBinding {
 
 	rows := make([]eval.Row, 0)
 	shape := BindingScalar
-	if eval.IsComb(gv.Value) {
+	if isTable {
 		shape = BindingTable
 		rows = cloneCombRows(gv.Value.C.Rows, gv.Span)
 	} else {

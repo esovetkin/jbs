@@ -108,6 +108,136 @@ echo "$y $short"
 	}
 }
 
+func TestBuildProjectedImportsUseProjectionIdentity(t *testing.T) {
+	src := `
+z = t(x=(1,2,3)*2) * t(y=sort(("a","b")*2)) * t(z=("x","y"))
+
+do xonly with z["x"] {
+echo "$x"
+}
+
+do yz with z["y", "z"] {
+echo "$y $z"
+}
+
+do aliased with z["x"] as xx {
+echo "$xx"
+}
+`
+	plan := buildPlanFromSourceForTest(t, "projection_identity.jbs", src)
+
+	xonly := workByStep(plan.Work, "xonly")
+	if len(xonly) != 6 {
+		t.Fatalf("expected 6 x-only workpackages, got %d", len(xonly))
+	}
+	wantX := []int64{1, 2, 3, 1, 2, 3}
+	for i, work := range xonly {
+		if work.Values["x"].I != wantX[i] {
+			t.Fatalf("xonly row %d x=%#v want %d", i, work.Values["x"], wantX[i])
+		}
+		if rows := onlySourceRowsForTest(t, work); len(rows) != 8 {
+			t.Fatalf("xonly row %d source rows=%#v want 8 rows", i, rows)
+		}
+	}
+
+	yz := workByStep(plan.Work, "yz")
+	if len(yz) != 8 {
+		t.Fatalf("expected 8 y/z workpackages, got %d", len(yz))
+	}
+	for i, work := range yz {
+		if rows := onlySourceRowsForTest(t, work); len(rows) != 6 {
+			t.Fatalf("yz row %d source rows=%#v want 6 rows", i, rows)
+		}
+	}
+
+	aliased := workByStep(plan.Work, "aliased")
+	if len(aliased) != 6 {
+		t.Fatalf("expected 6 aliased workpackages, got %d", len(aliased))
+	}
+	for _, work := range aliased {
+		if _, ok := work.Values["xx"]; !ok {
+			t.Fatalf("expected alias xx in work values, got %#v", work.Values)
+		}
+		if _, ok := work.Values["x"]; ok {
+			t.Fatalf("did not expect original x in aliased work values, got %#v", work.Values)
+		}
+	}
+}
+
+func TestBuildDependentProjectedImportsUseInheritedSourceRows(t *testing.T) {
+	src := `
+z = t(x=(1,2,3)*2) * t(y=sort(("a","b")*2)) * t(z=("x","y"))
+
+do s0 with z["x"] {
+echo "$x"
+}
+
+do s1 after s0 with z["y"] {
+echo "$x $y"
+}
+`
+	plan := buildPlanFromSourceForTest(t, "dependent_projection_identity.jbs", src)
+
+	s0 := workByStep(plan.Work, "s0")
+	if len(s0) != 6 {
+		t.Fatalf("expected 6 s0 workpackages, got %d", len(s0))
+	}
+	s1 := workByStep(plan.Work, "s1")
+	if len(s1) != 24 {
+		t.Fatalf("expected 24 s1 workpackages, got %d", len(s1))
+	}
+	for _, work := range s1 {
+		if _, ok := work.Values["x"]; !ok {
+			t.Fatalf("expected inherited x in s1 work values, got %#v", work.Values)
+		}
+		if _, ok := work.Values["y"]; !ok {
+			t.Fatalf("expected projected y in s1 work values, got %#v", work.Values)
+		}
+		constraints := onlySourceConstraintsForTest(t, work)
+		if len(constraints) != 2 {
+			t.Fatalf("expected inherited and explicit source constraints, got %#v", constraints)
+		}
+		if len(constraints[0].Rows) != 8 || len(constraints[1].Rows) != 2 {
+			t.Fatalf("unexpected dependent source constraints: %#v", constraints)
+		}
+	}
+}
+
+func buildPlanFromSourceForTest(t *testing.T, filename, src string) Plan {
+	t.Helper()
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse(filename, src, diags)
+	res := sema.Analyze(prog, sema.BuiltinGlobalValues(), diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	plan := Build(res, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected workplan diagnostics: %s", diags.String())
+	}
+	return plan
+}
+
+func onlySourceRowsForTest(t *testing.T, work WorkPackage) []int {
+	t.Helper()
+	constraints := onlySourceConstraintsForTest(t, work)
+	if len(constraints) != 1 {
+		t.Fatalf("expected one source constraint, got %#v", constraints)
+	}
+	return constraints[0].Rows
+}
+
+func onlySourceConstraintsForTest(t *testing.T, work WorkPackage) []SourceRowConstraint {
+	t.Helper()
+	if len(work.SourceRows) != 1 {
+		t.Fatalf("expected one source in source rows, got %#v", work.SourceRows)
+	}
+	for _, constraints := range work.SourceRows {
+		return constraints
+	}
+	return nil
+}
+
 func workByStep(work []WorkPackage, step string) []WorkPackage {
 	out := make([]WorkPackage, 0)
 	for _, item := range work {
@@ -367,14 +497,14 @@ func TestBuildChoicesBranches(t *testing.T) {
 	}
 
 	choices = buildChoices(emptyState(), sourceGroup{Source: "p", Vars: []sourceVar{{Visible: "a", SourceVar: "a"}}}, sources, nil)
-	if len(choices) != 2 {
-		t.Fatalf("expected grouped choices for a=[1,1,2], got %#v", choices)
+	if len(choices) != 3 {
+		t.Fatalf("expected fallback projection identity to keep each row, got %#v", choices)
 	}
-	if !reflect.DeepEqual(choices[0].Rows, []int{0, 1}) || choices[0].Values["a"].I != 1 {
-		t.Fatalf("unexpected first grouped choice: %#v", choices[0])
+	if !reflect.DeepEqual(choices[0].Rows, []int{0}) || choices[0].Values["a"].I != 1 {
+		t.Fatalf("unexpected first projected choice: %#v", choices[0])
 	}
-	if !reflect.DeepEqual(choices[1].Rows, []int{2}) || choices[1].Values["a"].I != 2 {
-		t.Fatalf("unexpected second grouped choice: %#v", choices[1])
+	if !reflect.DeepEqual(choices[1].Rows, []int{1}) || choices[1].Values["a"].I != 1 || !reflect.DeepEqual(choices[2].Rows, []int{2}) || choices[2].Values["a"].I != 2 {
+		t.Fatalf("unexpected projected choices: %#v", choices)
 	}
 
 	choices = buildChoices(emptyState(), sourceGroup{Source: "empty", Full: true}, sources, nil)
@@ -383,7 +513,7 @@ func TestBuildChoicesBranches(t *testing.T) {
 	}
 }
 
-func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
+func TestBuildChoicesKeepsFallbackProjectionRows(t *testing.T) {
 	sources := map[string]*sema.GlobalBinding{"p0": hiddenProjectionBinding()}
 	st := emptyState()
 	st.SourceRows[sema.BindingVersionKeyForSource(sources, "p0")] = inheritedSourceRows(0, 1, 12, 13)
@@ -396,23 +526,13 @@ func TestBuildChoicesRegroupsInheritedProjection(t *testing.T) {
 		},
 	}, sources, nil)
 	want := []sourceChoice{
-		{
-			Rows: []int{0, 1},
-			Values: map[string]eval.Value{
-				"b": eval.String("a"),
-				"c": eval.String("x"),
-			},
-		},
-		{
-			Rows: []int{12, 13},
-			Values: map[string]eval.Value{
-				"b": eval.String("a"),
-				"c": eval.String("z"),
-			},
-		},
+		{Rows: []int{0}, Values: map[string]eval.Value{"b": eval.String("a"), "c": eval.String("x")}},
+		{Rows: []int{1}, Values: map[string]eval.Value{"b": eval.String("a"), "c": eval.String("x")}},
+		{Rows: []int{12}, Values: map[string]eval.Value{"b": eval.String("a"), "c": eval.String("z")}},
+		{Rows: []int{13}, Values: map[string]eval.Value{"b": eval.String("a"), "c": eval.String("z")}},
 	}
 	if !reflect.DeepEqual(choices, want) {
-		t.Fatalf("expected inherited regrouping by projected values, got %#v want %#v", choices, want)
+		t.Fatalf("expected fallback projected rows, got %#v want %#v", choices, want)
 	}
 }
 

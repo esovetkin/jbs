@@ -292,6 +292,7 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 			return WithExpansion{}, false
 		}
 		vars := make(map[string][]eval.Value, len(ref.Columns))
+		projections := make(map[string][]eval.ProjectionKey, len(ref.Columns))
 		order := make([]string, 0, len(ref.Columns))
 		for _, column := range ref.Columns {
 			if _, ok := norm.Vars[column]; !ok {
@@ -301,10 +302,12 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 			if !slices.Contains(order, column) {
 				order = append(order, column)
 				vars[column] = slices.Clone(norm.Vars[column])
+				projections[column] = slices.Clone(norm.ProjectionByName[column])
 			}
 		}
 		norm.Order = order
 		norm.Vars = vars
+		norm.ProjectionByName = projections
 		norm.Full = false
 	}
 
@@ -331,24 +334,26 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 		displaySource = ref.Source
 	}
 	return WithExpansion{
-		ItemID:        itemID,
-		Source:        displaySource,
-		SourceKey:     sourceKey,
-		DisplaySource: displaySource,
-		Vars:          vars,
-		VarsByName:    cloneSeriesMap(norm.Vars),
-		RowCount:      norm.RowCount,
-		Full:          norm.Full,
-		Span:          item.Span,
+		ItemID:           itemID,
+		Source:           displaySource,
+		SourceKey:        sourceKey,
+		DisplaySource:    displaySource,
+		Vars:             vars,
+		VarsByName:       cloneSeriesMap(norm.Vars),
+		ProjectionByName: cloneProjectionMap(norm.ProjectionByName),
+		RowCount:         norm.RowCount,
+		Full:             norm.Full,
+		Span:             item.Span,
 	}, true
 }
 
 type normalizedWithBinding struct {
-	Shape    BindingShape
-	Order    []string
-	Vars     map[string][]eval.Value
-	RowCount int
-	Full     bool
+	Shape            BindingShape
+	Order            []string
+	Vars             map[string][]eval.Value
+	ProjectionByName map[string][]eval.ProjectionKey
+	RowCount         int
+	Full             bool
 }
 
 func normalizeDoWithBinding(source string, binding *GlobalBinding, at diag.Span, diags *diag.Diagnostics) (normalizedWithBinding, bool) {
@@ -388,30 +393,32 @@ func normalizeDoWithBinding(source string, binding *GlobalBinding, at diag.Span,
 			Full:     true,
 		}, true
 	case eval.IsComb(value):
-		order, vars := varsFromTable(value)
+		order, vars, projections := varsAndProjectionsFromTable(value)
 		return normalizedWithBinding{
-			Shape:    BindingTable,
-			Order:    order,
-			Vars:     vars,
-			RowCount: len(value.C.Rows),
-			Full:     true,
+			Shape:            BindingTable,
+			Order:            order,
+			Vars:             vars,
+			ProjectionByName: projections,
+			RowCount:         len(value.C.Rows),
+			Full:             true,
 		}, true
 	case value.Kind == eval.KindDict:
 		table, ok := eval.TableFromDictValue(value, at, diags)
 		if !ok {
 			return normalizedWithBinding{}, false
 		}
-		order, vars := varsFromTable(table)
+		order, vars, projections := varsAndProjectionsFromTable(table)
 		rowCount := 0
 		if table.C != nil {
 			rowCount = len(table.C.Rows)
 		}
 		return normalizedWithBinding{
-			Shape:    BindingTable,
-			Order:    order,
-			Vars:     vars,
-			RowCount: rowCount,
-			Full:     true,
+			Shape:            BindingTable,
+			Order:            order,
+			Vars:             vars,
+			ProjectionByName: projections,
+			RowCount:         rowCount,
+			Full:             true,
 		}, true
 	default:
 		diags.AddError(diag.CodeE420, fmt.Sprintf("with-clause cannot import %s-valued global '%s'", value.Kind, source), at, "use int, float, string, bool, list, tuple, table, or dict values")
@@ -428,20 +435,25 @@ func sourceVarNameForScalar(source string, binding *GlobalBinding) string {
 	return source
 }
 
-func varsFromTable(value eval.Value) ([]string, map[string][]eval.Value) {
+func varsAndProjectionsFromTable(value eval.Value) ([]string, map[string][]eval.Value, map[string][]eval.ProjectionKey) {
 	if !eval.IsComb(value) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	order := append([]string(nil), value.C.Order...)
 	vars := make(map[string][]eval.Value, len(order))
+	projections := make(map[string][]eval.ProjectionKey, len(order))
 	for _, name := range order {
 		col, ok := eval.CombColumn(value, name)
 		if !ok {
 			continue
 		}
 		vars[name] = slices.Clone(col)
+		keys, ok := eval.CombColumnProjections(value, name)
+		if ok {
+			projections[name] = slices.Clone(keys)
+		}
 	}
-	return order, vars
+	return order, vars, projections
 }
 
 func (r BindingResolver) isExpressionVisibleOnly(name string) bool {

@@ -142,6 +142,12 @@ func sampleTable(value Value, size int, replace bool, at diag.Span, diags *diag.
 	for _, index := range indices {
 		rows = append(rows, value.C.Rows[index])
 	}
+	if replace {
+		return CombValue(&Comb{
+			Order: append([]string(nil), value.C.Order...),
+			Rows:  rebaseRowsByOutputRow(value.C.Order, rows),
+		})
+	}
 	return tableValueFromOrderedRows(value.C.Order, rows)
 }
 

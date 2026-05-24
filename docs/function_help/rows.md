@@ -6,13 +6,15 @@
 
 ## Returns
 
-A list of dictionaries. Each dictionary represents one table row. Dictionary
-keys are string column names, and values are copied from the corresponding row
-cells.
+A plain list of dictionaries. Each dictionary represents one physical table row.
+Dictionary keys are string column names, and values are copied from the
+corresponding row cells.
 
-For a table with zero rows, `rows` returns an empty list.
-That list can still be passed back to `table(...)` to recreate the original
-zero-row table shape.
+The list does not preserve hidden table projection metadata. Passing it back to
+`table(...)` creates a new row-oriented table.
+
+For a table with zero rows, `rows` returns an empty list. Passing that list back
+to `table(...)` creates an empty table with no columns.
 
 ## Example
 
@@ -23,5 +25,5 @@ rows(table = cases)
 # [dict(x = 1, y = "a"), dict(x = 2, y = "b")]
 
 table(rows(cases))
-# same table as cases
+# same visible rows as cases, but rebuilt as a new row-oriented table
 ```

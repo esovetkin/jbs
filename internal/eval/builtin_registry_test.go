@@ -88,9 +88,9 @@ func TestBuiltinValueCallDispatchesFunctionValues(t *testing.T) {
 			}}},
 		})
 		got := evalBuiltinValueCall("rows", []CallValueArg{{Value: table, Span: span}}, nil, span, diags, ExprOptions{}, newEvalCtx(nil))
-		want := RowList([]Value{
+		want := List([]Value{
 			DictValue([]DictEntry{{Key: DictKey{Kind: DictKeyString, S: "x"}, Value: Int(1)}}),
-		}, []string{"x"})
+		})
 		if !Equal(got, want) {
 			t.Fatalf("unexpected rows dispatch result: got=%#v want=%#v", got, want)
 		}

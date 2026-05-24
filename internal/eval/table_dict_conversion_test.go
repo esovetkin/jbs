@@ -220,7 +220,7 @@ func TestTableRowsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTableRowsRoundTripPreservesZeroRowSchema(t *testing.T) {
+func TestTableRowsRoundTripDropsZeroRowColumns(t *testing.T) {
 	original := CombValue(&Comb{Order: []string{"x", "y"}, Rows: nil})
 	diags := &diag.Diagnostics{}
 	rows := rowsFromTable(original, spanAt(601, 1), diags)
@@ -234,8 +234,9 @@ func TestTableRowsRoundTripPreservesZeroRowSchema(t *testing.T) {
 	if diags.HasErrors() {
 		t.Fatalf("unexpected zero-row round-trip diagnostics: %s", diags.String())
 	}
-	if !Equal(got, original) {
-		t.Fatalf("unexpected zero-row round-trip table: got=%#v want=%#v", got, original)
+	want := CombValue(&Comb{Order: nil, Rows: nil})
+	if !Equal(got, want) {
+		t.Fatalf("unexpected zero-row round-trip table: got=%#v want=%#v", got, want)
 	}
 }
 

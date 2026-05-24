@@ -127,12 +127,14 @@ func combRowsFromNamedValue(name string, value Value, span diag.Span) []Row {
 	}
 	series := ToSeries(value)
 	rows := make([]Row, 0, len(series))
-	for _, v := range series {
+	source := NewProjectionSource()
+	for i, v := range series {
 		rows = append(rows, Row{
 			Values: map[string]Cell{
 				name: {
-					Value:  v,
-					Origin: span,
+					Value:      v,
+					Origin:     span,
+					Projection: ProjectionKey{Source: source, Index: i},
 				},
 			},
 		})

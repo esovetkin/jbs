@@ -250,7 +250,8 @@ func tableToCombValue(table *parsedDelimitedTable, at diag.Span, diags *diag.Dia
 		return Null()
 	}
 	rows := make([]Row, 0, len(table.Rows))
-	for _, rawRow := range table.Rows {
+	rowSource := NewProjectionSource()
+	for rowIndex, rawRow := range table.Rows {
 		values := make(map[string]Cell, len(table.Header))
 		for col, name := range table.Header {
 			value, ok := convertDelimitedValue(rawRow[col], table.Kinds[col])
@@ -258,7 +259,7 @@ func tableToCombValue(table *parsedDelimitedTable, at diag.Span, diags *diag.Dia
 				diags.AddError(diag.CodeE106, fmt.Sprintf("read_csv() internal conversion failure for column '%s'", name), at, "check the input values for that column")
 				return Null()
 			}
-			values[name] = Cell{Value: value, Origin: at}
+			values[name] = Cell{Value: value, Origin: at, Projection: ProjectionKey{Source: rowSource, Index: rowIndex}}
 		}
 		rows = append(rows, Row{Values: values})
 	}
