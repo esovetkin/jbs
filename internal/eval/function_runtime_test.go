@@ -143,3 +143,97 @@ func TestFunctionRuntimeLoopAndAssignmentDiagnostics(t *testing.T) {
 		t.Fatalf("compound assignment to missing local should report E100, got: %s", diags.String())
 	}
 }
+
+func TestLocalCompoundAssignmentReadsTargetBeforeRHS(t *testing.T) {
+	shellCalls := 0
+	frame := NewRootFrame(nil)
+	frame.DeclareLocal("x")
+	diags := &diag.Diagnostics{}
+
+	executeLocalAssign(ast.LocalAssignStmt{
+		Name: "x",
+		Op:   ast.AssignPlusEq,
+		Expr: callExpr(
+			ast.IdentExpr{Name: "shell", Span: spanAt(1703, 5)},
+			posArg(ast.StringExpr{Value: "printf 1", Span: spanAt(1703, 11)}),
+		),
+		Span: spanAt(1703, 1),
+	}, nil, diags, ExprOptions{
+		ShellRunner: func(ShellCommand) ([]byte, error) {
+			shellCalls++
+			return []byte("1"), nil
+		},
+	}, newEvalCtx(frame))
+
+	if shellCalls != 0 {
+		t.Fatalf("RHS shell() ran before invalid compound target was rejected")
+	}
+	if diagCount(diags, "E100") != 1 {
+		t.Fatalf("expected one E100 diagnostic, got: %s", diags.String())
+	}
+}
+
+func TestLocalCompoundAssignmentEvaluatesRHSWhenTargetAssigned(t *testing.T) {
+	shellCalls := 0
+	frame := NewRootFrame(map[string]Value{"x": Int(1)})
+	diags := &diag.Diagnostics{}
+
+	executeLocalAssign(ast.LocalAssignStmt{
+		Name: "x",
+		Op:   ast.AssignPlusEq,
+		Expr: callExpr(
+			ast.IdentExpr{Name: "shell", Span: spanAt(1704, 5)},
+			posArg(ast.StringExpr{Value: "printf 2", Span: spanAt(1704, 11)}),
+		),
+		Span: spanAt(1704, 1),
+	}, nil, diags, ExprOptions{
+		ShellRunner: func(ShellCommand) ([]byte, error) {
+			shellCalls++
+			return []byte("2"), nil
+		},
+	}, newEvalCtx(frame))
+
+	got, ok := frame.Read("x", diag.Span{}, &diag.Diagnostics{})
+	if !ok || !Equal(got, String("12")) {
+		t.Fatalf("unexpected x after compound assignment: %#v", got)
+	}
+	if shellCalls != 1 {
+		t.Fatalf("expected RHS shell() to run once, got %d", shellCalls)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestFunctionCompoundAssignmentSkipsRHSForUnassignedLocal(t *testing.T) {
+	shellCalls := 0
+	diags := &diag.Diagnostics{}
+	fn := fnExpr(nil,
+		ast.LocalAssignStmt{
+			Name: "x",
+			Op:   ast.AssignPlusEq,
+			Expr: callExpr(
+				ast.IdentExpr{Name: "shell", Span: spanAt(1705, 5)},
+				posArg(ast.StringExpr{Value: "printf 1", Span: spanAt(1705, 11)}),
+			),
+			Span: spanAt(1705, 1),
+		},
+	)
+
+	got := EvalExprWithOptions(callExpr(fn), nil, diags, ExprOptions{
+		ShellRunner: func(ShellCommand) ([]byte, error) {
+			shellCalls++
+			return []byte("1"), nil
+		},
+	})
+
+	if got.Kind != KindNull {
+		t.Fatalf("expected null result after invalid assignment, got %#v", got)
+	}
+	if shellCalls != 0 {
+		t.Fatalf("RHS shell() ran before invalid compound target was rejected")
+	}
+	if diagCount(diags, "E100") != 1 {
+		t.Fatalf("expected one E100 diagnostic, got: %s", diags.String())
+	}
+}

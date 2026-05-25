@@ -709,16 +709,20 @@ func executeLocalAssign(stmt ast.LocalAssignStmt, env map[string]Value, diags *d
 	if ctx == nil || ctx.frame == nil || stmt.Name == "" {
 		return
 	}
-	value := evalExprWithCtx(stmt.Expr, env, diags, opts, ctx)
-	if ctx.recursionLimitHit() {
-		return
-	}
 	if stmt.Op == ast.AssignEq {
+		value := evalExprWithCtx(stmt.Expr, env, diags, opts, ctx)
+		if ctx.recursionLimitHit() {
+			return
+		}
 		ctx.frame.AssignLocal(stmt.Name, value, stmt.Span)
 		return
 	}
 	current, ok := ctx.frame.Read(stmt.Name, stmt.Span, diags)
 	if !ok {
+		return
+	}
+	value := evalExprWithCtx(stmt.Expr, env, diags, opts, ctx)
+	if ctx.recursionLimitHit() {
 		return
 	}
 	next := evalBinary(assignBinaryOp(stmt.Op), current, value, stmt.Span, diags, opts, ctx)
