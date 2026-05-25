@@ -8,6 +8,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/planutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/runtimevar"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 )
 
@@ -230,6 +231,21 @@ func validateWithAlias(alias string, aliasSpan, itemSpan diag.Span, diags *diag.
 	return false
 }
 
+func validateDoWithVisibleName(name string, at diag.Span, diags *diag.Diagnostics) bool {
+	if reason, ok := runtimevar.ReservedName(name); ok {
+		if diags != nil {
+			diags.AddError(
+				diag.CodeE023,
+				fmt.Sprintf("with-clause variable %q is reserved for JBS runtime metadata", name),
+				at,
+				fmt.Sprintf("choose another name; %s is set by JBS as the %s", name, reason),
+			)
+		}
+		return false
+	}
+	return true
+}
+
 func withBareName(expr ast.Expr) (string, bool) {
 	switch e := expr.(type) {
 	case ast.IdentExpr:
@@ -326,6 +342,15 @@ func (r BindingResolver) expandDoBinding(itemID int, item ast.WithItem, ref with
 	} else {
 		for _, name := range sourceVars {
 			vars = append(vars, ExpandedWithVar{Visible: name, SourceVar: name})
+		}
+	}
+	for _, v := range vars {
+		span := item.Span
+		if ref.Alias != "" && v.Visible == ref.Alias && !ref.AliasSpan.IsZero() {
+			span = ref.AliasSpan
+		}
+		if !validateDoWithVisibleName(v.Visible, span, diags) {
+			return WithExpansion{}, false
 		}
 	}
 	sourceKey := BindingVersionKeyForBinding(binding, ref.Source)

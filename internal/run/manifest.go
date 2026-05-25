@@ -1,6 +1,10 @@
 package run
 
-import "fmt"
+import (
+	"fmt"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/runtimevar"
+)
 
 func analyseTableName(prefix, runID, stepName string) string {
 	return prefix + "_" + runID + "_" + stepName
@@ -44,6 +48,13 @@ func validateRunManifest(manifest Manifest) error {
 	}
 	if manifest.RunID == "" {
 		return fmt.Errorf("manifest is missing run_id")
+	}
+	for _, work := range manifest.Work {
+		for name := range work.Values {
+			if reason, ok := runtimevar.ReservedName(name); ok {
+				return fmt.Errorf("manifest work value %q is reserved for JBS runtime metadata (%s)", name, reason)
+			}
+		}
 	}
 	if manifest.AnalyseDatabasePath == "" {
 		return nil

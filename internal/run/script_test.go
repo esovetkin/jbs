@@ -108,6 +108,24 @@ func TestRenderRunScriptRejectsRelativePathVariables(t *testing.T) {
 	}
 }
 
+func TestRenderRunScriptRejectsReservedWorkValues(t *testing.T) {
+	_, err := renderRunScript(runScriptSpec{
+		RunDir:    "/tmp/project/bench/000000",
+		WorkDir:   "/tmp/project/bench/000000/s/000000",
+		SourceDir: "/tmp/project",
+		StepName:  "s",
+		Work: ManifestWork{
+			Step:   "s",
+			Row:    0,
+			Values: map[string]string{"JBS_WORK_DIR": "/tmp/wrong"},
+		},
+		Body: "true\n",
+	})
+	if err == nil || !strings.Contains(err.Error(), "JBS_WORK_DIR") {
+		t.Fatalf("expected reserved work-value error, got %v", err)
+	}
+}
+
 func TestRenderRunScriptNoStrictOmitsStrictMode(t *testing.T) {
 	script, err := renderRunScript(runScriptSpec{
 		RunDir:    "/tmp/project/bench/000000",

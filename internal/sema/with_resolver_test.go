@@ -2,6 +2,7 @@ package sema
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/ast"
@@ -115,6 +116,69 @@ func TestBindingResolverResolveDoWithAliases(t *testing.T) {
 	}
 	if countDiagCode(diags, string(diag.CodeE023)) != 2 {
 		t.Fatalf("expected invalid alias diagnostics, got: %s", diags.String())
+	}
+}
+
+func TestBindingResolverRejectsReservedDoWithVisibleNames(t *testing.T) {
+	span := diag.NewSpan("with.jbs", diag.NewPos(0, 1, 1), diag.NewPos(1, 1, 2))
+	aliasSpan := diag.NewSpan("with.jbs", diag.NewPos(10, 1, 11), diag.NewPos(22, 1, 23))
+	resolver := BindingResolver{
+		Bindings: map[string]*GlobalBinding{
+			"JBS_WORK_DIR": {
+				Name:  "JBS_WORK_DIR",
+				Value: eval.String("/tmp/wrong"),
+				Shape: BindingScalar,
+				Order: []string{"JBS_WORK_DIR"},
+				Vars:  map[string][]eval.Value{"JBS_WORK_DIR": {eval.String("/tmp/wrong")}},
+			},
+			"x": {
+				Name:  "x",
+				Value: eval.String("/tmp/wrong"),
+				Shape: BindingScalar,
+				Order: []string{"x"},
+				Vars:  map[string][]eval.Value{"x": {eval.String("/tmp/wrong")}},
+			},
+			"cases": {
+				Name: "cases",
+				Value: tableValueFromVars([]string{"JBS_WORK_DIR", "ok"}, map[string][]eval.Value{
+					"JBS_WORK_DIR": {eval.String("/tmp/wrong")},
+					"ok":           {eval.String("safe")},
+				}),
+				Shape: BindingTable,
+				Order: []string{"JBS_WORK_DIR", "ok"},
+				Vars: map[string][]eval.Value{
+					"JBS_WORK_DIR": {eval.String("/tmp/wrong")},
+					"ok":           {eval.String("safe")},
+				},
+			},
+		},
+	}
+
+	diags := &diag.Diagnostics{}
+	aliasItem := withIdentAliasItem("x", "JBS_WORK_DIR", span)
+	aliasItem.AliasSpan = aliasSpan
+	expanded := resolver.ResolveDoWithItems([]ast.WithItem{
+		withIdentItem("JBS_WORK_DIR", span),
+		aliasItem,
+		withIdentItem("cases", span),
+		withIndexStringItem("cases", []string{"JBS_WORK_DIR"}, span),
+		withIdentAliasItem("x", "JBS_WORK_DIR_EXTRA", span),
+	}, diags)
+
+	if len(expanded) != 1 {
+		t.Fatalf("expected only near-miss alias to expand, got %#v", expanded)
+	}
+	if got := expanded[0].Vars; len(got) != 1 || got[0] != (ExpandedWithVar{Visible: "JBS_WORK_DIR_EXTRA", SourceVar: "x"}) {
+		t.Fatalf("unexpected near-miss expansion: %#v", expanded[0])
+	}
+	if countDiagCode(diags, string(diag.CodeE023)) != 4 {
+		t.Fatalf("expected four reserved-name diagnostics, got %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "JBS_WORK_DIR") || !strings.Contains(diags.String(), "reserved for JBS runtime metadata") {
+		t.Fatalf("missing reserved-name details: %s", diags.String())
+	}
+	if len(diags.Items) < 2 || diags.Items[1].Span != aliasSpan {
+		t.Fatalf("alias diagnostic span = %#v, want %#v", diags.Items, aliasSpan)
 	}
 }
 

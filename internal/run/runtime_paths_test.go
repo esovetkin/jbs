@@ -396,6 +396,26 @@ func TestBuildComponentRuntimePlanFSubErrorAndConfiguredManifest(t *testing.T) {
 		t.Fatalf("expected shell assignment variable error, got %v", err)
 	}
 
+	_, err = buildComponentRuntimePlan(runtimeInputs{
+		RootName: "bench",
+		Sources:  map[string]string{"test.jbs": "do run {\n echo run\n}\n"},
+		WorkPlan: workplan.Plan{
+			BenchmarkName: "bench",
+			GlobalNProc:   1,
+			Steps:         []workplan.Step{{Name: "run", Kind: "do", NProc: 1}},
+			Work: []workplan.WorkPackage{{
+				ID:       workplan.WorkID{Step: "run", Row: 0},
+				StepName: "run",
+				StepKind: "do",
+				Values:   map[string]eval.Value{"JBS_WORK_DIR": eval.String("/tmp/wrong")},
+			}},
+		},
+	}, componentSelection{RootDir: "bench", ComponentName: "bench"})
+	if err == nil || !strings.Contains(err.Error(), "JBS_WORK_DIR") ||
+		!strings.Contains(err.Error(), "reserved for JBS runtime metadata") {
+		t.Fatalf("expected reserved shell assignment variable error, got %v", err)
+	}
+
 	plan, err = buildComponentRuntimePlan(runtimeInputs{
 		RootName: "bench",
 		Sources:  map[string]string{"test.jbs": "do dep {\n:\n}\ndo run after dep {\n:\n}\n"},

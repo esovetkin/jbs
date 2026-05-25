@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/runtimevar"
 )
 
 type runScriptSpec struct {
@@ -27,6 +29,11 @@ func renderRunScript(spec runScriptSpec) (string, error) {
 	for name, path := range paths {
 		if !filepath.IsAbs(path) {
 			return "", fmt.Errorf("%s must be absolute, got %q", name, path)
+		}
+	}
+	for name := range spec.Work.Values {
+		if reason, ok := runtimevar.ReservedName(name); ok {
+			return "", fmt.Errorf("work value %q is reserved for JBS runtime metadata (%s)", name, reason)
 		}
 	}
 	values := map[string]string{

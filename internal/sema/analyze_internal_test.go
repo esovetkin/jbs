@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
@@ -63,6 +64,35 @@ analyse run {
 	}
 	if res == nil || len(res.Analyse) != 1 {
 		t.Fatalf("expected one analyse spec, got %#v", res)
+	}
+}
+
+func TestAnalyzeRejectsReservedRuntimeVariablesInDoWith(t *testing.T) {
+	src := `
+jbs_name = "bench"
+JBS_WORK_DIR = "/tmp/not-the-real-workdir"
+
+do s with JBS_WORK_DIR {
+  printf '%s\n' "$JBS_WORK_DIR" > seen.txt
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("reserved_runtime.jbs", src, diags)
+	if diags.HasErrors() {
+		t.Fatalf("parse failed: %s", diags.String())
+	}
+	res := Analyze(prog, map[string]eval.Value{"jbs_name": eval.String("bench")}, diags)
+	if res == nil {
+		t.Fatalf("Analyze returned nil result")
+	}
+	if countDiagCode(diags, string(diag.CodeE023)) == 0 {
+		t.Fatalf("expected reserved with diagnostic, got %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), "JBS_WORK_DIR") || !strings.Contains(diags.String(), "reserved for JBS runtime metadata") {
+		t.Fatalf("missing reserved-name diagnostic details: %s", diags.String())
+	}
+	if plan := res.StepScopeByName["s"]; plan != nil && len(plan.Expansions) != 0 {
+		t.Fatalf("reserved import should not produce expansions: %#v", plan.Expansions)
 	}
 }
 

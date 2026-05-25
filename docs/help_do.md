@@ -38,6 +38,7 @@ Rules:
 
 - variables are not visible unless imported through `with` or inherited through `after`
 - imported values are emitted into generated scripts as exported environment variables
+- `JBS_RUN_DIR`, `JBS_SRC_DIR`, `JBS_STEP`, `JBS_ROW`, and `JBS_WORK_DIR` are reserved runtime variables and cannot be imported or used as `with ... as` aliases
 - importing a scalar creates one workpackage and exposes that scalar under its source name
 - importing a list or tuple creates one workpackage per element; non-scalar elements are exported as environment variables using `str(value)`, and JBS emits a warning
 - importing a table source such as `with cases` exposes all of its columns
@@ -120,6 +121,8 @@ Each workpackage executes the `do` body in its own work directory. Useful runtim
 - `$JBS_ROW`: zero-padded row/workpackage ID
 - `$JBS_WORK_DIR`: absolute path to the current workpackage directory
 - `$JBS_SRC_DIR`: absolute path to the directory containing the entry `.jbs` file
+
+These exact names are reserved by JBS. User imports and `with ... as` aliases must use different names.
 
 Each workpackage directory also contains `run.sh`, `status`, `stdout`, `stderr`, and, after completion, `exitcode`. Workpackage status is one of `NOTSTARTED`, `RUNNING`, `FINISHED`, `ERROR`, `BLOCKED`, or `INTERRUPTED`. Completed workpackage `status` files include `duration`, measured in seconds. `BLOCKED` means the workpackage did not run because a dependency failed. Generated `run.sh` files use `set -euo pipefail` by default; pass `--no-strict` to `jbs run` or the `jbs file.jbs` shorthand to omit it for newly created run directories.
 

@@ -77,6 +77,22 @@ func TestValidateRunManifestRejectsMissingRunID(t *testing.T) {
 	}
 }
 
+func TestValidateRunManifestRejectsReservedWorkValues(t *testing.T) {
+	err := validateRunManifest(Manifest{
+		BenchmarkName: "bench",
+		RunID:         "000000",
+		Work: []ManifestWork{{
+			Step:   "run",
+			Row:    0,
+			Values: map[string]string{"JBS_WORK_DIR": "/tmp/wrong"},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "JBS_WORK_DIR") ||
+		!strings.Contains(err.Error(), "reserved for JBS runtime metadata") {
+		t.Fatalf("expected reserved work-value error, got %v", err)
+	}
+}
+
 func TestValidateRunManifestRejectsMismatchedSQLiteTable(t *testing.T) {
 	err := validateRunManifest(Manifest{
 		BenchmarkName:       "bench",

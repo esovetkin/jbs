@@ -12,6 +12,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/benchmarks"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/diag"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/runtimevar"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/sema"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/shellvar"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workplan"
@@ -381,6 +382,9 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 		for _, name := range slices.Sorted(maps.Keys(work.Values)) {
 			if !shellvar.ValidName(name) {
 				return runtimePlan{}, fmt.Errorf("variable %q cannot be emitted as a shell assignment", name)
+			}
+			if reason, ok := runtimevar.ReservedName(name); ok {
+				return runtimePlan{}, fmt.Errorf("variable %q is reserved for JBS runtime metadata (%s)", name, reason)
 			}
 			values[name] = work.Values[name].String()
 		}
