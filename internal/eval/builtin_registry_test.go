@@ -237,54 +237,67 @@ func TestBuiltinRegistryKeepsSyntaxSensitiveDirectCalls(t *testing.T) {
 	})
 }
 
-func TestBuiltinRegistryPreservesKernelContextRestrictions(t *testing.T) {
+func TestBuiltinRegistryAllowsRangeRevInAllContexts(t *testing.T) {
+	contexts := []struct {
+		name string
+		opts ExprOptions
+	}{
+		{name: "default"},
+		{name: "binding", opts: ExprOptions{Context: EvalCtxBindingAssign}},
+		{name: "scalar global", opts: ExprOptions{Context: EvalCtxScalarGlobalAssign}},
+		{name: "analyse", opts: ExprOptions{Context: EvalCtxAnalyseAssign}},
+	}
+	for _, tc := range contexts {
+		t.Run("range "+tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(ident("range"), posArg(intExpr(3))), nil, diags, tc.opts)
+			if !Equal(got, List([]Value{Int(0), Int(1), Int(2)})) {
+				t.Fatalf("unexpected range result: %#v", got)
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+		})
+		t.Run("rev "+tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(callExpr(ident("rev"), posArg(listExpr(intExpr(1), intExpr(2)))), nil, diags, tc.opts)
+			if !Equal(got, List([]Value{Int(2), Int(1)})) {
+				t.Fatalf("unexpected rev result: %#v", got)
+			}
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestBuiltinRangeRevFunctionValuesHaveNoContextRestriction(t *testing.T) {
+	frame := NewRootFrame(nil)
+	assignBuiltinFunction(t, frame, "r", "range")
+	assignBuiltinFunction(t, frame, "reverse", "rev")
+
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(callExpr(ident("r"), posArg(intExpr(2))), nil, diags, ExprOptions{Frame: frame})
+	if !Equal(got, List([]Value{Int(0), Int(1)})) {
+		t.Fatalf("unexpected range function result: %#v", got)
+	}
+	got = EvalExprWithOptions(callExpr(ident("reverse"), posArg(listExpr(intExpr(1), intExpr(2)))), nil, diags, ExprOptions{Frame: frame})
+	if !Equal(got, List([]Value{Int(2), Int(1)})) {
+		t.Fatalf("unexpected rev function result: %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+}
+
+func TestBuiltinRegistryRejectsUnknownBuiltinValueCall(t *testing.T) {
 	span := spanAt(1801, 1)
 
-	t.Run("range outside binding assignment", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExprWithOptions(callExpr(ident("range"), posArg(intExpr(3))), nil, diags, ExprOptions{})
-		if got.Kind != KindNull || diagCount(diags, "E199") != 1 {
-			t.Fatalf("expected range context diagnostic, got value=%#v diags=%s", got, diags.String())
-		}
-	})
-
-	t.Run("range inside binding assignment", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExprWithOptions(callExpr(ident("range"), posArg(intExpr(3))), nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
-		if !Equal(got, List([]Value{Int(0), Int(1), Int(2)})) {
-			t.Fatalf("unexpected range result: %#v", got)
-		}
-		if diags.HasErrors() {
-			t.Fatalf("unexpected diagnostics: %s", diags.String())
-		}
-	})
-
-	t.Run("rev outside binding assignment", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExprWithOptions(callExpr(ident("rev"), posArg(listExpr(intExpr(1), intExpr(2)))), nil, diags, ExprOptions{})
-		if got.Kind != KindNull || diagCount(diags, "E199") != 1 {
-			t.Fatalf("expected rev context diagnostic, got value=%#v diags=%s", got, diags.String())
-		}
-	})
-
-	t.Run("rev inside binding assignment", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := EvalExprWithOptions(callExpr(ident("rev"), posArg(listExpr(intExpr(1), intExpr(2)))), nil, diags, ExprOptions{Context: EvalCtxBindingAssign})
-		if !Equal(got, List([]Value{Int(2), Int(1)})) {
-			t.Fatalf("unexpected rev result: %#v", got)
-		}
-		if diags.HasErrors() {
-			t.Fatalf("unexpected diagnostics: %s", diags.String())
-		}
-	})
-
-	t.Run("unknown function", func(t *testing.T) {
-		diags := &diag.Diagnostics{}
-		got := evalBuiltinValueCall("missing", nil, nil, span, diags, ExprOptions{}, newEvalCtx(nil))
-		if got.Kind != KindNull || diagCount(diags, "E199") != 1 {
-			t.Fatalf("expected unknown builtin diagnostic, got value=%#v diags=%s", got, diags.String())
-		}
-	})
+	diags := &diag.Diagnostics{}
+	got := evalBuiltinValueCall("missing", nil, nil, span, diags, ExprOptions{}, newEvalCtx(nil))
+	if got.Kind != KindNull || diagCount(diags, "E199") != 1 {
+		t.Fatalf("expected unknown builtin diagnostic, got value=%#v diags=%s", got, diags.String())
+	}
 }
 
 func TestBindRangeBuiltinValuesRejectsTrailingPositionalAfterNamed(t *testing.T) {

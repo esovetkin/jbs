@@ -26,15 +26,10 @@ const (
 )
 
 type builtinSpec struct {
-	Name            string
-	DirectMode      builtinDirectArgMode
-	AllowedContexts map[EvalContext]struct{}
-	Value           func(builtinCallContext) Value
-	Direct          func(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value
-}
-
-var builtinBindingAssignOnly = map[EvalContext]struct{}{
-	EvalCtxBindingAssign: {},
+	Name       string
+	DirectMode builtinDirectArgMode
+	Value      func(builtinCallContext) Value
+	Direct     func(rawArgs []ast.CallArg, env map[string]Value, at diag.Span, diags *diag.Diagnostics, opts ExprOptions, ctx *evalCtx) Value
 }
 
 var builtinRegistry struct {
@@ -123,7 +118,6 @@ func initBuiltinRegistry() {
 			},
 		},
 		"list": {
-			AllowedContexts: nil,
 			Value: func(c builtinCallContext) Value {
 				values, ok := bindUnaryBuiltinValues(c.Name, c.Args, "value", c.At, c.Diags)
 				if !ok {
@@ -164,7 +158,6 @@ func initBuiltinRegistry() {
 			},
 		},
 		"range": {
-			AllowedContexts: builtinBindingAssignOnly,
 			Value: func(c builtinCallContext) Value {
 				values, ok := bindRangeBuiltinValues(c.Args, c.At, c.Diags)
 				if !ok {
@@ -198,7 +191,6 @@ func initBuiltinRegistry() {
 			},
 		},
 		"rev": {
-			AllowedContexts: builtinBindingAssignOnly,
 			Value: func(c builtinCallContext) Value {
 				values, ok := bindUnaryBuiltinValues(c.Name, c.Args, "values", c.At, c.Diags)
 				if !ok {
@@ -300,22 +292,6 @@ func callBuiltinSpec(spec builtinSpec, c builtinCallContext) Value {
 		return Null()
 	}
 	return spec.Value(c)
-}
-
-func checkBuiltinContext(spec builtinSpec, at diag.Span, diags *diag.Diagnostics, opts ExprOptions) bool {
-	if len(spec.AllowedContexts) == 0 {
-		return true
-	}
-	if _, ok := spec.AllowedContexts[opts.Context]; ok {
-		return true
-	}
-	diags.AddError(
-		diag.CodeE199,
-		fmt.Sprintf("function '%s' is only allowed in top-level global assignments", spec.Name),
-		at,
-		"use this function only in top-level global assignment expressions",
-	)
-	return false
 }
 
 func evalConversionBuiltin(c builtinCallContext) Value {

@@ -43,9 +43,6 @@ func evalCall(callee ast.Expr, rawArgs []ast.CallArg, env map[string]Value, at d
 		diags.AddError(diag.CodeE199, fmt.Sprintf("unknown function '%s'", name), callee.GetSpan(), "use a supported builtin or define a function value before calling it")
 		return Null()
 	}
-	if !checkBuiltinContext(spec, at, diags, opts) {
-		return Null()
-	}
 	if spec.DirectMode == builtinRawArgs {
 		return spec.Direct(rawArgs, env, at, diags, opts, ctx)
 	}

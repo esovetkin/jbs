@@ -525,6 +525,51 @@ func TestMaterializeFileSubstitutionsUsesAliasedEnvironment(t *testing.T) {
 	}
 }
 
+func TestMaterializeFileSubstitutionsAllowsRangeAndRevInReplacements(t *testing.T) {
+	dir := t.TempDir()
+	template := filepath.Join(dir, "input.tpl")
+	if err := os.WriteFile(template, []byte("X\nY\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workDir := filepath.Join(dir, "work")
+	if err := os.Mkdir(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	num := func(v int64) ast.NumberExpr {
+		return ast.NumberExpr{Int: true, IntValue: v}
+	}
+	rangeSecond := ast.IndexExpr{
+		Base: ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "range"},
+			Args:   ast.PosCallArgs(num(3)),
+		},
+		Items: []ast.Expr{num(1)},
+	}
+	revFirst := ast.IndexExpr{
+		Base: ast.CallExpr{
+			Callee: ast.IdentExpr{Name: "rev"},
+			Args: []ast.CallArg{ast.PosCallArg(ast.ListExpr{Items: []ast.Expr{
+				num(1),
+				num(2),
+				num(3),
+			}})},
+		},
+		Items: []ast.Expr{num(0)},
+	}
+	specs := []FileSubstitutionPlan{
+		testFileSubPlan(t, template, "input.tpl",
+			FileSubstitutionRulePlan{Pattern: "X", Regex: regexp.MustCompile("X"), Expr: rangeSecond},
+			FileSubstitutionRulePlan{Pattern: "Y", Regex: regexp.MustCompile("Y"), Expr: revFirst},
+		),
+	}
+	if _, err := materializeFileSubstitutions(workDir, ManifestWork{Step: "s", Row: 0}, specs, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRunTestFile(t, filepath.Join(workDir, "input.tpl")); got != "1\n3\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestMaterializeFileSubstitutionsPreservesTemplatePermissions(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "tool.sh")

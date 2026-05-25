@@ -8,9 +8,6 @@ func evalBuiltinValueCall(name string, args []CallValueArg, env map[string]Value
 		diags.AddError(diag.CodeE199, "unknown function '"+name+"'", at, "use a supported builtin or define a function value before calling it")
 		return Null()
 	}
-	if !checkBuiltinContext(spec, at, diags, opts) {
-		return Null()
-	}
 	return callBuiltinSpec(spec, builtinCallContext{
 		Name:  name,
 		Args:  args,

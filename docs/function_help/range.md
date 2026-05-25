@@ -8,7 +8,6 @@
 - Named forms: `range(stop = n)`, `range(start = a, stop = b)`, and `range(start = a, stop = b, step = s)`.
 - Shortcut forms: `start:stop` and `start:stop:step`.
 - One-argument and two-argument forms require integers.
-- `range(...)` is only allowed in top-level global assignment expressions.
 - Shortcut ranges bind before arithmetic, so `0:2 * 4` means `(0:2) * 4`.
 - An index after a shortcut range applies to the completed range, so `0:10[0:10:2]` means `(0:10)[0:10:2]`. Parenthesize the bound if the bound itself is indexed, for example `0:(xs[0])`.
 

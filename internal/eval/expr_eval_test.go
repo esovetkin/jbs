@@ -1796,7 +1796,7 @@ func TestEvalKernelCallsRangeRevTupleList(t *testing.T) {
 	}
 }
 
-func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
+func TestEvalKernelCallsRangeRevErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		expr       ast.Expr
@@ -1870,15 +1870,6 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 			wantCode: "E106",
 		},
 		{
-			name: "range context error outside top-level global assignment",
-			expr: ast.CallExpr{
-				Callee: ast.IdentExpr{Name: "range"},
-				Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 3}),
-			},
-			opts:     ExprOptions{Context: EvalCtxScalarGlobalAssign},
-			wantCode: "E199",
-		},
-		{
 			name: "unknown function",
 			expr: ast.CallExpr{
 				Callee: ast.IdentExpr{Name: "unknown"},
@@ -1915,6 +1906,20 @@ func TestEvalKernelCallsRangeRevErrorsAndContext(t *testing.T) {
 				t.Fatalf("expected %s, got: %s", tc.wantCode, diags.String())
 			}
 		})
+	}
+}
+
+func TestEvalRangeWorksOutsideBindingAssignment(t *testing.T) {
+	diags := &diag.Diagnostics{}
+	got := EvalExprWithOptions(ast.CallExpr{
+		Callee: ast.IdentExpr{Name: "range"},
+		Args:   ast.PosCallArgs(ast.NumberExpr{Int: true, IntValue: 3}),
+	}, map[string]Value{}, diags, ExprOptions{Context: EvalCtxScalarGlobalAssign})
+	if !Equal(got, List([]Value{Int(0), Int(1), Int(2)})) {
+		t.Fatalf("unexpected range result: %#v", got)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
 	}
 }
 

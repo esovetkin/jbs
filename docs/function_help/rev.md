@@ -6,7 +6,6 @@ reverse a list or a tuple
 
 - `values`: a list or tuple.
 - Other value kinds are rejected.
-- `rev(...)` is only allowed in top-level global assignment expressions.
 
 ## Returns
 

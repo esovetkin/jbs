@@ -40,6 +40,32 @@ analyse run {
 	}
 }
 
+func TestAnalyzeAnalyseHelpersAllowRangeAndRev(t *testing.T) {
+	src := `
+do run {
+  echo "Runtime 1.0" > stdout
+}
+
+analyse run {
+  xs = range(3)
+  ys = rev(xs)
+  runtime = "Runtime %f" in "stdout"
+  (runtime)
+}
+`
+	diags := &diag.Diagnostics{}
+	prog := parser.Parse("analyse_range_rev.jbs", src, diags)
+	res := Analyze(prog, map[string]eval.Value{
+		"jbs_name": eval.String("bench"),
+	}, diags)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	if res == nil || len(res.Analyse) != 1 {
+		t.Fatalf("expected one analyse spec, got %#v", res)
+	}
+}
+
 func TestAnalyzeReturnsTopLevelExprResults(t *testing.T) {
 	src := "x = 1\nx\n"
 	diags := &diag.Diagnostics{}
