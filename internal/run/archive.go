@@ -212,7 +212,7 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 			continue
 		}
 		name := entry.Name()
-		if numericRunDir.MatchString(name) {
+		if isRunDirName(name) {
 			ok, err := looksLikeArchiveRun(filepath.Join(root, name))
 			if err != nil {
 				return archiveRunInventory{}, err
@@ -232,7 +232,7 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 		}
 		hadRuns := false
 		for _, run := range componentEntries {
-			if !run.IsDir() || !numericRunDir.MatchString(run.Name()) {
+			if !run.IsDir() || !isRunDirName(run.Name()) {
 				continue
 			}
 			ok, err := looksLikeArchiveRun(filepath.Join(componentDir, run.Name()))
@@ -250,9 +250,18 @@ func discoverArchiveRuns(root string) (archiveRunInventory, error) {
 			componentRoots = append(componentRoots, name)
 		}
 	}
-	slices.Sort(runs)
+	slices.SortFunc(runs, compareArchiveRunPath)
 	slices.Sort(componentRoots)
 	return archiveRunInventory{Runs: runs, ComponentRoots: componentRoots}, nil
+}
+
+func compareArchiveRunPath(a, b string) int {
+	aDir, aRun := path.Split(filepath.ToSlash(a))
+	bDir, bRun := path.Split(filepath.ToSlash(b))
+	if aDir != bDir {
+		return strings.Compare(aDir, bDir)
+	}
+	return compareRunIDNames(aRun, bRun)
 }
 
 func looksLikeArchiveRun(dir string) (bool, error) {

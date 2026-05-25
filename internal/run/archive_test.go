@@ -305,6 +305,34 @@ func TestArchiveableRunsIgnoresNonRunComponentNumericDirs(t *testing.T) {
 	}
 }
 
+func TestArchiveableRunsIncludesSevenDigitRunIDs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	createArchiveRun(t, root, "999999", StatusFinished, map[string]string{"run/000000/stdout": "old\n"})
+	createArchiveRun(t, root, "1000000", StatusFinished, map[string]string{"run/000000/stdout": "new\n"})
+
+	runs, err := archiveableRuns(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(runs, ",") != "999999,1000000" {
+		t.Fatalf("runs = %#v", runs)
+	}
+}
+
+func TestArchiveableRunsIncludesSevenDigitComponentRunIDs(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	createArchiveRun(t, filepath.Join(root, "small"), "999999", StatusFinished, map[string]string{"run/000000/stdout": "old\n"})
+	createArchiveRun(t, filepath.Join(root, "small"), "1000000", StatusFinished, map[string]string{"run/000000/stdout": "new\n"})
+
+	runs, err := archiveableRuns(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(runs, ",") != filepath.Join("small", "999999")+","+filepath.Join("small", "1000000") {
+		t.Fatalf("runs = %#v", runs)
+	}
+}
+
 func TestArchiveRootPropagatesRewriteError(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "bench")

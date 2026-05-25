@@ -246,6 +246,20 @@ func TestLatestManifestForRootReportsLoadError(t *testing.T) {
 	}
 }
 
+func TestLatestManifestForRootSelectsSevenDigitRunID(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "bench")
+	writeStatsCommandInspectionRun(t, root, "999999", statsCommandManifest("bench", false), "")
+	writeStatsCommandInspectionRun(t, root, "1000000", statsCommandManifest("bench", false), "")
+
+	manifest, runDir, err := latestManifestForRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(runDir) != "1000000" || manifest.RunID != "1000000" {
+		t.Fatalf("selected run %q with manifest %q, want 1000000", runDir, manifest.RunID)
+	}
+}
+
 func TestManifestOrDirMatchesBenchmarkAllowsEmptySelection(t *testing.T) {
 	if !manifestOrDirMatchesBenchmark(Manifest{}, filepath.Join(t.TempDir(), "bench"), "") {
 		t.Fatal("empty selected benchmark should match")

@@ -1,16 +1,20 @@
 package run
 
 import (
+	"cmp"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
+	"strings"
 
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/benchmarks"
 )
 
-var numericRunDir = regexp.MustCompile(`^\d{6}$`)
+var numericRunDir = regexp.MustCompile(`^\d+$`)
+
+const minRunIDWidth = 6
 
 func safePathComponent(name string) string {
 	return benchmarks.SafeComponent(name)
@@ -39,6 +43,43 @@ func rowDir(row int) string {
 	return fmt.Sprintf("%06d", row)
 }
 
+func isRunDirName(name string) bool {
+	return numericRunDir.MatchString(name)
+}
+
+func normalizeRunID(name string) string {
+	name = strings.TrimLeft(name, "0")
+	if name == "" {
+		return "0"
+	}
+	return name
+}
+
+func compareRunIDNames(a, b string) int {
+	an := normalizeRunID(a)
+	bn := normalizeRunID(b)
+	if len(an) != len(bn) {
+		return cmp.Compare(len(an), len(bn))
+	}
+	if an != bn {
+		return strings.Compare(an, bn)
+	}
+	return strings.Compare(a, b)
+}
+
+func nextRunIDAfter(name string) (string, error) {
+	n, ok := new(big.Int).SetString(name, 10)
+	if !ok {
+		return "", fmt.Errorf("invalid run id %q", name)
+	}
+	n.Add(n, big.NewInt(1))
+	out := n.String()
+	if len(out) < minRunIDWidth {
+		out = strings.Repeat("0", minRunIDWidth-len(out)) + out
+	}
+	return out, nil
+}
+
 func nextRunID(root string) (string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -47,17 +88,19 @@ func nextRunID(root string) (string, error) {
 		}
 		return "", err
 	}
-	maxID := -1
+	maxName := ""
 	for _, entry := range entries {
-		if !entry.IsDir() || !numericRunDir.MatchString(entry.Name()) {
+		if !entry.IsDir() || !isRunDirName(entry.Name()) {
 			continue
 		}
-		id, err := strconv.Atoi(entry.Name())
-		if err == nil && id > maxID {
-			maxID = id
+		if maxName == "" || compareRunIDNames(entry.Name(), maxName) > 0 {
+			maxName = entry.Name()
 		}
 	}
-	return fmt.Sprintf("%06d", maxID+1), nil
+	if maxName == "" {
+		return "000000", nil
+	}
+	return nextRunIDAfter(maxName)
 }
 
 func latestRunDir(root string) (string, error) {
@@ -65,15 +108,12 @@ func latestRunDir(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	maxID := -1
 	maxName := ""
 	for _, entry := range entries {
-		if !entry.IsDir() || !numericRunDir.MatchString(entry.Name()) {
+		if !entry.IsDir() || !isRunDirName(entry.Name()) {
 			continue
 		}
-		id, err := strconv.Atoi(entry.Name())
-		if err == nil && id > maxID {
-			maxID = id
+		if maxName == "" || compareRunIDNames(entry.Name(), maxName) > 0 {
 			maxName = entry.Name()
 		}
 	}

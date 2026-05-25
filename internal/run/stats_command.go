@@ -156,7 +156,7 @@ func discoverBenchmarkRoots(root string, selected string) ([]discoveredBenchmark
 	}
 	roots := make([]discoveredBenchmarkRoot, 0)
 	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || numericRunDir.MatchString(entry.Name()) {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || isRunDirName(entry.Name()) {
 			continue
 		}
 		child := filepath.Join(root, entry.Name())
