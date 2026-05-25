@@ -379,6 +379,19 @@ jbs> filter(cases, function(row) { row["group"] == "a" })
 | 3  | "a"   |
 ```
 
+`unique(values)` keeps first occurrences, and `duplicated(values)` returns a
+boolean mask for later repeated values. They work on lists, tuples, and tables.
+
+```jbs
+jbs> x = [1, 2, 1]
+jbs> unique(x)
+[1, 2]
+jbs> duplicated(x)
+[false, false, true]
+jbs> x[!duplicated(x)]
+[1, 2]
+```
+
 Useful functions:
 
 - `table`/`t` construct a table

@@ -199,6 +199,73 @@ mapped_count = len(map(sort, [[2, 1], [4, 3]]))
 	}
 }
 
+func TestAnalyzeUniqueDuplicatedBuiltins(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+values = [1, 2, 1, 3]
+dedup = unique(values)
+mask = duplicated(values)
+filtered = values[!duplicated(values)]
+mapped_count = len(map(unique, [[1, 1], [2, 2]]))
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	dedup := res.GlobalVarByName["dedup"]
+	if dedup == nil || !eval.Equal(dedup.Value, eval.List([]eval.Value{eval.Int(1), eval.Int(2), eval.Int(3)})) {
+		t.Fatalf("unexpected dedup global: %#v", dedup)
+	}
+	mask := res.GlobalVarByName["mask"]
+	if mask == nil || !eval.Equal(mask.Value, eval.List([]eval.Value{eval.Bool(false), eval.Bool(false), eval.Bool(true), eval.Bool(false)})) {
+		t.Fatalf("unexpected mask global: %#v", mask)
+	}
+	filtered := res.GlobalVarByName["filtered"]
+	if filtered == nil || !eval.Equal(filtered.Value, dedup.Value) {
+		t.Fatalf("unexpected filtered global: %#v", filtered)
+	}
+	mappedCount := res.GlobalVarByName["mapped_count"]
+	if mappedCount == nil || !eval.Equal(mappedCount.Value, eval.Int(2)) {
+		t.Fatalf("unexpected mapped_count global: %#v", mappedCount)
+	}
+	for _, gv := range []*GlobalVar{dedup, mask, filtered, mappedCount} {
+		for _, dep := range []string{"unique", "duplicated"} {
+			if slices.Contains(gv.DependsOn, dep) {
+				t.Fatalf("unshadowed builtin %q should not be recorded as dependency for %s: %#v", dep, gv.Name, gv.DependsOn)
+			}
+		}
+		for _, key := range gv.DependsOnKeys {
+			if key.Public == "unique" || key.Public == "duplicated" {
+				t.Fatalf("unshadowed unique/duplicated dependency key recorded for %s: %#v", gv.Name, gv.DependsOnKeys)
+			}
+		}
+	}
+}
+
+func TestAnalyzeShadowedUniqueDuplicatedDependency(t *testing.T) {
+	res, diags := analyzeBuiltinFunctionSource(t, `
+unique = function(x) { 42 }
+duplicated = function(x) { 99 }
+values = unique([1, 1])
+mask = duplicated([1, 1])
+`)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected diagnostics: %s", diags.String())
+	}
+	values := res.GlobalVarByName["values"]
+	if values == nil || !eval.Equal(values.Value, eval.Int(42)) {
+		t.Fatalf("unexpected values global: %#v", values)
+	}
+	mask := res.GlobalVarByName["mask"]
+	if mask == nil || !eval.Equal(mask.Value, eval.Int(99)) {
+		t.Fatalf("unexpected mask global: %#v", mask)
+	}
+	if !slices.Contains(values.DependsOn, "unique") {
+		t.Fatalf("expected dependency on shadowed unique, got %#v", values.DependsOn)
+	}
+	if !slices.Contains(mask.DependsOn, "duplicated") {
+		t.Fatalf("expected dependency on shadowed duplicated, got %#v", mask.DependsOn)
+	}
+}
+
 func TestAnalyzeShadowedSortOrderDependency(t *testing.T) {
 	res, diags := analyzeBuiltinFunctionSource(t, `
 sort = function(x) { 42 }

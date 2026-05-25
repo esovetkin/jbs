@@ -125,6 +125,8 @@ func TestBuiltinFunctionValuesMatchDirectCalls(t *testing.T) {
 		{name: "len", args: []ast.CallArg{posArg(listExpr(intExpr(1), intExpr(2)))}},
 		{name: "sum", args: []ast.CallArg{posArg(listExpr(intExpr(1), intExpr(2)))}},
 		{name: "head", args: []ast.CallArg{posArg(listExpr(intExpr(1), intExpr(2), intExpr(3)))}},
+		{name: "unique", args: []ast.CallArg{posArg(listExpr(intExpr(1), intExpr(1), intExpr(2)))}},
+		{name: "duplicated", args: []ast.CallArg{posArg(listExpr(intExpr(1), intExpr(1), intExpr(2)))}},
 		{name: "dict", args: []ast.CallArg{namedArg("x", intExpr(1))}},
 		{name: "table", args: []ast.CallArg{namedArg("x", listExpr(intExpr(1), intExpr(2)))}},
 	}

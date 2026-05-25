@@ -82,6 +82,11 @@ func initBuiltinRegistry() {
 				return evalDictValueCall(c.Args, c.At, c.Diags)
 			},
 		},
+		"duplicated": {
+			Value: func(c builtinCallContext) Value {
+				return evalUniqueDuplicatedValueCall(c.Name, c.Args, c.At, c.Diags)
+			},
+		},
 		"env": {
 			Value: func(c builtinCallContext) Value {
 				return evalEnvValueCall(c.Args, c.At, c.Diags, c.Opts)
@@ -257,6 +262,11 @@ func initBuiltinRegistry() {
 					return Null()
 				}
 				return evalTupleCall(values, c.At, c.Diags)
+			},
+		},
+		"unique": {
+			Value: func(c builtinCallContext) Value {
+				return evalUniqueDuplicatedValueCall(c.Name, c.Args, c.At, c.Diags)
 			},
 		},
 		"update": {

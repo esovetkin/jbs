@@ -43,6 +43,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "bool", File: "function_help/bool.md"},
 	{Name: "delete", File: "function_help/delete.md"},
 	{Name: "dict", File: "function_help/dict.md"},
+	{Name: "duplicated", File: "function_help/duplicated.md"},
 	{Name: "env", File: "function_help/env.md"},
 	{Name: "filter", File: "function_help/filter.md"},
 	{Name: "float", File: "function_help/float.md"},
@@ -73,6 +74,7 @@ var functionHelpEntries = []FunctionHelpEntry{
 	{Name: "tail", File: "function_help/tail.md"},
 	{Name: "t", File: "function_help/table.md", AliasOf: "table"},
 	{Name: "tuple", File: "function_help/tuple.md"},
+	{Name: "unique", File: "function_help/unique.md"},
 	{Name: "update", File: "function_help/update.md"},
 }
 
