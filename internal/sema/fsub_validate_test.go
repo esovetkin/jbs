@@ -309,6 +309,27 @@ do run
 	}
 }
 
+func TestValidateFileSubstitutionsRejectsReservedDestinations(t *testing.T) {
+	src := `
+do run
+        fsub "stdout" { "TOKEN": "ok" }
+        fsub "run.sh" { "TOKEN": "ok" }
+{
+        :
+}
+`
+	diags := analyzeFSubValidationSource(t, src)
+	if countDiagCode(diags, string(diag.CodeE220)) != 2 {
+		t.Fatalf("expected two reserved-destination diagnostics, got: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), `fsub destination "stdout" is reserved`) {
+		t.Fatalf("missing stdout reserved diagnostic: %s", diags.String())
+	}
+	if !strings.Contains(diags.String(), `fsub destination "run.sh" is reserved`) {
+		t.Fatalf("missing run.sh reserved diagnostic: %s", diags.String())
+	}
+}
+
 func TestValidateFileSubstitutionsCountAsImportUsage(t *testing.T) {
 	src := `
 	cases = table(x = [1])

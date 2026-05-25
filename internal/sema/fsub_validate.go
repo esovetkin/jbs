@@ -9,6 +9,7 @@ import (
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/eval"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/fsubutil"
 	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/patternutil"
+	"gitlab.jsc.fz-juelich.de/sdlaml/jbs/internal/workdir"
 )
 
 func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
@@ -25,15 +26,24 @@ func validateFileSubstitutions(res *Result, diags *diag.Diagnostics) {
 			dest := fsubutil.DestName(fsub.Path)
 			if dest == "" {
 				diags.AddError(diag.CodeE220, "fsub path must name a file", fsub.PathSpan, "use a path with a filename")
-			} else if prev, ok := seenDest[dest]; ok {
-				diags.AddError(
-					diag.CodeE220,
-					fmt.Sprintf("duplicate fsub destination %q in step %q", dest, block.Name),
-					fsub.PathSpan,
-					"write each substituted template to a distinct filename",
-					diag.RelatedSpan{Message: "first destination", Span: prev},
-				)
 			} else {
+				if prev, ok := seenDest[dest]; ok {
+					diags.AddError(
+						diag.CodeE220,
+						fmt.Sprintf("duplicate fsub destination %q in step %q", dest, block.Name),
+						fsub.PathSpan,
+						"write each substituted template to a distinct filename",
+						diag.RelatedSpan{Message: "first destination", Span: prev},
+					)
+				}
+				if reason, ok := workdir.ReservedEntry(dest); ok {
+					diags.AddError(
+						diag.CodeE220,
+						fmt.Sprintf("fsub destination %q is reserved for %s", dest, reason),
+						fsub.PathSpan,
+						"choose a different template basename",
+					)
+				}
 				seenDest[dest] = fsub.PathSpan
 			}
 			for _, rule := range fsub.Rules {

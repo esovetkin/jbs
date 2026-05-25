@@ -405,6 +405,9 @@ func buildComponentRuntimePlan(inputs runtimeInputs, sel componentSelection) (ru
 			Values: values,
 		})
 	}
+	if err := validateWorkDirNamespaces(manifest, fileSubs); err != nil {
+		return runtimePlan{}, err
+	}
 
 	return runtimePlan{
 		RootDir:             sel.RootDir,

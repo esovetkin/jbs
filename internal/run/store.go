@@ -45,6 +45,9 @@ func createRunDirectoryLocked(root string, plan runtimePlan, initial Status) (*S
 	if err := validateRunManifest(manifest); err != nil {
 		return nil, nil, err
 	}
+	if err := validateWorkDirNamespaces(manifest, plan.FileSubs); err != nil {
+		return nil, nil, err
+	}
 	final := filepath.Join(root, runID)
 	staging := filepath.Join(root, fmt.Sprintf(".creating-%s-%d", runID, os.Getpid()))
 	finalAbs, err := filepath.Abs(final)
