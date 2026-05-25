@@ -360,3 +360,200 @@ func TestTableIndexStringColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestTableIndexIntegerRows(t *testing.T) {
+	table := tableIndexValueForTest(
+		[]int64{10, 20, 30, 40, 50},
+		[]string{"a", "b", "c", "d", "e"},
+	)
+	cases := []struct {
+		name  string
+		env   map[string]Value
+		expr  ast.Expr
+		wantX []int64
+		wantY []string
+	}{
+		{
+			name:  "literal gather",
+			env:   map[string]Value{"t": table},
+			expr:  indexExprForTest(ident("t"), listSelectorForTest(intExpr(2), intExpr(0))),
+			wantX: []int64{30, 10},
+			wantY: []string{"c", "a"},
+		},
+		{
+			name:  "duplicate indexes",
+			env:   map[string]Value{"t": table},
+			expr:  indexExprForTest(ident("t"), listSelectorForTest(intExpr(1), intExpr(1))),
+			wantX: []int64{20, 20},
+			wantY: []string{"b", "b"},
+		},
+		{
+			name:  "empty selector",
+			env:   map[string]Value{"t": table},
+			expr:  indexExprForTest(ident("t"), listSelectorForTest()),
+			wantX: nil,
+			wantY: nil,
+		},
+		{
+			name:  "range selector",
+			env:   map[string]Value{"t": table},
+			expr:  indexExprForTest(ident("t"), callExpr(ident("range"), posArg(intExpr(2)))),
+			wantX: []int64{10, 20},
+			wantY: []string{"a", "b"},
+		},
+		{
+			name:  "selector variable",
+			env:   map[string]Value{"t": table, "idx": List([]Value{Int(4), Int(2)})},
+			expr:  indexExprForTest(ident("t"), ident("idx")),
+			wantX: []int64{50, 30},
+			wantY: []string{"e", "c"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, tc.env, diags, ExprOptions{Context: EvalCtxBindingAssign})
+			if diags.HasErrors() {
+				t.Fatalf("unexpected diagnostics: %s", diags.String())
+			}
+			assertTableIndexRows(t, got, tc.wantX, tc.wantY)
+		})
+	}
+}
+
+func TestTableIndexBooleanRows(t *testing.T) {
+	table4 := tableIndexValueForTest(
+		[]int64{10, 20, 30, 40},
+		[]string{"a", "b", "c", "d"},
+	)
+	table5 := tableIndexValueForTest(
+		[]int64{10, 20, 30, 40, 50},
+		[]string{"a", "b", "c", "d", "e"},
+	)
+	table3 := tableIndexValueForTest(
+		[]int64{10, 20, 30},
+		[]string{"a", "b", "c"},
+	)
+	cases := []struct {
+		name      string
+		table     Value
+		selector  ast.Expr
+		wantX     []int64
+		wantY     []string
+		wantWarns int
+	}{
+		{
+			name:     "exact mask",
+			table:    table4,
+			selector: listSelectorForTest(boolExpr(true), boolExpr(false), boolExpr(true), boolExpr(false)),
+			wantX:    []int64{10, 30},
+			wantY:    []string{"a", "c"},
+		},
+		{
+			name:     "even broadcast",
+			table:    table4,
+			selector: listSelectorForTest(boolExpr(true), boolExpr(false)),
+			wantX:    []int64{10, 30},
+			wantY:    []string{"a", "c"},
+		},
+		{
+			name:      "uneven broadcast warning",
+			table:     table5,
+			selector:  listSelectorForTest(boolExpr(true), boolExpr(false)),
+			wantX:     []int64{10, 30, 50},
+			wantY:     []string{"a", "c", "e"},
+			wantWarns: 1,
+		},
+		{
+			name:      "mask longer than rows",
+			table:     table3,
+			selector:  listSelectorForTest(boolExpr(false), boolExpr(true), boolExpr(true), boolExpr(false)),
+			wantX:     []int64{20, 30},
+			wantY:     []string{"b", "c"},
+			wantWarns: 1,
+		},
+		{
+			name:     "all false",
+			table:    table4,
+			selector: listSelectorForTest(boolExpr(false), boolExpr(false)),
+			wantX:    nil,
+			wantY:    nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(indexExprForTest(ident("t"), tc.selector), map[string]Value{"t": tc.table}, diags, ExprOptions{})
+			if diags.HasErrors() {
+				t.Fatalf("unexpected errors: %s", diags.String())
+			}
+			assertTableIndexRows(t, got, tc.wantX, tc.wantY)
+			if warns := diagCount(diags, "W101"); warns != tc.wantWarns {
+				t.Fatalf("unexpected warning count: got=%d want=%d diagnostics=%s", warns, tc.wantWarns, diags.String())
+			}
+			if tc.wantWarns > 0 && !hasDiagMessage(diags, "length mismatch in table row mask") {
+				t.Fatalf("expected table row mask warning, got: %s", diags.String())
+			}
+		})
+	}
+}
+
+func TestTableIndexRowDiagnostics(t *testing.T) {
+	span := spanAt(1402, 1)
+	table := tableIndexValueForTest([]int64{10, 20}, []string{"a", "b"})
+	env := map[string]Value{"t": table}
+	cases := []struct {
+		name string
+		expr ast.Expr
+	}{
+		{name: "scalar integer", expr: indexExprForTest(ident("t"), intExpr(0))},
+		{name: "negative row index", expr: indexExprForTest(ident("t"), listSelectorForTest(intExpr(-1)))},
+		{name: "row index out of range", expr: indexExprForTest(ident("t"), listSelectorForTest(intExpr(2)))},
+		{name: "float row selector", expr: indexExprForTest(ident("t"), listSelectorForTest(ast.NumberExpr{FloatValue: 1.5, Span: span}))},
+		{name: "string row selector", expr: indexExprForTest(ident("t"), listSelectorForTest(stringExpr("x")))},
+		{name: "mixed bool int selector", expr: indexExprForTest(ident("t"), listSelectorForTest(boolExpr(true), intExpr(1)))},
+		{name: "tuple row selector", expr: indexExprForTest(ident("t"), tupleSelectorForTest(intExpr(0), intExpr(1)))},
+		{name: "mixed column and row selector", expr: indexExprForTest(ident("t"), stringExpr("x"), listSelectorForTest(intExpr(0)))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := &diag.Diagnostics{}
+			got := EvalExprWithOptions(tc.expr, env, diags, ExprOptions{})
+			if got.Kind != KindNull {
+				t.Fatalf("expected null result, got %#v", got)
+			}
+			if diagCount(diags, "E106") == 0 {
+				t.Fatalf("expected E106, got: %s", diags.String())
+			}
+		})
+	}
+}
+
+func tableIndexValueForTest(xs []int64, ys []string) Value {
+	rows := make([]Row, 0, len(xs))
+	for i, x := range xs {
+		rows = append(rows, Row{Values: map[string]Cell{
+			"x": {Value: Int(x)},
+			"y": {Value: String(ys[i])},
+		}})
+	}
+	return CombValue(&Comb{Order: []string{"x", "y"}, Rows: rows})
+}
+
+func assertTableIndexRows(t *testing.T, got Value, wantX []int64, wantY []string) {
+	t.Helper()
+	if !IsComb(got) {
+		t.Fatalf("expected table result, got %#v", got)
+	}
+	if len(got.C.Order) != 2 || got.C.Order[0] != "x" || got.C.Order[1] != "y" {
+		t.Fatalf("unexpected table order: %#v", got.C.Order)
+	}
+	if len(got.C.Rows) != len(wantX) {
+		t.Fatalf("unexpected row count: got=%d want=%d rows=%#v", len(got.C.Rows), len(wantX), got.C.Rows)
+	}
+	for i, row := range got.C.Rows {
+		if row.Values["x"].Value.I != wantX[i] || row.Values["y"].Value.S != wantY[i] {
+			t.Fatalf("row %d got x=%#v y=%#v want x=%d y=%q", i, row.Values["x"].Value, row.Values["y"].Value, wantX[i], wantY[i])
+		}
+	}
+}

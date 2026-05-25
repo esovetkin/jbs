@@ -11,6 +11,7 @@ Return the permutation that would sort a list or tuple.
 
 A list of zero-based integer indexes. Applying those indexes to `values`
 rearranges it into sorted order. Equal items keep their original relative order.
+The result can also reorder table rows, for example `cases[order(cases.x)]`.
 
 ## Example
 

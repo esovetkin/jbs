@@ -108,6 +108,30 @@ echo "$y $short"
 	}
 }
 
+func TestBuildWithRowIndexedTableImport(t *testing.T) {
+	src := `
+cases = t(x=[10,20,30], y=["a","b","c"])
+subset = cases[[2,0]]
+
+do run with subset {
+echo "$x $y"
+}
+`
+	plan := buildPlanFromSourceForTest(t, "row_indexed_subset.jbs", src)
+
+	run := workByStep(plan.Work, "run")
+	if len(run) != 2 {
+		t.Fatalf("expected two run workpackages, got %#v", run)
+	}
+	wantX := []int64{30, 10}
+	wantY := []string{"c", "a"}
+	for i, work := range run {
+		if work.Values["x"].I != wantX[i] || work.Values["y"].S != wantY[i] {
+			t.Fatalf("run row %d values=%#v want x=%d y=%q", i, work.Values, wantX[i], wantY[i])
+		}
+	}
+}
+
 func TestBuildProjectedImportsUseProjectionIdentity(t *testing.T) {
 	src := `
 z = t(x=(1,2,3)*2) * t(y=sort(("a","b")*2)) * t(z=("x","y"))

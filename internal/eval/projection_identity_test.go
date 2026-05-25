@@ -148,6 +148,56 @@ func TestRbindRepeatedTableArgumentsGetDistinctProjectionNamespaces(t *testing.T
 	assertProjectionRowCount(t, bound, []string{"z"}, 4)
 }
 
+func TestTableRowIndexPreservesProjectionIdentity(t *testing.T) {
+	z := projectionIdentityGrid(t)
+	diags := &diag.Diagnostics{}
+	subset := EvalExprWithOptions(
+		indexExprForTest(ident("z"), listSelectorForTest(intExpr(0), intExpr(0))),
+		map[string]Value{"z": z},
+		diags,
+		ExprOptions{},
+	)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected row index diagnostics: %s", diags.String())
+	}
+	if !IsComb(subset) || len(subset.C.Rows) != 2 {
+		t.Fatalf("expected two visible rows, got %#v", subset)
+	}
+	for _, name := range z.C.Order {
+		want := z.C.Rows[0].Values[name].Projection
+		if subset.C.Rows[0].Values[name].Projection != want || subset.C.Rows[1].Values[name].Projection != want {
+			t.Fatalf("row index did not preserve projection for %s: got %#v %#v want %#v", name, subset.C.Rows[0].Values[name].Projection, subset.C.Rows[1].Values[name].Projection, want)
+		}
+	}
+	assertProjectionRowCount(t, subset, []string{"x"}, 1)
+}
+
+func TestTableRowMaskPreservesProjectionIdentity(t *testing.T) {
+	z := projectionIdentityGrid(t)
+	diags := &diag.Diagnostics{}
+	subset := EvalExprWithOptions(
+		indexExprForTest(ident("z"), listSelectorForTest(boolExpr(true), boolExpr(false))),
+		map[string]Value{"z": z},
+		diags,
+		ExprOptions{},
+	)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected row mask diagnostics: %s", diags.String())
+	}
+	if !IsComb(subset) || len(subset.C.Rows) != len(z.C.Rows)/2 {
+		t.Fatalf("unexpected masked rows: %#v", subset)
+	}
+	for _, name := range z.C.Order {
+		if subset.C.Rows[0].Values[name].Projection != z.C.Rows[0].Values[name].Projection {
+			t.Fatalf("first masked row projection for %s was not preserved", name)
+		}
+		if subset.C.Rows[1].Values[name].Projection != z.C.Rows[2].Values[name].Projection {
+			t.Fatalf("second masked row projection for %s was not preserved", name)
+		}
+	}
+	assertProjectionRowCount(t, subset, []string{"z"}, 1)
+}
+
 func TestRowsRoundTripClearsProjectionIdentity(t *testing.T) {
 	original := projectionIdentityGrid(t)
 	assertProjectionValues(t, original, []string{"x"}, "x", []Value{Int(1), Int(2), Int(3), Int(1), Int(2), Int(3)})

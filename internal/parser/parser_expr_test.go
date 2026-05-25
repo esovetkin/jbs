@@ -1261,6 +1261,37 @@ func TestParseIndexExprBranches(t *testing.T) {
 		}
 	})
 
+	t.Run("call expression selector", func(t *testing.T) {
+		diags := &diag.Diagnostics{}
+		tp := parseExprTP("cases[order(cases.x)]", diags)
+		expr := tp.parseExpr()
+		idx, ok := expr.(ast.IndexExpr)
+		if !ok {
+			t.Fatalf("expected index expression, got %#v", expr)
+		}
+		if len(idx.Items) != 1 {
+			t.Fatalf("expected one selector item, got %#v", idx.Items)
+		}
+		call, ok := idx.Items[0].(ast.CallExpr)
+		if !ok {
+			t.Fatalf("expected call selector, got %#v", idx.Items[0])
+		}
+		callee, ok := call.Callee.(ast.IdentExpr)
+		if !ok || callee.Name != "order" {
+			t.Fatalf("expected order callee, got %#v", call.Callee)
+		}
+		if len(call.Args) != 1 {
+			t.Fatalf("expected one call argument, got %#v", call.Args)
+		}
+		arg, ok := call.Args[0].Expr.(ast.QualifiedIdentExpr)
+		if !ok || arg.Namespace != "cases" || arg.Name != "x" {
+			t.Fatalf("expected cases.x argument, got %#v", call.Args[0].Expr)
+		}
+		if diags.HasErrors() {
+			t.Fatalf("unexpected parse errors: %s", diags.String())
+		}
+	})
+
 	t.Run("missing closing bracket reports E055", func(t *testing.T) {
 		diags := &diag.Diagnostics{}
 		tp := parseExprTP("a[1,2", diags)

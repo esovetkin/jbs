@@ -349,6 +349,25 @@ jbs> z["z"]       # "x", "y"
 jbs> z["y","z"]   # 8 rows
 ```
 
+Table indexing has two modes:
+
+- `table["col", ...]` projects columns and preserves the selected columns' original projection identity.
+- `table[[0, 2]]` or `table[indexes]` selects rows. The selector list must contain only zero-based integer row indexes or only booleans. Boolean masks use cyclic broadcast like sequence masks.
+
+```jbs
+jbs> cases = t(x=[10,20,30], y=["a","b","c"])
+jbs> cases[[2,0]]
+| x  | y   |
+|----|-----|
+| 30 | "c" |
+| 10 | "a" |
+jbs> cases[[true,false]]
+| x  | y   |
+|----|-----|
+| 10 | "a" |
+| 30 | "c" |
+```
+
 `filter(table_value, function)` keeps rows where the predicate function returns true.
 
 ```jbs
@@ -365,6 +384,7 @@ Useful functions:
 - `table`/`t` construct a table
 - `read_csv(...)` import CSV/TSV as a table
 - `table["col", ...]` parameter projection syntax
+- `table[[row0, row1, ...]]` row indexing syntax
 - `rename(table, {"old": "new"})` renames columns
 - `a + b` row-wise merge in table context
 - `a * b` Cartesian product in table context
