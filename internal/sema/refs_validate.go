@@ -180,7 +180,7 @@ func validateStepVarReferences(res *Result, diags *diag.Diagnostics) {
 		refs := shellRefsToVarRefs(shellref.Collect(block.Body, base, block.Span.File))
 		for _, fsub := range block.FSubs {
 			for _, rule := range fsub.Rules {
-				refs = append(refs, collectExprIdentRefs(rule.Expr)...)
+				refs = append(refs, collectExprFreeIdentRefs(rule.Expr)...)
 			}
 		}
 		effectiveImports := resolveEffectiveImports(block.Name, bindings)

@@ -182,6 +182,173 @@ func TestCollectExprIdentRefsWalksCurrentNodeTypes(t *testing.T) {
 	}
 }
 
+func TestCollectExprFreeIdentRefsRespectsFunctionScopes(t *testing.T) {
+	sp := diag.NewSpan("free.jbs", diag.NewPos(1, 1, 1), diag.NewPos(2, 1, 2))
+
+	if got := collectExprFreeIdentRefs(nil); got != nil {
+		t.Fatalf("expected nil refs for nil expr, got %#v", got)
+	}
+
+	cases := []struct {
+		name string
+		expr ast.Expr
+		want []string
+	}{
+		{
+			name: "function parameters and locals",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "map", Span: sp},
+				Args: ast.PosCallArgs(
+					ast.FunctionExpr{
+						Params: []ast.FuncParam{{Name: "v", Span: sp}},
+						Body: []ast.FuncBodyStmt{
+							ast.LocalAssignStmt{
+								Name: "tmp",
+								Expr: ast.BinaryExpr{
+									Left:  ast.IdentExpr{Name: "v", Span: sp},
+									Op:    "+",
+									Right: ast.IdentExpr{Name: "x", Span: sp},
+									Span:  sp,
+								},
+								Span: sp,
+							},
+							ast.ReturnStmt{Expr: ast.IdentExpr{Name: "tmp", Span: sp}, Span: sp},
+						},
+						Span: sp,
+					},
+					ast.IdentExpr{Name: "items", Span: sp},
+				),
+				Span: sp,
+			},
+			want: []string{"map", "x", "items"},
+		},
+		{
+			name: "nested function captures",
+			expr: ast.FunctionExpr{
+				Params: []ast.FuncParam{{Name: "v", Span: sp}},
+				Body: []ast.FuncBodyStmt{
+					ast.ExprStmt{Expr: ast.FunctionExpr{
+						Params: []ast.FuncParam{{Name: "w", Span: sp}},
+						Body: []ast.FuncBodyStmt{
+							ast.ExprStmt{Expr: ast.BinaryExpr{
+								Left: ast.BinaryExpr{
+									Left:  ast.IdentExpr{Name: "w", Span: sp},
+									Op:    "+",
+									Right: ast.IdentExpr{Name: "v", Span: sp},
+									Span:  sp,
+								},
+								Op:    "+",
+								Right: ast.IdentExpr{Name: "x", Span: sp},
+								Span:  sp,
+							}, Span: sp},
+						},
+						Span: sp,
+					}, Span: sp},
+				},
+				Span: sp,
+			},
+			want: []string{"x"},
+		},
+		{
+			name: "parameter defaults",
+			expr: ast.FunctionExpr{
+				Params: []ast.FuncParam{
+					{Name: "a", Span: sp},
+					{Name: "b", Default: ast.IdentExpr{Name: "a", Span: sp}, Span: sp},
+					{Name: "c", Default: ast.IdentExpr{Name: "x", Span: sp}, Span: sp},
+				},
+				Body: []ast.FuncBodyStmt{
+					ast.ExprStmt{Expr: ast.BinaryExpr{
+						Left:  ast.IdentExpr{Name: "b", Span: sp},
+						Op:    "+",
+						Right: ast.IdentExpr{Name: "c", Span: sp},
+						Span:  sp,
+					}, Span: sp},
+				},
+				Span: sp,
+			},
+			want: []string{"x"},
+		},
+		{
+			name: "local assignment predeclaration",
+			expr: ast.FunctionExpr{
+				Body: []ast.FuncBodyStmt{
+					ast.LocalAssignStmt{
+						Name: "x",
+						Expr: ast.BinaryExpr{
+							Left:  ast.IdentExpr{Name: "x", Span: sp},
+							Op:    "+",
+							Right: ast.NumberExpr{Raw: "1", Int: true, IntValue: 1, Span: sp},
+							Span:  sp,
+						},
+						Span: sp,
+					},
+					ast.ExprStmt{Expr: ast.IdentExpr{Name: "x", Span: sp}, Span: sp},
+				},
+				Span: sp,
+			},
+			want: []string{},
+		},
+		{
+			name: "function for target",
+			expr: ast.FunctionExpr{
+				Params: []ast.FuncParam{{Name: "xs", Span: sp}},
+				Body: []ast.FuncBodyStmt{
+					ast.FuncForStmt{
+						Target:   "v",
+						Iterable: ast.IdentExpr{Name: "xs", Span: sp},
+						Body: []ast.FuncBodyStmt{
+							ast.ExprStmt{Expr: ast.BinaryExpr{
+								Left:  ast.IdentExpr{Name: "v", Span: sp},
+								Op:    "+",
+								Right: ast.IdentExpr{Name: "x", Span: sp},
+								Span:  sp,
+							}, Span: sp},
+						},
+						Span: sp,
+					},
+				},
+				Span: sp,
+			},
+			want: []string{"x"},
+		},
+		{
+			name: "qualified namespace root",
+			expr: ast.FunctionExpr{
+				Params: []ast.FuncParam{{Name: "v", Span: sp}},
+				Body: []ast.FuncBodyStmt{
+					ast.ExprStmt{Expr: ast.BinaryExpr{
+						Left:  ast.QualifiedIdentExpr{Namespace: "lib", Name: "value", Span: sp},
+						Op:    "+",
+						Right: ast.IdentExpr{Name: "v", Span: sp},
+						Span:  sp,
+					}, Span: sp},
+				},
+				Span: sp,
+			},
+			want: []string{"lib"},
+		},
+		{
+			name: "delete bare target",
+			expr: ast.CallExpr{
+				Callee: ast.IdentExpr{Name: "delete", Span: sp},
+				Args:   ast.PosCallArgs(ast.IdentExpr{Name: "x", Span: sp}),
+				Span:   sp,
+			},
+			want: []string{"delete"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := refNames(collectExprFreeIdentRefs(tc.expr))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("unexpected free refs: got=%#v want=%#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCollectEvalStringRefsWithTraversesListsAndDefaultBase(t *testing.T) {
 	value := eval.Tuple([]eval.Value{
 		eval.String("$top"),
