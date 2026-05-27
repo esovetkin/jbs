@@ -10,10 +10,10 @@ analyse <step_name>
 {
         helper = <expr>
 
-	    p0 = <pattern_expr> in "<file>"
-	    p1 = <pattern_expr> in re"<file-regex>"
+        p0 = <pattern_expr> in "<file>"
+        p1 = <pattern_expr> in re"<file-regex>"
 
-	    (p0, p1 as "Title",
+        (p0, p1 as "Title",
          <pattern_expr> in "<file>" as "Title",
          <pattern_expr> in re"<file-regex>" as "Title", ...)
 }
